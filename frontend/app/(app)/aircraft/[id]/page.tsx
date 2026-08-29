@@ -95,6 +95,7 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
           </p>
         </div>
         <div className="ac-flex ac-gap-2">
+          <Link href={`/fleet/aircraft/${aircraft.id}/health`} className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Aircraft Intelligence →</Link>
           <Link href={`/ai?aircraft=${aircraft.id}`} className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Ask AI</Link>
           <Link href={`/reports/aircraft-${aircraft.id}`} className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Generate Compliance Report</Link>
         </div>
