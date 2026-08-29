@@ -20,7 +20,7 @@ Every jurisdiction studied recognizes overlapping but distinct organizational ro
 ### Decision: shared base abstraction, not one collapsed entity
 All tenant-facing roles (Operator, CAMO, MRO, Leasing Company) share one `Organization` table with an `org_type` discriminator, because:
 1. They share every structural need AeroComply actually has for them in M1 — multi-tenant isolation, users, roles, audit trail.
-2. Real companies frequently hold more than one role simultaneously (an airline that is both operator and its own CAMO; an MRO that also holds CAMO approval for third-party customers) — a rigid separate-table-per-role model would force awkward multi-inheritance or duplicate records for the same legal entity.
+2. A rigid separate-table-per-role model would force multi-inheritance or duplicate records the moment two roles need the exact same underlying infrastructure (tenancy, users, audit trail) — which every role here does. Real companies can hold more than one role simultaneously (an airline that is both operator and its own CAMO); M1 deliberately does not attempt to represent that (an organization registers under one primary `org_type`, per [ADR-007](../adr/ADR-007-organization-shared-base-abstraction.md)'s post-review amendment) — but *if and when* that's needed, the fix is an additive `OrganizationRole` child table, not a redesign of this shared-table decision.
 3. `Regulatory Authority` and `OEM` are **not** organizations in the tenant sense — they are *referenced* entities (source of documents, source of eligibility data), never log in, never hold `users`/`roles`. Modeling them as `Organization` rows would incorrectly imply they're SaaS tenants. They get their own reference entities: `RegulatoryAuthority` (already exists from M0 groundwork) and a deferred `Manufacturer`/OEM reference (M1 core, but as a lightweight lookup, not a full Organization).
 
 ```mermaid
@@ -29,7 +29,7 @@ erDiagram
     ORGANIZATION {
         uuid id
         string name
-        string org_type "OPERATOR | CAMO | MRO | LESSOR | MIXED"
+        string org_type "OPERATOR | CAMO | MRO | LESSOR — exactly one, required (see ADR-007)"
     }
     REGULATORY_AUTHORITY {
         uuid id
@@ -164,13 +164,25 @@ erDiagram
     COMPONENT_INSTALLATION {
         uuid id
         uuid component_instance_id
-        uuid parent_asset_id "aircraft_id or engine_id"
         string parent_asset_type "AIRCRAFT | ENGINE"
+        uuid aircraft_parent_id "NOT NULL iff parent_asset_type=AIRCRAFT"
+        uuid engine_parent_id "NOT NULL iff parent_asset_type=ENGINE"
         string position
         date installed_at
         date removed_at
     }
 ```
+
+**Referential integrity (revised per CTO review)**: the original design used a single untyped `parent_asset_id` + `parent_asset_type` pair — a UUID with no real foreign key, since it could point at either `Aircraft` or `Engine` depending on the string value, meaning the database itself could not enforce that the referenced row actually exists or is of the claimed type. This is corrected to the same **typed, dual-column** pattern already used for `ApplicabilityAssessment`'s polymorphic subject (ADR-008): two separate, individually-real foreign key columns (`aircraft_parent_id → Aircraft.id`, `engine_parent_id → Engine.id`), exactly one of which is populated per row, enforced by:
+
+```sql
+CHECK (
+  (parent_asset_type = 'AIRCRAFT' AND aircraft_parent_id IS NOT NULL AND engine_parent_id IS NULL)
+  OR
+  (parent_asset_type = 'ENGINE'   AND engine_parent_id IS NOT NULL AND aircraft_parent_id IS NULL)
+)
+```
+plus real `FOREIGN KEY` constraints on both `aircraft_parent_id` and `engine_parent_id` (each nullable, but never both null and never both populated). This is the same reasoning ADR-008 already applied to `ApplicabilityAssessment.subject_type` — the CTO's review correctly identified that `ComponentInstallation` had been left with the *weaker*, untyped version of the same polymorphism problem despite the stronger pattern already existing elsewhere in the ontology for the identical shape of problem. See [ADR-008](../adr/ADR-008-engine-first-class-asset.md)'s "Worked demonstration" section, which now applies to both entities.
 
 A non-serialized `Component` (e.g., a standard bolt lot) is tracked only by part number/quantity at the maintenance-record level (§8, Evidence) and never gets a `ComponentInstance` row — deliberately, so we never fabricate a false sense of individual traceability the real world doesn't have for that part.
 
@@ -300,6 +312,8 @@ AND
 ```
 Nothing in this example needs a condition type beyond the six already enumerated in §7's ER diagram (`MODEL_MATCH`, `MSN_RANGE`, `ENGINE_MODEL_MATCH`, `COMPONENT_PN_MATCH`, `MOD_EXCLUSION`, plus the `AND`/`OR`/`NOT` combinators) — this is direct evidence the condition-type enum, as scoped, is sufficient for realistic AD-shaped applicability text, not just the trivial examples.
 
+**Important boundary (CTO review, post-v1.0): this example must not be read as claiming M1 can always *evaluate* `MOD_EXCLUSION`.** The tree above shows the condition type is *representable* — a `MOD_EXCLUSION` leaf can always be authored into a rule, because `RegulatoryRequirement.references_requirement_id` and free-form `type_metadata` already exist to capture the exclusion's textual/reference content (per [M1_SCOPE.md](M1_SCOPE.md)). But **M1 explicitly defers a first-class, queryable `Modification`/STC entity** (§15 of the CTO's original brief; see M1_SCOPE.md's "Explicitly deferred" table). This means a `MOD_EXCLUSION` leaf's *evaluation* — actually determining whether Modification M is embodied on a given aircraft — has no structured data source to consult in M1. Per domain invariant #23 ("unknown is not false"), the correct evaluator behavior when it encounters a `MOD_EXCLUSION` condition it has no way to resolve is to return `UNKNOWN` for that leaf, which propagates through the `AND`/`NOT` combinators to an overall `system_result = INSUFFICIENT_DATA` (or `REVIEW_REQUIRED`, if a human has already logged the aircraft's mod status out-of-band as `Evidence`) — **never** a silent assumption that the modification is absent (which would wrongly conclude the rule applies) or present (which would wrongly conclude it doesn't). Until Modification/STC is a first-class M2 entity, any rule containing a `MOD_EXCLUSION` condition should be expected to produce `INSUFFICIENT_DATA`/`REVIEW_REQUIRED` for most aircraft in M1, by design — that is the conservative, correct behavior, not a defect to work around.
+
 **Why this remains deterministic, versionable, auditable, and safe** (explicitly, per the CTO's requirement — no rules engine is being implemented here, only the data shape that will eventually drive one):
 - **Deterministic**: every leaf node is a pure, side-effect-free predicate over structured aircraft/engine/component data (no natural-language interpretation, no LLM involvement anywhere in this tree — consistent with ADR-004); evaluating the same tree against the same data always produces the same boolean result.
 - **Versionable**: the tree hangs off one `ApplicabilityRule.rule_version` (already established in FOUNDATION.md §12); a corrected interpretation is a new rule version with its own new condition tree, never an in-place edit to an existing tree — matching domain invariant #14 (only one active rule version per requirement at a time).
@@ -353,9 +367,9 @@ Three layers, never conflated (directly extending the M0-established principle f
 
 1. **SOURCE** — what the authority actually published: `RegulatoryDocument` (revision, publication/effective date, source URL, retrieval timestamp, content hash, language, source status).
 2. **INTERPRETATION** — AeroComply's structured reading of that source: `ApplicabilityRule` (+ its `ApplicabilityCondition`s), versioned, human-authored/reviewed, referencing the exact `RegulatoryDocument` revision it was derived from.
-3. **DECISION** — what happened for one specific aircraft: `ApplicabilityAssessment` (system) → `Human Decision` → `Final Status`, each carrying the `rule_version`/`regulatory_document_version`/`data_version` triple already established in FOUNDATION.md §4b.
+3. **DECISION** — what happened for one specific aircraft: `ApplicabilityAssessment` (system) → `Human Decision` → `Final Status`, each carrying the `rule_version`/`regulatory_document_version`/`data_version` triple already established in FOUNDATION.md §4b, plus the immutable `configuration_snapshot` manifest `data_version` is now defined as a hash *of* (per [ADR-010](../adr/ADR-010-configuration-as-derived-temporal-view.md)'s CTO-reviewed amendment — a bare hash with nothing stored to audit against was judged insufficient).
 
-This is not a new mechanism — it is the existing FOUNDATION.md/ADR-004/ADR-005 design, restated here to confirm the aviation ontology's applicability chain (§7) slots into it without modification, which is itself a validation that the M0 architecture didn't need to change to accommodate real aviation domain complexity.
+This is not a new mechanism — it is the existing FOUNDATION.md/ADR-004/ADR-005 design, restated here to confirm the aviation ontology's applicability chain (§7) slots into it without modification (aside from the `configuration_snapshot` hardening above), which is itself a validation that the M0 architecture didn't need to change to accommodate real aviation domain complexity.
 
 ---
 

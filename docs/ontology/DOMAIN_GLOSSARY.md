@@ -54,7 +54,7 @@ Each entry gives: the general industry meaning, how AeroComply defines/uses the 
 
 **Applicability Condition** — One atomic predicate inside an Applicability Rule's condition tree (e.g., "engine_model = Y", "msn BETWEEN 1001 AND 1500", "NOT embodied(SB Z)"). Kept as a distinct concept from the Rule itself so that individual conditions can be traced, tested, and reused/composed rather than treating the whole rule as an opaque blob.
 
-**Applicability Assessment** — The *result* of evaluating an Applicability Rule against one specific aircraft's configuration at a point in time: `system_result` (APPLICABLE / NOT_APPLICABLE / REVIEW_REQUIRED / INSUFFICIENT_DATA), confidence, and reasoning trace. Produced solely by the deterministic rules engine.
+**Applicability Assessment** — The *result* of evaluating an Applicability Rule against one specific aircraft's configuration at a point in time: `system_result` (APPLICABLE / NOT_APPLICABLE / REVIEW_REQUIRED / INSUFFICIENT_DATA), confidence, reasoning trace, and an immutable `configuration_snapshot` manifest of exactly what was evaluated (see [TEMPORAL_MODEL.md](TEMPORAL_MODEL.md)). Produced solely by the deterministic rules engine — and never allowed to guess `APPLICABLE`/`NOT_APPLICABLE` when a required fact is unknown (see [DOMAIN_INVARIANTS.md](DOMAIN_INVARIANTS.md) #23, "unknown is not false").
 
 **Compliance Decision** / **Final Status** — What the *organization* ultimately records as its compliance position for a given aircraft/requirement, after human review of the Applicability Assessment. May equal the system result (human `ACCEPTED`) or diverge from it (human `OVERRIDDEN`, with a mandatory documented reason).
 

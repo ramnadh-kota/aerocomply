@@ -41,6 +41,8 @@ erDiagram
     COMPONENT_INSTALLATION ||--o{ EVIDENCE : "can be referenced as"
 ```
 
+**Polymorphic relationships note (CTO review, post-v1.0)**: `AIRCRAFT ||--o{ COMPONENT_INSTALLATION` and `ENGINE ||--o{ COMPONENT_INSTALLATION` (and likewise the two `APPLICABILITY_ASSESSMENT` subject relationships above) each represent one of two *typed, mutually-exclusive* foreign key columns, not a single untyped reference — `ComponentInstallation.aircraft_parent_id`/`engine_parent_id` and `ApplicabilityAssessment.aircraft_subject_id`/`engine_subject_id` respectively, each gated by a `CHECK` constraint on a `..._type` discriminator. This diagram's `erDiagram` notation (which has no native way to express "one of these two relationships, enforced by a CHECK constraint") should not be read as implying a single untyped polymorphic FK — see [AVIATION_ONTOLOGY.md §4](AVIATION_ONTOLOGY.md) and [ADR-008](../adr/ADR-008-engine-first-class-asset.md) for the actual column-level design.
+
 ## Entity summary table
 
 | Entity | New in M1? | Tenant-scoped? | Source of truth | Graph-represented? |
