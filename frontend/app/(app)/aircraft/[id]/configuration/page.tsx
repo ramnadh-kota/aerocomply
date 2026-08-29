@@ -151,7 +151,7 @@ export default function ConfigurationTimelinePage({ params }: { params: { id: st
             <hr className="ac-divider" />
             <p className="ac-text-sm" style={{ color: "var(--ac-text-muted)" }}>
               This snapshot is reconstructed live from installation-interval history — it is not a
-              stored "current state" record. Reconstruction logic is illustrative for this
+              stored &quot;current state&quot; record. Reconstruction logic is illustrative for this
               prototype (see <span className="ac-mono">docs/ontology/TEMPORAL_MODEL.md</span>).
             </p>
           </div>
