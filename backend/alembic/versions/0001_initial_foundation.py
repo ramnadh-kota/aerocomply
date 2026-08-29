@@ -5,7 +5,7 @@ Revises:
 Create Date: 2026-08-29
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
@@ -13,24 +13,26 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "0001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     op.execute('CREATE EXTENSION IF NOT EXISTS pgcrypto')
 
+    uuid_pk = dict(server_default=sa.text("gen_random_uuid()"), primary_key=True)
+
     op.create_table(
         "organizations",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True),
+        sa.Column("id", postgresql.UUID(as_uuid=True), **uuid_pk),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
     )
 
     op.create_table(
         "users",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True),
+        sa.Column("id", postgresql.UUID(as_uuid=True), **uuid_pk),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("email", sa.String(length=320), nullable=False),
         sa.Column("hashed_password", sa.String(length=255), nullable=False),
@@ -54,13 +56,15 @@ def upgrade() -> None:
 
     op.create_table(
         "audit_events",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True),
+        sa.Column("id", postgresql.UUID(as_uuid=True), **uuid_pk),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("action", sa.String(length=128), nullable=False),
         sa.Column("entity_type", sa.String(length=128), nullable=False),
         sa.Column("entity_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("event_metadata", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
+        sa.Column(
+            "event_metadata", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
     )
     op.create_index("ix_audit_events_organization_id", "audit_events", ["organization_id"])

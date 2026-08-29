@@ -35,7 +35,9 @@ def _issue_tokens(user: User, roles: list[str]) -> TokenResponse:
 
 def register_organization(db: Session, payload: RegisterOrganizationRequest) -> TokenResponse:
     """Bootstrap a new tenant: creates the Organization and its first ORG_ADMIN user."""
-    existing = db.execute(select(User).where(User.email == payload.admin_email)).scalar_one_or_none()
+    existing = db.execute(
+        select(User).where(User.email == payload.admin_email)
+    ).scalar_one_or_none()
     if existing is not None:
         raise ConflictError("A user with this email already exists")
 

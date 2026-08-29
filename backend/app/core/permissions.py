@@ -3,10 +3,10 @@
 Roles map to permission strings. Permission checks happen at the service layer
 (see app.core.deps.require_permission), never only in the frontend.
 """
-from enum import Enum
+from enum import StrEnum
 
 
-class Permission(str, Enum):
+class Permission(StrEnum):
     AIRCRAFT_READ = "aircraft:read"
     AIRCRAFT_WRITE = "aircraft:write"
     REGULATION_READ = "regulation:read"
@@ -21,7 +21,7 @@ class Permission(str, Enum):
     AUDIT_READ = "audit:read"
 
 
-class Role(str, Enum):
+class Role(StrEnum):
     SUPER_ADMIN = "SUPER_ADMIN"
     ORG_ADMIN = "ORG_ADMIN"
     COMPLIANCE_MANAGER = "COMPLIANCE_MANAGER"

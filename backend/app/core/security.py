@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from jose import JWTError, jwt
@@ -21,7 +21,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def _create_token(subject: str, extra_claims: dict[str, Any], expires_delta: timedelta) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": subject,
         "iat": now,

@@ -27,6 +27,8 @@ class UserRole(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     role_name: Mapped[str] = mapped_column(String(64), primary_key=True)
-    organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
 
     user: Mapped["User"] = relationship(back_populates="role_links")

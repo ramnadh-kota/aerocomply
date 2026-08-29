@@ -22,9 +22,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import app.models  # noqa: F401
 from app.core.deps import get_db_session
 from app.main import app
-import app.models  # noqa: F401
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
