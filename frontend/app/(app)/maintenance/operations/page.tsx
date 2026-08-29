@@ -3,10 +3,25 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge } from "@/components/status/StatusBadge";
 import { getOperationsAnalytics } from "@/lib/mock/ai/analytics";
 import { maintenanceProjects } from "@/lib/mock/maintenanceProjects";
-import { workOrders } from "@/lib/mock/workOrders";
+import { workOrders, MOCK_TODAY } from "@/lib/mock/workOrders";
+import { findings } from "@/lib/mock/findings";
+import { getInspectorReviewById } from "@/lib/mock/inspectorReviews";
+import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
+import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
+
+function daysSince(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  return Math.max(0, Math.round((new Date(MOCK_TODAY).getTime() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24)));
+}
 
 export default function MaintenanceOperationsPage() {
   const ops = getOperationsAnalytics(["wo-1042"]);
+  const findingsRequiringAttention = findings.filter((f) => f.requiresDefect);
+  const pendingInspectionWos = workOrders
+    .filter((w) => w.inspectorReviewId && getInspectorReviewById(w.inspectorReviewId)?.status === "PENDING_INSPECTION")
+    .map((w) => ({ wo: w, ageDays: daysSince(w.signOff?.timestamp) }))
+    .sort((a, b) => b.ageDays - a.ageDays);
+  const upcoming = upcomingMaintenanceEvents(6);
 
   return (
     <div>
@@ -125,6 +140,80 @@ export default function MaintenanceOperationsPage() {
           </div>
         </section>
       </div>
+
+      <div className="ac-grid-2 ac-section">
+        <section>
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Findings Requiring Attention</h2>
+          <div className="ac-card" style={{ padding: 0 }}>
+            {findingsRequiringAttention.length === 0 ? (
+              <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data.</p>
+            ) : (
+              <table className="ac-table">
+                <thead><tr><th>Work Order</th><th>Severity</th><th>Description</th></tr></thead>
+                <tbody>
+                  {findingsRequiringAttention.map((f) => {
+                    const wo = workOrders.find((w) => w.id === f.workOrderId);
+                    return (
+                      <tr key={f.id}>
+                        <td>{wo ? <Link href={`/maintenance/work-orders/${wo.id}`} className="ac-mono">{wo.workOrderNumber}</Link> : f.workOrderId}</td>
+                        <td>{f.severity}</td>
+                        <td className="ac-text-sm">{f.description}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Inspection Aging</h2>
+          <div className="ac-card" style={{ padding: 0 }}>
+            {pendingInspectionWos.length === 0 ? (
+              <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data.</p>
+            ) : (
+              <table className="ac-table">
+                <thead><tr><th>Work Order</th><th>Priority</th><th>Age</th></tr></thead>
+                <tbody>
+                  {pendingInspectionWos.map(({ wo, ageDays }) => (
+                    <tr key={wo.id}>
+                      <td><Link href={`/maintenance/inspections/${wo.id}`} className="ac-mono">{wo.workOrderNumber}</Link></td>
+                      <td><StatusBadge {...priorityBadge(wo.priority)} /></td>
+                      <td>{ageDays}d</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Upcoming Maintenance</h2>
+        <div className="ac-card" style={{ padding: 0 }}>
+          {upcoming.length === 0 ? (
+            <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data.</p>
+          ) : (
+            <table className="ac-table">
+              <thead><tr><th>Date</th><th>Aircraft</th><th>Description</th></tr></thead>
+              <tbody>
+                {upcoming.map((e) => {
+                  const ac = getAircraftById(e.aircraftId);
+                  return (
+                    <tr key={e.id}>
+                      <td className="ac-mono ac-text-sm">{e.date}</td>
+                      <td>{ac ? <Link href={`/aircraft/${ac.id}`} className="ac-mono">{currentRegistration(ac)}</Link> : e.aircraftId}</td>
+                      <td className="ac-text-sm">{e.description}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
 
       <section className="ac-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Active Projects</h2>
