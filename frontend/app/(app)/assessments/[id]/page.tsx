@@ -71,6 +71,16 @@ export default function AssessmentDetailPage({ params }: { params: { id: string 
         </div>
       </div>
 
+      {assessment.previousAssessmentId && (
+        <div className="ac-card ac-section" style={{ background: "var(--ac-accent-muted)", border: "1px solid var(--ac-accent)" }}>
+          <p className="ac-text-sm" style={{ margin: 0 }}>
+            <strong>Reassessment.</strong> Trigger/reason:{" "}
+            <span className="ac-mono">{assessment.changeReason?.replace(/_/g, " ") ?? "Not specified"}</span> — supersedes{" "}
+            <Link href={`/assessments/${assessment.previousAssessmentId}`} className="ac-mono">{assessment.previousAssessmentId}</Link>, which remains unchanged and independently viewable.
+          </p>
+        </div>
+      )}
+
       {rule && (
         <section className="ac-section">
           <h2 className="ac-h2" style={{ marginBottom: 10 }}>Applicability Decision</h2>

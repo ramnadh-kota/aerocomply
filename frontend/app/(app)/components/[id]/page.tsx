@@ -12,6 +12,7 @@ import { getEngineById } from "@/lib/mock/engines";
 import { assessments } from "@/lib/mock/assessments";
 import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { regulatoryRequirements } from "@/lib/mock/regulations";
+import { maintenanceEventsForComponentInstance } from "@/lib/mock/maintenance";
 import type { ComponentInstallation } from "@/lib/mock/types";
 
 export default function ComponentDetailPage({ params }: { params: { id: string } }) {
@@ -24,6 +25,8 @@ export default function ComponentDetailPage({ params }: { params: { id: string }
   // Assessments that cite THIS component's part number as a condition (mock: match by partNumber in condition label).
   const relatedAssessments = assessments.filter((a) => a.conditionEvaluations.some((c) => c.label.includes(component.partNumber)));
   const relatedEvidence = relatedAssessments.flatMap((a) => evidenceForAssessment(a.id));
+  const maintenanceEvents = maintenanceEventsForComponentInstance(instance.id);
+  const currentInstallation = history.find((h) => h.removedAt === null);
 
   const installColumns: Column<ComponentInstallation>[] = [
     {
@@ -56,6 +59,22 @@ export default function ComponentDetailPage({ params }: { params: { id: string }
           <h1 className="ac-h1">{component.partNumber} — {instance.serialNumber}</h1>
           <p className="ac-subtitle">{component.description} · {component.manufacturer}</p>
         </div>
+        <StatusBadge status={component.requiresSerialization ? "VERIFIED" : "PENDING"} label={component.requiresSerialization ? "Serialized" : "Batch-Tracked"} />
+      </div>
+
+      <div className="ac-grid-2 ac-section">
+        <div className="ac-card">
+          <p className="ac-kpi-label">Current Status</p>
+          <div style={{ marginTop: 6 }}>
+            <StatusBadge status={currentInstallation ? "ACTIVE" : "STORED"} label={currentInstallation ? "Installed" : "Removed / Not Installed"} />
+          </div>
+        </div>
+        <div className="ac-card">
+          <p className="ac-kpi-label">Compliance Impact</p>
+          <div style={{ marginTop: 6 }}>
+            {relatedAssessments[0] ? <StatusBadge status={relatedAssessments[0].systemResult} /> : <span className="ac-text-sm ac-text-muted">Not cited in any assessment</span>}
+          </div>
+        </div>
       </div>
 
       <section className="ac-section">
@@ -77,6 +96,35 @@ export default function ComponentDetailPage({ params }: { params: { id: string }
               <StatusBadge status={a.systemResult} />
             </Link>
           ))}
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Maintenance History</h2>
+        <div className="ac-card" style={{ padding: 0 }}>
+          <table className="ac-table">
+            <thead>
+              <tr><th>Date</th><th>Type</th><th>Description</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {maintenanceEvents.length === 0 && (
+                <tr><td colSpan={4} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>No maintenance events recorded.</td></tr>
+              )}
+              {maintenanceEvents.map((m) => (
+                <tr key={m.id}>
+                  <td className="ac-mono ac-text-sm">{m.date}</td>
+                  <td className="ac-text-sm">{m.eventType.replace(/_/g, " ")}</td>
+                  <td className="ac-text-sm">{m.description}</td>
+                  <td>
+                    <StatusBadge
+                      status={m.status === "OVERDUE" ? "NON_COMPLIANT" : m.status === "COMPLETED" ? "COMPLIANT" : m.status === "IN_PROGRESS" ? "REVIEW_REQUIRED" : "PENDING"}
+                      label={m.status.replace(/_/g, " ")}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 

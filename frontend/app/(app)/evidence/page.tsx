@@ -6,6 +6,8 @@ import { DataTable, type Column } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { evidence } from "@/lib/mock/evidence";
 import { getAssessmentById } from "@/lib/mock/assessments";
+import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
+import { getEngineById } from "@/lib/mock/engines";
 import type { Evidence } from "@/lib/mock/types";
 
 const TYPE_LABEL: Record<Evidence["evidenceType"], string> = {
@@ -29,6 +31,20 @@ export default function EvidenceListPage() {
       render: (e) => {
         const a = getAssessmentById(e.applicabilityAssessmentId);
         return a ? <Link href={`/assessments/${a.id}`} className="ac-mono">{a.id}</Link> : e.applicabilityAssessmentId;
+      },
+    },
+    {
+      key: "related",
+      header: "Related Aircraft/Engine",
+      render: (e) => {
+        const a = getAssessmentById(e.applicabilityAssessmentId);
+        if (!a) return "—";
+        if (a.subjectType === "AIRCRAFT") {
+          const ac = getAircraftById(a.subjectId);
+          return ac ? <Link href={`/aircraft/${ac.id}`} className="ac-mono">{currentRegistration(ac)}</Link> : a.subjectId;
+        }
+        const eng = getEngineById(a.subjectId);
+        return eng ? <Link href={`/engines/${eng.id}`} className="ac-mono">{eng.serialNumber}</Link> : a.subjectId;
       },
     },
     { key: "status", header: "Status", render: (e) => <StatusBadge status={e.verificationStatus} /> },

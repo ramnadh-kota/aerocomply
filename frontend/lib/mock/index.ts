@@ -6,5 +6,6 @@ export * from "./components";
 export * from "./regulations";
 export * from "./assessments";
 export * from "./evidence";
+export * from "./maintenance";
 export * from "./audit";
 export * from "./kleene";

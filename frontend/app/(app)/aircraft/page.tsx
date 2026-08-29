@@ -6,9 +6,10 @@ import { DataTable, type Column } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { aircraft, aircraftVariants, getAircraftVariant, getAircraftType, currentRegistration } from "@/lib/mock/aircraft";
 import { currentEnginesForAircraft, getEngineById, getEngineType } from "@/lib/mock/engines";
-import { latestAssessmentForAircraft } from "@/lib/mock/assessments";
+import { assessmentsForAircraft, latestAssessmentForAircraft } from "@/lib/mock/assessments";
 import { getOrganizationById } from "@/lib/mock/organizations";
-import type { Aircraft } from "@/lib/mock/types";
+import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
+import type { Aircraft, MaintenanceEventStatus } from "@/lib/mock/types";
 
 interface Row {
   aircraft: Aircraft;
@@ -19,6 +20,21 @@ interface Row {
   engineConfig: string;
   lastAssessmentDate: string | null;
   complianceLabel: "COMPLIANT" | "NON_COMPLIANT" | "REVIEW_REQUIRED" | "INSUFFICIENT_DATA" | "UNKNOWN";
+  openAssessmentCount: number;
+  maintenanceStatus: "OVERDUE" | "AWAITING_ACTION" | "SCHEDULED" | "UP_TO_DATE";
+}
+
+const MAINTENANCE_PRIORITY: MaintenanceEventStatus[] = ["OVERDUE", "AWAITING_REVIEW", "AWAITING_EVIDENCE", "IN_PROGRESS", "SCHEDULED"];
+
+function deriveMaintenanceStatus(events: ReturnType<typeof maintenanceEventsForAircraft>): Row["maintenanceStatus"] {
+  for (const status of MAINTENANCE_PRIORITY) {
+    if (events.some((e) => e.status === status)) {
+      if (status === "OVERDUE") return "OVERDUE";
+      if (status === "SCHEDULED") return "SCHEDULED";
+      return "AWAITING_ACTION";
+    }
+  }
+  return "UP_TO_DATE";
 }
 
 function buildRows(): Row[] {
@@ -31,6 +47,9 @@ function buildRows(): Row[] {
       ? Array.from(new Set(engines.map((e) => getEngineType(getEngineById(e.engineId)!.engineTypeId)!.modelDesignation))).join(", ")
       : "—";
     const lastAssessment = latestAssessmentForAircraft(a.id);
+    const openAssessmentCount = assessmentsForAircraft(a.id).filter(
+      (asmt) => asmt.humanDecision === "PENDING" || asmt.humanDecision === "REQUEST_MORE_EVIDENCE"
+    ).length;
     return {
       aircraft: a,
       registration: currentRegistration(a),
@@ -40,6 +59,8 @@ function buildRows(): Row[] {
       engineConfig: engineTypeLabel,
       lastAssessmentDate: lastAssessment?.evaluatedAt ?? null,
       complianceLabel: lastAssessment?.finalStatus ?? "UNKNOWN",
+      openAssessmentCount,
+      maintenanceStatus: deriveMaintenanceStatus(maintenanceEventsForAircraft(a.id)),
     };
   });
 }
@@ -49,6 +70,7 @@ export default function AircraftListPage() {
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [operatorFilter, setOperatorFilter] = useState("ALL");
   const [complianceFilter, setComplianceFilter] = useState("ALL");
+  const [maintenanceFilter, setMaintenanceFilter] = useState("ALL");
 
   const rows = useMemo(buildRows, []);
   const operators = useMemo(() => Array.from(new Set(rows.map((r) => r.operatorName))), [rows]);
@@ -60,6 +82,7 @@ export default function AircraftListPage() {
     if (typeFilter !== "ALL" && r.typeDesignation !== typeFilter) return false;
     if (operatorFilter !== "ALL" && r.operatorName !== operatorFilter) return false;
     if (complianceFilter !== "ALL" && r.complianceLabel !== complianceFilter) return false;
+    if (maintenanceFilter !== "ALL" && r.maintenanceStatus !== maintenanceFilter) return false;
     return true;
   });
 
@@ -78,6 +101,21 @@ export default function AircraftListPage() {
       sortValue: (r) => r.lastAssessmentDate ?? "",
     },
     { key: "compliance", header: "Compliance", render: (r) => <StatusBadge status={r.complianceLabel} /> },
+    { key: "openAssessments", header: "Open Assessments", render: (r) => r.openAssessmentCount, sortValue: (r) => r.openAssessmentCount },
+    {
+      key: "maintenance",
+      header: "Maintenance Status",
+      render: (r) => {
+        const map = {
+          OVERDUE: { status: "NON_COMPLIANT" as const, label: "Overdue" },
+          AWAITING_ACTION: { status: "REVIEW_REQUIRED" as const, label: "Awaiting Action" },
+          SCHEDULED: { status: "PENDING" as const, label: "Scheduled" },
+          UP_TO_DATE: { status: "COMPLIANT" as const, label: "Up to Date" },
+        };
+        const m = map[r.maintenanceStatus];
+        return <StatusBadge status={m.status} label={m.label} />;
+      },
+    },
   ];
 
   return (
@@ -119,6 +157,13 @@ export default function AircraftListPage() {
             <option value="NON_COMPLIANT">Non-Compliant</option>
             <option value="REVIEW_REQUIRED">Review Required</option>
             <option value="INSUFFICIENT_DATA">Insufficient Data</option>
+          </select>
+          <select className="ac-input" style={{ width: 190 }} value={maintenanceFilter} onChange={(e) => setMaintenanceFilter(e.target.value)} aria-label="Filter by maintenance status">
+            <option value="ALL">All Maintenance Statuses</option>
+            <option value="OVERDUE">Overdue</option>
+            <option value="AWAITING_ACTION">Awaiting Action</option>
+            <option value="SCHEDULED">Scheduled</option>
+            <option value="UP_TO_DATE">Up to Date</option>
           </select>
         </div>
       </div>

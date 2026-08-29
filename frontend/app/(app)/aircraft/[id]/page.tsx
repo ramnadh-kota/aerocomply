@@ -19,6 +19,7 @@ import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { getOrganizationById } from "@/lib/mock/organizations";
 import { getRequirementById } from "@/lib/mock/regulations";
 import { auditEventsForObjectLabelContains } from "@/lib/mock/audit";
+import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import { Timeline } from "@/components/timeline/Timeline";
 import type { ApplicabilityAssessment, ComponentInstallation, EngineInstallation } from "@/lib/mock/types";
 
@@ -41,6 +42,9 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
   const assessments = assessmentsForAircraft(aircraft.id);
   const allEvidence = assessments.flatMap((a) => evidenceForAssessment(a.id));
   const auditEvents = auditEventsForObjectLabelContains(registration).concat(auditEventsForObjectLabelContains(aircraft.id));
+  const maintenanceEvents = maintenanceEventsForAircraft(aircraft.id);
+  const nextAction = maintenanceEvents.find((m) => m.status === "OVERDUE") ?? maintenanceEvents.find((m) => m.status === "SCHEDULED");
+  const lastComplianceEvent = assessments[0];
 
   const engineColumns: Column<EngineInstallation>[] = [
     { key: "position", header: "Position", render: (i) => i.position },
@@ -113,6 +117,39 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
 
       {tab === "Overview" && (
         <div>
+          <div className="ac-grid-2 ac-section">
+            <div className="ac-card">
+              <p className="ac-kpi-label">Next Required Action</p>
+              {nextAction ? (
+                <>
+                  <p style={{ fontWeight: 600, marginTop: 4, fontSize: 13 }}>{nextAction.description}</p>
+                  <StatusBadge
+                    status={nextAction.status === "OVERDUE" ? "NON_COMPLIANT" : "PENDING"}
+                    label={nextAction.status === "OVERDUE" ? `Overdue since ${nextAction.date}` : `Scheduled ${nextAction.date}`}
+                  />
+                </>
+              ) : (
+                <p className="ac-text-sm ac-text-muted" style={{ marginTop: 4 }}>No outstanding action.</p>
+              )}
+            </div>
+            <div className="ac-card">
+              <p className="ac-kpi-label">Last Compliance Event</p>
+              {lastComplianceEvent ? (
+                <>
+                  <p style={{ fontWeight: 600, marginTop: 4, fontSize: 13 }}>
+                    <Link href={`/regulations/${lastComplianceEvent.regulatoryRequirementId}`} className="ac-mono">
+                      {getRequirementById(lastComplianceEvent.regulatoryRequirementId)?.requirementNumber}
+                    </Link>{" "}
+                    — {new Date(lastComplianceEvent.evaluatedAt).toLocaleDateString()}
+                  </p>
+                  <StatusBadge status={lastComplianceEvent.finalStatus} />
+                </>
+              ) : (
+                <p className="ac-text-sm ac-text-muted" style={{ marginTop: 4 }}>No assessments recorded.</p>
+              )}
+            </div>
+          </div>
+
           <section className="ac-section">
             <h2 className="ac-h2" style={{ marginBottom: 10 }}>Current Engine Configuration</h2>
             <div className="ac-card" style={{ padding: 0 }}>
@@ -124,6 +161,39 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
             <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
               {componentHistory.filter((c) => c.removedAt === null).length} components currently installed and tracked · {componentHistory.length} installation records total
             </p>
+          </section>
+          <section className="ac-section">
+            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Maintenance Events</h2>
+            <div className="ac-card" style={{ padding: 0 }}>
+              <table className="ac-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {maintenanceEvents.length === 0 && (
+                    <tr><td colSpan={4} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>No maintenance events recorded.</td></tr>
+                  )}
+                  {maintenanceEvents.slice(0, 6).map((m) => (
+                    <tr key={m.id}>
+                      <td className="ac-mono ac-text-sm">{m.date}</td>
+                      <td className="ac-text-sm">{m.eventType.replace(/_/g, " ")}</td>
+                      <td className="ac-text-sm">{m.description}</td>
+                      <td>
+                        <StatusBadge
+                          status={m.status === "OVERDUE" ? "NON_COMPLIANT" : m.status === "COMPLETED" ? "COMPLIANT" : m.status === "IN_PROGRESS" ? "REVIEW_REQUIRED" : "PENDING"}
+                          label={m.status.replace(/_/g, " ")}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
           <section className="ac-section">
             <h2 className="ac-h2" style={{ marginBottom: 10 }}>Regulatory Assessment Summary</h2>

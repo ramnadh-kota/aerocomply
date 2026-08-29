@@ -10,6 +10,7 @@ import { getEngineById, getEngineType, installationsForEngine } from "@/lib/mock
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { assessmentsForEngine } from "@/lib/mock/assessments";
 import { regulatoryRequirements } from "@/lib/mock/regulations";
+import { maintenanceEventsForEngine } from "@/lib/mock/maintenance";
 import type { ApplicabilityAssessment, EngineInstallation } from "@/lib/mock/types";
 
 export default function EngineDetailPage({ params }: { params: { id: string } }) {
@@ -21,6 +22,7 @@ export default function EngineDetailPage({ params }: { params: { id: string } })
   const current = history.find((h) => h.removedAt === null);
   const currentAircraft = current ? getAircraftById(current.aircraftId) : undefined;
   const assessments = assessmentsForEngine(engine.id);
+  const maintenanceEvents = maintenanceEventsForEngine(engine.id);
 
   const installColumns: Column<EngineInstallation>[] = [
     { key: "aircraft", header: "Aircraft", render: (i) => { const a = getAircraftById(i.aircraftId); return a ? <Link href={`/aircraft/${a.id}`} className="ac-mono">{currentRegistration(a)}</Link> : i.aircraftId; } },
@@ -71,6 +73,21 @@ export default function EngineDetailPage({ params }: { params: { id: string } })
         </div>
       </div>
 
+      <div className="ac-grid-2 ac-section">
+        <div className="ac-card">
+          <p className="ac-kpi-label">Operating Status</p>
+          <div style={{ marginTop: 6 }}>
+            <StatusBadge status={current ? "ACTIVE" : "STORED"} label={current ? "In Service" : "Not Installed"} />
+          </div>
+        </div>
+        <div className="ac-card">
+          <p className="ac-kpi-label">Compliance Status</p>
+          <div style={{ marginTop: 6 }}>
+            {assessments[0] ? <StatusBadge status={assessments[0].finalStatus} /> : <span className="ac-text-sm ac-text-muted">No assessments yet</span>}
+          </div>
+        </div>
+      </div>
+
       <section className="ac-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Installation History</h2>
         <div className="ac-card" style={{ padding: 0 }}>
@@ -87,6 +104,35 @@ export default function EngineDetailPage({ params }: { params: { id: string } })
             getRowHref={(a) => `/assessments/${a.id}`}
             emptyMessage="No engine-level assessments recorded yet for this serial number."
           />
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Maintenance Events</h2>
+        <div className="ac-card" style={{ padding: 0 }}>
+          <table className="ac-table">
+            <thead>
+              <tr><th>Date</th><th>Type</th><th>Description</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {maintenanceEvents.length === 0 && (
+                <tr><td colSpan={4} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>No maintenance events recorded for this serial number.</td></tr>
+              )}
+              {maintenanceEvents.map((m) => (
+                <tr key={m.id}>
+                  <td className="ac-mono ac-text-sm">{m.date}</td>
+                  <td className="ac-text-sm">{m.eventType.replace(/_/g, " ")}</td>
+                  <td className="ac-text-sm">{m.description}</td>
+                  <td>
+                    <StatusBadge
+                      status={m.status === "OVERDUE" ? "NON_COMPLIANT" : m.status === "COMPLETED" ? "COMPLIANT" : m.status === "IN_PROGRESS" ? "REVIEW_REQUIRED" : "PENDING"}
+                      label={m.status.replace(/_/g, " ")}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 

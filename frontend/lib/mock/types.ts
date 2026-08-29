@@ -243,6 +243,27 @@ export interface ApplicabilityAssessment {
   evidenceIds: string[];
 }
 
+// Compliance-oriented maintenance event — deliberately NOT a work-order/CMMS
+// entity (no costing, scheduling engine, task cards, or sign-off workflow;
+// see docs/ontology/M1_SCOPE.md's explicit MaintenanceRecord scope boundary).
+export type MaintenanceEventType = "INSPECTION" | "REMOVAL" | "INSTALLATION" | "REPAIR" | "OVERHAUL" | "REPLACEMENT";
+export type MaintenanceEventStatus = "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "OVERDUE" | "AWAITING_EVIDENCE" | "AWAITING_REVIEW";
+export type MaintenanceSubjectType = "AIRCRAFT" | "ENGINE" | "COMPONENT_INSTANCE";
+
+export interface MaintenanceEvent {
+  id: string;
+  eventType: MaintenanceEventType;
+  status: MaintenanceEventStatus;
+  subjectType: MaintenanceSubjectType;
+  aircraftId: string; // the aircraft this event is ultimately about, even if subjectType is ENGINE/COMPONENT_INSTANCE
+  engineId: string | null;
+  componentInstanceId: string | null;
+  description: string;
+  date: string; // scheduled or completed date, depending on status
+  relatedRequirementId: string | null;
+  relatedAssessmentId: string | null;
+}
+
 export interface AuditEvent {
   id: string;
   timestamp: string;
@@ -253,4 +274,6 @@ export interface AuditEvent {
   objectLabel: string;
   previousState: string | null;
   newState: string | null;
+  reason?: string;
+  relatedAssessmentId?: string;
 }

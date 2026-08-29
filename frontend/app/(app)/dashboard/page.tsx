@@ -5,6 +5,7 @@ import { assessments } from "@/lib/mock/assessments";
 import { getAircraftById, currentRegistration, getAircraftVariant } from "@/lib/mock/aircraft";
 import { getRequirementById } from "@/lib/mock/regulations";
 import { evidenceForAssessment } from "@/lib/mock/evidence";
+import { overdueMaintenanceEvents, upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
 
 const KPIS = [
   { label: "Total Aircraft", value: "128", href: "/aircraft" },
@@ -30,6 +31,9 @@ const ATTENTION_ITEMS = [
 
 export default function DashboardPage() {
   const recent = [...assessments].sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt)).slice(0, 6);
+  const openReviews = assessments.filter((a) => a.humanDecision === "PENDING" || a.humanDecision === "REQUEST_MORE_EVIDENCE");
+  const overdue = overdueMaintenanceEvents();
+  const upcoming = upcomingMaintenanceEvents(5);
 
   return (
     <div>
@@ -135,6 +139,124 @@ export default function DashboardPage() {
                       <Link href={`/assessments/${a.id}`}>
                         <StatusBadge status={a.finalStatus} />
                       </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div className="ac-grid-2 ac-section">
+        <section>
+          <div className="ac-section-header">
+            <h2 className="ac-h2">Upcoming AD/SB Deadlines</h2>
+            <Link href="/audit" className="ac-text-sm">View all →</Link>
+          </div>
+          <div className="ac-card" style={{ padding: 0 }}>
+            <table className="ac-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Aircraft</th>
+                  <th>Event</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {upcoming.length === 0 && (
+                  <tr><td colSpan={4} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>No scheduled items.</td></tr>
+                )}
+                {upcoming.map((m) => {
+                  const ac = getAircraftById(m.aircraftId);
+                  return (
+                    <tr key={m.id}>
+                      <td className="ac-mono ac-text-sm">{m.date}</td>
+                      <td>
+                        <Link href={`/aircraft/${m.aircraftId}`} className="ac-mono">{ac ? currentRegistration(ac) : m.aircraftId}</Link>
+                      </td>
+                      <td className="ac-text-sm">{m.description}</td>
+                      <td><StatusBadge status="PENDING" label="Scheduled" /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <div className="ac-section-header">
+            <h2 className="ac-h2">Overdue Compliance Items</h2>
+            <Link href="/audit" className="ac-text-sm">View all →</Link>
+          </div>
+          <div className="ac-card" style={{ padding: 0 }}>
+            <table className="ac-table">
+              <thead>
+                <tr>
+                  <th>Due</th>
+                  <th>Aircraft</th>
+                  <th>Event</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overdue.length === 0 && (
+                  <tr><td colSpan={4} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>Nothing overdue.</td></tr>
+                )}
+                {overdue.map((m) => {
+                  const ac = getAircraftById(m.aircraftId);
+                  return (
+                    <tr key={m.id}>
+                      <td className="ac-mono ac-text-sm">{m.date}</td>
+                      <td>
+                        <Link href={`/aircraft/${m.aircraftId}`} className="ac-mono">{ac ? currentRegistration(ac) : m.aircraftId}</Link>
+                      </td>
+                      <td className="ac-text-sm">{m.description}</td>
+                      <td><StatusBadge status="NON_COMPLIANT" label="Overdue" /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section className="ac-section">
+        <div className="ac-section-header">
+          <h2 className="ac-h2">Open Review Decisions</h2>
+          <Link href="/assessments" className="ac-text-sm">View all →</Link>
+        </div>
+        <div className="ac-card" style={{ padding: 0 }}>
+          <table className="ac-table">
+            <thead>
+              <tr>
+                <th>Requirement</th>
+                <th>Aircraft</th>
+                <th>System Result</th>
+                <th>Human Decision</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {openReviews.length === 0 && (
+                <tr><td colSpan={5} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>No open review decisions.</td></tr>
+              )}
+              {openReviews.map((a) => {
+                const aircraft = a.subjectType === "AIRCRAFT" ? getAircraftById(a.subjectId) : undefined;
+                const requirement = getRequirementById(a.regulatoryRequirementId);
+                return (
+                  <tr key={a.id}>
+                    <td className="ac-mono">{requirement?.requirementNumber}</td>
+                    <td>
+                      <Link href={`/aircraft/${aircraft?.id ?? ""}`} className="ac-mono">{aircraft ? currentRegistration(aircraft) : a.subjectId}</Link>
+                    </td>
+                    <td><StatusBadge status={a.systemResult} /></td>
+                    <td className="ac-text-sm">{a.humanDecision.replace(/_/g, " ")}</td>
+                    <td>
+                      <Link href={`/assessments/${a.id}/review`} className="ac-btn">Review</Link>
                     </td>
                   </tr>
                 );

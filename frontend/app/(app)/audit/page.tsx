@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Timeline } from "@/components/timeline/Timeline";
 import { auditEvents } from "@/lib/mock/audit";
@@ -32,6 +33,12 @@ export default function AuditTrailPage() {
                     {" "}
                     · {e.previousState} → {e.newState}
                   </span>
+                )}
+                {e.reason && <div className="ac-text-sm ac-text-secondary" style={{ marginTop: 2 }}>Reason: {e.reason}</div>}
+                {e.relatedAssessmentId && (
+                  <div className="ac-text-sm" style={{ marginTop: 2 }}>
+                    <Link href={`/assessments/${e.relatedAssessmentId}`} className="ac-mono">View assessment →</Link>
+                  </div>
                 )}
               </span>
             ),

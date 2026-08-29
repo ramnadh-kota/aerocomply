@@ -13,6 +13,7 @@ interface Row {
   title: string;
   revision: string;
   effectiveDate: string;
+  complianceTime: string;
   aircraftCount: number;
 }
 
@@ -29,6 +30,7 @@ function buildRows(): Row[] {
       title: doc.title,
       revision: doc.revision,
       effectiveDate: doc.effectiveDate,
+      complianceTime: r.complianceTime,
       aircraftCount: applicableCount,
     };
   });
@@ -44,6 +46,7 @@ export default function RegulationsLibraryPage() {
     { key: "rev", header: "Revision", render: (r) => r.revision },
     { key: "effective", header: "Effective Date", render: (r) => r.effectiveDate, sortValue: (r) => r.effectiveDate },
     { key: "type", header: "Type", render: (r) => r.requirement.requirementType },
+    { key: "deadline", header: "Compliance Deadline", render: (r) => <span className="ac-text-sm">{r.complianceTime}</span> },
     { key: "applicability", header: "Applicability", render: (r) => (r.aircraftCount > 0 ? `Applicable — ${r.aircraftCount} aircraft` : "Not yet assessed") },
   ];
 
