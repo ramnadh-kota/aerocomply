@@ -33,12 +33,16 @@ const MAINTENANCE_NAV: NavItem[] = [
 
 const WORKSPACE_NAV: NavItem[] = [
   { href: "/workspace", label: "Workspace", glyph: "▢" },
+  { href: "/ai", label: "AI Assistant", glyph: "✦" },
+  { href: "/reports", label: "Reports", glyph: "▦" },
   { href: "/organization", label: "Organization", glyph: "◫" },
+  { href: "/organization/users", label: "Users", glyph: "◔" },
+  { href: "/organization/roles", label: "Roles", glyph: "◈" },
   { href: "/settings", label: "Settings", glyph: "⚙" },
 ];
 
 function isActive(pathname: string, href: string): boolean {
-  if (href === "/dashboard") return pathname === "/dashboard";
+  if (href === "/dashboard" || href === "/organization") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { GlobalSearch } from "@/components/search/GlobalSearch";
 import { organizations } from "@/lib/mock/organizations";
 
@@ -13,6 +14,10 @@ export function Topbar() {
       <GlobalSearch />
 
       <div className="ac-flex ac-items-center ac-gap-4" style={{ marginLeft: "auto" }}>
+        <Link href="/ai" className="ac-btn" style={{ padding: "6px 12px", fontSize: 13 }}>
+          <span aria-hidden="true" style={{ marginRight: 6 }}>✦</span>
+          Ask AeroComply AI
+        </Link>
         <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm">
           <span className="ac-text-muted">Org</span>
           <select

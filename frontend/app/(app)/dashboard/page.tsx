@@ -12,6 +12,7 @@ import { techniciansOnShift } from "@/lib/mock/technicians";
 import { workOrderStatusBadge, priorityBadge, projectStatusBadge } from "@/components/status/StatusBadge";
 import { inspectorReviews } from "@/lib/mock/inspectorReviews";
 import { findings } from "@/lib/mock/findings";
+import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics } from "@/lib/mock/ai/analytics";
 
 const KPIS = [
   { label: "Total Aircraft", value: "128", href: "/aircraft" },
@@ -49,6 +50,10 @@ export default function DashboardPage() {
   const criticalWOs = openWOs.filter((w) => w.priority === "CRITICAL" || w.priority === "HIGH").slice(0, 5);
   const inspectionsAwaitingReview = inspectorReviews.filter((r) => r.status === "PENDING_INSPECTION").length;
   const checklistExceptions = findings.filter((f) => f.requiresDefect).length;
+  const fleetAnalytics = getFleetAnalytics();
+  const maintAnalytics = getMaintenanceAnalytics();
+  const complianceAnalytics = getComplianceAnalytics();
+  const inspectionAnalytics = getInspectionAnalytics();
 
   return (
     <div>
@@ -113,6 +118,39 @@ export default function DashboardPage() {
             <p className="ac-kpi-label">Checklist Exceptions</p>
             <p className="ac-kpi-value">{checklistExceptions}</p>
           </Link>
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <div className="ac-section-header">
+          <h2 className="ac-h2">AI &amp; Operations Intelligence</h2>
+          <span className="ac-text-sm ac-text-muted">AI Prototype · Non-authoritative</span>
+        </div>
+        <div className="ac-grid-4" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--ac-space-4)" }}>
+          <div className="ac-card">
+            <p className="ac-kpi-label">Fleet Risk</p>
+            <p className="ac-kpi-value">{fleetAnalytics.aircraftAtRisk.length} / {fleetAnalytics.fleetSize}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>aircraft at elevated risk</p>
+          </div>
+          <div className="ac-card">
+            <p className="ac-kpi-label">Maintenance Risk</p>
+            <p className="ac-kpi-value">{maintAnalytics.overdue.length}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>overdue work orders</p>
+          </div>
+          <div className="ac-card">
+            <p className="ac-kpi-label">Compliance Exposure</p>
+            <p className="ac-kpi-value">{complianceAnalytics.nonCompliant + complianceAnalytics.reviewRequired}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>assessments needing attention</p>
+          </div>
+          <div className="ac-card">
+            <p className="ac-kpi-label">Inspection Queue</p>
+            <p className="ac-kpi-value">{inspectionAnalytics.pending.length}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>awaiting review</p>
+          </div>
+        </div>
+        <div className="ac-flex ac-gap-2" style={{ marginTop: 12 }}>
+          <Link href="/ai" className="ac-btn ac-btn-primary">Ask AeroComply AI</Link>
+          <Link href="/reports/fleet-risk" className="ac-btn">Generate Operations Report</Link>
         </div>
       </section>
 

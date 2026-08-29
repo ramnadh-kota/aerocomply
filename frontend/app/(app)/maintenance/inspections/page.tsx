@@ -93,6 +93,10 @@ export default function InspectionQueuePage() {
           <h1 className="ac-h1">Inspection Queue</h1>
           <p className="ac-subtitle">{filtered.length} of {rows.length} work orders submitted for inspection</p>
         </div>
+        <div className="ac-flex ac-gap-2">
+          <Link href="/ai" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Ask AI to Prioritize</Link>
+          <Link href="/reports/inspection-queue" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Generate Report</Link>
+        </div>
       </div>
 
       <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>

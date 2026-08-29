@@ -53,9 +53,11 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
             <Link href={`/aircraft/${aircraft.id}`} className="ac-mono">{registration}</Link> · {type.manufacturer} {variant.modelDesignation} · PM {project.projectManager}
           </p>
         </div>
-        <div className="ac-flex ac-gap-2">
+        <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
           <StatusBadge {...priorityBadge(project.priority)} />
           <StatusBadge {...projectStatusBadge(project.status)} />
+          <Link href={`/ai?project=${project.id}`} className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Ask AI</Link>
+          <Link href={`/reports/project-${project.id}`} className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Generate Report</Link>
         </div>
       </div>
 

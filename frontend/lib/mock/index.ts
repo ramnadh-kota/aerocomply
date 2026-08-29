@@ -17,3 +17,5 @@ export * from "./findings";
 export * from "./inspectorReviews";
 export * from "./audit";
 export * from "./kleene";
+export * from "./roles";
+export * from "./reports";
