@@ -462,6 +462,15 @@ The schema and access pattern were checked against RLS adoption without an appli
 
 This is intentionally deferred — the fix is well-understood and additive (a new table + a lookup on refresh), not an architecture change, so it does not block M0 sign-off but must not be forgotten before production traffic.
 
+## Known Technical Debt (tracked, not blocking M0)
+
+Observed as warnings in CI runs during M0 verification (GitHub Actions runs `33251356506`–`33251440840`). None affect current correctness; each needs a deliberate, scoped fix later rather than an incidental one bundled into an unrelated change:
+
+- **GitHub Actions Node 20 runtime deprecation**: `actions/setup-node@v4` currently emits a deprecation notice for the Node 20 actions-runtime (distinct from the `node-version: "20"` input, which still installs fine). Revisit when GitHub finalizes the Node 20 runtime sunset date.
+- **Starlette/httpx TestClient deprecation**: `fastapi.testclient.TestClient` warns that using `httpx` with `starlette.testclient` is deprecated in favor of `httpx2`. Revisit alongside a deliberate httpx/FastAPI version bump, not as a drive-by dependency change.
+- **passlib/argon2-cffi deprecation**: passlib's argon2 backend accesses `argon2.__version__` in a way argon2-cffi flags as deprecated. Cosmetic today; revisit if/when passlib itself is upgraded or replaced.
+- **Alembic `path_separator` configuration warning**: `alembic.ini` doesn't set `path_separator`, so Alembic falls back to legacy splitting behavior for `prepend_sys_path`. Low risk at current config size; add `path_separator = os` in a future pass rather than now, to keep this fix focused.
+
 ## Assumptions
 
 - Initial regulatory scope is FAA ADs (extensible to EASA later); rule predicates are authored/reviewed by humans, not auto-generated.

@@ -8,7 +8,13 @@ from app.core.config import get_settings
 from app.db.base import Base
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+
+# Only fall back to app settings if the caller (e.g. a test fixture pointing
+# at a separate test database) hasn't already configured a URL. Previously
+# this unconditionally overwrote any pre-set URL, which silently ran
+# migrations against the default database instead of a test database.
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

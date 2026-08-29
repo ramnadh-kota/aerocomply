@@ -42,7 +42,7 @@ select = ["E", "F", "I", "UP", "B"]
 # ruff's isort otherwise confuses with the third-party `alembic` package of the
 # same name when guessing import groups. Pin both explicitly to avoid the
 # ambiguity rather than fighting isort's autodetection.
-known-first-party = ["app"]
+known-first-party = ["app", "tests"]
 known-third-party = ["alembic"]
 
 [tool.ruff.lint.flake8-bugbear]
