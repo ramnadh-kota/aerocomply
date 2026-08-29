@@ -4,9 +4,9 @@ import type { Technician } from "./types";
 export const technicians: Technician[] = [
   { id: "tech-1", name: "Rahul Menon", role: "Technician", shiftStart: "06:00", shiftEnd: "14:00", certifications: ["Engine Runup", "Borescope Inspection", "B1.1"] },
   { id: "tech-2", name: "Fatima Al-Sayed", role: "Technician", shiftStart: "06:00", shiftEnd: "14:00", certifications: ["Avionics", "B2"] },
-  { id: "tech-3", name: "Diego Alvarez", role: "Senior Technician", shiftStart: "14:00", shiftEnd: "22:00", certifications: ["Structures", "NDT", "B1.1"] },
+  { id: "tech-3", name: "Diego Alvarez", role: "Senior Technician / Inspector", shiftStart: "14:00", shiftEnd: "22:00", certifications: ["Structures", "NDT", "B1.1"], isInspector: true },
   { id: "tech-4", name: "Wei Zhang", role: "Technician", shiftStart: "14:00", shiftEnd: "22:00", certifications: ["Hydraulics", "B1.1"] },
-  { id: "tech-5", name: "Sara Kavanagh", role: "Lead Technician", shiftStart: "22:00", shiftEnd: "06:00", certifications: ["Engine Runup", "APU", "B1.1", "B2"] },
+  { id: "tech-5", name: "Sara Kavanagh", role: "Lead Technician / Inspector", shiftStart: "22:00", shiftEnd: "06:00", certifications: ["Engine Runup", "APU", "B1.1", "B2"], isInspector: true },
   { id: "tech-6", name: "Arjun Nair", role: "Technician", shiftStart: "06:00", shiftEnd: "14:00", certifications: ["Landing Gear", "B1.1"] },
 ];
 
@@ -21,4 +21,8 @@ export function isOnShiftNow(t: Technician, nowHHMM = "09:00"): boolean {
 
 export function techniciansOnShift(nowHHMM = "09:00"): Technician[] {
   return technicians.filter((t) => isOnShiftNow(t, nowHHMM));
+}
+
+export function inspectors(): Technician[] {
+  return technicians.filter((t) => t.isInspector);
 }

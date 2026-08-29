@@ -4,6 +4,11 @@ import type { WorkOrder } from "./types";
 // relatedRequirementId/relatedAssessmentId wherever a real assessment already
 // exists for that aircraft+requirement pair (verified against
 // lib/mock/assessments.ts) — never a fabricated cross-reference.
+//
+// "Overdue" is deliberately NOT a status value (a real work order's status
+// describes what stage of work it's in; overdue-ness is a derived fact about
+// its due date). See isOverdue() below.
+export const MOCK_TODAY = "2026-03-17";
 
 export const workOrders: WorkOrder[] = [
   {
@@ -13,15 +18,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: "wp-1",
     aircraftId: "ac-1",
     title: "Engine Fan Inspection",
+    ataChapter: "72",
+    maintenanceType: "INSPECTION",
     priority: "HIGH",
     assignedTechnicianId: "tech-1",
+    inspectorId: "tech-3",
+    plannedStartDate: "2026-03-14",
     dueDate: "2026-03-16",
-    status: "AWAITING_REVIEW",
-    requiredPartIds: [],
+    completionDate: null,
+    status: "WAITING_INSPECTION",
+    requiredPartIds: ["part-2"],
     requiredTools: ["Borescope", "Torque Wrench"],
     relatedRequirementId: "req-ad-2026-001",
     relatedAssessmentId: "asmt-2",
     checklistId: "chk-1042",
+    findingIds: ["finding-1"],
+    signOff: { technicianId: "tech-1", timestamp: "2026-03-16T13:40:00Z", confirmed: true },
+    inspectorReviewId: "ir-1",
   },
   {
     id: "wo-1043",
@@ -30,15 +43,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: "wp-2",
     aircraftId: "ac-1",
     title: "Hydraulic Pump Seal Replacement",
+    ataChapter: "29",
+    maintenanceType: "REPLACEMENT",
     priority: "MEDIUM",
     assignedTechnicianId: "tech-4",
+    inspectorId: "tech-5",
+    plannedStartDate: "2026-03-07",
     dueDate: "2026-03-08",
+    completionDate: "2026-03-08",
     status: "COMPLETED",
     requiredPartIds: ["part-1"],
     requiredTools: ["Seal Puller"],
     relatedRequirementId: "req-sb-2025-114",
     relatedAssessmentId: null,
     checklistId: "chk-1043",
+    findingIds: ["finding-3"],
+    signOff: { technicianId: "tech-4", timestamp: "2026-03-08T14:20:00Z", confirmed: true },
+    inspectorReviewId: "ir-2",
   },
   {
     id: "wo-1044",
@@ -47,15 +68,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: "wp-1",
     aircraftId: "ac-1",
     title: "Engine 1 Borescope Follow-up",
+    ataChapter: "72",
+    maintenanceType: "INSPECTION",
     priority: "HIGH",
     assignedTechnicianId: "tech-1",
+    inspectorId: null,
+    plannedStartDate: "2026-03-12",
     dueDate: "2026-03-13",
-    status: "OVERDUE",
+    completionDate: null,
+    status: "IN_PROGRESS",
     requiredPartIds: [],
     requiredTools: ["Borescope"],
     relatedRequirementId: null,
     relatedAssessmentId: null,
     checklistId: null,
+    findingIds: [],
+    signOff: null,
+    inspectorReviewId: null,
   },
   {
     id: "wo-1045",
@@ -64,15 +93,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: "wp-3",
     aircraftId: "ac-3",
     title: "Wing Spar Fatigue Inspection",
+    ataChapter: "57",
+    maintenanceType: "INSPECTION",
     priority: "CRITICAL",
     assignedTechnicianId: "tech-3",
+    inspectorId: "tech-5",
+    plannedStartDate: "2026-03-15",
     dueDate: "2026-03-19",
+    completionDate: null,
     status: "IN_PROGRESS",
     requiredPartIds: [],
     requiredTools: ["NDT Kit"],
     relatedRequirementId: "req-ad-2026-004",
     relatedAssessmentId: null,
     checklistId: null,
+    findingIds: ["finding-2"],
+    signOff: null,
+    inspectorReviewId: null,
   },
   {
     id: "wo-1046",
@@ -81,15 +118,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: "wp-4",
     aircraftId: "ac-7",
     title: "Cargo Door Latch Mechanism Inspection",
+    ataChapter: "52",
+    maintenanceType: "INSPECTION",
     priority: "HIGH",
     assignedTechnicianId: "tech-6",
+    inspectorId: null,
+    plannedStartDate: "2026-03-19",
     dueDate: "2026-03-22",
-    status: "PLANNED",
+    completionDate: null,
+    status: "ASSIGNED",
     requiredPartIds: ["part-6"],
     requiredTools: [],
     relatedRequirementId: "req-ad-2026-005",
     relatedAssessmentId: "asmt-bulk-3",
     checklistId: null,
+    findingIds: [],
+    signOff: null,
+    inspectorReviewId: null,
   },
   {
     id: "wo-1047",
@@ -98,15 +143,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: "wp-5",
     aircraftId: "ac-5",
     title: "Avionics Software Standard Update",
+    ataChapter: "22",
+    maintenanceType: "MODIFICATION",
     priority: "HIGH",
     assignedTechnicianId: "tech-2",
+    inspectorId: "tech-5",
+    plannedStartDate: "2026-01-24",
     dueDate: "2026-01-25",
+    completionDate: "2026-01-25",
     status: "COMPLETED",
     requiredPartIds: [],
     requiredTools: [],
     relatedRequirementId: "req-ad-2026-003",
     relatedAssessmentId: "asmt-4",
     checklistId: null,
+    findingIds: [],
+    signOff: { technicianId: "tech-2", timestamp: "2026-01-25T09:00:00Z", confirmed: true },
+    inspectorReviewId: "ir-3",
   },
   {
     id: "wo-1048",
@@ -115,15 +168,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: null,
     aircraftId: "ac-9",
     title: "Fan Disk Ultrasonic Inspection Sign-off",
+    ataChapter: "72",
+    maintenanceType: "INSPECTION",
     priority: "HIGH",
     assignedTechnicianId: "tech-5",
+    inspectorId: "tech-3",
+    plannedStartDate: "2026-03-08",
     dueDate: "2026-03-10",
-    status: "AWAITING_REVIEW",
+    completionDate: null,
+    status: "WAITING_INSPECTION",
     requiredPartIds: [],
     requiredTools: ["Borescope"],
     relatedRequirementId: "req-ad-2026-001",
     relatedAssessmentId: "asmt-bulk-5",
     checklistId: null,
+    findingIds: [],
+    signOff: { technicianId: "tech-5", timestamp: "2026-03-09T18:00:00Z", confirmed: true },
+    inspectorReviewId: "ir-4",
   },
   {
     id: "wo-1049",
@@ -132,15 +193,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: null,
     aircraftId: "ac-4",
     title: "Pitot Tube Heater Functional Check",
+    ataChapter: "30",
+    maintenanceType: "INSPECTION",
     priority: "LOW",
     assignedTechnicianId: "tech-2",
+    inspectorId: null,
+    plannedStartDate: "2026-02-18",
     dueDate: "2026-02-20",
-    status: "DEFERRED",
+    completionDate: null,
+    status: "CANCELLED",
     requiredPartIds: [],
     requiredTools: [],
     relatedRequirementId: "req-ad-2026-006",
     relatedAssessmentId: "asmt-bulk-8",
     checklistId: null,
+    findingIds: [],
+    signOff: null,
+    inspectorReviewId: null,
   },
   {
     id: "wo-1050",
@@ -149,15 +218,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: null,
     aircraftId: "ac-1",
     title: "Hydraulic Pump Seal Condition Check",
+    ataChapter: "29",
+    maintenanceType: "INSPECTION",
     priority: "MEDIUM",
     assignedTechnicianId: "tech-4",
-    dueDate: "2026-03-17",
-    status: "AWAITING_PARTS",
+    inspectorId: null,
+    plannedStartDate: "2026-03-17",
+    dueDate: "2026-03-18",
+    completionDate: null,
+    status: "WAITING_PARTS",
     requiredPartIds: ["part-1"],
     requiredTools: [],
     relatedRequirementId: "req-sb-2025-114",
     relatedAssessmentId: null,
     checklistId: null,
+    findingIds: [],
+    signOff: null,
+    inspectorReviewId: null,
   },
   {
     id: "wo-1051",
@@ -166,15 +243,23 @@ export const workOrders: WorkOrder[] = [
     workPackageId: null,
     aircraftId: "ac-3",
     title: "IDG Seal Repair",
+    ataChapter: "24",
+    maintenanceType: "REPAIR",
     priority: "MEDIUM",
     assignedTechnicianId: "tech-3",
-    dueDate: "2026-03-20",
-    status: "OPEN",
+    inspectorId: null,
+    plannedStartDate: "2026-03-20",
+    dueDate: "2026-03-21",
+    completionDate: null,
+    status: "ASSIGNED",
     requiredPartIds: ["part-5"],
     requiredTools: [],
     relatedRequirementId: null,
     relatedAssessmentId: null,
     checklistId: null,
+    findingIds: [],
+    signOff: null,
+    inspectorReviewId: null,
   },
 ];
 
@@ -194,18 +279,22 @@ export function workOrdersForTechnician(technicianId: string): WorkOrder[] {
   return workOrders.filter((w) => w.assignedTechnicianId === technicianId);
 }
 
+export function isOverdue(w: WorkOrder, today = MOCK_TODAY): boolean {
+  return w.dueDate < today && w.status !== "COMPLETED" && w.status !== "CANCELLED";
+}
+
 export function openWorkOrders(): WorkOrder[] {
-  return workOrders.filter((w) => !["COMPLETED", "DEFERRED"].includes(w.status));
+  return workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
 }
 
 export function overdueWorkOrders(): WorkOrder[] {
-  return workOrders.filter((w) => w.status === "OVERDUE");
+  return workOrders.filter((w) => isOverdue(w));
 }
 
 export function awaitingPartsWorkOrders(): WorkOrder[] {
-  return workOrders.filter((w) => w.status === "AWAITING_PARTS");
+  return workOrders.filter((w) => w.status === "WAITING_PARTS");
 }
 
 export function awaitingReviewWorkOrders(): WorkOrder[] {
-  return workOrders.filter((w) => w.status === "AWAITING_REVIEW");
+  return workOrders.filter((w) => w.status === "WAITING_INSPECTION");
 }

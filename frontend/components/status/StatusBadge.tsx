@@ -70,18 +70,45 @@ export function StatusBadge({ status, label }: { status: BadgeKind; label?: stri
 // status must always pair a color with a label, never rely on color alone.
 
 const WORK_ORDER_STATUS_MAP: Record<string, BadgeKind> = {
-  PLANNED: "PENDING",
-  OPEN: "PENDING",
+  DRAFT: "PENDING",
+  ASSIGNED: "PENDING",
   IN_PROGRESS: "REVIEW_REQUIRED",
-  AWAITING_PARTS: "REVIEW_REQUIRED",
-  AWAITING_REVIEW: "INSUFFICIENT_DATA",
+  WAITING_PARTS: "REVIEW_REQUIRED",
+  WAITING_INSPECTION: "INSUFFICIENT_DATA",
   COMPLETED: "COMPLIANT",
-  OVERDUE: "NON_COMPLIANT",
-  DEFERRED: "UNKNOWN",
+  CANCELLED: "UNKNOWN",
 };
 
 export function workOrderStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: WORK_ORDER_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
+
+/** "Overdue" is a derived fact (see workOrders.isOverdue), not a status value — this renders it as a distinct badge alongside the real status. */
+export function overdueBadge(): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: "NON_COMPLIANT", label: "Overdue" };
+}
+
+const WORK_PACKAGE_STATUS_MAP: Record<string, BadgeKind> = {
+  NOT_STARTED: "PENDING",
+  IN_PROGRESS: "REVIEW_REQUIRED",
+  BLOCKED: "NON_COMPLIANT",
+  READY_FOR_INSPECTION: "INSUFFICIENT_DATA",
+  COMPLETED: "COMPLIANT",
+};
+
+export function workPackageStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: WORK_PACKAGE_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
+
+const INSPECTOR_REVIEW_STATUS_MAP: Record<string, BadgeKind> = {
+  PENDING_INSPECTION: "INSUFFICIENT_DATA",
+  APPROVED: "COMPLIANT",
+  REJECTED: "NON_COMPLIANT",
+  RETURNED_FOR_CORRECTION: "REVIEW_REQUIRED",
+};
+
+export function inspectorReviewStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: INSPECTOR_REVIEW_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
 
 const PROJECT_STATUS_MAP: Record<string, BadgeKind> = {
@@ -89,6 +116,7 @@ const PROJECT_STATUS_MAP: Record<string, BadgeKind> = {
   IN_PROGRESS: "REVIEW_REQUIRED",
   ON_HOLD: "UNKNOWN",
   COMPLETED: "COMPLIANT",
+  CANCELLED: "UNKNOWN",
 };
 
 export function projectStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
@@ -104,6 +132,20 @@ const PRIORITY_MAP: Record<string, BadgeKind> = {
 
 export function priorityBadge(priority: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: PRIORITY_MAP[priority] ?? "UNKNOWN", label: priority };
+}
+
+// Checklist item result: UNKNOWN is explicitly distinct from FAIL — never
+// coerced together (see docs/ontology "unknown is not false" invariant,
+// applied here to technical checklist results, not just applicability).
+const CHECKLIST_RESULT_MAP: Record<string, BadgeKind> = {
+  PASS: "COMPLIANT",
+  FAIL: "NON_COMPLIANT",
+  NOT_APPLICABLE: "UNKNOWN",
+  UNKNOWN: "INSUFFICIENT_DATA",
+};
+
+export function checklistResultBadge(result: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: CHECKLIST_RESULT_MAP[result] ?? "UNKNOWN", label: result.replace(/_/g, " ") };
 }
 
 const DEFECT_STATUS_MAP: Record<string, BadgeKind> = {

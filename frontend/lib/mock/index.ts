@@ -13,5 +13,7 @@ export * from "./maintenanceProjects";
 export * from "./workOrders";
 export * from "./checklists";
 export * from "./defects";
+export * from "./findings";
+export * from "./inspectorReviews";
 export * from "./audit";
 export * from "./kleene";

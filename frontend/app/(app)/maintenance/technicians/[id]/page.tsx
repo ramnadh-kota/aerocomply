@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, workOrderStatusBadge, priorityBadge } from "@/components/status/StatusBadge";
 import { getTechnicianById, isOnShiftNow } from "@/lib/mock/technicians";
-import { workOrdersForTechnician } from "@/lib/mock/workOrders";
+import { workOrdersForTechnician, isOverdue } from "@/lib/mock/workOrders";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getChecklistByWorkOrderId } from "@/lib/mock/checklists";
 
@@ -14,8 +14,8 @@ export default function TechnicianWorkbenchPage({ params }: { params: { id: stri
   if (!technician) notFound();
 
   const tasks = workOrdersForTechnician(technician.id);
-  const overdue = tasks.filter((t) => t.status === "OVERDUE");
-  const awaitingSignOff = tasks.filter((t) => t.status === "AWAITING_REVIEW");
+  const overdue = tasks.filter((t) => isOverdue(t));
+  const awaitingSignOff = tasks.filter((t) => t.status === "WAITING_INSPECTION");
   const priorityTasks = tasks.filter((t) => t.priority === "HIGH" || t.priority === "CRITICAL");
   const completed = tasks.filter((t) => t.status === "COMPLETED").length;
   const completionPercent = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;

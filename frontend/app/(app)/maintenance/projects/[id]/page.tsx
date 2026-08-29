@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, projectStatusBadge, priorityBadge, defectStatusBadge, workOrderStatusBadge, partStatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, projectStatusBadge, priorityBadge, defectStatusBadge, workOrderStatusBadge, partStatusBadge, workPackageStatusBadge, overdueBadge } from "@/components/status/StatusBadge";
 import { EvidenceCard } from "@/components/evidence/EvidenceCard";
 import { Timeline } from "@/components/timeline/Timeline";
 import { getProjectById, workPackagesForProject } from "@/lib/mock/maintenanceProjects";
-import { workOrdersForProject } from "@/lib/mock/workOrders";
-import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
+import { workOrdersForProject, isOverdue } from "@/lib/mock/workOrders";
+import { getAircraftById, getAircraftVariant, getAircraftType, currentRegistration } from "@/lib/mock/aircraft";
 import { getTechnicianById } from "@/lib/mock/technicians";
 import { getPartById } from "@/lib/mock/parts";
 import { defectsForAircraft } from "@/lib/mock/defects";
@@ -22,21 +22,24 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   if (!project) notFound();
 
   const aircraft = getAircraftById(project.aircraftId)!;
+  const variant = getAircraftVariant(aircraft.aircraftVariantId)!;
+  const type = getAircraftType(variant.aircraftTypeId)!;
   const registration = currentRegistration(aircraft);
   const packages = workPackagesForProject(project.id);
   const orders = workOrdersForProject(project.id);
   const technicianIds = Array.from(new Set(orders.map((o) => o.assignedTechnicianId).filter((x): x is string => Boolean(x))));
   const partIds = Array.from(new Set(orders.flatMap((o) => o.requiredPartIds)));
-  const projectDefects = defectsForAircraft(project.aircraftId);
+  const projectDefects = defectsForAircraft(project.aircraftId).filter((d) => d.workOrderId && orders.some((o) => o.id === d.workOrderId));
   const complianceRefs = orders.filter((o) => o.relatedRequirementId);
   const relatedAssessments = orders.map((o) => (o.relatedAssessmentId ? getAssessmentById(o.relatedAssessmentId) : undefined)).filter(Boolean);
   const relatedEvidence = relatedAssessments.flatMap((a) => evidenceForAssessment(a!.id));
   const auditEvents = auditEventsForObjectLabelContains(registration);
+  const leadTechnician = project.leadTechnicianId ? getTechnicianById(project.leadTechnicianId) : undefined;
 
-  const overdueCount = orders.filter((o) => o.status === "OVERDUE").length;
-  const awaitingPartsCount = orders.filter((o) => o.status === "AWAITING_PARTS").length;
-  const awaitingReviewComplianceCount = complianceRefs.filter((o) => o.status === "AWAITING_REVIEW").length;
-  const scheduleRisk = overdueCount > 0 || awaitingPartsCount > 0;
+  const overdueOrders = orders.filter((o) => isOverdue(o));
+  const awaitingPartsOrders = orders.filter((o) => o.status === "WAITING_PARTS");
+  const awaitingReviewOrders = orders.filter((o) => o.status === "WAITING_INSPECTION");
+  const scheduleRisk = overdueOrders.length > 0 || awaitingPartsOrders.length > 0 || project.riskNotes.length > 0;
 
   return (
     <div>
@@ -46,10 +49,14 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
         <div>
           <h1 className="ac-h1">{project.title}</h1>
           <p className="ac-subtitle">
-            <Link href={`/aircraft/${aircraft.id}`} className="ac-mono">{registration}</Link> · {project.projectType.replace(/_/g, " ")} · PM {project.projectManager}
+            <span className="ac-mono">{project.projectNumber}</span> ·{" "}
+            <Link href={`/aircraft/${aircraft.id}`} className="ac-mono">{registration}</Link> · {type.manufacturer} {variant.modelDesignation} · PM {project.projectManager}
           </p>
         </div>
-        <StatusBadge {...projectStatusBadge(project.status)} />
+        <div className="ac-flex ac-gap-2">
+          <StatusBadge {...priorityBadge(project.priority)} />
+          <StatusBadge {...projectStatusBadge(project.status)} />
+        </div>
       </div>
 
       <div className="ac-grid-3 ac-section">
@@ -58,12 +65,23 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
           <p className="ac-kpi-value">{project.progressPercent}%</p>
         </div>
         <div className="ac-card">
-          <p className="ac-kpi-label">Start Date</p>
-          <p style={{ fontWeight: 600, marginTop: 4 }}>{project.startDate}</p>
+          <p className="ac-kpi-label">Planned Start / Completion</p>
+          <p style={{ fontWeight: 600, marginTop: 4, fontSize: 13 }}>{project.startDate} → {project.targetCompletionDate}</p>
         </div>
         <div className="ac-card">
-          <p className="ac-kpi-label">Target Completion</p>
-          <p style={{ fontWeight: 600, marginTop: 4 }}>{project.targetCompletionDate}</p>
+          <p className="ac-kpi-label">Actual Start / Completion</p>
+          <p style={{ fontWeight: 600, marginTop: 4, fontSize: 13 }}>{project.actualStartDate ?? "Not started"} → {project.actualCompletionDate ?? "In progress"}</p>
+        </div>
+      </div>
+
+      <div className="ac-grid-2 ac-section">
+        <div className="ac-card">
+          <p className="ac-kpi-label">Lead Technician</p>
+          <p style={{ fontWeight: 600, marginTop: 4 }}>{leadTechnician ? <Link href={`/maintenance/technicians/${leadTechnician.id}`}>{leadTechnician.name}</Link> : "Unassigned"}</p>
+        </div>
+        <div className="ac-card">
+          <p className="ac-kpi-label">Project Type</p>
+          <p style={{ fontWeight: 600, marginTop: 4 }}>{project.projectType.replace(/_/g, " ")}</p>
         </div>
       </div>
 
@@ -76,12 +94,13 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
             </p>
             <p className="ac-text-sm ac-text-secondary" style={{ margin: "6px 0" }}>Potential contributors:</p>
             <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13 }}>
-              {overdueCount > 0 && <li>{overdueCount} overdue task{overdueCount > 1 ? "s" : ""}</li>}
-              {awaitingPartsCount > 0 && <li>{awaitingPartsCount} part{awaitingPartsCount > 1 ? "s" : ""} awaiting receipt</li>}
-              {awaitingReviewComplianceCount > 0 && <li>{awaitingReviewComplianceCount} compliance review pending</li>}
+              {overdueOrders.length > 0 && <li>{overdueOrders.length} overdue task{overdueOrders.length > 1 ? "s" : ""}</li>}
+              {awaitingPartsOrders.length > 0 && <li>{awaitingPartsOrders.length} part{awaitingPartsOrders.length > 1 ? "s" : ""} awaiting receipt</li>}
+              {awaitingReviewOrders.length > 0 && <li>{awaitingReviewOrders.length} compliance/task review pending</li>}
+              {project.riskNotes.map((note, idx) => <li key={idx}>{note}</li>)}
             </ul>
             <p className="ac-text-sm" style={{ margin: 0 }}>
-              Recommended action: Prioritize {orders.find((o) => o.status === "OVERDUE")?.workOrderNumber ?? "outstanding work orders"} and any pending compliance review.
+              Recommended action: Prioritize {overdueOrders[0]?.workOrderNumber ?? "outstanding work orders"} and any pending compliance review.
             </p>
           </div>
         </section>
@@ -92,8 +111,21 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
         <div className="ac-grid-2">
           {packages.map((wp) => (
             <div key={wp.id} className="ac-card">
-              <p style={{ fontWeight: 600, margin: "0 0 4px" }}>{wp.title}</p>
-              <p className="ac-text-sm ac-text-secondary" style={{ margin: 0 }}>{wp.description}</p>
+              <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 4 }}>
+                <p style={{ fontWeight: 600, margin: 0 }}>{wp.title} <span className="ac-text-muted ac-text-sm">ATA {wp.ataChapter}</span></p>
+                <StatusBadge {...workPackageStatusBadge(wp.status)} />
+              </div>
+              <p className="ac-text-sm ac-text-secondary" style={{ margin: "0 0 8px" }}>{wp.description}</p>
+              <div className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 6 }}>
+                <div style={{ width: 100, height: 6, borderRadius: 4, background: "var(--ac-border)", overflow: "hidden" }}>
+                  <div style={{ width: `${wp.completionPercent}%`, height: "100%", background: "var(--ac-accent)" }} />
+                </div>
+                <span className="ac-text-sm ac-text-muted">{wp.completionPercent}% · due {wp.dueDate}</span>
+              </div>
+              <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                Technician: {wp.assignedTechnicianId ? getTechnicianById(wp.assignedTechnicianId)?.name : "Unassigned"} · Inspector: {wp.inspectorId ? getTechnicianById(wp.inspectorId)?.name : "Not yet assigned"}
+                {wp.complianceReference && <> · Ref: <span className="ac-mono">{wp.complianceReference}</span></>}
+              </p>
             </div>
           ))}
         </div>
@@ -106,16 +138,20 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
         </div>
         <div className="ac-card" style={{ padding: 0 }}>
           <table className="ac-table">
-            <thead><tr><th>WO#</th><th>Title</th><th>Priority</th><th>Technician</th><th>Due</th><th>Status</th></tr></thead>
+            <thead><tr><th>WO#</th><th>Task</th><th>ATA</th><th>Priority</th><th>Technician</th><th>Due</th><th>Status</th></tr></thead>
             <tbody>
               {orders.map((o) => (
                 <tr key={o.id}>
                   <td className="ac-mono"><Link href={`/maintenance/work-orders/${o.id}`}>{o.workOrderNumber}</Link></td>
                   <td className="ac-text-sm"><Link href={`/maintenance/work-orders/${o.id}`}>{o.title}</Link></td>
+                  <td className="ac-mono ac-text-sm">{o.ataChapter}</td>
                   <td><StatusBadge {...priorityBadge(o.priority)} /></td>
                   <td className="ac-text-sm">{o.assignedTechnicianId ? getTechnicianById(o.assignedTechnicianId)?.name : "Unassigned"}</td>
                   <td className="ac-mono ac-text-sm">{o.dueDate}</td>
-                  <td><StatusBadge {...workOrderStatusBadge(o.status)} /></td>
+                  <td className="ac-flex ac-gap-2">
+                    <StatusBadge {...workOrderStatusBadge(o.status)} />
+                    {isOverdue(o) && <StatusBadge {...overdueBadge()} />}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -145,7 +181,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
         </section>
 
         <section>
-          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Parts Awaiting</h2>
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Parts</h2>
           <div className="ac-card">
             {partIds.length === 0 && <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No parts required.</p>}
             <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
@@ -154,7 +190,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                 if (!p) return null;
                 return (
                   <li key={id} className="ac-flex ac-justify-between" style={{ padding: "6px 0", borderBottom: "1px solid var(--ac-border-subtle)", fontSize: 13 }}>
-                    <span className="ac-mono">{p.partNumber}</span>
+                    <span className="ac-mono">{p.partNumber}{p.serialNumber ? ` / ${p.serialNumber}` : ""}</span>
                     <StatusBadge {...partStatusBadge(p.status)} />
                   </li>
                 );
@@ -167,12 +203,15 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
       <section className="ac-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Defects</h2>
         <div className="ac-card">
-          {projectDefects.length === 0 && <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No defects reported for this aircraft.</p>}
+          {projectDefects.length === 0 && <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No defects reported for this project&rsquo;s work orders.</p>}
           <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
             {projectDefects.map((d) => (
               <li key={d.id} className="ac-flex ac-justify-between ac-items-center" style={{ padding: "8px 0", borderBottom: "1px solid var(--ac-border-subtle)" }}>
-                <span className="ac-text-sm">{d.description}</span>
-                <StatusBadge {...defectStatusBadge(d.status)} />
+                <span className="ac-text-sm">ATA {d.ataChapter} — {d.description}</span>
+                <div className="ac-flex ac-gap-2">
+                  <StatusBadge {...priorityBadge(d.severity)} />
+                  <StatusBadge {...defectStatusBadge(d.status)} />
+                </div>
               </li>
             ))}
           </ul>

@@ -10,7 +10,7 @@ import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getTechnicianById } from "@/lib/mock/technicians";
 import type { WorkOrder, WorkOrderStatus } from "@/lib/mock/types";
 
-const STATUSES: WorkOrderStatus[] = ["PLANNED", "OPEN", "IN_PROGRESS", "AWAITING_PARTS", "AWAITING_REVIEW", "COMPLETED", "OVERDUE", "DEFERRED"];
+const STATUSES: WorkOrderStatus[] = ["DRAFT", "ASSIGNED", "IN_PROGRESS", "WAITING_PARTS", "WAITING_INSPECTION", "COMPLETED", "CANCELLED"];
 
 export default function WorkOrdersListPage() {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");

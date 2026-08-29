@@ -52,7 +52,7 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
   const projects = projectsForAircraft(aircraft.id);
   const activeProject = projects.find((p) => p.status === "IN_PROGRESS") ?? projects[0];
   const aircraftWorkOrders = workOrdersForAircraft(aircraft.id);
-  const openAircraftWorkOrders = aircraftWorkOrders.filter((w) => !["COMPLETED", "DEFERRED"].includes(w.status));
+  const openAircraftWorkOrders = aircraftWorkOrders.filter((w) => !["COMPLETED", "CANCELLED"].includes(w.status));
   const aircraftDefects = defectsForAircraft(aircraft.id);
 
   const engineColumns: Column<EngineInstallation>[] = [

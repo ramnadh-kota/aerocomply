@@ -267,30 +267,50 @@ export interface MaintenanceEvent {
 // --- MRO operations layer (compliance-connected, not a disconnected module) ---
 
 export type MaintenanceProjectType = "C_CHECK" | "A_CHECK" | "D_CHECK" | "UNSCHEDULED" | "MODIFICATION";
-export type MaintenanceProjectStatus = "PLANNED" | "IN_PROGRESS" | "ON_HOLD" | "COMPLETED";
+export type MaintenanceProjectStatus = "PLANNED" | "IN_PROGRESS" | "ON_HOLD" | "COMPLETED" | "CANCELLED";
+export type Priority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export type WorkPackageStatus = "NOT_STARTED" | "IN_PROGRESS" | "BLOCKED" | "READY_FOR_INSPECTION" | "COMPLETED";
 
 export interface WorkPackage {
   id: string;
   projectId: string;
+  aircraftId: string;
   title: string;
   description: string;
+  ataChapter: string; // e.g. "72" (Engine)
+  status: WorkPackageStatus;
+  completionPercent: number;
+  dueDate: string;
+  assignedTechnicianId: string | null;
+  inspectorId: string | null;
+  requiredPartIds: string[];
+  requiredTools: string[];
+  complianceReference: string | null; // free-text reference, e.g. an AD/SB number
 }
 
 export interface MaintenanceProject {
   id: string;
+  projectNumber: string; // e.g. "PRJ-2026-001"
   title: string; // e.g. "VT-ABC — C-Check"
   aircraftId: string;
   projectType: MaintenanceProjectType;
   status: MaintenanceProjectStatus;
+  priority: Priority;
   projectManager: string;
-  startDate: string;
-  targetCompletionDate: string;
+  leadTechnicianId: string | null;
+  startDate: string; // planned start
+  targetCompletionDate: string; // planned completion
+  actualStartDate: string | null;
+  actualCompletionDate: string | null;
   progressPercent: number;
   workPackageIds: string[];
+  riskNotes: string[];
 }
 
-export type Priority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-export type WorkOrderStatus = "PLANNED" | "OPEN" | "IN_PROGRESS" | "AWAITING_PARTS" | "AWAITING_REVIEW" | "COMPLETED" | "OVERDUE" | "DEFERRED";
+// DRAFT -> ASSIGNED -> IN_PROGRESS -> (WAITING_PARTS / WAITING_INSPECTION) -> COMPLETED, or CANCELLED at any point.
+export type WorkOrderStatus = "DRAFT" | "ASSIGNED" | "IN_PROGRESS" | "WAITING_PARTS" | "WAITING_INSPECTION" | "COMPLETED" | "CANCELLED";
+export type MaintenanceType = "INSPECTION" | "REPAIR" | "REPLACEMENT" | "MODIFICATION" | "SCHEDULED";
 
 export interface Technician {
   id: string;
@@ -299,16 +319,51 @@ export interface Technician {
   shiftStart: string; // "06:00"
   shiftEnd: string; // "14:00"
   certifications: string[];
+  isInspector?: boolean;
 }
 
 export type PartStatus = "IN_STOCK" | "ORDERED" | "AWAITING_RECEIPT";
+export type PartClassification = "BATCH" | "SERIALIZED";
 
 export interface Part {
   id: string;
   partNumber: string;
+  serialNumber: string | null; // null for batch-tracked parts — see ADR-009
   description: string;
+  classification: PartClassification;
   status: PartStatus;
   quantity: number;
+  location: string; // e.g. "Stores — Bay 3"
+  installedAircraftId: string | null;
+  installedComponentInstanceId: string | null; // -> ComponentInstance, when this part IS an installed component
+  workOrderId: string | null; // work order this part is reserved/required for
+  lifeLimitInfo: string | null; // e.g. "12,000 cycles life limit — not applicable to this part"
+}
+
+export interface Finding {
+  id: string;
+  workOrderId: string;
+  checklistItemId: string | null;
+  description: string;
+  severity: Priority;
+  requiresDefect: boolean;
+}
+
+export interface TechnicianSignOff {
+  technicianId: string;
+  timestamp: string;
+  confirmed: boolean;
+}
+
+export type InspectorReviewStatus = "PENDING_INSPECTION" | "APPROVED" | "REJECTED" | "RETURNED_FOR_CORRECTION";
+
+export interface InspectorReview {
+  id: string;
+  workOrderId: string;
+  inspectorId: string;
+  status: InspectorReviewStatus;
+  comments: string;
+  reviewedAt: string | null;
 }
 
 export interface WorkOrder {
@@ -318,21 +373,46 @@ export interface WorkOrder {
   workPackageId: string | null;
   aircraftId: string;
   title: string;
+  ataChapter: string;
+  maintenanceType: MaintenanceType;
   priority: Priority;
   assignedTechnicianId: string | null;
+  inspectorId: string | null;
+  plannedStartDate: string;
   dueDate: string;
+  completionDate: string | null;
   status: WorkOrderStatus;
   requiredPartIds: string[];
   requiredTools: string[];
   relatedRequirementId: string | null; // -> RegulatoryRequirement
   relatedAssessmentId: string | null; // -> ApplicabilityAssessment
   checklistId: string | null;
+  findingIds: string[];
+  signOff: TechnicianSignOff | null;
+  inspectorReviewId: string | null; // -> InspectorReview
 }
 
+// Checklist item DEFINITION (static template data). Runtime completion state
+// (result/actualValue/note/evidenceAttached) lives in ChecklistPanel's local
+// React state only — never persisted, per the M0.5 prototype's Human Review
+// pattern (see docs/adr/ADR-005).
 export interface ChecklistItem {
   id: string;
   label: string;
+  instruction: string;
+  acceptanceCriteria: string;
+  requiresMeasurement: boolean;
+  unit: string | null;
+  minLimit: number | null;
+  maxLimit: number | null;
+  findingRequiredOnFail: boolean;
+  evidenceRequired: boolean;
 }
+
+// Three-valued-plus-NA result for one checklist item at runtime. Mirrors the
+// ConditionResult pattern used for applicability conditions: UNKNOWN is a
+// distinct, first-class outcome, never silently coerced to PASS or FAIL.
+export type ChecklistItemResult = "PASS" | "FAIL" | "NOT_APPLICABLE" | "UNKNOWN";
 
 export interface Checklist {
   id: string;
@@ -346,17 +426,22 @@ export interface Checklist {
   items: ChecklistItem[];
 }
 
-export type DefectSeverity = "MINOR" | "MAJOR" | "CRITICAL";
+export type DefectSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type DefectStatus = "OPEN" | "DEFERRED" | "RESOLVED";
 
 export interface Defect {
   id: string;
   aircraftId: string;
   workOrderId: string | null;
+  componentInstanceId: string | null;
+  ataChapter: string;
   description: string;
   severity: DefectSeverity;
   status: DefectStatus;
+  discoveredBy: string;
   reportedDate: string;
+  correctiveAction: string | null;
+  inspectorDecision: string | null;
 }
 
 export interface AuditEvent {
