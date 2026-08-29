@@ -2,8 +2,11 @@ import type { Checklist } from "./types";
 
 // MOCK DATA. Checklist item DEFINITIONS only (instruction, acceptance
 // criteria, measurement bounds). Runtime completion state (result per item,
-// actual values, notes, evidence-attached) lives only in ChecklistPanel's
-// local React state — this is a prototype, not persisted to a backend.
+// actual values, notes, evidence-attached, sign-off, inspector decision) is
+// held in the shared MroStateContext (lib/mro-state/), NOT here and NOT in
+// any single page's local state — this is what makes the technician's
+// submission the same submission the inspector reviews. Still a prototype:
+// nothing here or in the context is persisted to a backend.
 
 export const checklists: Checklist[] = [
   {
@@ -48,6 +51,58 @@ export const checklists: Checklist[] = [
       { id: "i8", label: "Photos attached", instruction: "Attach photos of the completed installation.", acceptanceCriteria: "At least one photo attached.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: true },
       { id: "i9", label: "Findings recorded", instruction: "Record any findings, even if within acceptable limits.", acceptanceCriteria: "Findings field completed or explicitly marked none.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
       { id: "i10", label: "Task completed", instruction: "Confirm all prior steps are complete before sign-off.", acceptanceCriteria: "All items resolved (Pass, Fail, or N/A).", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+    ],
+  },
+  {
+    id: "chk-1045",
+    workOrderId: "wo-1045",
+    title: "Wing Spar Structural Inspection",
+    requiredReference: "AD-2026-004 rev. 0",
+    requiredTools: ["NDT Kit"],
+    requiredParts: [],
+    requiredEvidence: "NDT scan images and inspection log",
+    acceptanceCriteria: "No fatigue indications exceeding AD-2026-004's structural repair manual limits at any inspected station.",
+    items: [
+      { id: "s1", label: "Aircraft identified", instruction: "Confirm registration and MSN match the work order.", acceptanceCriteria: "Registration and MSN match N412MX.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+      { id: "s2", label: "NDT equipment calibrated", instruction: "Confirm NDT kit calibration is current.", acceptanceCriteria: "Calibration sticker current.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+      { id: "s3", label: "Wing spar station 340 inspected", instruction: "Perform NDT scan of wing spar at station 340 per AD-2026-004.", acceptanceCriteria: "No fatigue indications exceeding structural repair manual limits.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: true, evidenceRequired: true },
+      { id: "s4", label: "Findings recorded", instruction: "Record any indications found, even if within limits.", acceptanceCriteria: "Findings field completed or explicitly marked none.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+      { id: "s5", label: "Photos/scans attached", instruction: "Attach NDT scan images.", acceptanceCriteria: "At least one scan image per inspected station.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: true },
+      { id: "s6", label: "Task completed", instruction: "Confirm all prior steps are complete before sign-off.", acceptanceCriteria: "All items resolved (Pass, Fail, or N/A).", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+    ],
+  },
+  {
+    id: "chk-1048",
+    workOrderId: "wo-1048",
+    title: "Fan Disk Ultrasonic Inspection Sign-off",
+    requiredReference: "AD-2026-001 rev. 1",
+    requiredTools: ["Borescope"],
+    requiredParts: [],
+    requiredEvidence: "Ultrasonic scan record",
+    acceptanceCriteria: "No indications exceeding AD-2026-001's acceptance criteria.",
+    items: [
+      { id: "a1", label: "Aircraft identified", instruction: "Confirm registration and MSN match the work order.", acceptanceCriteria: "Registration and MSN match N305ML.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+      { id: "a2", label: "AD-2026-001 revision verified", instruction: "Confirm AD-2026-001 rev. 1 is the current applicable revision.", acceptanceCriteria: "Revision matches the work order reference.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: true, evidenceRequired: false },
+      { id: "a3", label: "Fan disk ultrasonic scan performed", instruction: "Perform ultrasonic inspection of the fan disk per AD-2026-001.", acceptanceCriteria: "No indications exceeding acceptance criteria.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: true, evidenceRequired: true },
+      { id: "a4", label: "Scan results recorded", instruction: "Record scan results in the inspection log.", acceptanceCriteria: "Log entry completed.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+      { id: "a5", label: "Task completed", instruction: "Confirm all prior steps are complete before sign-off.", acceptanceCriteria: "All items resolved (Pass, Fail, or N/A).", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+    ],
+  },
+  {
+    id: "chk-1044",
+    workOrderId: "wo-1044",
+    title: "Engine 1 Borescope Follow-up (Defect Rectification)",
+    requiredReference: "Internal follow-up — DEF-1",
+    requiredTools: ["Borescope"],
+    requiredParts: [],
+    requiredEvidence: "Follow-up borescope images",
+    acceptanceCriteria: "Scoring depth on the affected fan blade root remains within serviceable limits, or corrective action is identified.",
+    items: [
+      { id: "d1", label: "Aircraft identified", instruction: "Confirm registration and MSN match the work order.", acceptanceCriteria: "Registration and MSN match VT-ABC.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+      { id: "d2", label: "Defect DEF-1 reviewed", instruction: "Review the original DEF-1 finding and prior borescope images.", acceptanceCriteria: "Prior finding reviewed and understood.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+      { id: "d3", label: "Borescope follow-up inspection performed", instruction: "Re-inspect the scoring identified in DEF-1 for progression.", acceptanceCriteria: "Scoring depth within serviceable limits.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: true, evidenceRequired: true },
+      { id: "d4", label: "Corrective action assessed", instruction: "Determine whether corrective action beyond monitoring is required.", acceptanceCriteria: "Assessment recorded.", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
+      { id: "d5", label: "Task completed", instruction: "Confirm all prior steps are complete before sign-off.", acceptanceCriteria: "All items resolved (Pass, Fail, or N/A).", requiresMeasurement: false, unit: null, minLimit: null, maxLimit: null, findingRequiredOnFail: false, evidenceRequired: false },
     ],
   },
 ];

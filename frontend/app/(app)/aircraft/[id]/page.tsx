@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, workOrderStatusBadge, projectStatusBadge, defectStatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, workOrderStatusBadge, projectStatusBadge, defectStatusBadge, inspectorReviewStatusBadge } from "@/components/status/StatusBadge";
 import { DataTable, type Column } from "@/components/tables/DataTable";
 import {
   getAircraftById,
@@ -24,6 +24,7 @@ import { projectsForAircraft } from "@/lib/mock/maintenanceProjects";
 import { workOrdersForAircraft } from "@/lib/mock/workOrders";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { getTechnicianById } from "@/lib/mock/technicians";
+import { getInspectorReviewById } from "@/lib/mock/inspectorReviews";
 import { Timeline } from "@/components/timeline/Timeline";
 import type { ApplicabilityAssessment, ComponentInstallation, EngineInstallation } from "@/lib/mock/types";
 
@@ -220,6 +221,17 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
                   <span className="ac-text-sm ac-text-muted">{activeProject.progressPercent}% complete · target {activeProject.targetCompletionDate}</span>
                 </div>
               </Link>
+              {(() => {
+                const pendingInspectionWO = aircraftWorkOrders.find((w) => w.inspectorReviewId && w.status === "WAITING_INSPECTION");
+                const review = pendingInspectionWO?.inspectorReviewId ? getInspectorReviewById(pendingInspectionWO.inspectorReviewId) : undefined;
+                if (!pendingInspectionWO || !review) return null;
+                return (
+                  <Link href={`/maintenance/inspections/${pendingInspectionWO.id}`} className="ac-card ac-flex ac-justify-between ac-items-center" style={{ marginTop: 8 }}>
+                    <span className="ac-text-sm">Inspection Status — {pendingInspectionWO.workOrderNumber}</span>
+                    <StatusBadge {...inspectorReviewStatusBadge(review.status)} />
+                  </Link>
+                );
+              })()}
             </section>
           )}
 

@@ -9,6 +9,7 @@ export const inspectorReviews: InspectorReview[] = [
   { id: "ir-2", workOrderId: "wo-1043", inspectorId: "tech-5", status: "APPROVED", comments: "Leak check satisfactory. Approved.", reviewedAt: "2026-03-08T15:00:00Z" },
   { id: "ir-3", workOrderId: "wo-1047", inspectorId: "tech-5", status: "APPROVED", comments: "Software update verified against release notes.", reviewedAt: "2026-01-25T10:00:00Z" },
   { id: "ir-4", workOrderId: "wo-1048", inspectorId: "tech-3", status: "PENDING_INSPECTION", comments: "", reviewedAt: null },
+  { id: "ir-5", workOrderId: "wo-1045", inspectorId: "tech-5", status: "PENDING_INSPECTION", comments: "", reviewedAt: null },
 ];
 
 export function getInspectorReviewById(id: string): InspectorReview | undefined {

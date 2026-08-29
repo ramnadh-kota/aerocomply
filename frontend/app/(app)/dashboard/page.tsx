@@ -10,6 +10,8 @@ import { activeProjects } from "@/lib/mock/maintenanceProjects";
 import { openWorkOrders, overdueWorkOrders, awaitingPartsWorkOrders, awaitingReviewWorkOrders } from "@/lib/mock/workOrders";
 import { techniciansOnShift } from "@/lib/mock/technicians";
 import { workOrderStatusBadge, priorityBadge, projectStatusBadge } from "@/components/status/StatusBadge";
+import { inspectorReviews } from "@/lib/mock/inspectorReviews";
+import { findings } from "@/lib/mock/findings";
 
 const KPIS = [
   { label: "Total Aircraft", value: "128", href: "/aircraft" },
@@ -45,6 +47,8 @@ export default function DashboardPage() {
   const awaitingReviewWOs = awaitingReviewWorkOrders();
   const onShift = techniciansOnShift();
   const criticalWOs = openWOs.filter((w) => w.priority === "CRITICAL" || w.priority === "HIGH").slice(0, 5);
+  const inspectionsAwaitingReview = inspectorReviews.filter((r) => r.status === "PENDING_INSPECTION").length;
+  const checklistExceptions = findings.filter((f) => f.requiresDefect).length;
 
   return (
     <div>
@@ -98,8 +102,16 @@ export default function DashboardPage() {
             <p className="ac-kpi-value">{awaitingPartsWOs.length}</p>
           </Link>
           <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
-            <p className="ac-kpi-label">Maintenance Tasks Awaiting Review</p>
+            <p className="ac-kpi-label">Work Orders Waiting Inspection</p>
             <p className="ac-kpi-value">{awaitingReviewWOs.length}</p>
+          </Link>
+          <Link href="/maintenance/inspections" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Inspections Awaiting Review</p>
+            <p className="ac-kpi-value">{inspectionsAwaitingReview}</p>
+          </Link>
+          <Link href="/maintenance/defects" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Checklist Exceptions</p>
+            <p className="ac-kpi-value">{checklistExceptions}</p>
           </Link>
         </div>
       </section>

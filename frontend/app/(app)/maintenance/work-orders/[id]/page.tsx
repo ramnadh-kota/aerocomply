@@ -64,8 +64,15 @@ export default function WorkOrderDetailPage({ params }: { params: { id: string }
             {" → "}
             <span className="ac-mono">{wo.workOrderNumber}</span>
             {technician && <> → {technician.name}</>}
+            {wo.inspectorReviewId && <> → <Link href={`/maintenance/inspections/${wo.id}`} className="ac-mono">Inspection</Link></>}
             {requirement && <> → <Link href={`/regulations/${requirement.id}`} className="ac-mono">{requirement.requirementNumber}</Link></>}
-            {assessment && <> → <Link href={`/assessments/${assessment.id}`} className="ac-mono">Assessment</Link> → Human Review → Audit Trail</>}
+            {assessment && (
+              <>
+                {" → "}<Link href={`/assessments/${assessment.id}`} className="ac-mono">Assessment</Link>
+                {" → "}<Link href={`/assessments/${assessment.id}`} className="ac-mono">Human Review</Link>
+                {" → "}<Link href="/audit" className="ac-mono">Audit Trail</Link>
+              </>
+            )}
           </p>
         </div>
       )}
@@ -121,10 +128,17 @@ export default function WorkOrderDetailPage({ params }: { params: { id: string }
         </section>
       )}
 
+      {wo.inspectorReviewId && (
+        <div className="ac-card ac-section" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span className="ac-text-sm">This work order has been submitted for inspection.</span>
+          <Link href={`/maintenance/inspections/${wo.id}`} className="ac-btn ac-btn-primary">Open Inspection →</Link>
+        </div>
+      )}
+
       {checklist && (
         <section className="ac-section">
           <h2 className="ac-h2" style={{ marginBottom: 10 }}>Task Checklist</h2>
-          <ChecklistPanel checklist={checklist} />
+          <ChecklistPanel checklist={checklist} workOrderId={wo.id} />
         </section>
       )}
 

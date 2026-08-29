@@ -1,37 +1,43 @@
 "use client";
 
 import { useState } from "react";
-import type { InspectorReview, InspectorReviewStatus } from "@/lib/mock/types";
+import type { InspectorReviewStatus } from "@/lib/mock/types";
 import { StatusBadge, inspectorReviewStatusBadge } from "@/components/status/StatusBadge";
 import { getTechnicianById } from "@/lib/mock/technicians";
+import { useChecklistRecord, useMroState } from "@/lib/mro-state/MroStateContext";
 
 const DECISIONS: { value: InspectorReviewStatus; label: string }[] = [
   { value: "APPROVED", label: "Pass" },
   { value: "REJECTED", label: "Fail" },
-  { value: "RETURNED_FOR_CORRECTION", label: "Return for Correction" },
+  { value: "RETURNED_FOR_CORRECTION", label: "Return for Rework" },
 ];
 
 interface InspectorReviewPanelProps {
-  review: InspectorReview;
+  workOrderId: string;
+  inspectorId: string;
   /** Reasons PASS is currently blocked (e.g. unresolved UNKNOWN checklist items,
    * open CRITICAL defects). Empty array = PASS is allowed. */
   blockPassReasons?: string[];
 }
 
 /**
- * Inspector Decision quality gate, after technician sign-off. Local
- * component state only — mirrors the same non-persisted, clearly-labeled
- * prototype pattern as ChecklistPanel and the compliance Human Review
- * screen. Nothing here is written to a backend.
+ * Inspector Decision quality gate, after technician sign-off. Reads and
+ * writes the SAME shared checklist record (via MroStateContext) the
+ * technician submitted — the inspector reviews the actual submission, not an
+ * independently-seeded copy. Still a prototype: nothing here is persisted to
+ * a backend; a fresh page load resets the session's in-memory state.
  */
-export function InspectorReviewPanel({ review, blockPassReasons = [] }: InspectorReviewPanelProps) {
-  const inspector = getTechnicianById(review.inspectorId);
-  const [decision, setDecision] = useState<InspectorReviewStatus | null>(review.status === "PENDING_INSPECTION" ? null : review.status);
-  const [comments, setComments] = useState(review.comments);
-  const [submitted, setSubmitted] = useState<{ status: InspectorReviewStatus; at: string; comments: string } | null>(
-    review.status !== "PENDING_INSPECTION" ? { status: review.status, at: review.reviewedAt ?? "", comments: review.comments } : null
-  );
+export function InspectorReviewPanel({ workOrderId, inspectorId, blockPassReasons = [] }: InspectorReviewPanelProps) {
+  const record = useChecklistRecord(workOrderId);
+  const { submitInspectorDecision } = useMroState();
+  const inspector = getTechnicianById(inspectorId);
 
+  const [decision, setDecision] = useState<InspectorReviewStatus | null>(null);
+  const [comments, setComments] = useState("");
+
+  if (!record) return null;
+
+  const alreadyDecided = record.inspectorDecisionStatus !== "PENDING_INSPECTION";
   const passBlocked = blockPassReasons.length > 0;
   const requiresComment = decision === "REJECTED" || decision === "RETURNED_FOR_CORRECTION";
   const commentMissing = requiresComment && comments.trim().length === 0;
@@ -39,28 +45,28 @@ export function InspectorReviewPanel({ review, blockPassReasons = [] }: Inspecto
 
   function handleSubmit() {
     if (!decision || !canSubmit) return;
-    setSubmitted({ status: decision, at: new Date().toISOString(), comments });
+    submitInspectorDecision(workOrderId, decision, comments);
   }
 
   return (
     <div className="ac-card">
       <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
         <p className="ac-eyebrow" style={{ margin: 0 }}>Inspector Decision</p>
-        <StatusBadge {...inspectorReviewStatusBadge(submitted?.status ?? "PENDING_INSPECTION")} />
+        <StatusBadge {...inspectorReviewStatusBadge(record.inspectorDecisionStatus)} />
       </div>
 
       <p className="ac-text-sm ac-text-secondary" style={{ marginBottom: 12 }}>
-        Inspector: {inspector?.name ?? review.inspectorId} ({inspector?.role})
+        Inspector: {inspector?.name ?? inspectorId} ({inspector?.role})
       </p>
 
-      {submitted ? (
+      {alreadyDecided ? (
         <div>
           <p style={{ fontWeight: 600, margin: "0 0 4px" }}>
-            {DECISIONS.find((d) => d.value === submitted.status)?.label ?? submitted.status.replace(/_/g, " ")}
+            {DECISIONS.find((d) => d.value === record.inspectorDecisionStatus)?.label ?? record.inspectorDecisionStatus.replace(/_/g, " ")}
           </p>
-          {submitted.comments && <p className="ac-text-sm ac-text-secondary" style={{ margin: "0 0 4px" }}>&ldquo;{submitted.comments}&rdquo;</p>}
+          {record.inspectorComments && <p className="ac-text-sm ac-text-secondary" style={{ margin: "0 0 4px" }}>&ldquo;{record.inspectorComments}&rdquo;</p>}
           <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-            {inspector?.name ?? review.inspectorId} · {submitted.at ? new Date(submitted.at).toLocaleString() : "—"}
+            {inspector?.name ?? inspectorId} · {record.inspectorReviewedAt ? new Date(record.inspectorReviewedAt).toLocaleString() : "—"}
           </p>
         </div>
       ) : (
@@ -104,7 +110,7 @@ export function InspectorReviewPanel({ review, blockPassReasons = [] }: Inspecto
           <label className="ac-flex ac-flex-col ac-gap-2" style={{ marginBottom: 10 }}>
             <span className="ac-text-sm ac-text-secondary">
               {decision === "REJECTED" && <span style={{ color: "var(--ac-status-non-compliant)" }}>Justification (required for Fail)</span>}
-              {decision === "RETURNED_FOR_CORRECTION" && <span style={{ color: "var(--ac-status-review)" }}>Reason (required for Return for Correction)</span>}
+              {decision === "RETURNED_FOR_CORRECTION" && <span style={{ color: "var(--ac-status-review)" }}>Reason (required for Return for Rework)</span>}
               {decision !== "REJECTED" && decision !== "RETURNED_FOR_CORRECTION" && "Comments"}
             </span>
             <textarea
@@ -128,7 +134,7 @@ export function InspectorReviewPanel({ review, blockPassReasons = [] }: Inspecto
       )}
 
       <p className="ac-text-sm ac-text-muted" style={{ marginTop: 12 }}>
-        Prototype note: this decision is held in local component state only and is not persisted to a backend.
+        Prototype note: this decision is held in shared in-memory state for this session only and is not persisted to a backend.
       </p>
     </div>
   );

@@ -1,54 +1,46 @@
 "use client";
 
-import { useState } from "react";
 import type { Checklist, ChecklistItemResult } from "@/lib/mock/types";
 import { StatusBadge, checklistResultBadge } from "@/components/status/StatusBadge";
+import { useChecklistRecord, useMroState } from "@/lib/mro-state/MroStateContext";
 
 const RESULT_OPTIONS: ChecklistItemResult[] = ["PASS", "FAIL", "NOT_APPLICABLE", "UNKNOWN"];
-
-interface ItemState {
-  result: ChecklistItemResult | null;
-  actualValue: string;
-  note: string;
-  evidenceAttached: boolean;
-}
+const DEMO_TECHNICIAN_ID = "tech-1"; // prototype: sign-off identity is not tied to real auth
 
 /**
- * Interactive checklist for a work order task. All state is local React
- * state only — nothing here is persisted to a backend. This is a prototype
- * of the technician sign-off + inspector review workflow, clearly labeled.
+ * Interactive checklist for a work order task. Reads and writes the SAME
+ * shared submission record (via MroStateContext) that the Inspector Decision
+ * screen reviews — this is what makes the technician's submission the
+ * submission the inspector sees, not a separate re-seeded copy. Still a
+ * prototype: state is in-memory only, never persisted to a backend.
  *
  * UNKNOWN is a first-class result, never coerced to PASS or FAIL — if any
  * item is UNKNOWN, the overall outcome is REVIEW REQUIRED, never a silent
  * pass.
  */
-export function ChecklistPanel({ checklist }: { checklist: Checklist }) {
-  const [items, setItems] = useState<Record<string, ItemState>>(
-    Object.fromEntries(checklist.items.map((i) => [i.id, { result: null, actualValue: "", note: "", evidenceAttached: false }]))
-  );
-  const [signOff, setSignOff] = useState<{ by: string; at: string } | null>(null);
-  const [submitted, setSubmitted] = useState(false);
+export function ChecklistPanel({ checklist, workOrderId }: { checklist: Checklist; workOrderId: string }) {
+  const record = useChecklistRecord(workOrderId);
+  const { updateChecklistItem, technicianSignOff, submitForInspection } = useMroState();
 
-  const resolvedCount = Object.values(items).filter((i) => i.result !== null).length;
-  const unknownCount = Object.values(items).filter((i) => i.result === "UNKNOWN").length;
-  const failCount = Object.values(items).filter((i) => i.result === "FAIL").length;
+  if (!record) return null;
+
+  const submitted = record.submissionStatus === "SUBMITTED";
+  const items = record.items;
+  const resolvedCount = checklist.items.filter((i) => items[i.id]?.result !== null && items[i.id] !== undefined).length;
+  const unknownCount = checklist.items.filter((i) => items[i.id]?.result === "UNKNOWN").length;
+  const failCount = checklist.items.filter((i) => items[i.id]?.result === "FAIL").length;
   const progress = Math.round((resolvedCount / checklist.items.length) * 100);
   const allResolved = resolvedCount === checklist.items.length;
 
   const overallOutcome: ChecklistItemResult | "REVIEW_REQUIRED" = unknownCount > 0 ? "REVIEW_REQUIRED" : failCount > 0 ? "FAIL" : "PASS";
 
-  function setItemState(id: string, patch: Partial<ItemState>) {
-    if (submitted) return;
-    setItems((s) => ({ ...s, [id]: { ...s[id], ...patch } }));
-  }
-
   function handleSignOff() {
-    setSignOff({ by: "Rahul Menon", at: new Date().toISOString() });
+    technicianSignOff(workOrderId, DEMO_TECHNICIAN_ID);
   }
 
   function handleSubmit() {
-    if (!allResolved || !signOff) return;
-    setSubmitted(true);
+    if (!allResolved || !record?.technicianSignOff) return;
+    submitForInspection(workOrderId);
   }
 
   return (
@@ -88,7 +80,7 @@ export function ChecklistPanel({ checklist }: { checklist: Checklist }) {
         <legend className="ac-text-sm ac-text-secondary" style={{ marginBottom: 8 }}>Checklist Items</legend>
         <div className="ac-flex ac-flex-col ac-gap-3">
           {checklist.items.map((item) => {
-            const state = items[item.id];
+            const state = items[item.id] ?? { result: null, actualValue: "", note: "", evidenceAttached: false };
             const withinLimits =
               item.requiresMeasurement && state.actualValue !== "" && item.minLimit !== null && item.maxLimit !== null
                 ? Number(state.actualValue) >= item.minLimit && Number(state.actualValue) <= item.maxLimit
@@ -109,7 +101,7 @@ export function ChecklistPanel({ checklist }: { checklist: Checklist }) {
                       className="ac-input"
                       style={{ maxWidth: 120 }}
                       value={state.actualValue}
-                      onChange={(e) => setItemState(item.id, { actualValue: e.target.value })}
+                      onChange={(e) => updateChecklistItem(workOrderId, item.id, { actualValue: e.target.value })}
                       aria-label={`${item.label} measured value`}
                       placeholder="Value"
                     />
@@ -131,7 +123,7 @@ export function ChecklistPanel({ checklist }: { checklist: Checklist }) {
                       type="button"
                       className="ac-btn"
                       style={state.result === opt ? { borderColor: "var(--ac-accent)", color: "var(--ac-accent-hover)" } : undefined}
-                      onClick={() => setItemState(item.id, { result: opt })}
+                      onClick={() => updateChecklistItem(workOrderId, item.id, { result: opt })}
                       disabled={submitted}
                     >
                       {opt.replace(/_/g, " ")}
@@ -142,18 +134,18 @@ export function ChecklistPanel({ checklist }: { checklist: Checklist }) {
                 {state.result === "FAIL" && item.findingRequiredOnFail && (
                   <label className="ac-flex ac-flex-col ac-gap-2" style={{ marginBottom: 8 }}>
                     <span className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)" }}>Finding required (fail)</span>
-                    <textarea className="ac-input" rows={2} value={state.note} onChange={(e) => setItemState(item.id, { note: e.target.value })} placeholder="Describe the finding…" />
+                    <textarea className="ac-input" rows={2} value={state.note} onChange={(e) => updateChecklistItem(workOrderId, item.id, { note: e.target.value })} placeholder="Describe the finding…" disabled={submitted} />
                   </label>
                 )}
                 {state.result === "UNKNOWN" && (
                   <label className="ac-flex ac-flex-col ac-gap-2" style={{ marginBottom: 8 }}>
                     <span className="ac-text-sm" style={{ color: "var(--ac-status-insufficient)" }}>Why is this unknown? (required information missing — do not guess)</span>
-                    <textarea className="ac-input" rows={2} value={state.note} onChange={(e) => setItemState(item.id, { note: e.target.value })} placeholder="e.g. tooling unavailable, data not accessible…" />
+                    <textarea className="ac-input" rows={2} value={state.note} onChange={(e) => updateChecklistItem(workOrderId, item.id, { note: e.target.value })} placeholder="e.g. tooling unavailable, data not accessible…" disabled={submitted} />
                   </label>
                 )}
                 {item.evidenceRequired && (
                   <label className="ac-flex ac-items-center ac-gap-2" style={{ fontSize: 13 }}>
-                    <input type="checkbox" checked={state.evidenceAttached} onChange={(e) => setItemState(item.id, { evidenceAttached: e.target.checked })} />
+                    <input type="checkbox" checked={state.evidenceAttached} onChange={(e) => updateChecklistItem(workOrderId, item.id, { evidenceAttached: e.target.checked })} disabled={submitted} />
                     Evidence attached for this item
                   </label>
                 )}
@@ -167,22 +159,23 @@ export function ChecklistPanel({ checklist }: { checklist: Checklist }) {
 
       {submitted ? (
         <p style={{ color: "var(--ac-status-compliant)", fontWeight: 600, margin: 0 }}>
-          ✓ Submitted for inspection/review by {signOff?.by} at {signOff ? new Date(signOff.at).toLocaleString() : ""}
+          ✓ Submitted for inspection/review by {record.technicianSignOff?.technicianId} at{" "}
+          {record.submittedAt ? new Date(record.submittedAt).toLocaleString() : ""}
         </p>
       ) : (
         <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
-          <button className="ac-btn" onClick={handleSignOff} disabled={!allResolved || !!signOff}>
-            {signOff ? `Signed off by ${signOff.by}` : "Technician Sign-off"}
+          <button className="ac-btn" onClick={handleSignOff} disabled={!allResolved || !!record.technicianSignOff}>
+            {record.technicianSignOff ? `Signed off by ${record.technicianSignOff.technicianId}` : "Technician Sign-off"}
           </button>
-          <button className="ac-btn ac-btn-primary" onClick={handleSubmit} disabled={!allResolved || !signOff}>
+          <button className="ac-btn ac-btn-primary" onClick={handleSubmit} disabled={!allResolved || !record.technicianSignOff}>
             Submit for Inspection/Review
           </button>
         </div>
       )}
 
       <p className="ac-text-sm ac-text-muted" style={{ marginTop: 12 }}>
-        Prototype note: checklist state is held in local component state only and resets on reload —
-        it is not persisted to a backend.
+        Prototype note: this submission is held in shared in-memory state for this session only —
+        it is not persisted to a backend and resets on reload.
       </p>
     </div>
   );

@@ -2,10 +2,11 @@ import type { ReactNode } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { AviationBackground } from "@/components/layout/AviationBackground";
+import { MroStateProvider } from "@/lib/mro-state/MroStateContext";
 
 export default function AppShellLayout({ children }: { children: ReactNode }) {
   return (
-    <>
+    <MroStateProvider>
       <AviationBackground />
       <div className="ac-shell">
         <a href="#ac-main-content" className="ac-skip-link">
@@ -19,6 +20,6 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
           </main>
         </div>
       </div>
-    </>
+    </MroStateProvider>
   );
 }

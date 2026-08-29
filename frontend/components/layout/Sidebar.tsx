@@ -23,11 +23,12 @@ const PRIMARY_NAV: NavItem[] = [
 const MAINTENANCE_NAV: NavItem[] = [
   { href: "/maintenance/projects", label: "Projects", glyph: "◈" },
   { href: "/maintenance/work-orders", label: "Work Orders", glyph: "☰" },
-  { href: "/maintenance/technicians", label: "Technician Workbench", glyph: "👷" },
-  { href: "/maintenance/tasks", label: "Tasks / Checklists", glyph: "☑" },
+  { href: "/maintenance/technicians", label: "Technicians", glyph: "👷" },
+  { href: "/maintenance/inspections", label: "Inspections", glyph: "🔍" },
+  { href: "/maintenance/tasks", label: "Tasks", glyph: "☑" },
   { href: "/maintenance/defects", label: "Defects", glyph: "⚠" },
-  { href: "/maintenance/parts", label: "Parts & Inventory", glyph: "⛭" },
-  { href: "/maintenance/records", label: "Maintenance Records", glyph: "🗎" },
+  { href: "/maintenance/parts", label: "Parts", glyph: "⛭" },
+  { href: "/maintenance/records", label: "Records", glyph: "🗎" },
 ];
 
 const WORKSPACE_NAV: NavItem[] = [
