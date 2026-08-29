@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, workOrderStatusBadge, projectStatusBadge, defectStatusBadge } from "@/components/status/StatusBadge";
 import { DataTable, type Column } from "@/components/tables/DataTable";
 import {
   getAircraftById,
@@ -20,6 +20,10 @@ import { getOrganizationById } from "@/lib/mock/organizations";
 import { getRequirementById } from "@/lib/mock/regulations";
 import { auditEventsForObjectLabelContains } from "@/lib/mock/audit";
 import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
+import { projectsForAircraft } from "@/lib/mock/maintenanceProjects";
+import { workOrdersForAircraft } from "@/lib/mock/workOrders";
+import { defectsForAircraft } from "@/lib/mock/defects";
+import { getTechnicianById } from "@/lib/mock/technicians";
 import { Timeline } from "@/components/timeline/Timeline";
 import type { ApplicabilityAssessment, ComponentInstallation, EngineInstallation } from "@/lib/mock/types";
 
@@ -45,6 +49,11 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
   const maintenanceEvents = maintenanceEventsForAircraft(aircraft.id);
   const nextAction = maintenanceEvents.find((m) => m.status === "OVERDUE") ?? maintenanceEvents.find((m) => m.status === "SCHEDULED");
   const lastComplianceEvent = assessments[0];
+  const projects = projectsForAircraft(aircraft.id);
+  const activeProject = projects.find((p) => p.status === "IN_PROGRESS") ?? projects[0];
+  const aircraftWorkOrders = workOrdersForAircraft(aircraft.id);
+  const openAircraftWorkOrders = aircraftWorkOrders.filter((w) => !["COMPLETED", "DEFERRED"].includes(w.status));
+  const aircraftDefects = defectsForAircraft(aircraft.id);
 
   const engineColumns: Column<EngineInstallation>[] = [
     { key: "position", header: "Position", render: (i) => i.position },
@@ -195,6 +204,64 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
               </table>
             </div>
           </section>
+
+          {activeProject && (
+            <section className="ac-section">
+              <h2 className="ac-h2" style={{ marginBottom: 10 }}>Active Maintenance Project</h2>
+              <Link href={`/maintenance/projects/${activeProject.id}`} className="ac-card" style={{ display: "block" }}>
+                <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 6 }}>
+                  <span style={{ fontWeight: 600 }}>{activeProject.title}</span>
+                  <StatusBadge {...projectStatusBadge(activeProject.status)} />
+                </div>
+                <div className="ac-flex ac-items-center ac-gap-2">
+                  <div style={{ width: 120, height: 6, borderRadius: 4, background: "var(--ac-border)", overflow: "hidden" }}>
+                    <div style={{ width: `${activeProject.progressPercent}%`, height: "100%", background: "var(--ac-accent)" }} />
+                  </div>
+                  <span className="ac-text-sm ac-text-muted">{activeProject.progressPercent}% complete · target {activeProject.targetCompletionDate}</span>
+                </div>
+              </Link>
+            </section>
+          )}
+
+          <section className="ac-section">
+            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Open Work Orders &amp; Recent Technician Tasks</h2>
+            <div className="ac-card" style={{ padding: 0 }}>
+              <table className="ac-table">
+                <thead><tr><th>WO#</th><th>Task</th><th>Technician</th><th>Due</th><th>Status</th></tr></thead>
+                <tbody>
+                  {aircraftWorkOrders.length === 0 && (
+                    <tr><td colSpan={5} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>No work orders recorded.</td></tr>
+                  )}
+                  {aircraftWorkOrders.slice(0, 6).map((w) => (
+                    <tr key={w.id}>
+                      <td className="ac-mono"><Link href={`/maintenance/work-orders/${w.id}`}>{w.workOrderNumber}</Link></td>
+                      <td className="ac-text-sm">{w.title}</td>
+                      <td className="ac-text-sm">{w.assignedTechnicianId ? getTechnicianById(w.assignedTechnicianId)?.name : "Unassigned"}</td>
+                      <td className="ac-mono ac-text-sm">{w.dueDate}</td>
+                      <td><StatusBadge {...workOrderStatusBadge(w.status)} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="ac-text-sm ac-text-muted" style={{ marginTop: 8 }}>{openAircraftWorkOrders.length} currently open</p>
+          </section>
+
+          <section className="ac-section">
+            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Defects</h2>
+            <div className="ac-card">
+              {aircraftDefects.length === 0 && <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No defects reported.</p>}
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {aircraftDefects.map((d) => (
+                  <li key={d.id} className="ac-flex ac-justify-between ac-items-center" style={{ padding: "6px 0", borderBottom: "1px solid var(--ac-border-subtle)" }}>
+                    <span className="ac-text-sm">{d.description}</span>
+                    <StatusBadge {...defectStatusBadge(d.status)} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+
           <section className="ac-section">
             <h2 className="ac-h2" style={{ marginBottom: 10 }}>Regulatory Assessment Summary</h2>
             <div className="ac-card" style={{ padding: 0 }}>

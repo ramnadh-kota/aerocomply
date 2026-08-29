@@ -264,6 +264,101 @@ export interface MaintenanceEvent {
   relatedAssessmentId: string | null;
 }
 
+// --- MRO operations layer (compliance-connected, not a disconnected module) ---
+
+export type MaintenanceProjectType = "C_CHECK" | "A_CHECK" | "D_CHECK" | "UNSCHEDULED" | "MODIFICATION";
+export type MaintenanceProjectStatus = "PLANNED" | "IN_PROGRESS" | "ON_HOLD" | "COMPLETED";
+
+export interface WorkPackage {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+}
+
+export interface MaintenanceProject {
+  id: string;
+  title: string; // e.g. "VT-ABC — C-Check"
+  aircraftId: string;
+  projectType: MaintenanceProjectType;
+  status: MaintenanceProjectStatus;
+  projectManager: string;
+  startDate: string;
+  targetCompletionDate: string;
+  progressPercent: number;
+  workPackageIds: string[];
+}
+
+export type Priority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type WorkOrderStatus = "PLANNED" | "OPEN" | "IN_PROGRESS" | "AWAITING_PARTS" | "AWAITING_REVIEW" | "COMPLETED" | "OVERDUE" | "DEFERRED";
+
+export interface Technician {
+  id: string;
+  name: string;
+  role: string;
+  shiftStart: string; // "06:00"
+  shiftEnd: string; // "14:00"
+  certifications: string[];
+}
+
+export type PartStatus = "IN_STOCK" | "ORDERED" | "AWAITING_RECEIPT";
+
+export interface Part {
+  id: string;
+  partNumber: string;
+  description: string;
+  status: PartStatus;
+  quantity: number;
+}
+
+export interface WorkOrder {
+  id: string;
+  workOrderNumber: string; // "WO-1042"
+  projectId: string | null;
+  workPackageId: string | null;
+  aircraftId: string;
+  title: string;
+  priority: Priority;
+  assignedTechnicianId: string | null;
+  dueDate: string;
+  status: WorkOrderStatus;
+  requiredPartIds: string[];
+  requiredTools: string[];
+  relatedRequirementId: string | null; // -> RegulatoryRequirement
+  relatedAssessmentId: string | null; // -> ApplicabilityAssessment
+  checklistId: string | null;
+}
+
+export interface ChecklistItem {
+  id: string;
+  label: string;
+}
+
+export interface Checklist {
+  id: string;
+  workOrderId: string;
+  title: string;
+  requiredReference: string;
+  requiredTools: string[];
+  requiredParts: string[];
+  requiredEvidence: string;
+  acceptanceCriteria: string;
+  items: ChecklistItem[];
+}
+
+export type DefectSeverity = "MINOR" | "MAJOR" | "CRITICAL";
+export type DefectStatus = "OPEN" | "DEFERRED" | "RESOLVED";
+
+export interface Defect {
+  id: string;
+  aircraftId: string;
+  workOrderId: string | null;
+  description: string;
+  severity: DefectSeverity;
+  status: DefectStatus;
+  reportedDate: string;
+}
+
 export interface AuditEvent {
   id: string;
   timestamp: string;

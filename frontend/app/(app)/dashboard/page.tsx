@@ -6,6 +6,10 @@ import { getAircraftById, currentRegistration, getAircraftVariant } from "@/lib/
 import { getRequirementById } from "@/lib/mock/regulations";
 import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { overdueMaintenanceEvents, upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
+import { activeProjects } from "@/lib/mock/maintenanceProjects";
+import { openWorkOrders, overdueWorkOrders, awaitingPartsWorkOrders, awaitingReviewWorkOrders } from "@/lib/mock/workOrders";
+import { techniciansOnShift } from "@/lib/mock/technicians";
+import { workOrderStatusBadge, priorityBadge, projectStatusBadge } from "@/components/status/StatusBadge";
 
 const KPIS = [
   { label: "Total Aircraft", value: "128", href: "/aircraft" },
@@ -34,6 +38,13 @@ export default function DashboardPage() {
   const openReviews = assessments.filter((a) => a.humanDecision === "PENDING" || a.humanDecision === "REQUEST_MORE_EVIDENCE");
   const overdue = overdueMaintenanceEvents();
   const upcoming = upcomingMaintenanceEvents(5);
+  const projects = activeProjects();
+  const openWOs = openWorkOrders();
+  const overdueWOs = overdueWorkOrders();
+  const awaitingPartsWOs = awaitingPartsWorkOrders();
+  const awaitingReviewWOs = awaitingReviewWorkOrders();
+  const onShift = techniciansOnShift();
+  const criticalWOs = openWOs.filter((w) => w.priority === "CRITICAL" || w.priority === "HIGH").slice(0, 5);
 
   return (
     <div>
@@ -63,6 +74,100 @@ export default function DashboardPage() {
           <CoreLoopDiagram />
         </div>
       </section>
+
+      <section className="ac-section">
+        <div className="ac-kpi-grid">
+          <Link href="/maintenance/projects" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Active Maintenance Projects</p>
+            <p className="ac-kpi-value">{projects.length}</p>
+          </Link>
+          <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Open Work Orders</p>
+            <p className="ac-kpi-value">{openWOs.length}</p>
+          </Link>
+          <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Overdue Tasks</p>
+            <p className="ac-kpi-value">{overdueWOs.length}</p>
+          </Link>
+          <Link href="/maintenance/technicians" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Technicians On Shift</p>
+            <p className="ac-kpi-value">{onShift.length}</p>
+          </Link>
+          <Link href="/maintenance/parts" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Awaiting Parts</p>
+            <p className="ac-kpi-value">{awaitingPartsWOs.length}</p>
+          </Link>
+          <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Maintenance Tasks Awaiting Review</p>
+            <p className="ac-kpi-value">{awaitingReviewWOs.length}</p>
+          </Link>
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <div className="ac-section-header">
+          <h2 className="ac-h2">Maintenance Operations</h2>
+          <Link href="/maintenance/projects" className="ac-text-sm">View all →</Link>
+        </div>
+        <div className="ac-grid-2">
+          <div>
+            <p className="ac-eyebrow" style={{ marginBottom: 8 }}>Active Projects</p>
+            <div className="ac-flex ac-flex-col ac-gap-2">
+              {projects.map((p) => {
+                const ac = getAircraftById(p.aircraftId);
+                return (
+                  <Link key={p.id} href={`/maintenance/projects/${p.id}`} className="ac-card" style={{ display: "block" }}>
+                    <div className="ac-flex ac-justify-between ac-items-center">
+                      <span className="ac-mono" style={{ fontWeight: 600, fontSize: 13 }}>{p.title}</span>
+                      <StatusBadge {...projectStatusBadge(p.status)} />
+                    </div>
+                    <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>
+                      {ac ? currentRegistration(ac) : p.aircraftId} · {p.progressPercent}% complete
+                    </p>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <p className="ac-eyebrow" style={{ marginBottom: 8 }}>Critical Work Orders</p>
+            <div className="ac-flex ac-flex-col ac-gap-2">
+              {criticalWOs.map((w) => (
+                <Link key={w.id} href={`/maintenance/work-orders/${w.id}`} className="ac-card" style={{ display: "block" }}>
+                  <div className="ac-flex ac-justify-between ac-items-center">
+                    <span className="ac-mono" style={{ fontWeight: 600, fontSize: 13 }}>{w.workOrderNumber}</span>
+                    <div className="ac-flex ac-gap-2">
+                      <StatusBadge {...priorityBadge(w.priority)} />
+                      <StatusBadge {...workOrderStatusBadge(w.status)} />
+                    </div>
+                  </div>
+                  <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>{w.title} · Due {w.dueDate}</p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {awaitingReviewWOs.length > 0 && (
+        <section className="ac-section">
+          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "rgba(154,107,255,0.06)" }}>
+            <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>AI Maintenance Insight — Prototype</p>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
+              {projects[0]?.title ?? "The active check"} is currently 8% behind the planned schedule.
+            </p>
+            <p className="ac-text-sm ac-text-secondary" style={{ margin: "6px 0" }}>Potential contributors:</p>
+            <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13 }}>
+              {overdueWOs.length > 0 && <li>{overdueWOs.length} overdue task{overdueWOs.length > 1 ? "s" : ""}</li>}
+              {awaitingPartsWOs.length > 0 && <li>{awaitingPartsWOs.length} part{awaitingPartsWOs.length > 1 ? "s" : ""} awaiting receipt</li>}
+              <li>{awaitingReviewWOs.length} compliance/task review pending</li>
+            </ul>
+            <p className="ac-text-sm" style={{ margin: 0 }}>
+              Recommended action: Prioritize <Link href={`/maintenance/work-orders/${awaitingReviewWOs[0].id}`} className="ac-mono">{awaitingReviewWOs[0].workOrderNumber}</Link> and the pending compliance review.
+            </p>
+          </div>
+        </section>
+      )}
 
       <section className="ac-section">
         <div className="ac-section-header">

@@ -20,6 +20,16 @@ const PRIMARY_NAV: NavItem[] = [
   { href: "/audit", label: "Audit Trail", glyph: "≡" },
 ];
 
+const MAINTENANCE_NAV: NavItem[] = [
+  { href: "/maintenance/projects", label: "Projects", glyph: "◈" },
+  { href: "/maintenance/work-orders", label: "Work Orders", glyph: "☰" },
+  { href: "/maintenance/technicians", label: "Technician Workbench", glyph: "👷" },
+  { href: "/maintenance/tasks", label: "Tasks / Checklists", glyph: "☑" },
+  { href: "/maintenance/defects", label: "Defects", glyph: "⚠" },
+  { href: "/maintenance/parts", label: "Parts & Inventory", glyph: "⛭" },
+  { href: "/maintenance/records", label: "Maintenance Records", glyph: "🗎" },
+];
+
 const WORKSPACE_NAV: NavItem[] = [
   { href: "/workspace", label: "Workspace", glyph: "▢" },
   { href: "/organization", label: "Organization", glyph: "◫" },
@@ -62,6 +72,24 @@ export function Sidebar() {
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 8 }}>
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {PRIMARY_NAV.map((item) => (
+            <li key={item.href}>
+              <Link
+                href={item.href}
+                className={`ac-nav-link${isActive(pathname, item.href) ? " active" : ""}`}
+                aria-current={isActive(pathname, item.href) ? "page" : undefined}
+              >
+                <span aria-hidden="true" style={{ width: 16, textAlign: "center" }}>
+                  {item.glyph}
+                </span>
+                {item.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+
+        <p className="ac-nav-section-label">Maintenance</p>
+        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          {MAINTENANCE_NAV.map((item) => (
             <li key={item.href}>
               <Link
                 href={item.href}

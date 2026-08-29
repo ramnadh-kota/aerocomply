@@ -63,3 +63,65 @@ export function StatusBadge({ status, label }: { status: BadgeKind; label?: stri
     </span>
   );
 }
+
+// --- MRO status mapping helpers ---
+// MRO domain statuses reuse the same five semantic colors rather than
+// inventing a parallel palette — see docs/ontology design principle that
+// status must always pair a color with a label, never rely on color alone.
+
+const WORK_ORDER_STATUS_MAP: Record<string, BadgeKind> = {
+  PLANNED: "PENDING",
+  OPEN: "PENDING",
+  IN_PROGRESS: "REVIEW_REQUIRED",
+  AWAITING_PARTS: "REVIEW_REQUIRED",
+  AWAITING_REVIEW: "INSUFFICIENT_DATA",
+  COMPLETED: "COMPLIANT",
+  OVERDUE: "NON_COMPLIANT",
+  DEFERRED: "UNKNOWN",
+};
+
+export function workOrderStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: WORK_ORDER_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
+
+const PROJECT_STATUS_MAP: Record<string, BadgeKind> = {
+  PLANNED: "PENDING",
+  IN_PROGRESS: "REVIEW_REQUIRED",
+  ON_HOLD: "UNKNOWN",
+  COMPLETED: "COMPLIANT",
+};
+
+export function projectStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: PROJECT_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
+
+const PRIORITY_MAP: Record<string, BadgeKind> = {
+  LOW: "COMPLIANT",
+  MEDIUM: "PENDING",
+  HIGH: "REVIEW_REQUIRED",
+  CRITICAL: "NON_COMPLIANT",
+};
+
+export function priorityBadge(priority: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: PRIORITY_MAP[priority] ?? "UNKNOWN", label: priority };
+}
+
+const DEFECT_STATUS_MAP: Record<string, BadgeKind> = {
+  OPEN: "NON_COMPLIANT",
+  DEFERRED: "UNKNOWN",
+  RESOLVED: "COMPLIANT",
+};
+
+export function defectStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: DEFECT_STATUS_MAP[status] ?? "UNKNOWN", label: status };
+}
+
+const PART_STATUS_MAP: Record<string, BadgeKind> = {
+  IN_STOCK: "COMPLIANT",
+  ORDERED: "PENDING",
+  AWAITING_RECEIPT: "REVIEW_REQUIRED",
+};
+
+export function partStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: PART_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
