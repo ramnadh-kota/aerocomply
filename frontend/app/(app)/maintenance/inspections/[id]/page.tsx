@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, priorityBadge, defectStatusBadge, checklistResultBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, priorityBadge, defectStatusBadge, checklistResultBadge, inspectorReviewStatusBadge } from "@/components/status/StatusBadge";
 import { InspectorReviewPanel } from "@/components/maintenance/InspectorReviewPanel";
 import { EvidenceCard } from "@/components/evidence/EvidenceCard";
 import { getWorkOrderById } from "@/lib/mock/workOrders";
@@ -17,6 +17,8 @@ import { getChecklistByWorkOrderId } from "@/lib/mock/checklists";
 import { findingsForWorkOrder } from "@/lib/mock/findings";
 import { defectsForWorkOrder } from "@/lib/mock/defects";
 import { useChecklistRecord } from "@/lib/mro-state/MroStateContext";
+import { auditEventsForObjectLabelContains } from "@/lib/mock/audit";
+import { Timeline } from "@/components/timeline/Timeline";
 
 export default function InspectionDetailPage({ params }: { params: { id: string } }) {
   const wo = getWorkOrderById(params.id);
@@ -171,8 +173,41 @@ export default function InspectionDetailPage({ params }: { params: { id: string 
         </section>
       )}
 
+      {record && record.inspectorDecisionStatus !== "PENDING_INSPECTION" && (
+        <section className="ac-section">
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Decision History</h2>
+          <div className="ac-card">
+            <div className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 6 }}>
+              <StatusBadge {...inspectorReviewStatusBadge(record.inspectorDecisionStatus)} />
+              <span className="ac-text-sm ac-text-muted">
+                {record.inspectorReviewedAt ? new Date(record.inspectorReviewedAt).toLocaleString() : ""}
+              </span>
+            </div>
+            {record.inspectorComments && <p className="ac-text-sm">{record.inspectorComments}</p>}
+          </div>
+        </section>
+      )}
+
       <section className="ac-section">
         <InspectorReviewPanel workOrderId={wo.id} inspectorId={wo.inspectorId ?? ""} blockPassReasons={blockPassReasons} />
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Audit Timeline</h2>
+        <div className="ac-card">
+          {auditEventsForObjectLabelContains(wo.workOrderNumber).length === 0 ? (
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No audit events recorded yet for this inspection.</p>
+          ) : (
+            <Timeline
+              entries={auditEventsForObjectLabelContains(wo.workOrderNumber).map((e) => ({
+                id: e.id,
+                date: new Date(e.timestamp).toLocaleString(),
+                title: e.action.replace(/_/g, " ").replace(/\./g, " — "),
+                detail: `${e.actor} (${e.actorRole})`,
+              }))}
+            />
+          )}
+        </div>
       </section>
     </div>
   );
