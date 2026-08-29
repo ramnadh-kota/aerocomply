@@ -4,7 +4,7 @@
 // number an AI answer gave for the same scope. Nothing here is persisted to
 // a backend — "generated" reports are prototype records only.
 
-import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getInspectionAnalytics, getComplianceAnalytics, getMaintenanceAnalytics, getTechnicianWorkload, requirementLabel } from "./ai/analytics";
+import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getInspectionAnalytics, getComplianceAnalytics, getMaintenanceAnalytics, getOperationsAnalytics, getTechnicianWorkload, requirementLabel } from "./ai/analytics";
 import { getProjectById, workPackagesForProject } from "./maintenanceProjects";
 import { getAircraftById } from "./aircraft";
 import { workOrdersForProject, workOrdersForAircraft, MOCK_TODAY } from "./workOrders";
@@ -17,7 +17,7 @@ import { evidenceForAssessment } from "./evidence";
 import { assessmentsForAircraft } from "./assessments";
 import { auditEventsForObjectLabelContains } from "./audit";
 
-export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY";
+export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS";
 
 export interface ReportRecord {
   id: string;
@@ -35,6 +35,7 @@ export const reportHistory: ReportRecord[] = [
   { id: "fleet-risk", title: "Fleet Maintenance Risk Report", type: "FLEET_RISK", generatedBy: "Wei Zhang", scope: "Fleet-wide", generatedDate: "2026-03-14", status: "READY" },
   { id: "inspection-queue", title: "Inspection Queue Summary", type: "INSPECTION_QUEUE", generatedBy: "Diego Alvarez", scope: "Open inspections", generatedDate: "2026-03-17", status: "READY" },
   { id: "compliance-weekly", title: "Weekly Compliance Report", type: "COMPLIANCE_WEEKLY", generatedBy: "Priya Nair", scope: "Organization-wide", generatedDate: "2026-03-10", status: "READY" },
+  { id: "maintenance-operations", title: "Maintenance Operations Report", type: "MAINTENANCE_OPERATIONS", generatedBy: "Marcus Webb", scope: "Fleet-wide operations", generatedDate: "2026-03-17", status: "READY" },
 ];
 
 export function getReportRecord(id: string): ReportRecord | undefined {
@@ -63,6 +64,7 @@ function parseReportId(id: string): { type: ReportType; scopeId: string } | null
   if (id === "fleet-risk") return { type: "FLEET_RISK", scopeId: "" };
   if (id === "inspection-queue") return { type: "INSPECTION_QUEUE", scopeId: "" };
   if (id === "compliance-weekly") return { type: "COMPLIANCE_WEEKLY", scopeId: "" };
+  if (id === "maintenance-operations") return { type: "MAINTENANCE_OPERATIONS", scopeId: "" };
   return null;
 }
 
@@ -264,7 +266,7 @@ export function buildReportData(id: string): ReportData | null {
     };
   }
 
-  // COMPLIANCE_WEEKLY
+  if (parsed.type === "COMPLIANCE_WEEKLY") {
   const c = getComplianceAnalytics();
   const m = getMaintenanceAnalytics();
   const sections: ReportSection[] = [
@@ -287,5 +289,36 @@ export function buildReportData(id: string): ReportData | null {
     sourceModules: ["Assessments", "Work Orders", "Technicians"],
     aiSummary: sections[sections.length - 1].body,
     sections,
+  };
+  }
+
+  // MAINTENANCE_OPERATIONS
+  const ops = getOperationsAnalytics();
+  const workload = getTechnicianWorkload().filter((t) => t.openWorkOrders > 0);
+  const opsSections: ReportSection[] = [
+    { heading: "Executive Summary", body: [`${ops.openWorkOrders} open work order(s) fleet-wide; ${ops.overdue} overdue.`], kpis: [
+      { label: "Open Work Orders", value: String(ops.openWorkOrders) },
+      { label: "Overdue", value: String(ops.overdue), tone: ops.overdue > 0 ? "bad" : "good" },
+      { label: "High Priority", value: String(ops.highPriority), tone: ops.highPriority > 0 ? "warning" : "good" },
+      { label: "Pending Inspections", value: String(ops.pendingInspections) },
+    ] },
+    { heading: "Operational Findings", body: [`${Object.values(ops.workOrderStatusCounts).reduce((s, n) => s + n, 0)} work order(s) tracked across all statuses; ${ops.partsAtRisk.length} part(s) at risk.`] },
+    { heading: "Risk Analysis", body: [`${ops.aircraftGrounded.length} aircraft grounded (heuristic)`, `${ops.openDefects} open defect(s) fleet-wide`, `${ops.unknownChecklistWorkOrderIds.length} work order(s) with UNKNOWN checklist items`] },
+    { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue", "On Shift"], rows: workload.map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders, t.onShift ? "Yes" : "No"]) } },
+    { heading: "Compliance Intelligence", body: [`${ops.openProjects} open maintenance project(s).`] },
+    { heading: "Recommended Actions", body: ops.overdue > 0 || ops.partsAtRisk.length > 0 ? ["Review overdue work orders and parts currently at risk in Maintenance Operations."] : ["No urgent operational action required."] },
+    { heading: "Source Data / Traceability", body: ["Source modules: Work Orders, Projects, Technicians, Parts, Defects (fleet-wide aggregation)."] },
+    { heading: "AI-Generated Summary", body: [`${ops.openWorkOrders} open work order(s), ${ops.overdue} overdue, ${ops.pendingInspections} inspection(s) pending.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+  ];
+  return {
+    id,
+    title: "Maintenance Operations Report",
+    type: "MAINTENANCE_OPERATIONS",
+    scope: "Fleet-wide operations",
+    generatedDate,
+    generatedFrom,
+    sourceModules: ["Work Orders", "Projects", "Technicians", "Parts", "Defects"],
+    aiSummary: opsSections[opsSections.length - 1].body,
+    sections: opsSections,
   };
 }
