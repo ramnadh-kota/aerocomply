@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/status/StatusBadge";
@@ -40,6 +41,7 @@ export default function AssessmentsListPage() {
           <h1 className="ac-h1">Assessments</h1>
           <p className="ac-subtitle">{rows.length} of {assessments.length} shown</p>
         </div>
+        <Link href="/compliance" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Compliance Intelligence →</Link>
       </div>
 
       <div className="ac-flex ac-gap-2 ac-section" style={{ flexWrap: "wrap" }}>
