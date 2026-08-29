@@ -151,8 +151,10 @@ export default function DashboardPage() {
         </div>
         <div className="ac-flex ac-gap-2 ac-items-center" style={{ marginTop: 12, flexWrap: "wrap" }}>
           <Link href="/ai" className="ac-btn ac-btn-primary">Ask AeroComply AI</Link>
+          <Link href="/executive" className="ac-btn">Executive Intelligence</Link>
           <Link href="/maintenance/operations" className="ac-btn">Maintenance Operations</Link>
           <Link href="/maintenance/inspections" className="ac-btn">Inspection Queue</Link>
+          <Link href="/compliance" className="ac-btn">Compliance Intelligence</Link>
           <Link href="/reports/fleet-risk" className="ac-btn">Generate Operations Report</Link>
           <Link href="/reports" className="ac-btn">Reports</Link>
           <Link href="/organization/roles" className="ac-btn">Role Management</Link>

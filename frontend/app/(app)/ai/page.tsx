@@ -9,7 +9,8 @@ function AiAssistantBody() {
   const params = useSearchParams();
   const projectId = params.get("project") ?? undefined;
   const aircraftId = params.get("aircraft") ?? undefined;
-  return <AIConsole initialProjectId={projectId} initialAircraftId={aircraftId} />;
+  const initialQuestion = params.get("q") ?? undefined;
+  return <AIConsole initialProjectId={projectId} initialAircraftId={aircraftId} initialQuestion={initialQuestion} />;
 }
 
 export default function AiAssistantPage() {

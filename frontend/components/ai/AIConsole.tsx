@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { answerQuestion, CATEGORIZED_QUESTIONS, type AiResponse } from "@/lib/mock/ai/engine";
 import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics } from "@/lib/mock/ai/analytics";
@@ -13,11 +13,20 @@ interface Turn {
   response: AiResponse;
 }
 
-export function AIConsole({ initialProjectId, initialAircraftId }: { initialProjectId?: string; initialAircraftId?: string }) {
+export function AIConsole({
+  initialProjectId,
+  initialAircraftId,
+  initialQuestion,
+}: {
+  initialProjectId?: string;
+  initialAircraftId?: string;
+  initialQuestion?: string;
+}) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const { addAuditEvent } = useMroState();
+  const askedInitial = useRef(false);
 
   function ask(question: string) {
     const trimmed = question.trim();
@@ -37,6 +46,13 @@ export function AIConsole({ initialProjectId, initialAircraftId }: { initialProj
       newState: response.insufficientData ? "INSUFFICIENT_DATA" : "ANSWERED",
     });
   }
+
+  useEffect(() => {
+    if (askedInitial.current || !initialQuestion) return;
+    askedInitial.current = true;
+    ask(initialQuestion);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuestion]);
 
   const active = turns.find((t) => t.id === activeId) ?? turns[turns.length - 1];
 
