@@ -107,8 +107,8 @@ export function Sidebar() {
             {gi > 0 && <p className="ac-nav-section-label">{group.label}</p>}
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
               {group.items.map((item) => {
-                const module = NAV_MODULE_MAP[item.href];
-                const level = module ? accessFor(module) : "APPROVE";
+                const navModule = NAV_MODULE_MAP[item.href];
+                const level = navModule ? accessFor(navModule) : "APPROVE";
                 const denied = level === "NONE";
                 return (
                   <li key={item.href}>

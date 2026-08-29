@@ -26,7 +26,7 @@ interface RoleSimContextValue {
   roleId: string;
   setRoleId: (id: string) => void;
   reset: () => void;
-  accessFor: (module: PermissionModule) => PermissionLevel;
+  accessFor: (permModule: PermissionModule) => PermissionLevel;
 }
 
 const RoleSimContext = createContext<RoleSimContextValue | null>(null);
@@ -40,7 +40,7 @@ export function RoleSimProvider({ children }: { children: ReactNode }) {
       roleId,
       setRoleId,
       reset: () => setRoleId(DEFAULT_ROLE_ID),
-      accessFor: (module: PermissionModule) => role?.permissions.find((p) => p.module === module)?.level ?? "NONE",
+      accessFor: (permModule: PermissionModule) => role?.permissions.find((p) => p.module === permModule)?.level ?? "NONE",
     };
   }, [roleId]);
 

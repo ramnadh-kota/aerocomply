@@ -48,8 +48,8 @@ export interface UserAccount {
   lastActivity: string;
 }
 
-function perm(module: PermissionModule, level: PermissionLevel, notes?: string): ModulePermission {
-  return { module, level, notes };
+function perm(permModule: PermissionModule, level: PermissionLevel, notes?: string): ModulePermission {
+  return { module: permModule, level, notes };
 }
 
 export const roles: Role[] = [
