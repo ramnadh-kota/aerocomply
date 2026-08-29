@@ -61,8 +61,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
+          # No `cache: npm` here: caching requires a committed package-lock.json,
+          # which does not yet exist (no Node runtime was available to generate
+          # one during M0 authoring). Re-enable caching once a lockfile is committed.
 
       - name: Install dependencies
         run: npm install
