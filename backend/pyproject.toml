@@ -37,6 +37,14 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.isort]
+# The project also has a local backend/alembic/ directory (migrations), which
+# ruff's isort otherwise confuses with the third-party `alembic` package of the
+# same name when guessing import groups. Pin both explicitly to avoid the
+# ambiguity rather than fighting isort's autodetection.
+known-first-party = ["app"]
+known-third-party = ["alembic"]
+
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's dependency-injection pattern is `param: T = Depends(...)`, which is the
 # documented, correct usage (https://fastapi.tiangolo.com/tutorial/dependencies/) —
