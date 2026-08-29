@@ -38,8 +38,9 @@ app.add_middleware(
 )
 
 app.add_exception_handler(AeroComplyError, aerocomply_error_handler)  # type: ignore[arg-type]
-app.add_exception_handler(  # type: ignore[arg-type]
-    RequestValidationError, validation_error_handler
+app.add_exception_handler(
+    RequestValidationError,  # type: ignore[arg-type]
+    validation_error_handler,
 )
 app.add_exception_handler(Exception, unhandled_error_handler)
 
