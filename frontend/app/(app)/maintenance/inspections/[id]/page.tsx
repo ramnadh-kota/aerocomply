@@ -1,9 +1,10 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, priorityBadge, defectStatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, priorityBadge, defectStatusBadge, checklistResultBadge } from "@/components/status/StatusBadge";
 import { InspectorReviewPanel } from "@/components/maintenance/InspectorReviewPanel";
 import { EvidenceCard } from "@/components/evidence/EvidenceCard";
 import { getWorkOrderById } from "@/lib/mock/workOrders";
@@ -17,6 +18,9 @@ import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { getChecklistByWorkOrderId } from "@/lib/mock/checklists";
 import { findingsForWorkOrder } from "@/lib/mock/findings";
 import { defectsForWorkOrder } from "@/lib/mock/defects";
+import type { ChecklistItemResult } from "@/lib/mock/types";
+
+const RESULT_OPTIONS: ChecklistItemResult[] = ["PASS", "FAIL", "NOT_APPLICABLE", "UNKNOWN"];
 
 export default function InspectionDetailPage({ params }: { params: { id: string } }) {
   const wo = getWorkOrderById(params.id);
@@ -32,6 +36,34 @@ export default function InspectionDetailPage({ params }: { params: { id: string 
   const checklist = getChecklistByWorkOrderId(wo.id);
   const findings = findingsForWorkOrder(wo.id);
   const defects = defectsForWorkOrder(wo.id);
+
+  // Technician execution summary shown to the inspector before a decision.
+  // This is a review-time re-display of what the technician recorded — local
+  // state only, seeded from findings (an item with a linked finding defaults
+  // to FAIL) or PASS otherwise, never persisted. The inspector can correct it
+  // here if their own review of the evidence disagrees (e.g. marking an item
+  // UNKNOWN when required information turns out to be missing) — UNKNOWN is
+  // never silently treated as PASS or FAIL.
+  const [itemResults, setItemResults] = useState<Record<string, ChecklistItemResult>>(() => {
+    if (!checklist) return {};
+    return Object.fromEntries(
+      checklist.items.map((item) => [item.id, findings.some((f) => f.checklistItemId === item.id) ? "FAIL" : "PASS"])
+    );
+  });
+
+  const unknownItems = checklist ? checklist.items.filter((i) => itemResults[i.id] === "UNKNOWN") : [];
+  const openCriticalDefects = defects.filter((d) => d.severity === "CRITICAL" && d.status === "OPEN");
+
+  const blockPassReasons = useMemo(() => {
+    const reasons: string[] = [];
+    if (unknownItems.length > 0) {
+      reasons.push(`${unknownItems.length} checklist item${unknownItems.length > 1 ? "s are" : " is"} marked UNKNOWN (${unknownItems.map((i) => i.label).join(", ")}) — unknown is never treated as pass.`);
+    }
+    if (openCriticalDefects.length > 0) {
+      reasons.push(`${openCriticalDefects.length} unresolved CRITICAL defect${openCriticalDefects.length > 1 ? "s" : ""} exist on this work order.`);
+    }
+    return reasons;
+  }, [unknownItems, openCriticalDefects]);
 
   return (
     <div>
@@ -74,14 +106,39 @@ export default function InspectionDetailPage({ params }: { params: { id: string 
 
       {checklist && (
         <section className="ac-section">
-          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Checklist Reference</h2>
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Technician Execution — Checklist Results</h2>
           <div className="ac-card">
             <p style={{ fontWeight: 600, margin: "0 0 6px" }}>{checklist.title}</p>
-            <p className="ac-text-sm ac-text-secondary" style={{ margin: 0 }}>
+            <p className="ac-text-sm ac-text-secondary" style={{ margin: "0 0 12px" }}>
               Required reference: {checklist.requiredReference} · Acceptance: {checklist.acceptanceCriteria}
             </p>
-            <p className="ac-text-sm ac-text-muted" style={{ marginTop: 8 }}>
-              Full item-by-item checklist and sign-off are on the <Link href={`/maintenance/work-orders/${wo.id}`}>work order page</Link>.
+            <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+              {checklist.items.map((item) => (
+                <li key={item.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--ac-border-subtle)" }}>
+                  <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 6 }}>
+                    <span className="ac-text-sm" style={{ fontWeight: 600 }}>{item.label}</span>
+                    <StatusBadge {...checklistResultBadge(itemResults[item.id] ?? "UNKNOWN")} />
+                  </div>
+                  <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+                    {RESULT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        className="ac-btn"
+                        style={itemResults[item.id] === opt ? { borderColor: "var(--ac-accent)", color: "var(--ac-accent-hover)" } : undefined}
+                        onClick={() => setItemResults((s) => ({ ...s, [item.id]: opt }))}
+                      >
+                        {opt.replace(/_/g, " ")}
+                      </button>
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="ac-text-sm ac-text-muted" style={{ marginTop: 10 }}>
+              Full checklist definition and the technician&rsquo;s own sign-off flow are on the{" "}
+              <Link href={`/maintenance/work-orders/${wo.id}`}>work order page</Link>. This is the inspector&rsquo;s
+              review-time re-check — local state only, not persisted.
             </p>
           </div>
         </section>
@@ -131,7 +188,7 @@ export default function InspectionDetailPage({ params }: { params: { id: string 
       )}
 
       <section className="ac-section">
-        <InspectorReviewPanel review={review} />
+        <InspectorReviewPanel review={review} blockPassReasons={blockPassReasons} />
       </section>
     </div>
   );
