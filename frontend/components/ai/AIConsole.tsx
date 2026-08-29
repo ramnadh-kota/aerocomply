@@ -22,7 +22,7 @@ export function AIConsole({ initialProjectId, initialAircraftId }: { initialProj
   function ask(question: string) {
     const trimmed = question.trim();
     if (!trimmed) return;
-    const response = answerQuestion(trimmed);
+    const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId });
     const turn: Turn = { id: response.id, question: trimmed, response };
     setTurns((prev) => [...prev, turn]);
     setActiveId(turn.id);
@@ -136,6 +136,9 @@ export function AIConsole({ initialProjectId, initialAircraftId }: { initialProj
             <p style={{ margin: "0 0 4px" }}>Aircraft: {projectAnalytics.aircraftRegistration}</p>
             <p style={{ margin: "0 0 4px" }}>Health: {projectAnalytics.health.replace(/_/g, " ")}</p>
             <p style={{ margin: "0 0 4px" }}>Compliance Risk: {projectAnalytics.complianceExposure}</p>
+            <p style={{ margin: "8px 0 0" }}>
+              <Link href={`/maintenance/projects/${projectAnalytics.projectId}/intelligence`} className="ac-text-sm">Project Intelligence →</Link>
+            </p>
           </div>
         )}
         {aircraftAnalytics && (

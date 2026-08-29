@@ -11,8 +11,8 @@
 // reports INSUFFICIENT_DATA rather than guessing when the mock data can't
 // answer the question.
 
-import { maintenanceProjects } from "../maintenanceProjects";
-import { getAircraftByRegistration } from "../aircraft";
+import { maintenanceProjects, getProjectById } from "../maintenanceProjects";
+import { getAircraftByRegistration, getAircraftById } from "../aircraft";
 import { workOrders } from "../workOrders";
 import { findingsForWorkOrder } from "../findings";
 import { defectsForWorkOrder } from "../defects";
@@ -31,9 +31,19 @@ import {
   getPartsAtRisk,
   assessmentDiffSummary,
   assessmentUnknownReasons,
+  requirementLabel,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
+
+/** Context carried from the calling page (e.g. Project Intelligence) so a
+ * question that doesn't name a project/aircraft explicitly still resolves to
+ * the one the user is looking at — no new state, just an optional parameter
+ * on the existing engine entry point. */
+export interface AiQuestionContext {
+  projectId?: string;
+  aircraftId?: string;
+}
 
 export interface AiButton {
   label: string;
@@ -143,6 +153,17 @@ function findAssessmentIdsFromText(text: string): string[] {
   return matches ?? [];
 }
 
+/** Prefer a project explicitly named in the question; otherwise fall back to
+ * the caller's context (e.g. Project Intelligence page); otherwise the demo
+ * default. Keeps the existing "always answer something" behavior. */
+function resolveProject(text: string, context?: AiQuestionContext) {
+  return findProjectFromText(text) ?? (context?.projectId ? getProjectById(context.projectId) : undefined) ?? maintenanceProjects[0];
+}
+
+function resolveAircraft(text: string, context?: AiQuestionContext) {
+  return findAircraftFromText(text) ?? (context?.aircraftId ? getAircraftById(context.aircraftId) : undefined);
+}
+
 const TRUST_FOOTER = "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.";
 
 function insufficient(question: string, missing: string[]): AiResponse {
@@ -160,8 +181,105 @@ function insufficient(question: string, missing: string[]): AiResponse {
   };
 }
 
-export function answerQuestion(question: string): AiResponse {
+export function answerQuestion(question: string, context?: AiQuestionContext): AiResponse {
   const q = question.toLowerCase();
+
+  // --- Contextual (project-scoped) shortcuts — only apply when the caller
+  // has an active project context (e.g. asked from Project Intelligence).
+  // These sit ahead of the generic branches below so phrasing that doesn't
+  // name the project explicitly ("which technicians are overloaded?") still
+  // resolves to the project being viewed, not the fleet-wide default.
+  if (context?.projectId) {
+    const ctxProject = getProjectById(context.projectId);
+    const ctxAnalytics = ctxProject ? getProjectAnalytics(ctxProject.id) : null;
+    if (ctxProject && ctxAnalytics) {
+      const projectWos = workOrders.filter((w) => w.projectId === ctxProject.id);
+
+      if (q.includes("technician") && (q.includes("overload") || q.includes("workload"))) {
+        const byTech = new Map<string, number>();
+        for (const w of projectWos) {
+          if (!w.assignedTechnicianId) continue;
+          byTech.set(w.assignedTechnicianId, (byTech.get(w.assignedTechnicianId) ?? 0) + 1);
+        }
+        const rows = Array.from(byTech.entries()).map(([id, count]) => [getTechnicianById(id)?.name ?? id, count]);
+        const overloaded = rows.filter(([, count]) => (count as number) > 1);
+        return {
+          id: nextId(),
+          question,
+          headline: `${ctxProject.projectNumber} — technician workload`,
+          narrative: [
+            overloaded.length > 0 ? `${overloaded.length} technician(s) are assigned to more than one work order on this project.` : "No technician on this project currently has more than one assigned work order.",
+            TRUST_FOOTER,
+          ],
+          table: { title: "Technician Assignments", columns: ["Technician", "Work Orders"], rows },
+          buttons: [{ label: "View Project", href: `/maintenance/projects/${ctxProject.id}` }, { label: "View Technicians", href: "/maintenance/technicians" }],
+        };
+      }
+
+      if (q.includes("parts") && q.includes("risk")) {
+        const woIds = new Set(projectWos.map((w) => w.id));
+        const atRisk = getPartsAtRisk().filter((p) => p.workOrderId && woIds.has(p.workOrderId));
+        return {
+          id: nextId(),
+          question,
+          headline: `${ctxProject.projectNumber} — parts putting this project at risk`,
+          narrative: [atRisk.length > 0 ? "These parts on this project are not currently in stock." : "No parts on this project are currently at risk.", TRUST_FOOTER],
+          table: {
+            title: "Parts At Risk",
+            columns: ["Part", "Status", "Work Order"],
+            rows: atRisk.map((p) => [p.partNumber, p.status.replace(/_/g, " "), projectWos.find((w) => w.id === p.workOrderId)?.workOrderNumber ?? "—"]),
+          },
+          buttons: [{ label: "View Project", href: `/maintenance/projects/${ctxProject.id}` }, { label: "View Parts", href: "/maintenance/parts" }],
+        };
+      }
+
+      if ((q.includes("work order") || q.includes("work orders")) && (q.includes("caus") || q.includes("risk"))) {
+        return {
+          id: nextId(),
+          question,
+          headline: `${ctxProject.projectNumber} — work orders driving risk`,
+          narrative: [ctxAnalytics.risks.length > 0 ? `${ctxAnalytics.risks.length} risk item(s) are tied to specific work orders on this project.` : "No work order on this project is currently driving risk.", TRUST_FOOTER],
+          risks: ctxAnalytics.risks,
+          buttons: [{ label: "View Project", href: `/maintenance/projects/${ctxProject.id}` }, { label: "View Work Orders", href: "/maintenance/work-orders" }],
+        };
+      }
+
+      if (q.includes("compliance") && (q.includes("attention") || q.includes("need"))) {
+        const linked = projectWos.filter((w) => w.relatedRequirementId);
+        return {
+          id: nextId(),
+          question,
+          headline: `${ctxProject.projectNumber} — compliance items needing attention`,
+          narrative: [linked.length > 0 ? `${linked.length} work order(s) on this project are linked to a regulatory requirement.` : "No regulatory requirements are linked to this project's work orders.", TRUST_FOOTER],
+          table: { title: "Linked Requirements", columns: ["Work Order", "Requirement"], rows: linked.map((w) => [w.workOrderNumber, requirementLabel(w.relatedRequirementId)]) },
+          buttons: [{ label: "View Project", href: `/maintenance/projects/${ctxProject.id}` }, { label: "View Regulations", href: "/regulations" }],
+        };
+      }
+
+      if ((q.includes("prioritize") || q.includes("priorities")) && !q.includes("inspection")) {
+        return {
+          id: nextId(),
+          question,
+          headline: `${ctxProject.projectNumber} — recommended priorities`,
+          narrative: [ctxAnalytics.recommendedActions.length > 0 ? "Based on current risk factors for this project." : "No urgent action required on this project right now.", TRUST_FOOTER],
+          recommendedActions: ctxAnalytics.recommendedActions,
+          risks: ctxAnalytics.risks,
+          buttons: [{ label: "View Project", href: `/maintenance/projects/${ctxProject.id}` }],
+        };
+      }
+
+      if (q.includes("generate") && q.includes("report")) {
+        return {
+          id: nextId(),
+          question,
+          headline: `${ctxProject.projectNumber} — generate report`,
+          narrative: ["The report uses the same analytics shown on this page.", TRUST_FOOTER],
+          buttons: [{ label: "Generate Report", href: `/reports/project-${ctxProject.id}` }],
+          suggestGenerateReport: { reportId: `project-${ctxProject.id}`, title: `${ctxProject.projectNumber} Operations Report`, scope: ctxAnalytics.title },
+        };
+      }
+    }
+  }
 
   // "What changed between assessment X and Y"
   if (q.includes("changed between") || (q.includes("assessment") && q.includes("vs"))) {
@@ -290,7 +408,7 @@ export function answerQuestion(question: string): AiResponse {
 
   // "What is putting this project at risk?"
   if (q.includes("project") && q.includes("risk") && !q.includes("analytic")) {
-    const project = findProjectFromText(question) ?? maintenanceProjects[0];
+    const project = resolveProject(question, context);
     const a = getProjectAnalytics(project.id);
     if (!a) return insufficient(question, [`project matching "${question}"`]);
     return {
@@ -310,7 +428,7 @@ export function answerQuestion(question: string): AiResponse {
 
   // "Show project progress and remaining work."
   if (q.includes("project") && (q.includes("progress") || q.includes("remaining"))) {
-    const project = findProjectFromText(question) ?? maintenanceProjects[0];
+    const project = resolveProject(question, context);
     const a = getProjectAnalytics(project.id);
     if (!a) return insufficient(question, [`project matching "${question}"`]);
     const remaining = a.workPackageProgress.filter((w) => w.percent < 100);
@@ -329,7 +447,7 @@ export function answerQuestion(question: string): AiResponse {
 
   // "Show resource utilization for this project."
   if (q.includes("project") && (q.includes("resource") || q.includes("utilization"))) {
-    const project = findProjectFromText(question) ?? maintenanceProjects[0];
+    const project = resolveProject(question, context);
     const wos = workOrders.filter((w) => w.projectId === project.id);
     const byTechnician = new Map<string, number>();
     for (const w of wos) {
@@ -349,7 +467,7 @@ export function answerQuestion(question: string): AiResponse {
 
   // Project analytics / report (general analyze/health/summary)
   if (q.includes("project") && (q.includes("analytic") || q.includes("health") || q.includes("summary") || q.includes("analyze"))) {
-    const project = findProjectFromText(question) ?? maintenanceProjects[0];
+    const project = resolveProject(question, context);
     const a = getProjectAnalytics(project.id);
     if (!a) return insufficient(question, [`project matching "${question}"`]);
     return {
@@ -373,8 +491,8 @@ export function answerQuestion(question: string): AiResponse {
   }
 
   // Aircraft health analysis
-  if (q.includes("health") && findAircraftFromText(question)) {
-    const a = findAircraftFromText(question)!;
+  if (q.includes("health") && resolveAircraft(question, context)) {
+    const a = resolveAircraft(question, context)!;
     const analytics = getAircraftAnalytics(a.id)!;
     return {
       id: nextId(),
@@ -391,8 +509,8 @@ export function answerQuestion(question: string): AiResponse {
   }
 
   // Maintenance actions due for an aircraft
-  if (findAircraftFromText(question) && (q.includes("due") || q.includes("maintenance action"))) {
-    const a = findAircraftFromText(question)!;
+  if (resolveAircraft(question, context) && (q.includes("due") || q.includes("maintenance action"))) {
+    const a = resolveAircraft(question, context)!;
     const events = maintenanceEventsForAircraft(a.id);
     const outstanding = events.filter((e) => e.status !== "COMPLETED");
     return {
@@ -536,8 +654,8 @@ export function answerQuestion(question: string): AiResponse {
   }
 
   // Aircraft compliance risk explanation (single aircraft)
-  if (q.includes("compliance risk") || (q.includes("why") && findAircraftFromText(question))) {
-    const a = findAircraftFromText(question);
+  if (q.includes("compliance risk") || (q.includes("why") && resolveAircraft(question, context))) {
+    const a = resolveAircraft(question, context);
     if (a) {
       const analytics = getAircraftAnalytics(a.id)!;
       return {
