@@ -1,6 +1,10 @@
-from fastapi import FastAPI
+from collections.abc import Awaitable, Callable
+from typing import cast
+
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
@@ -37,10 +41,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.add_exception_handler(AeroComplyError, aerocomply_error_handler)  # type: ignore[arg-type]
+# Starlette's add_exception_handler() is typed to accept a handler for the base
+# Exception class; registering one scoped to a specific subclass (the standard,
+# correct FastAPI pattern — FastAPI dispatches by the registered type at
+# runtime) doesn't structurally match that signature. Widen the static type
+# with an explicit cast rather than weakening each handler's own parameter type.
+ExceptionHandler = Callable[[Request, Exception], Awaitable[Response]]
+
+app.add_exception_handler(AeroComplyError, cast(ExceptionHandler, aerocomply_error_handler))
 app.add_exception_handler(
-    RequestValidationError,  # type: ignore[arg-type]
-    validation_error_handler,
+    RequestValidationError, cast(ExceptionHandler, validation_error_handler)
 )
 app.add_exception_handler(Exception, unhandled_error_handler)
 
