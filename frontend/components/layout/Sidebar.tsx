@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRoleSim, NAV_MODULE_MAP } from "@/lib/role-sim/RoleSimContext";
 
 interface NavItem {
   href: string;
@@ -9,36 +10,61 @@ interface NavItem {
   glyph: string;
 }
 
-const PRIMARY_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", glyph: "◧" },
-  { href: "/aircraft", label: "Aircraft", glyph: "✈" },
-  { href: "/engines", label: "Engines", glyph: "◎" },
-  { href: "/components", label: "Components", glyph: "▤" },
-  { href: "/regulations", label: "Regulations", glyph: "§" },
-  { href: "/assessments", label: "Assessments", glyph: "✓" },
-  { href: "/evidence", label: "Evidence", glyph: "▣" },
-  { href: "/audit", label: "Audit Trail", glyph: "≡" },
-];
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
 
-const MAINTENANCE_NAV: NavItem[] = [
-  { href: "/maintenance/projects", label: "Projects", glyph: "◈" },
-  { href: "/maintenance/work-orders", label: "Work Orders", glyph: "☰" },
-  { href: "/maintenance/technicians", label: "Technicians", glyph: "👷" },
-  { href: "/maintenance/inspections", label: "Inspections", glyph: "🔍" },
-  { href: "/maintenance/tasks", label: "Tasks", glyph: "☑" },
-  { href: "/maintenance/defects", label: "Defects", glyph: "⚠" },
-  { href: "/maintenance/parts", label: "Parts", glyph: "⛭" },
-  { href: "/maintenance/records", label: "Records", glyph: "🗎" },
-];
-
-const WORKSPACE_NAV: NavItem[] = [
-  { href: "/workspace", label: "Workspace", glyph: "▢" },
-  { href: "/ai", label: "AI Assistant", glyph: "✦" },
-  { href: "/reports", label: "Reports", glyph: "▦" },
-  { href: "/organization", label: "Organization", glyph: "◫" },
-  { href: "/organization/users", label: "Users", glyph: "◔" },
-  { href: "/organization/roles", label: "Roles", glyph: "◈" },
-  { href: "/settings", label: "Settings", glyph: "⚙" },
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Overview",
+    items: [
+      { href: "/dashboard", label: "Dashboard", glyph: "◧" },
+      { href: "/ai", label: "AI Command Center", glyph: "✦" },
+    ],
+  },
+  {
+    label: "Fleet",
+    items: [
+      { href: "/aircraft", label: "Aircraft", glyph: "✈" },
+      { href: "/engines", label: "Engines", glyph: "◎" },
+      { href: "/components", label: "Components", glyph: "▤" },
+    ],
+  },
+  {
+    label: "Compliance",
+    items: [
+      { href: "/regulations", label: "Regulations", glyph: "§" },
+      { href: "/assessments", label: "Assessments", glyph: "✓" },
+      { href: "/evidence", label: "Evidence", glyph: "▣" },
+    ],
+  },
+  {
+    label: "Maintenance",
+    items: [
+      { href: "/maintenance/operations", label: "Operations", glyph: "◪" },
+      { href: "/maintenance/projects", label: "Projects", glyph: "◈" },
+      { href: "/maintenance/work-orders", label: "Work Orders", glyph: "☰" },
+      { href: "/maintenance/inspections", label: "Inspections", glyph: "🔍" },
+      { href: "/maintenance/technicians", label: "Technicians", glyph: "👷" },
+      { href: "/maintenance/tasks", label: "Tasks", glyph: "☑" },
+      { href: "/maintenance/defects", label: "Defects", glyph: "⚠" },
+      { href: "/maintenance/parts", label: "Parts", glyph: "⛭" },
+      { href: "/maintenance/records", label: "Records", glyph: "🗎" },
+    ],
+  },
+  {
+    label: "Governance",
+    items: [
+      { href: "/audit", label: "Audit Trail", glyph: "≡" },
+      { href: "/reports", label: "Reports", glyph: "▦" },
+      { href: "/organization", label: "Organization", glyph: "◫" },
+      { href: "/organization/users", label: "Users", glyph: "◔" },
+      { href: "/organization/roles", label: "Roles", glyph: "◈" },
+      { href: "/workspace", label: "Workspace", glyph: "▢" },
+      { href: "/settings", label: "Settings", glyph: "⚙" },
+    ],
+  },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -48,6 +74,7 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { accessFor } = useRoleSim();
 
   return (
     <nav className="ac-sidebar" aria-label="Primary navigation">
@@ -75,63 +102,48 @@ export function Sidebar() {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 8 }}>
-        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {PRIMARY_NAV.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                className={`ac-nav-link${isActive(pathname, item.href) ? " active" : ""}`}
-                aria-current={isActive(pathname, item.href) ? "page" : undefined}
-              >
-                <span aria-hidden="true" style={{ width: 16, textAlign: "center" }}>
-                  {item.glyph}
-                </span>
-                {item.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-
-        <p className="ac-nav-section-label">Maintenance</p>
-        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {MAINTENANCE_NAV.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                className={`ac-nav-link${isActive(pathname, item.href) ? " active" : ""}`}
-                aria-current={isActive(pathname, item.href) ? "page" : undefined}
-              >
-                <span aria-hidden="true" style={{ width: 16, textAlign: "center" }}>
-                  {item.glyph}
-                </span>
-                {item.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-
-        <p className="ac-nav-section-label">Manage</p>
-        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {WORKSPACE_NAV.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                className={`ac-nav-link${isActive(pathname, item.href) ? " active" : ""}`}
-                aria-current={isActive(pathname, item.href) ? "page" : undefined}
-              >
-                <span aria-hidden="true" style={{ width: 16, textAlign: "center" }}>
-                  {item.glyph}
-                </span>
-                {item.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        {NAV_GROUPS.map((group, gi) => (
+          <div key={group.label}>
+            {gi > 0 && <p className="ac-nav-section-label">{group.label}</p>}
+            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+              {group.items.map((item) => {
+                const module = NAV_MODULE_MAP[item.href];
+                const level = module ? accessFor(module) : "APPROVE";
+                const denied = level === "NONE";
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className={`ac-nav-link${isActive(pathname, item.href) ? " active" : ""}`}
+                      aria-current={isActive(pathname, item.href) ? "page" : undefined}
+                      aria-disabled={denied || undefined}
+                      title={denied ? "Not available for the simulated role (prototype only — not enforced)" : undefined}
+                      style={denied ? { opacity: 0.4 } : undefined}
+                      onClick={(e) => {
+                        if (denied) e.preventDefault();
+                      }}
+                    >
+                      <span aria-hidden="true" style={{ width: 16, textAlign: "center" }}>
+                        {item.glyph}
+                      </span>
+                      {item.label}
+                      {denied && (
+                        <span aria-hidden="true" style={{ marginLeft: "auto", fontSize: 11 }}>
+                          🔒
+                        </span>
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
       </div>
 
       <div className="ac-prototype-banner" role="note">
         <span aria-hidden="true">⚠</span>
-M0.5 Prototype · Mock Data
+M0.6 Prototype · Mock Data
       </div>
     </nav>
   );

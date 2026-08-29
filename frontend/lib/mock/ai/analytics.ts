@@ -5,12 +5,13 @@
 
 import { maintenanceProjects, workPackages, getProjectById } from "../maintenanceProjects";
 import { workOrders, isOverdue, workOrdersForProject, workOrdersForAircraft } from "../workOrders";
-import { partsForWorkOrder } from "../parts";
+import { parts, partsForWorkOrder } from "../parts";
 import { defects, defectsForAircraft } from "../defects";
 import { inspectorReviews } from "../inspectorReviews";
 import { getAircraftById, aircraft, currentRegistration } from "../aircraft";
 import { assessmentsForAircraft, getAssessmentById } from "../assessments";
 import { getRequirementById } from "../regulations";
+import { technicians, isOnShiftNow } from "../technicians";
 import type { WorkOrder, Priority } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
@@ -315,4 +316,97 @@ export function requirementLabel(requirementId: string | null): string {
   if (!requirementId) return "—";
   const req = getRequirementById(requirementId);
   return req ? `${req.requirementType} ${req.requirementNumber}` : requirementId;
+}
+
+// --- M0.6 Operations Command Center additions ---
+// Same rule as above: every value here is derived from existing mock data,
+// nothing invented. "Grounded" is a derived heuristic (an aircraft with an
+// open HIGH/CRITICAL defect), not a new AircraftStatus value — Aircraft
+// status stays ACTIVE/STORED/WRITTEN_OFF exactly as defined in types.ts.
+
+export interface TechnicianWorkload {
+  technicianId: string;
+  name: string;
+  openWorkOrders: number;
+  overdueWorkOrders: number;
+  onShift: boolean;
+}
+
+export function getTechnicianWorkload(): TechnicianWorkload[] {
+  return technicians.map((t) => {
+    const assigned = workOrders.filter((w) => w.assignedTechnicianId === t.id && w.status !== "COMPLETED" && w.status !== "CANCELLED");
+    return {
+      technicianId: t.id,
+      name: t.name,
+      openWorkOrders: assigned.length,
+      overdueWorkOrders: assigned.filter((w) => isOverdue(w)).length,
+      onShift: isOnShiftNow(t),
+    };
+  });
+}
+
+export function getPartsAtRisk(): { partNumber: string; description: string; status: string; workOrderId: string | null }[] {
+  return parts
+    .filter((p) => p.status !== "IN_STOCK")
+    .map((p) => ({ partNumber: p.partNumber, description: p.description, status: p.status, workOrderId: p.workOrderId }));
+}
+
+export interface OperationsAnalytics {
+  aircraftRequiringMaintenance: { aircraftId: string; registration: string }[];
+  aircraftGrounded: { aircraftId: string; registration: string; reason: string }[];
+  openProjects: number;
+  openWorkOrders: number;
+  workOrderStatusCounts: Record<string, number>;
+  overdue: number;
+  highPriority: number;
+  openDefects: number;
+  unknownChecklistWorkOrderIds: string[];
+  pendingInspections: number;
+  technicianWorkload: TechnicianWorkload[];
+  partsAtRisk: ReturnType<typeof getPartsAtRisk>;
+  activeProjectCount: number;
+}
+
+export function getOperationsAnalytics(unknownChecklistWorkOrderIds: string[] = []): OperationsAnalytics {
+  const withOpenWos = new Set(workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED").map((w) => w.aircraftId));
+  const aircraftRequiringMaintenance = aircraft
+    .filter((a) => withOpenWos.has(a.id))
+    .map((a) => ({ aircraftId: a.id, registration: currentRegistration(a) }));
+
+  const aircraftGrounded = aircraft
+    .map((a) => {
+      const seriousDefect = defectsForAircraft(a.id).find((d) => d.status === "OPEN" && (d.severity === "HIGH" || d.severity === "CRITICAL"));
+      return seriousDefect ? { aircraftId: a.id, registration: currentRegistration(a), reason: seriousDefect.description } : null;
+    })
+    .filter((x): x is { aircraftId: string; registration: string; reason: string } => x !== null);
+
+  const statusCounts: Record<string, number> = {};
+  for (const w of workOrders) statusCounts[w.status] = (statusCounts[w.status] ?? 0) + 1;
+
+  const openWos = workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
+  const openProjects = maintenanceProjects.filter((p) => p.status === "IN_PROGRESS" || p.status === "PLANNED").length;
+
+  return {
+    aircraftRequiringMaintenance,
+    aircraftGrounded,
+    openProjects,
+    openWorkOrders: openWos.length,
+    workOrderStatusCounts: statusCounts,
+    overdue: workOrders.filter((w) => isOverdue(w)).length,
+    highPriority: openWos.filter((w) => w.priority === "HIGH" || w.priority === "CRITICAL").length,
+    openDefects: defects.filter((d) => d.status === "OPEN").length,
+    unknownChecklistWorkOrderIds,
+    pendingInspections: inspectorReviews.filter((r) => r.status === "PENDING_INSPECTION").length,
+    technicianWorkload: getTechnicianWorkload(),
+    partsAtRisk: getPartsAtRisk(),
+    activeProjectCount: openProjects,
+  };
+}
+
+export function assessmentUnknownReasons(assessmentId: string): string[] {
+  const a = getAssessmentById(assessmentId);
+  if (!a) return [];
+  const unknownConditions = a.conditionEvaluations.filter((c) => c.result === "UNKNOWN");
+  if (unknownConditions.length === 0) return ["No condition on this assessment is currently UNKNOWN."];
+  return unknownConditions.map((c) => `${c.label}: expected ${c.expected}, actual ${c.actual ?? "not recorded"}${c.note ? ` — ${c.note}` : ""}`);
 }

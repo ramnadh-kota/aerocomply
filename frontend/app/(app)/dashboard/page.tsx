@@ -13,6 +13,7 @@ import { workOrderStatusBadge, priorityBadge, projectStatusBadge } from "@/compo
 import { inspectorReviews } from "@/lib/mock/inspectorReviews";
 import { findings } from "@/lib/mock/findings";
 import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics } from "@/lib/mock/ai/analytics";
+import { ViewingAsBadge } from "@/components/layout/ViewingAsBadge";
 
 const KPIS = [
   { label: "Total Aircraft", value: "128", href: "/aircraft" },
@@ -148,9 +149,12 @@ export default function DashboardPage() {
             <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>awaiting review</p>
           </div>
         </div>
-        <div className="ac-flex ac-gap-2" style={{ marginTop: 12 }}>
+        <div className="ac-flex ac-gap-2 ac-items-center" style={{ marginTop: 12, flexWrap: "wrap" }}>
           <Link href="/ai" className="ac-btn ac-btn-primary">Ask AeroComply AI</Link>
+          <Link href="/maintenance/operations" className="ac-btn">Maintenance Operations</Link>
+          <Link href="/maintenance/inspections" className="ac-btn">Inspection Queue</Link>
           <Link href="/reports/fleet-risk" className="ac-btn">Generate Operations Report</Link>
+          <ViewingAsBadge />
         </div>
       </section>
 

@@ -224,6 +224,25 @@ export const roles: Role[] = [
     status: "ACTIVE",
     lastUpdated: "2026-03-15",
   },
+  {
+    id: "role-read-only",
+    name: "Read Only",
+    description: "Minimal view-only access for stakeholders who need visibility without any edit capability.",
+    scope: "Organization-wide, read-only",
+    permissions: [
+      perm("Aircraft", "VIEW"),
+      perm("Compliance", "VIEW"),
+      perm("MRO Operations", "VIEW"),
+      perm("Inspection", "VIEW"),
+      perm("Evidence", "VIEW"),
+      perm("Audit", "VIEW"),
+      perm("AI", "VIEW"),
+      perm("Administration", "NONE"),
+    ],
+    aiAccess: { ask: true, analytics: false, reports: false },
+    status: "ACTIVE",
+    lastUpdated: "2026-03-17",
+  },
 ];
 
 export const users: UserAccount[] = [
@@ -237,6 +256,7 @@ export const users: UserAccount[] = [
   { id: "user-8", name: "Wei Zhang", roleId: "role-reliability-engineer", department: "Engineering", assignedAircraftIds: ["ac-1", "ac-3", "ac-5", "ac-7"], assignedProjectIds: [], status: "ACTIVE", lastActivity: "2026-03-16T14:00:00Z" },
   { id: "user-9", name: "Fatima Al-Sayed", roleId: "role-auditor", department: "Internal Audit", assignedAircraftIds: [], assignedProjectIds: [], status: "ACTIVE", lastActivity: "2026-03-15T11:12:00Z" },
   { id: "user-10", name: "James Okafor", roleId: "role-executive", department: "Executive", assignedAircraftIds: [], assignedProjectIds: [], status: "ACTIVE", lastActivity: "2026-03-14T09:00:00Z" },
+  { id: "user-11", name: "Guest Viewer", roleId: "role-read-only", department: "External Stakeholder", assignedAircraftIds: [], assignedProjectIds: [], status: "ACTIVE", lastActivity: "2026-03-12T10:00:00Z" },
 ];
 
 export function getRoleById(id: string): Role | undefined {

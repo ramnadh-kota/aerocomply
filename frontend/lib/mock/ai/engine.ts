@@ -17,6 +17,8 @@ import { workOrders } from "../workOrders";
 import { findingsForWorkOrder } from "../findings";
 import { defectsForWorkOrder } from "../defects";
 import { getInspectorReviewForWorkOrder } from "../inspectorReviews";
+import { overdueMaintenanceEvents, maintenanceEventsForAircraft } from "../maintenance";
+import { assessments } from "../assessments";
 import {
   getProjectAnalytics,
   getAircraftAnalytics,
@@ -24,7 +26,9 @@ import {
   getComplianceAnalytics,
   getInspectionAnalytics,
   getFleetAnalytics,
+  getTechnicianWorkload,
   assessmentDiffSummary,
+  assessmentUnknownReasons,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -49,19 +53,42 @@ export interface AiResponse {
   recommendedActions?: string[];
   table?: { title: string; columns: string[]; rows: (string | number)[][] };
   buttons?: AiButton[];
+  suggestGenerateReport?: { reportId: string; title: string; scope: string };
 }
 
-export const SUGGESTED_QUESTIONS = [
-  "Give me analytics of Project PRJ-2026-001.",
-  "Which work orders are at risk?",
-  "Why is VT-ABC showing compliance risk?",
-  "What inspections are waiting for review?",
-  "Which aircraft have open compliance actions?",
-  "Show me overdue maintenance activities.",
-  "Why was WO-1042 blocked?",
-  "What changed between assessment asmt-1 and asmt-2?",
-  "What are the biggest maintenance risks this week?",
+export interface QuestionCategory {
+  category: string;
+  questions: string[];
+}
+
+export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
+  {
+    category: "Project",
+    questions: [
+      "Analyze C-Check Project P-001",
+      "What is putting this project at risk?",
+      "Show project progress and remaining work.",
+    ],
+  },
+  {
+    category: "Aircraft",
+    questions: ["Give me a health analysis of VT-ABC.", "What maintenance actions are due for VT-ABC?"],
+  },
+  {
+    category: "Maintenance",
+    questions: ["Which work orders need attention?", "Which work orders are waiting for parts?", "Show technician workload."],
+  },
+  {
+    category: "Compliance",
+    questions: ["Which aircraft have compliance risk?", "Show overdue regulatory actions.", "Why is this assessment UNKNOWN?"],
+  },
+  {
+    category: "Inspection",
+    questions: ["Prioritize the inspection queue.", "Which inspections are blocked?"],
+  },
 ];
+
+export const SUGGESTED_QUESTIONS = CATEGORIZED_QUESTIONS.flatMap((c) => c.questions);
 
 let counter = 0;
 function nextId(): string {
@@ -129,12 +156,52 @@ export function answerQuestion(question: string): AiResponse {
         question,
         headline: `Comparing ${ids[0]} → ${ids[1]}`,
         narrative: diff.summary,
-        buttons: [
-          { label: "View Assessment", href: `/assessments/${ids[1]}` },
-        ],
+        buttons: [{ label: "View Assessment", href: `/assessments/${ids[1]}` }],
       };
     }
     return insufficient(question, ["two assessment IDs to compare (e.g. asmt-1 and asmt-2)"]);
+  }
+
+  // "Why is this assessment UNKNOWN?"
+  if (q.includes("unknown") && q.includes("assessment")) {
+    const ids = findAssessmentIdsFromText(question);
+    const target = ids[0] ? ids[0] : assessments.find((a) => a.systemResult === "INSUFFICIENT_DATA")?.id;
+    if (!target) return insufficient(question, ["an assessment ID, or an assessment currently marked INSUFFICIENT_DATA in the demo data"]);
+    const reasons = assessmentUnknownReasons(target);
+    return {
+      id: nextId(),
+      question,
+      headline: `${target} — why conditions are UNKNOWN`,
+      narrative: [...reasons, "UNKNOWN is never silently treated as TRUE or FALSE — it requires human review or new evidence.", TRUST_FOOTER],
+      buttons: [{ label: "View Assessment", href: `/assessments/${target}` }],
+    };
+  }
+
+  // "Which inspections are blocked?"
+  if (q.includes("inspection") && q.includes("blocked")) {
+    const insp = getInspectionAnalytics();
+    const blocked = insp.pending
+      .map((p) => {
+        const findings = findingsForWorkOrder(p.workOrderId);
+        const defects = defectsForWorkOrder(p.workOrderId);
+        const reasons: string[] = [];
+        if (p.workOrderId === "wo-1042") reasons.push("UNKNOWN checklist item");
+        if (findings.some((f) => f.requiresDefect)) reasons.push("finding requiring defect");
+        if (defects.length > 0) reasons.push(`${defects.length} open defect(s)`);
+        return { ...p, reasons };
+      })
+      .filter((p) => p.reasons.length > 0);
+    return {
+      id: nextId(),
+      question,
+      headline: `${blocked.length} inspection(s) blocked from approval`,
+      narrative: [
+        blocked.length > 0 ? "Blocking conditions are shown per work order below." : "No pending inspection currently has a blocking condition.",
+        TRUST_FOOTER,
+      ],
+      table: { title: "Blocked Inspections", columns: ["Work Order", "Priority", "Reason"], rows: blocked.map((b) => [b.label, b.priority, b.reasons.join(", ")]) },
+      buttons: [{ label: "Open Inspection Queue", href: "/maintenance/inspections" }],
+    };
   }
 
   // "Why was WO-1042 blocked?"
@@ -171,7 +238,46 @@ export function answerQuestion(question: string): AiResponse {
     return insufficient(question, ["a recognizable work order number, e.g. WO-1042"]);
   }
 
-  // Project analytics / report
+  // "What is putting this project at risk?"
+  if (q.includes("project") && q.includes("risk") && !q.includes("analytic")) {
+    const project = findProjectFromText(question) ?? maintenanceProjects[0];
+    const a = getProjectAnalytics(project.id);
+    if (!a) return insufficient(question, [`project matching "${question}"`]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${a.projectNumber} — risk factors`,
+      narrative: [a.risks.length > 0 ? `${a.risks.length} risk factor(s) identified.` : "No active risk factors identified.", TRUST_FOOTER],
+      risks: a.risks,
+      recommendedActions: a.recommendedActions,
+      buttons: [
+        { label: "View Project", href: `/maintenance/projects/${a.projectId}` },
+        { label: "Generate Report", href: `/reports/project-${a.projectId}` },
+      ],
+      suggestGenerateReport: { reportId: `project-${a.projectId}`, title: `${a.projectNumber} Operations Report`, scope: a.title },
+    };
+  }
+
+  // "Show project progress and remaining work."
+  if (q.includes("project") && (q.includes("progress") || q.includes("remaining"))) {
+    const project = findProjectFromText(question) ?? maintenanceProjects[0];
+    const a = getProjectAnalytics(project.id);
+    if (!a) return insufficient(question, [`project matching "${question}"`]);
+    const remaining = a.workPackageProgress.filter((w) => w.percent < 100);
+    return {
+      id: nextId(),
+      question,
+      headline: `${a.projectNumber} — progress`,
+      narrative: [
+        remaining.length > 0 ? `${remaining.length} work package(s) remain incomplete.` : "All work packages are complete.",
+        TRUST_FOOTER,
+      ],
+      bars: { title: "Work Package Progress", items: a.workPackageProgress },
+      buttons: [{ label: "View Project", href: `/maintenance/projects/${a.projectId}` }],
+    };
+  }
+
+  // Project analytics / report (general analyze/health/summary)
   if (q.includes("project") && (q.includes("analytic") || q.includes("health") || q.includes("summary") || q.includes("analyze"))) {
     const project = findProjectFromText(question) ?? maintenanceProjects[0];
     const a = getProjectAnalytics(project.id);
@@ -192,16 +298,50 @@ export function answerQuestion(question: string): AiResponse {
         { label: "View Work Orders", href: `/maintenance/work-orders` },
         { label: "Generate Report", href: `/reports/project-${a.projectId}` },
       ],
+      suggestGenerateReport: { reportId: `project-${a.projectId}`, title: `${a.projectNumber} Operations Report`, scope: a.title },
     };
   }
 
-  // Which work orders are at risk
-  if (q.includes("work orders") && q.includes("risk")) {
+  // Aircraft health analysis
+  if (q.includes("health") && findAircraftFromText(question)) {
+    const a = findAircraftFromText(question)!;
+    const analytics = getAircraftAnalytics(a.id)!;
+    return {
+      id: nextId(),
+      question,
+      headline: `${analytics.registration} — health analysis`,
+      narrative: [...analytics.reasons, TRUST_FOOTER],
+      kpis: analytics.kpis,
+      buttons: [
+        { label: "View Aircraft", href: `/aircraft/${a.id}` },
+        { label: "Generate Aircraft Compliance Report", href: `/reports/aircraft-${a.id}` },
+      ],
+      suggestGenerateReport: { reportId: `aircraft-${a.id}`, title: `${analytics.registration} Compliance Exposure Report`, scope: analytics.registration },
+    };
+  }
+
+  // Maintenance actions due for an aircraft
+  if (findAircraftFromText(question) && (q.includes("due") || q.includes("maintenance action"))) {
+    const a = findAircraftFromText(question)!;
+    const events = maintenanceEventsForAircraft(a.id);
+    const outstanding = events.filter((e) => e.status !== "COMPLETED");
+    return {
+      id: nextId(),
+      question,
+      headline: `Maintenance actions due — ${a.msn}`,
+      narrative: [outstanding.length > 0 ? `${outstanding.length} maintenance event(s) not yet completed.` : "No outstanding maintenance events.", TRUST_FOOTER],
+      table: { title: "Maintenance Events", columns: ["Date", "Type", "Status", "Description"], rows: outstanding.map((e) => [e.date, e.eventType, e.status.replace(/_/g, " "), e.description]) },
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
+    };
+  }
+
+  // Which work orders need attention / at risk
+  if ((q.includes("work orders") || q.includes("work order")) && (q.includes("risk") || q.includes("attention"))) {
     const m = getMaintenanceAnalytics();
     return {
       id: nextId(),
       question,
-      headline: "Work orders at risk",
+      headline: "Work orders needing attention",
       narrative: [
         `${m.overdue.length} overdue, ${m.waitingParts} waiting on parts, ${m.waitingInspection} waiting on inspection.`,
         TRUST_FOOTER,
@@ -209,10 +349,50 @@ export function answerQuestion(question: string): AiResponse {
       kpis: m.kpis,
       table: { title: "Overdue Work Orders", columns: ["Work Order", "Due Date", "Priority"], rows: m.overdue.map((w) => [w.label, w.dueDate, w.priority]) },
       buttons: [{ label: "View Work Orders", href: "/maintenance/work-orders" }, { label: "Generate Report", href: "/reports/fleet-risk" }],
+      suggestGenerateReport: { reportId: "fleet-risk", title: "Fleet Maintenance Risk Report", scope: "Fleet-wide" },
     };
   }
 
-  // Overdue maintenance
+  // Work orders waiting for parts
+  if (q.includes("waiting") && q.includes("parts")) {
+    const waiting = workOrders.filter((w) => w.status === "WAITING_PARTS");
+    return {
+      id: nextId(),
+      question,
+      headline: `${waiting.length} work order(s) waiting on parts`,
+      narrative: [TRUST_FOOTER],
+      table: { title: "Waiting on Parts", columns: ["Work Order", "Title", "Priority"], rows: waiting.map((w) => [w.workOrderNumber, w.title, w.priority]) },
+      buttons: [{ label: "View Parts", href: "/maintenance/parts" }],
+    };
+  }
+
+  // Technician workload
+  if (q.includes("technician") && q.includes("workload")) {
+    const workload = getTechnicianWorkload().filter((t) => t.openWorkOrders > 0);
+    return {
+      id: nextId(),
+      question,
+      headline: "Technician workload",
+      narrative: [TRUST_FOOTER],
+      table: { title: "Open Work Orders by Technician", columns: ["Technician", "Open", "Overdue", "On Shift"], rows: workload.map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders, t.onShift ? "Yes" : "No"]) },
+      buttons: [{ label: "View Technicians", href: "/maintenance/technicians" }],
+    };
+  }
+
+  // Overdue maintenance (compliance-linked events) — check before generic overdue
+  if (q.includes("overdue") && (q.includes("regulator") || q.includes("compliance"))) {
+    const events = overdueMaintenanceEvents();
+    return {
+      id: nextId(),
+      question,
+      headline: `${events.length} overdue regulatory/compliance-linked action(s)`,
+      narrative: [TRUST_FOOTER],
+      table: { title: "Overdue Actions", columns: ["Date", "Description", "Requirement"], rows: events.map((e) => [e.date, e.description, e.relatedRequirementId ?? "—"]) },
+      buttons: [{ label: "View Audit Trail", href: "/audit" }],
+    };
+  }
+
+  // Overdue maintenance (generic)
   if (q.includes("overdue")) {
     const m = getMaintenanceAnalytics();
     return {
@@ -233,7 +413,7 @@ export function answerQuestion(question: string): AiResponse {
       question,
       headline: q.includes("priorit") ? "Inspection queue — prioritized" : "Inspections awaiting review",
       narrative: [
-        `${insp.pending.length} inspection(s) pending. ${q.includes("priorit") ? "Ranked by work order priority (CRITICAL first) — this is a suggested review order, not an automatic decision." : ""}`,
+        `${insp.pending.length} inspection(s) pending. ${q.includes("priorit") ? "Ranked by work order priority (CRITICAL first) — this is prototype triage logic, not a certified safety decision." : ""}`,
         TRUST_FOOTER,
       ],
       kpis: insp.kpis,
@@ -242,10 +422,24 @@ export function answerQuestion(question: string): AiResponse {
         { label: "Open Inspection Queue", href: "/maintenance/inspections" },
         { label: "Generate Report", href: "/reports/inspection-queue" },
       ],
+      suggestGenerateReport: { reportId: "inspection-queue", title: "Inspection Queue Summary", scope: "Open inspections" },
     };
   }
 
-  // Aircraft compliance risk explanation
+  // Which aircraft have compliance risk (plural aircraft-wide)
+  if (q.includes("aircraft") && q.includes("compliance") && q.includes("risk")) {
+    const f = getFleetAnalytics();
+    return {
+      id: nextId(),
+      question,
+      headline: "Aircraft with compliance risk",
+      narrative: [`${f.aircraftAtRisk.length} of ${f.fleetSize} aircraft show elevated compliance/maintenance risk.`, TRUST_FOOTER],
+      table: { title: "Aircraft At Risk", columns: ["Aircraft", "Risk"], rows: f.aircraftAtRisk.map((a) => [a.registration, a.risk]) },
+      buttons: [{ label: "View Assessments", href: "/assessments" }],
+    };
+  }
+
+  // Aircraft compliance risk explanation (single aircraft)
   if (q.includes("compliance risk") || (q.includes("why") && findAircraftFromText(question))) {
     const a = findAircraftFromText(question);
     if (a) {
@@ -260,6 +454,7 @@ export function answerQuestion(question: string): AiResponse {
           { label: "View Aircraft", href: `/aircraft/${a.id}` },
           { label: "Generate Aircraft Compliance Report", href: `/reports/aircraft-${a.id}` },
         ],
+        suggestGenerateReport: { reportId: `aircraft-${a.id}`, title: `${analytics.registration} Compliance Exposure Report`, scope: analytics.registration },
       };
     }
     return insufficient(question, ["a recognizable aircraft registration, e.g. VT-ABC"]);
@@ -289,6 +484,7 @@ export function answerQuestion(question: string): AiResponse {
       kpis: f.kpis,
       table: { title: "Aircraft At Risk", columns: ["Aircraft", "Risk"], rows: f.aircraftAtRisk.map((a) => [a.registration, a.risk]) },
       buttons: [{ label: "Generate Report", href: "/reports/fleet-risk" }],
+      suggestGenerateReport: { reportId: "fleet-risk", title: "Fleet Maintenance Risk Report", scope: "Fleet-wide" },
     };
   }
 

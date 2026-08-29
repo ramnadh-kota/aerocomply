@@ -41,6 +41,22 @@ export function getReportRecord(id: string): ReportRecord | undefined {
   return reportHistory.find((r) => r.id === id);
 }
 
+/**
+ * Records that a report was "generated" (e.g. from the AI Command Center)
+ * so it shows up in /reports history. This mutates the in-memory
+ * reportHistory array directly — it is a session-only prototype action, not
+ * a backend write, and resets on a full page reload.
+ */
+export function recordGeneratedReport(input: { id: string; title: string; generatedBy: string; scope: string; generatedDate: string; status: "READY" | "GENERATING" }): ReportRecord {
+  const parsed = parseReportId(input.id);
+  const type: ReportType = parsed?.type ?? getReportRecord(input.id)?.type ?? "COMPLIANCE_WEEKLY";
+  const record: ReportRecord = { ...input, type };
+  const existingIndex = reportHistory.findIndex((r) => r.id === input.id);
+  if (existingIndex >= 0) reportHistory[existingIndex] = record;
+  else reportHistory.unshift(record);
+  return record;
+}
+
 function parseReportId(id: string): { type: ReportType; scopeId: string } | null {
   if (id.startsWith("project-")) return { type: "PROJECT", scopeId: id.slice("project-".length) };
   if (id.startsWith("aircraft-")) return { type: "AIRCRAFT", scopeId: id.slice("aircraft-".length) };
@@ -132,7 +148,7 @@ export function buildReportData(id: string): ReportData | null {
         heading: "AI-Generated Summary",
         body: [
           `${project.projectNumber} is ${analytics.health.replace(/_/g, " ").toLowerCase()} with ${analytics.risks.length} identified risk item(s) and ${analytics.complianceExposure.toLowerCase()} compliance exposure.`,
-          "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.",
+          "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions.",
         ],
       },
     ];
@@ -160,7 +176,7 @@ export function buildReportData(id: string): ReportData | null {
       { heading: "Risk Analysis", body: analytics.reasons },
       { heading: "Recommended Actions", body: analytics.complianceRisk !== "LOW" ? ["Review open defects and non-compliant/review-required assessments before next dispatch."] : ["No immediate action required."] },
       { heading: "Audit / Traceability", body: auditEventsForObjectLabelContains(analytics.registration).slice(0, 5).map((e) => `${e.timestamp}: ${e.action.replace(/_/g, " ")}`) },
-      { heading: "AI-Generated Summary", body: [`${analytics.registration} shows ${analytics.complianceRisk.toLowerCase()} compliance risk. ${analytics.reasons[0] ?? ""}`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required."] },
+      { heading: "AI-Generated Summary", body: [`${analytics.registration} shows ${analytics.complianceRisk.toLowerCase()} compliance risk. ${analytics.reasons[0] ?? ""}`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
     return { id, title: `${analytics.registration} Compliance Exposure Report`, type: parsed.type, scope: analytics.registration, generatedDate, aiSummary: sections[sections.length - 1].body, sections };
   }
@@ -172,7 +188,7 @@ export function buildReportData(id: string): ReportData | null {
       { heading: "Aircraft At Risk", body: [], table: { columns: ["Aircraft", "Risk"], rows: f.aircraftAtRisk.map((a) => [a.registration, a.risk]) } },
       { heading: "Risk Analysis", body: f.aircraftAtRisk.map((a) => `${a.registration}: ${a.risk} risk`) },
       { heading: "Recommended Actions", body: f.aircraftAtRisk.length > 0 ? ["Prioritize review of HIGH-risk aircraft before next scheduled check."] : ["No fleet-wide action required."] },
-      { heading: "AI-Generated Summary", body: [`Fleet-wide, ${f.aircraftAtRisk.length} aircraft require attention out of ${f.fleetSize}.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required."] },
+      { heading: "AI-Generated Summary", body: [`Fleet-wide, ${f.aircraftAtRisk.length} aircraft require attention out of ${f.fleetSize}.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
     return { id, title: "Fleet Maintenance Risk Report", type: parsed.type, scope: "Fleet-wide", generatedDate, aiSummary: sections[sections.length - 1].body, sections };
   }
@@ -183,7 +199,7 @@ export function buildReportData(id: string): ReportData | null {
       { heading: "Executive Summary", body: [`${insp.pending.length} inspection(s) currently pending review.`], kpis: insp.kpis },
       { heading: "Inspection Queue", body: [], table: { columns: ["Work Order", "Priority"], rows: insp.pending.map((p) => [p.label, p.priority]) } },
       { heading: "Recommended Actions", body: insp.pending.length > 0 ? ["Review CRITICAL/HIGH priority work orders first."] : ["Queue is clear."] },
-      { heading: "AI-Generated Summary", body: [`${insp.pending.length} inspection(s) pending, ${insp.approved} approved, ${insp.rejected} rejected, ${insp.returned} returned this period.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required."] },
+      { heading: "AI-Generated Summary", body: [`${insp.pending.length} inspection(s) pending, ${insp.approved} approved, ${insp.rejected} rejected, ${insp.returned} returned this period.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
     return { id, title: "Inspection Queue Summary", type: parsed.type, scope: "Open inspections", generatedDate, aiSummary: sections[sections.length - 1].body, sections };
   }
@@ -196,7 +212,7 @@ export function buildReportData(id: string): ReportData | null {
     { heading: "Compliance Exposure", body: [`${c.nonCompliant} non-compliant, ${c.reviewRequired} review required, ${c.insufficientData} insufficient data, out of ${c.totalAssessments} assessments.`] },
     { heading: "Maintenance Snapshot", body: [], kpis: m.kpis },
     { heading: "Recommended Actions", body: c.nonCompliant + c.reviewRequired > 0 ? ["Prioritize assessments in Review Required / Non-Compliant status."] : ["No action required this week."] },
-    { heading: "AI-Generated Summary", body: [`${c.compliant}/${c.totalAssessments} assessments are compliant fleet-wide.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required."] },
+    { heading: "AI-Generated Summary", body: [`${c.compliant}/${c.totalAssessments} assessments are compliant fleet-wide.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
   ];
   return { id, title: "Weekly Compliance Report", type: "COMPLIANCE_WEEKLY", scope: "Organization-wide", generatedDate, aiSummary: sections[sections.length - 1].body, sections };
 }

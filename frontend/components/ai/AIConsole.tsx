@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { answerQuestion, SUGGESTED_QUESTIONS, type AiResponse } from "@/lib/mock/ai/engine";
+import { answerQuestion, CATEGORIZED_QUESTIONS, type AiResponse } from "@/lib/mock/ai/engine";
 import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics } from "@/lib/mock/ai/analytics";
 import { AIResponseView } from "@/components/ai/AIResponseView";
+import { useMroState } from "@/lib/mro-state/MroStateContext";
 
 interface Turn {
   id: string;
@@ -16,6 +17,7 @@ export function AIConsole({ initialProjectId, initialAircraftId }: { initialProj
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
+  const { addAuditEvent } = useMroState();
 
   function ask(question: string) {
     const trimmed = question.trim();
@@ -25,6 +27,15 @@ export function AIConsole({ initialProjectId, initialAircraftId }: { initialProj
     setTurns((prev) => [...prev, turn]);
     setActiveId(turn.id);
     setDraft("");
+    addAuditEvent({
+      actor: "AeroComply AI (Prototype)",
+      actorRole: "AI Assistant",
+      action: "ai.analysis_generated",
+      objectType: "AiQuery",
+      objectLabel: trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed,
+      previousState: null,
+      newState: response.insufficientData ? "INSUFFICIENT_DATA" : "ANSWERED",
+    });
   }
 
   const active = turns.find((t) => t.id === activeId) ?? turns[turns.length - 1];
@@ -82,13 +93,16 @@ export function AIConsole({ initialProjectId, initialAircraftId }: { initialProj
               Ask
             </button>
           </div>
-          <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
-            {SUGGESTED_QUESTIONS.slice(0, 6).map((q) => (
-              <button key={q} className="ac-btn" style={{ fontSize: 12, padding: "4px 8px" }} onClick={() => ask(q)}>
-                {q}
-              </button>
-            ))}
-          </div>
+          {CATEGORIZED_QUESTIONS.map((cat) => (
+            <div key={cat.category} className="ac-flex ac-items-center ac-gap-2" style={{ flexWrap: "wrap", marginBottom: 6 }}>
+              <span className="ac-text-sm ac-text-muted" style={{ minWidth: 78 }}>{cat.category}:</span>
+              {cat.questions.map((q) => (
+                <button key={q} className="ac-btn" style={{ fontSize: 12, padding: "4px 8px" }} onClick={() => ask(q)}>
+                  {q}
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
 
         {turns.length === 0 && (

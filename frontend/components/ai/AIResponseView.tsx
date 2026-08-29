@@ -1,5 +1,11 @@
+"use client";
+
+import type { MouseEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { AiResponse } from "@/lib/mock/ai/engine";
+import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { recordGeneratedReport } from "@/lib/mock/reports";
 
 function Bar({ label, percent }: { label: string; percent: number }) {
   return (
@@ -22,6 +28,27 @@ const RISK_COLOR: Record<string, string> = {
 };
 
 export function AIResponseView({ response }: { response: AiResponse }) {
+  const router = useRouter();
+  const { addAuditEvent } = useMroState();
+
+  function handleButtonClick(e: MouseEvent<HTMLAnchorElement>, href: string) {
+    if (href.startsWith("/reports/") && response.suggestGenerateReport) {
+      e.preventDefault();
+      const { reportId, title, scope } = response.suggestGenerateReport;
+      recordGeneratedReport({ id: reportId, title, generatedBy: "AeroComply AI (Prototype)", scope, generatedDate: new Date().toISOString().slice(0, 10), status: "READY" });
+      addAuditEvent({
+        actor: "AeroComply AI (Prototype)",
+        actorRole: "AI Assistant",
+        action: "report.generated",
+        objectType: "Report",
+        objectLabel: title,
+        previousState: null,
+        newState: "READY",
+      });
+      router.push(href);
+    }
+  }
+
   return (
     <div className="ac-card" style={{ borderColor: response.insufficientData ? "var(--ac-status-insufficient)" : undefined }}>
       <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>
@@ -131,7 +158,7 @@ export function AIResponseView({ response }: { response: AiResponse }) {
       {response.buttons && response.buttons.length > 0 && (
         <div className="ac-flex ac-gap-2" style={{ marginTop: 14, flexWrap: "wrap" }}>
           {response.buttons.map((b) => (
-            <Link key={b.href} href={b.href} className="ac-btn">
+            <Link key={b.href} href={b.href} className="ac-btn" onClick={(e) => handleButtonClick(e, b.href)}>
               {b.label}
             </Link>
           ))}

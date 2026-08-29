@@ -4,10 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { GlobalSearch } from "@/components/search/GlobalSearch";
 import { organizations } from "@/lib/mock/organizations";
+import { useRoleSim, simulatableRoles } from "@/lib/role-sim/RoleSimContext";
+import { getRoleById } from "@/lib/mock/roles";
 
 export function Topbar() {
   const [orgId, setOrgId] = useState(organizations[0].id);
   const [notifOpen, setNotifOpen] = useState(false);
+  const { roleId, setRoleId, reset } = useRoleSim();
+  const activeRole = getRoleById(roleId);
 
   return (
     <header className="ac-topbar">
@@ -18,6 +22,28 @@ export function Topbar() {
           <span aria-hidden="true" style={{ marginRight: 6 }}>✦</span>
           Ask AeroComply AI
         </Link>
+        <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm" title="Prototype role simulation — permissions are not enforced">
+          <span className="ac-text-muted">Viewing as</span>
+          <select
+            className="ac-input"
+            style={{ width: 190, padding: "6px 10px" }}
+            value={roleId}
+            onChange={(e) => setRoleId(e.target.value)}
+            aria-label="View as role (prototype simulation)"
+          >
+            {simulatableRoles().map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+          {roleId !== "role-org-admin" && (
+            <button className="ac-btn" style={{ padding: "4px 8px", fontSize: 11 }} onClick={reset}>
+              Reset
+            </button>
+          )}
+        </label>
+
         <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm">
           <span className="ac-text-muted">Org</span>
           <select
