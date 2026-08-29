@@ -3,10 +3,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, workOrderStatusBadge, priorityBadge, partStatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, workOrderStatusBadge, priorityBadge, partStatusBadge, inspectorReviewStatusBadge } from "@/components/status/StatusBadge";
 import { EvidenceCard } from "@/components/evidence/EvidenceCard";
 import { ChecklistPanel } from "@/components/maintenance/ChecklistPanel";
 import { getWorkOrderById } from "@/lib/mock/workOrders";
+import type { WorkOrderStatus } from "@/lib/mock/types";
+import { findingsForWorkOrder } from "@/lib/mock/findings";
+import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getProjectById, getWorkPackageById } from "@/lib/mock/maintenanceProjects";
 import { getTechnicianById } from "@/lib/mock/technicians";
@@ -32,6 +35,12 @@ export default function WorkOrderDetailPage({ params }: { params: { id: string }
   const evidence = assessment ? evidenceForAssessment(assessment.id) : [];
   const checklist = getChecklistByWorkOrderId(wo.id);
   const auditEvents = auditEventsForObjectLabelContains(wo.workOrderNumber);
+  const findings = findingsForWorkOrder(wo.id);
+  const { submissions } = useMroState();
+  const record = submissions[wo.id];
+
+  const STEPS: WorkOrderStatus[] = ["DRAFT", "ASSIGNED", "IN_PROGRESS", wo.status === "WAITING_PARTS" ? "WAITING_PARTS" : "WAITING_INSPECTION", "COMPLETED"];
+  const currentStepIndex = STEPS.indexOf(wo.status);
 
   return (
     <div>
@@ -54,6 +63,24 @@ export default function WorkOrderDetailPage({ params }: { params: { id: string }
           <StatusBadge {...workOrderStatusBadge(wo.status)} />
         </div>
       </div>
+
+      {wo.status === "CANCELLED" ? (
+        <div className="ac-card ac-section">
+          <StatusBadge {...workOrderStatusBadge("CANCELLED")} />
+        </div>
+      ) : (
+        <div className="ac-card ac-section">
+          <p className="ac-eyebrow" style={{ marginBottom: 8 }}>Status</p>
+          <div className="ac-flex ac-items-center ac-gap-2" style={{ flexWrap: "wrap" }}>
+            {STEPS.map((s, idx) => (
+              <span key={s} className="ac-flex ac-items-center ac-gap-2">
+                <StatusBadge {...workOrderStatusBadge(s)} label={s.replace(/_/g, " ")} />
+                {idx < STEPS.length - 1 && <span className="ac-text-muted" style={{ opacity: idx < currentStepIndex ? 1 : 0.35 }}>→</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(requirement || assessment) && (
         <div className="ac-card ac-section" style={{ background: "var(--ac-accent-muted)", border: "1px solid var(--ac-accent)" }}>
@@ -140,6 +167,45 @@ export default function WorkOrderDetailPage({ params }: { params: { id: string }
           <h2 className="ac-h2" style={{ marginBottom: 10 }}>Task Checklist</h2>
           <ChecklistPanel checklist={checklist} workOrderId={wo.id} />
         </section>
+      )}
+
+      {findings.length > 0 && (
+        <section className="ac-section">
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Findings</h2>
+          <div className="ac-card">
+            <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+              {findings.map((f) => (
+                <li key={f.id} className="ac-flex ac-justify-between ac-items-center" style={{ padding: "6px 0", borderBottom: "1px solid var(--ac-border-subtle)" }}>
+                  <span className="ac-text-sm">{f.description}</span>
+                  <StatusBadge {...priorityBadge(f.severity)} label={f.requiresDefect ? `${f.severity} · Defect Raised` : f.severity} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {record && (
+        <div className="ac-grid-2 ac-section">
+          <div className="ac-card">
+            <p className="ac-kpi-label">Technician Sign-off</p>
+            {record.technicianSignOff ? (
+              <p style={{ marginTop: 4, fontSize: 13 }}>
+                {getTechnicianById(record.technicianSignOff.technicianId)?.name ?? record.technicianSignOff.technicianId} confirmed on{" "}
+                {new Date(record.technicianSignOff.timestamp).toLocaleString()}
+              </p>
+            ) : (
+              <p className="ac-text-sm ac-text-muted" style={{ marginTop: 4 }}>Not yet signed off.</p>
+            )}
+          </div>
+          <div className="ac-card">
+            <p className="ac-kpi-label">Inspector Decision</p>
+            <div className="ac-flex ac-items-center ac-gap-2" style={{ marginTop: 4 }}>
+              <StatusBadge {...inspectorReviewStatusBadge(record.inspectorDecisionStatus)} />
+            </div>
+            {record.inspectorComments && <p className="ac-text-sm ac-text-muted" style={{ marginTop: 6 }}>{record.inspectorComments}</p>}
+          </div>
+        </div>
       )}
 
       {evidence.length > 0 && (
