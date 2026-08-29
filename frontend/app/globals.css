@@ -100,6 +100,59 @@ table {
 .ac-shell {
   display: flex;
   min-height: 100vh;
+  position: relative;
+  z-index: 1;
+}
+
+/* --- Aviation/MRO background layer ---
+   Purely decorative (aria-hidden, pointer-events: none). Sits behind
+   .ac-shell via the stacking context above. Per-page opacity is set by
+   AviationBackground.tsx via the --ac-bg-opacity custom property so one
+   image asset and one component serve every screen at the right intensity. */
+
+.ac-aviation-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ac-aviation-bg-image {
+  position: absolute;
+  inset: 0;
+  background-image: url("/images/aerocomply-mro-background.svg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: var(--ac-bg-opacity, 0.12);
+  transition: opacity 0.2s ease;
+}
+
+.ac-aviation-bg-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 60% 35%, rgba(10, 15, 26, 0) 0%, rgba(10, 15, 26, 0.55) 60%, rgba(10, 15, 26, 0.88) 100%),
+    linear-gradient(180deg, rgba(10, 15, 26, 0.55) 0%, rgba(10, 15, 26, 0.25) 35%, rgba(10, 15, 26, 0.9) 100%);
+}
+
+@media (max-width: 1024px) {
+  .ac-aviation-bg-image {
+    opacity: min(var(--ac-bg-opacity, 0.12), 0.08);
+  }
+}
+
+@media (max-width: 640px) {
+  .ac-aviation-bg-image {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-aviation-bg-image {
+    transition: none;
+  }
 }
 
 .ac-sidebar {
