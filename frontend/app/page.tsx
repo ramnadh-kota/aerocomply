@@ -9,7 +9,7 @@ export default function HomePage() {
       </div>
       <div style={{ display: "flex", gap: 12 }}>
         <Link href="/dashboard" className="ac-btn ac-btn-primary">
-          Enter Prototype (Mock Data)
+          Enter M0.5 Prototype
         </Link>
         <Link href="/login" className="ac-btn">
           Sign in

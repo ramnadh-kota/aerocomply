@@ -98,7 +98,7 @@ export function Sidebar() {
 
       <div className="ac-prototype-banner" role="note">
         <span aria-hidden="true">⚠</span>
-        PROTOTYPE / MOCK DATA
+M0.5 Prototype · Mock Data
       </div>
     </nav>
   );
