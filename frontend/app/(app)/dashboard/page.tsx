@@ -154,6 +154,8 @@ export default function DashboardPage() {
           <Link href="/maintenance/operations" className="ac-btn">Maintenance Operations</Link>
           <Link href="/maintenance/inspections" className="ac-btn">Inspection Queue</Link>
           <Link href="/reports/fleet-risk" className="ac-btn">Generate Operations Report</Link>
+          <Link href="/reports" className="ac-btn">Reports</Link>
+          <Link href="/organization/roles" className="ac-btn">Role Management</Link>
           <ViewingAsBadge />
         </div>
       </section>

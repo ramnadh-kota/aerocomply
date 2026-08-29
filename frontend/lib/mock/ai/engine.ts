@@ -17,8 +17,9 @@ import { workOrders } from "../workOrders";
 import { findingsForWorkOrder } from "../findings";
 import { defectsForWorkOrder } from "../defects";
 import { getInspectorReviewForWorkOrder } from "../inspectorReviews";
-import { overdueMaintenanceEvents, maintenanceEventsForAircraft } from "../maintenance";
+import { overdueMaintenanceEvents, maintenanceEventsForAircraft, upcomingMaintenanceEvents } from "../maintenance";
 import { assessments } from "../assessments";
+import { getTechnicianById } from "../technicians";
 import {
   getProjectAnalytics,
   getAircraftAnalytics,
@@ -27,6 +28,7 @@ import {
   getInspectionAnalytics,
   getFleetAnalytics,
   getTechnicianWorkload,
+  getPartsAtRisk,
   assessmentDiffSummary,
   assessmentUnknownReasons,
   type KpiCard,
@@ -68,6 +70,7 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Analyze C-Check Project P-001",
       "What is putting this project at risk?",
       "Show project progress and remaining work.",
+      "Show resource utilization for this project.",
     ],
   },
   {
@@ -76,15 +79,30 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
   },
   {
     category: "Maintenance",
-    questions: ["Which work orders need attention?", "Which work orders are waiting for parts?", "Show technician workload."],
+    questions: [
+      "Which work orders need attention?",
+      "Show the work order backlog.",
+      "Which parts are at risk?",
+      "Show technician workload.",
+      "Show me overdue maintenance activities.",
+    ],
   },
   {
     category: "Compliance",
-    questions: ["Which aircraft have compliance risk?", "Show overdue regulatory actions.", "Why is this assessment UNKNOWN?"],
+    questions: [
+      "Which aircraft have compliance risk?",
+      "Show overdue regulatory actions.",
+      "Why is this assessment UNKNOWN?",
+      "What regulatory deadlines are coming up?",
+    ],
   },
   {
     category: "Inspection",
     questions: ["Prioritize the inspection queue.", "Which inspections are blocked?"],
+  },
+  {
+    category: "Fleet",
+    questions: ["What is the health of the fleet?"],
   },
 ];
 
@@ -174,6 +192,38 @@ export function answerQuestion(question: string): AiResponse {
       headline: `${target} — why conditions are UNKNOWN`,
       narrative: [...reasons, "UNKNOWN is never silently treated as TRUE or FALSE — it requires human review or new evidence.", TRUST_FOOTER],
       buttons: [{ label: "View Assessment", href: `/assessments/${target}` }],
+    };
+  }
+
+  // "What is the health of the fleet?" — combined KPI + risk distribution +
+  // aircraft ranking + maintenance exposure + compliance exposure + recs.
+  if (q.includes("fleet") && q.includes("health")) {
+    const f = getFleetAnalytics();
+    const c = getComplianceAnalytics();
+    const m = getMaintenanceAnalytics();
+    const ranked = [...f.aircraftAtRisk].sort((a, b) => (a.risk === b.risk ? 0 : a.risk === "HIGH" ? -1 : 1));
+    return {
+      id: nextId(),
+      question,
+      headline: "Fleet Health Summary",
+      narrative: [
+        `${f.aircraftAtRisk.length} of ${f.fleetSize} aircraft show elevated risk. ${c.nonCompliant + c.reviewRequired} assessment(s) need compliance attention. ${m.overdue.length} work order(s) are overdue.`,
+        TRUST_FOOTER,
+      ],
+      kpis: [...f.kpis, ...c.kpis.slice(0, 2)],
+      distribution: { title: "Aircraft Risk Distribution", items: [{ label: "AT_RISK", count: f.aircraftAtRisk.length }, { label: "NOMINAL", count: f.fleetSize - f.aircraftAtRisk.length }] },
+      table: { title: "Aircraft Risk Ranking", columns: ["Aircraft", "Risk"], rows: ranked.map((a) => [a.registration, a.risk]) },
+      recommendedActions: [
+        ...(f.aircraftAtRisk.length > 0 ? [`Review the ${ranked[0]?.registration ?? "highest-risk aircraft"} first.`] : []),
+        ...(m.overdue.length > 0 ? [`Address ${m.overdue.length} overdue work order(s).`] : []),
+        ...(c.nonCompliant + c.reviewRequired > 0 ? ["Review assessments in Non-Compliant / Review Required status."] : []),
+      ],
+      buttons: [
+        { label: "View Fleet", href: "/aircraft" },
+        { label: "Maintenance Operations", href: "/maintenance/operations" },
+        { label: "Generate Report", href: "/reports/fleet-risk" },
+      ],
+      suggestGenerateReport: { reportId: "fleet-risk", title: "Fleet Maintenance Risk Report", scope: "Fleet-wide" },
     };
   }
 
@@ -277,6 +327,26 @@ export function answerQuestion(question: string): AiResponse {
     };
   }
 
+  // "Show resource utilization for this project."
+  if (q.includes("project") && (q.includes("resource") || q.includes("utilization"))) {
+    const project = findProjectFromText(question) ?? maintenanceProjects[0];
+    const wos = workOrders.filter((w) => w.projectId === project.id);
+    const byTechnician = new Map<string, number>();
+    for (const w of wos) {
+      if (!w.assignedTechnicianId) continue;
+      byTechnician.set(w.assignedTechnicianId, (byTechnician.get(w.assignedTechnicianId) ?? 0) + 1);
+    }
+    const rows = Array.from(byTechnician.entries()).map(([id, count]) => [getTechnicianById(id)?.name ?? id, count]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${project.projectNumber} — resource utilization`,
+      narrative: [rows.length > 0 ? `${rows.length} technician(s) assigned across ${wos.length} work order(s).` : "No technicians currently assigned.", TRUST_FOOTER],
+      table: { title: "Technician Assignments", columns: ["Technician", "Work Orders"], rows },
+      buttons: [{ label: "View Project", href: `/maintenance/projects/${project.id}` }, { label: "View Technicians", href: "/maintenance/technicians" }],
+    };
+  }
+
   // Project analytics / report (general analyze/health/summary)
   if (q.includes("project") && (q.includes("analytic") || q.includes("health") || q.includes("summary") || q.includes("analyze"))) {
     const project = findProjectFromText(question) ?? maintenanceProjects[0];
@@ -335,8 +405,8 @@ export function answerQuestion(question: string): AiResponse {
     };
   }
 
-  // Which work orders need attention / at risk
-  if ((q.includes("work orders") || q.includes("work order")) && (q.includes("risk") || q.includes("attention"))) {
+  // Which work orders need attention / at risk / backlog
+  if ((q.includes("work orders") || q.includes("work order")) && (q.includes("risk") || q.includes("attention") || q.includes("backlog"))) {
     const m = getMaintenanceAnalytics();
     return {
       id: nextId(),
@@ -350,6 +420,19 @@ export function answerQuestion(question: string): AiResponse {
       table: { title: "Overdue Work Orders", columns: ["Work Order", "Due Date", "Priority"], rows: m.overdue.map((w) => [w.label, w.dueDate, w.priority]) },
       buttons: [{ label: "View Work Orders", href: "/maintenance/work-orders" }, { label: "Generate Report", href: "/reports/fleet-risk" }],
       suggestGenerateReport: { reportId: "fleet-risk", title: "Fleet Maintenance Risk Report", scope: "Fleet-wide" },
+    };
+  }
+
+  // Which parts are at risk (broader than "waiting for parts" work orders)
+  if (q.includes("parts") && q.includes("risk")) {
+    const atRisk = getPartsAtRisk();
+    return {
+      id: nextId(),
+      question,
+      headline: `${atRisk.length} part(s) at risk`,
+      narrative: [atRisk.length > 0 ? "Parts not currently in stock (ordered or awaiting receipt)." : "All required parts are in stock.", TRUST_FOOTER],
+      table: { title: "Parts At Risk", columns: ["Part", "Description", "Status"], rows: atRisk.map((p) => [p.partNumber, p.description, p.status.replace(/_/g, " ")]) },
+      buttons: [{ label: "View Parts", href: "/maintenance/parts" }],
     };
   }
 
@@ -376,6 +459,19 @@ export function answerQuestion(question: string): AiResponse {
       narrative: [TRUST_FOOTER],
       table: { title: "Open Work Orders by Technician", columns: ["Technician", "Open", "Overdue", "On Shift"], rows: workload.map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders, t.onShift ? "Yes" : "No"]) },
       buttons: [{ label: "View Technicians", href: "/maintenance/technicians" }],
+    };
+  }
+
+  // Upcoming regulatory deadlines
+  if ((q.includes("upcoming") || q.includes("coming up")) && (q.includes("regulator") || q.includes("deadline") || q.includes("compliance"))) {
+    const events = upcomingMaintenanceEvents(8).filter((e) => e.relatedRequirementId);
+    return {
+      id: nextId(),
+      question,
+      headline: `${events.length} upcoming regulatory deadline(s)`,
+      narrative: [events.length > 0 ? "Scheduled maintenance events linked to a regulatory requirement." : "No upcoming events are currently linked to a regulatory requirement.", TRUST_FOOTER],
+      table: { title: "Upcoming Regulatory Deadlines", columns: ["Date", "Description", "Requirement"], rows: events.map((e) => [e.date, e.description, e.relatedRequirementId ?? "—"]) },
+      buttons: [{ label: "View Regulations", href: "/regulations" }],
     };
   }
 

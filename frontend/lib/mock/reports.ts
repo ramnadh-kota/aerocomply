@@ -4,7 +4,7 @@
 // number an AI answer gave for the same scope. Nothing here is persisted to
 // a backend — "generated" reports are prototype records only.
 
-import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getInspectionAnalytics, getComplianceAnalytics, getMaintenanceAnalytics, requirementLabel } from "./ai/analytics";
+import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getInspectionAnalytics, getComplianceAnalytics, getMaintenanceAnalytics, getTechnicianWorkload, requirementLabel } from "./ai/analytics";
 import { getProjectById, workPackagesForProject } from "./maintenanceProjects";
 import { getAircraftById } from "./aircraft";
 import { workOrdersForProject, workOrdersForAircraft, MOCK_TODAY } from "./workOrders";
@@ -82,6 +82,8 @@ export interface ReportData {
   type: ReportType;
   scope: string;
   generatedDate: string;
+  generatedFrom: string;
+  sourceModules: string[];
   aiSummary: string[];
   sections: ReportSection[];
 }
@@ -91,6 +93,7 @@ export function buildReportData(id: string): ReportData | null {
   if (!parsed) return null;
   const record = getReportRecord(id);
   const generatedDate = record?.generatedDate ?? MOCK_TODAY;
+  const generatedFrom = record?.generatedBy ?? "AeroComply Prototype";
 
   if (parsed.type === "PROJECT") {
     const project = getProjectById(parsed.scopeId);
@@ -138,11 +141,19 @@ export function buildReportData(id: string): ReportData | null {
         body: [],
         table: { columns: ["Work Order", "Findings"], rows: wos.map((w) => [w.workOrderNumber, findingsForWorkOrder(w.id).length]) },
       },
+      {
+        heading: "Operational Findings",
+        body: wos.flatMap((w) => findingsForWorkOrder(w.id)).map((f) => `[${f.severity}] ${f.description}`),
+      },
       { heading: "Risk Analysis", body: analytics.risks.map((r) => `[${r.level}] ${r.label} — ${r.detail}`) },
+      { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue", "On Shift"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders, t.onShift ? "Yes" : "No"]) } },
       { heading: "Recommended Actions", body: analytics.recommendedActions },
       {
-        heading: "Audit / Traceability",
-        body: auditEventsForObjectLabelContains(project.aircraftId.toUpperCase()).slice(0, 5).map((e) => `${e.timestamp}: ${e.action.replace(/_/g, " ")} — ${e.objectLabel}`),
+        heading: "Source Data / Traceability",
+        body: [
+          "Source modules: Maintenance Projects, Work Packages, Work Orders, Technicians, Parts, Defects, Findings, Inspections.",
+          ...auditEventsForObjectLabelContains(project.aircraftId.toUpperCase()).slice(0, 5).map((e) => `${e.timestamp}: ${e.action.replace(/_/g, " ")} — ${e.objectLabel}`),
+        ],
       },
       {
         heading: "AI-Generated Summary",
@@ -153,7 +164,17 @@ export function buildReportData(id: string): ReportData | null {
       },
     ];
 
-    return { id, title: `${project.projectNumber} Operations Report`, type: parsed.type, scope: `${project.title}`, generatedDate, aiSummary: sections[sections.length - 1].body, sections };
+    return {
+      id,
+      title: `${project.projectNumber} Operations Report`,
+      type: parsed.type,
+      scope: `${project.title}`,
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Maintenance Projects", "Work Orders", "Technicians", "Parts", "Defects", "Inspections"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
   }
 
   if (parsed.type === "AIRCRAFT") {
@@ -172,13 +193,25 @@ export function buildReportData(id: string): ReportData | null {
         body: assessments.map((asmt) => `${requirementLabel(asmt.regulatoryRequirementId)}: ${asmt.finalStatus.replace(/_/g, " ")}`),
         chain: ["Requirement", "Assessment", "Evidence"],
       },
+      { heading: "Operational Findings", body: wos.flatMap((w) => findingsForWorkOrder(w.id)).map((f) => `[${f.severity}] ${f.description}`) },
       { heading: "Evidence", body: assessments.flatMap((asmt) => evidenceForAssessment(asmt.id)).map((e) => e.sourceLabel) },
       { heading: "Risk Analysis", body: analytics.reasons },
+      { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => wos.some((w) => w.assignedTechnicianId === t.technicianId)).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
       { heading: "Recommended Actions", body: analytics.complianceRisk !== "LOW" ? ["Review open defects and non-compliant/review-required assessments before next dispatch."] : ["No immediate action required."] },
-      { heading: "Audit / Traceability", body: auditEventsForObjectLabelContains(analytics.registration).slice(0, 5).map((e) => `${e.timestamp}: ${e.action.replace(/_/g, " ")}`) },
+      { heading: "Source Data / Traceability", body: ["Source modules: Aircraft, Work Orders, Defects, Assessments, Evidence.", ...auditEventsForObjectLabelContains(analytics.registration).slice(0, 5).map((e) => `${e.timestamp}: ${e.action.replace(/_/g, " ")}`)] },
       { heading: "AI-Generated Summary", body: [`${analytics.registration} shows ${analytics.complianceRisk.toLowerCase()} compliance risk. ${analytics.reasons[0] ?? ""}`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
-    return { id, title: `${analytics.registration} Compliance Exposure Report`, type: parsed.type, scope: analytics.registration, generatedDate, aiSummary: sections[sections.length - 1].body, sections };
+    return {
+      id,
+      title: `${analytics.registration} Compliance Exposure Report`,
+      type: parsed.type,
+      scope: analytics.registration,
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Aircraft", "Work Orders", "Defects", "Assessments", "Evidence"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
   }
 
   if (parsed.type === "FLEET_RISK") {
@@ -186,11 +219,24 @@ export function buildReportData(id: string): ReportData | null {
     const sections: ReportSection[] = [
       { heading: "Executive Summary", body: [`${f.aircraftAtRisk.length} of ${f.fleetSize} aircraft show elevated risk.`], kpis: f.kpis },
       { heading: "Aircraft At Risk", body: [], table: { columns: ["Aircraft", "Risk"], rows: f.aircraftAtRisk.map((a) => [a.registration, a.risk]) } },
+      { heading: "Operational Findings", body: f.aircraftAtRisk.length > 0 ? [`${f.openWorkOrders} open work order(s) fleet-wide; ${f.openDefects} open defect(s) fleet-wide.`] : ["No notable operational findings."] },
       { heading: "Risk Analysis", body: f.aircraftAtRisk.map((a) => `${a.registration}: ${a.risk} risk`) },
+      { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
       { heading: "Recommended Actions", body: f.aircraftAtRisk.length > 0 ? ["Prioritize review of HIGH-risk aircraft before next scheduled check."] : ["No fleet-wide action required."] },
+      { heading: "Source Data / Traceability", body: ["Source modules: Aircraft, Work Orders, Defects, Technicians (fleet-wide aggregation)."] },
       { heading: "AI-Generated Summary", body: [`Fleet-wide, ${f.aircraftAtRisk.length} aircraft require attention out of ${f.fleetSize}.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
-    return { id, title: "Fleet Maintenance Risk Report", type: parsed.type, scope: "Fleet-wide", generatedDate, aiSummary: sections[sections.length - 1].body, sections };
+    return {
+      id,
+      title: "Fleet Maintenance Risk Report",
+      type: parsed.type,
+      scope: "Fleet-wide",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Aircraft", "Work Orders", "Defects", "Technicians"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
   }
 
   if (parsed.type === "INSPECTION_QUEUE") {
@@ -198,10 +244,24 @@ export function buildReportData(id: string): ReportData | null {
     const sections: ReportSection[] = [
       { heading: "Executive Summary", body: [`${insp.pending.length} inspection(s) currently pending review.`], kpis: insp.kpis },
       { heading: "Inspection Queue", body: [], table: { columns: ["Work Order", "Priority"], rows: insp.pending.map((p) => [p.label, p.priority]) } },
+      { heading: "Operational Findings", body: insp.pending.flatMap((p) => findingsForWorkOrder(p.workOrderId)).map((f) => `[${f.severity}] ${f.description}`) },
+      { heading: "Risk Analysis", body: [`${insp.pending.length} pending, ${insp.approved} approved, ${insp.rejected} rejected, ${insp.returned} returned.`] },
+      { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
       { heading: "Recommended Actions", body: insp.pending.length > 0 ? ["Review CRITICAL/HIGH priority work orders first."] : ["Queue is clear."] },
+      { heading: "Source Data / Traceability", body: ["Source modules: Work Orders, Inspector Reviews, Findings."] },
       { heading: "AI-Generated Summary", body: [`${insp.pending.length} inspection(s) pending, ${insp.approved} approved, ${insp.rejected} rejected, ${insp.returned} returned this period.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
-    return { id, title: "Inspection Queue Summary", type: parsed.type, scope: "Open inspections", generatedDate, aiSummary: sections[sections.length - 1].body, sections };
+    return {
+      id,
+      title: "Inspection Queue Summary",
+      type: parsed.type,
+      scope: "Open inspections",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Work Orders", "Inspector Reviews", "Findings"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
   }
 
   // COMPLIANCE_WEEKLY
@@ -210,9 +270,22 @@ export function buildReportData(id: string): ReportData | null {
   const sections: ReportSection[] = [
     { heading: "Executive Summary", body: ["Organization-wide compliance snapshot."], kpis: c.kpis },
     { heading: "Compliance Exposure", body: [`${c.nonCompliant} non-compliant, ${c.reviewRequired} review required, ${c.insufficientData} insufficient data, out of ${c.totalAssessments} assessments.`] },
+    { heading: "Operational Findings", body: [`${m.totalOpenWorkOrders} open work order(s), ${m.waitingParts} waiting on parts, ${m.waitingInspection} waiting on inspection organization-wide.`] },
     { heading: "Maintenance Snapshot", body: [], kpis: m.kpis },
+    { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
     { heading: "Recommended Actions", body: c.nonCompliant + c.reviewRequired > 0 ? ["Prioritize assessments in Review Required / Non-Compliant status."] : ["No action required this week."] },
+    { heading: "Source Data / Traceability", body: ["Source modules: Assessments, Work Orders, Technicians (organization-wide aggregation)."] },
     { heading: "AI-Generated Summary", body: [`${c.compliant}/${c.totalAssessments} assessments are compliant fleet-wide.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
   ];
-  return { id, title: "Weekly Compliance Report", type: "COMPLIANCE_WEEKLY", scope: "Organization-wide", generatedDate, aiSummary: sections[sections.length - 1].body, sections };
+  return {
+    id,
+    title: "Weekly Compliance Report",
+    type: "COMPLIANCE_WEEKLY",
+    scope: "Organization-wide",
+    generatedDate,
+    generatedFrom,
+    sourceModules: ["Assessments", "Work Orders", "Technicians"],
+    aiSummary: sections[sections.length - 1].body,
+    sections,
+  };
 }

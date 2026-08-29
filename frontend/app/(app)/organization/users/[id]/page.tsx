@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { Timeline } from "@/components/timeline/Timeline";
-import { getUserById, getRoleById } from "@/lib/mock/roles";
+import { getUserById, getRoleById, roleAccessSummary } from "@/lib/mock/roles";
+import { SimulateRoleButton } from "@/components/organization/SimulateRoleButton";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getProjectById } from "@/lib/mock/maintenanceProjects";
 import { auditEvents } from "@/lib/mock/audit";
@@ -38,8 +39,14 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
             {user.department} · Role: {role ? <Link href={`/organization/roles/${role.id}`}>{role.name}</Link> : user.roleId}
           </p>
         </div>
-        <StatusBadge status={user.status === "ACTIVE" ? "ACTIVE" : "STORED"} />
+        <div className="ac-flex ac-gap-2 ac-items-center">
+          <StatusBadge status={user.status === "ACTIVE" ? "ACTIVE" : "STORED"} />
+          {role && <SimulateRoleButton roleId={role.id} />}
+        </div>
       </div>
+      <p className="ac-text-sm ac-text-muted" style={{ marginTop: -8, marginBottom: 12 }}>
+        Prototype simulation — permissions are not enforced.
+      </p>
 
       <section className="ac-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Permissions (Inherited from Role)</h2>
@@ -61,6 +68,25 @@ export default function UserDetailPage({ params }: { params: { id: string } }) {
           </table>
         </div>
       </section>
+
+      {role && (
+        <section className="ac-section">
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>What This Role Can Access</h2>
+          <div className="ac-card">
+            {(() => {
+              const access = roleAccessSummary(role);
+              return (
+                <>
+                  {access.approve.length > 0 && <p className="ac-text-sm" style={{ margin: "0 0 6px" }}><strong>Can approve:</strong> {access.approve.join(", ")}</p>}
+                  {access.edit.length > 0 && <p className="ac-text-sm" style={{ margin: "0 0 6px" }}><strong>Can edit:</strong> {access.edit.join(", ")}</p>}
+                  {access.view.length > 0 && <p className="ac-text-sm" style={{ margin: "0 0 6px" }}><strong>Can view only:</strong> {access.view.join(", ")}</p>}
+                  {access.none.length > 0 && <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}><strong>No access:</strong> {access.none.join(", ")}</p>}
+                </>
+              );
+            })()}
+          </div>
+        </section>
+      )}
 
       <div className="ac-grid-2 ac-section">
         <div className="ac-card">

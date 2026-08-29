@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
-import { getRoleById, usersForRole } from "@/lib/mock/roles";
+import { getRoleById, usersForRole, roleAccessSummary } from "@/lib/mock/roles";
+import { SimulateRoleButton } from "@/components/organization/SimulateRoleButton";
 
 const LEVEL_BADGE: Record<string, { status: "UNKNOWN" | "NOT_APPLICABLE" | "REVIEW_REQUIRED" | "COMPLIANT"; label: string }> = {
   NONE: { status: "NOT_APPLICABLE", label: "No Access" },
@@ -15,6 +16,7 @@ export default function RoleDetailPage({ params }: { params: { id: string } }) {
   const role = getRoleById(params.id);
   if (!role) notFound();
   const assignedUsers = usersForRole(role.id);
+  const access = roleAccessSummary(role);
 
   return (
     <div>
@@ -31,8 +33,14 @@ export default function RoleDetailPage({ params }: { params: { id: string } }) {
           <h1 className="ac-h1">{role.name}</h1>
           <p className="ac-subtitle">{role.description}</p>
         </div>
-        <StatusBadge status={role.status === "ACTIVE" ? "ACTIVE" : "STORED"} />
+        <div className="ac-flex ac-gap-2 ac-items-center">
+          <StatusBadge status={role.status === "ACTIVE" ? "ACTIVE" : "STORED"} />
+          <SimulateRoleButton roleId={role.id} />
+        </div>
       </div>
+      <p className="ac-text-sm ac-text-muted" style={{ marginTop: -8, marginBottom: 12 }}>
+        Prototype simulation — permissions are not enforced.
+      </p>
 
       <div className="ac-grid-3 ac-section">
         <div className="ac-card">
@@ -77,6 +85,24 @@ export default function RoleDetailPage({ params }: { params: { id: string } }) {
           Prototype only — this matrix is for UI demonstration; no permission here is actually enforced by the
           application.
         </p>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>What This Role Can Access</h2>
+        <div className="ac-card">
+          {access.approve.length > 0 && (
+            <p className="ac-text-sm" style={{ margin: "0 0 6px" }}><strong>Can approve:</strong> {access.approve.join(", ")}</p>
+          )}
+          {access.edit.length > 0 && (
+            <p className="ac-text-sm" style={{ margin: "0 0 6px" }}><strong>Can edit:</strong> {access.edit.join(", ")}</p>
+          )}
+          {access.view.length > 0 && (
+            <p className="ac-text-sm" style={{ margin: "0 0 6px" }}><strong>Can view only:</strong> {access.view.join(", ")}</p>
+          )}
+          {access.none.length > 0 && (
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}><strong>No access:</strong> {access.none.join(", ")}</p>
+          )}
+        </div>
       </section>
 
       <section className="ac-section">

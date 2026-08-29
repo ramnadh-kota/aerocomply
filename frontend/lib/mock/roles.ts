@@ -270,3 +270,17 @@ export function getUserById(id: string): UserAccount | undefined {
 export function usersForRole(roleId: string): UserAccount[] {
   return users.filter((u) => u.roleId === roleId);
 }
+
+/**
+ * Plain-language "what this role can access" summary, grouped by access
+ * level, for the role/user detail pages. Prototype simulation — permissions
+ * are not enforced; this only formats the existing permission matrix above.
+ */
+export function roleAccessSummary(role: Role): { approve: string[]; edit: string[]; view: string[]; none: string[] } {
+  return {
+    approve: role.permissions.filter((p) => p.level === "APPROVE").map((p) => p.module),
+    edit: role.permissions.filter((p) => p.level === "EDIT").map((p) => p.module),
+    view: role.permissions.filter((p) => p.level === "VIEW").map((p) => p.module),
+    none: role.permissions.filter((p) => p.level === "NONE").map((p) => p.module),
+  };
+}

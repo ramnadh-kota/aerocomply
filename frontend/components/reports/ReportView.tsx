@@ -45,7 +45,8 @@ function buildStandaloneHtml(report: ReportData): string {
   `;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${report.title}</title><style>${style}</style></head><body>
     <h1>AeroComply — ${report.title}</h1>
-    <p class="meta">Scope: ${report.scope} · Generated: ${report.generatedDate}</p>
+    <p class="meta">Type: ${report.type.replace(/_/g, " ")} · Scope: ${report.scope} · Generated: ${report.generatedDate} · From: ${report.generatedFrom}</p>
+    <p class="meta">Source modules: ${report.sourceModules.join(", ")}</p>
     ${report.sections.map(renderSectionHtml).join("")}
     <p class="footer">This is a prototype report generated from AeroComply demo data. AI-generated sections are non-authoritative and require human review. Not backend-persisted.</p>
   </body></html>`;
@@ -73,7 +74,11 @@ export function ReportView({ report }: { report: ReportData }) {
             <p className="ac-eyebrow" style={{ marginBottom: 4 }}>AeroComply · Report</p>
             <h1 className="ac-h1" style={{ margin: 0 }}>{report.title}</h1>
             <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>
-              Scope: {report.scope} · Generated {report.generatedDate}
+              <span className="ac-badge ac-badge-unknown" style={{ marginRight: 6 }}>{report.type.replace(/_/g, " ")}</span>
+              Scope: {report.scope} · Generated {report.generatedDate} · From: {report.generatedFrom}
+            </p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>
+              Source modules: {report.sourceModules.join(", ")}
             </p>
           </div>
           <div className="ac-flex ac-gap-2">

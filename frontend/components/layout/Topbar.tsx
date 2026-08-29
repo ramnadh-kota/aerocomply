@@ -6,12 +6,28 @@ import { GlobalSearch } from "@/components/search/GlobalSearch";
 import { organizations } from "@/lib/mock/organizations";
 import { useRoleSim, simulatableRoles } from "@/lib/role-sim/RoleSimContext";
 import { getRoleById } from "@/lib/mock/roles";
+import { useMroState } from "@/lib/mro-state/MroStateContext";
 
 export function Topbar() {
   const [orgId, setOrgId] = useState(organizations[0].id);
   const [notifOpen, setNotifOpen] = useState(false);
-  const { roleId, setRoleId, reset } = useRoleSim();
+  const { roleId, setRoleId } = useRoleSim();
+  const { addAuditEvent } = useMroState();
   const activeRole = getRoleById(roleId);
+
+  function changeRole(nextRoleId: string) {
+    const nextRole = getRoleById(nextRoleId);
+    setRoleId(nextRoleId);
+    addAuditEvent({
+      actor: "Prototype User",
+      actorRole: "Role Simulation",
+      action: "role_simulation.changed",
+      objectType: "RoleSimulation",
+      objectLabel: nextRole?.name ?? nextRoleId,
+      previousState: activeRole?.name ?? null,
+      newState: nextRole?.name ?? nextRoleId,
+    });
+  }
 
   return (
     <header className="ac-topbar">
@@ -28,7 +44,7 @@ export function Topbar() {
             className="ac-input"
             style={{ width: 190, padding: "6px 10px" }}
             value={roleId}
-            onChange={(e) => setRoleId(e.target.value)}
+            onChange={(e) => changeRole(e.target.value)}
             aria-label="View as role (prototype simulation)"
           >
             {simulatableRoles().map((r) => (
@@ -38,7 +54,7 @@ export function Topbar() {
             ))}
           </select>
           {roleId !== "role-org-admin" && (
-            <button className="ac-btn" style={{ padding: "4px 8px", fontSize: 11 }} onClick={reset}>
+            <button className="ac-btn" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => changeRole("role-org-admin")}>
               Reset
             </button>
           )}

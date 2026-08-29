@@ -6,6 +6,7 @@ import { DataTable, type Column } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { maintenanceEvents } from "@/lib/mock/maintenance";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
+import { getRequirementById } from "@/lib/mock/regulations";
 import type { MaintenanceEvent } from "@/lib/mock/types";
 
 export default function MaintenanceRecordsPage() {
@@ -30,6 +31,19 @@ export default function MaintenanceRecordsPage() {
           label={m.status.replace(/_/g, " ")}
         />
       ),
+    },
+    {
+      key: "requirement",
+      header: "Requirement",
+      render: (m) => {
+        const req = m.relatedRequirementId ? getRequirementById(m.relatedRequirementId) : undefined;
+        return req ? <Link href={`/regulations/${req.id}`} className="ac-mono">{req.requirementNumber}</Link> : "—";
+      },
+    },
+    {
+      key: "assessment",
+      header: "Assessment",
+      render: (m) => (m.relatedAssessmentId ? <Link href={`/assessments/${m.relatedAssessmentId}`} className="ac-mono">{m.relatedAssessmentId}</Link> : "—"),
     },
   ];
 
