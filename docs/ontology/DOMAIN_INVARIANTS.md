@@ -1,0 +1,59 @@
+# AeroComply Domain Invariants v1.0
+
+These are business/domain rules the schema and services must enforce — not implementation detail. Each states the rule, why it matters (grounded in the aviation domain research in [AVIATION_ONTOLOGY.md](AVIATION_ONTOLOGY.md)), and where it will eventually be enforced (constraint, trigger, or service-layer check) — enforcement point is noted for M1 planning but not yet implemented.
+
+## Aircraft identity
+
+1. **MSN is unique per manufacturer and immutable.** A Manufacturer Serial Number, once assigned, never changes and is never reused. *Why*: MSN is the only permanent physical-aircraft identity; every other identifier (registration, operator) changes over the aircraft's life. Enforcement: unique constraint on `(manufacturer, msn)`; no `UPDATE` path exposed on `msn` after creation.
+
+2. **Registration is not a permanent identity and can change.** A given registration mark is unique *at any point in time* within its issuing authority's registry, but the same physical aircraft can hold different registrations over its life, and (rarely, after deregistration/long gaps) the same mark can theoretically be reissued to a different aircraft. *Why*: conflating registration with aircraft identity breaks historical queries the moment an aircraft is resold/re-registered. Enforcement: `RegistrationHistory` interval table, not a field on `Aircraft`; uniqueness constraint scoped to overlapping intervals, not global.
+
+3. **An Aircraft Variant always belongs to exactly one Aircraft Type.** *Why*: this is a certification-hierarchy fact (a TCDS entry belongs to one Type Certificate), not a business choice — reflects §2 of the ontology.
+
+4. **Aircraft status transitions are one-directional in the ways that matter for compliance**: an aircraft marked `WRITTEN_OFF` must never become `IN_SERVICE` again. *Why*: compliance assessments for a written-off aircraft are permanently historical; allowing reactivation without a new record would corrupt the assessment timeline's meaning. Enforcement: service-layer state-machine check.
+
+## Component & engine traceability
+
+5. **A Component (part design) requiring serialization must never have an installation recorded without a corresponding `ComponentInstance`.** *Why*: the whole point of `requires_serialization=true` is that every physical unit must be individually traceable — an installation "of the part number in general" is a modeling failure for that class of part. Enforcement: `ComponentInstallation.component_instance_id` NOT NULL, with the instance's parent `Component.requires_serialization` checked at write time.
+
+6. **A ComponentInstance's serial number is unique within its Component (part number), not globally.** *Why*: manufacturers do not coordinate serial number ranges across different part numbers; two different parts can legitimately share a serial number string. Enforcement: unique constraint on `(component_id, serial_number)`.
+
+7. **An installation interval cannot overlap another installation interval for the same (parent asset, position).** A given position on a given aircraft/engine can only host one physical component/engine at a time. *Why*: this is a physical impossibility if violated — two engines cannot occupy "Engine 1" simultaneously. Enforcement: exclusion constraint (Postgres `EXCLUDE USING gist` on the time range + position + parent asset) — the correct tool for this exact class of invariant.
+
+8. **A ComponentInstance can have overlapping installation intervals only across *different* parent assets — never on itself.** Corollary of #7 stated from the instance's side: one physical part cannot be simultaneously installed in two places. Enforcement: same exclusion constraint as #7, scoped by `component_instance_id` instead of by position.
+
+9. **`removed_at` must be strictly after `installed_at`, when both are present.** *Why*: a removal cannot precede or coincide with its own installation — a direct temporal-integrity rule the CTO's brief called out explicitly. Enforcement: `CHECK (removed_at IS NULL OR removed_at > installed_at)`.
+
+10. **At most one installation row per (parent asset, position) may have `removed_at IS NULL`** (i.e., "currently installed"). *Why*: a position cannot be simultaneously "currently occupied" by two different historical installations — this is a specialization of #7 for the open-ended (current) case specifically, worth stating separately because it's the case most naive queries get wrong (forgetting to filter `removed_at IS NULL` correctly when there are multiple historical rows). Enforcement: partial unique index `WHERE removed_at IS NULL`.
+
+## Regulatory data & provenance
+
+11. **A `RegulatoryDocument` revision, once published (`source_status = PUBLISHED`), is immutable content-wise.** A correction is a *new revision* (new row, `supersedes` pointing at the old one), never an in-place edit. *Why*: this is the entire basis for "what did AeroComply know at time T" (a founding product requirement) — an editable published document destroys that guarantee. Enforcement: no `UPDATE` path exposed on content fields once `source_status = PUBLISHED`; only `source_status` itself may transition (e.g., to `SUPERSEDED`/`WITHDRAWN`).
+
+12. **A superseded `RegulatoryRequirement` remains permanently queryable and must never be deleted.** *Why*: an aircraft's historical compliance record legitimately references a requirement as it existed under an earlier, since-superseded revision — deleting it breaks that historical assessment's traceability irrecoverably. Enforcement: no delete path in the service layer; `superseded_by_id` chain instead of removal.
+
+13. **`effective_date` and `compliance_time` are independent and neither can be derived from the other by a fixed formula.** *Why*: compliance time is sometimes a fixed calendar deadline, sometimes an operational-hours/cycles interval, sometimes "before further flight" — research confirmed no authority uses a single computable offset from effective date. Enforcement: both fields always required (or `compliance_time` explicitly nullable with a documented "immediate" meaning), never one computed from the other.
+
+14. **An `ApplicabilityRule` must reference exactly one `RegulatoryRequirement`, and a `RegulatoryRequirement` may have more than one `ApplicabilityRule` only across different rule *versions*, never two simultaneously-active versions.** *Why*: a requirement's applicability logic can be re-authored (correcting a mistake in the structured interpretation) but at any instant there is exactly one authoritative structured reading in force — ambiguity here would make "why did this assessment happen" unanswerable. Enforcement: partial unique index on `(regulatory_requirement_id) WHERE status = 'ACTIVE'`.
+
+## Applicability & compliance decisions
+
+15. **Every `ApplicabilityAssessment` must reference a specific, resolved `ApplicabilityRule` **version**, `RegulatoryDocument` **version**, and aircraft configuration **snapshot** (`data_version`) — never "the current one" implicitly.** *Why*: this is the reproducibility guarantee ADR-004/FOUNDATION.md §12 already established; restated here as a data-level invariant because it's just as much a domain rule (an assessment's meaning is only well-defined relative to a fixed rule/document/data version triple) as it is an architecture decision.
+
+16. **`system_result` is write-once; only a new row (new `ApplicabilityAssessment`, linked via `previous_assessment_id`) may record a re-evaluation.** *Why*: already established in ADR-005; included here as a domain invariant because it directly answers the CTO's example invariant "assessment must reference a specific requirement version" combined with immutability.
+
+17. **A `human_decision` of `OVERRIDDEN` must carry a non-empty `override_reason`, and — whenever the override changes `final_status` away from what `system_result` implies — at least one linked `Evidence` record.** *Why*: an unexplained or unevidenced override is exactly the "AI/human silently changes compliance status" failure mode the CTO's Human Decision Boundary directive exists to prevent, generalized here to any human override, not just AI-originated risk. Enforcement: service-layer validation at decision-write time.
+
+18. **The Final Compliance Status of a superseded `RegulatoryRequirement` does not automatically change when the newer revision is published — a new assessment must be explicitly triggered and recorded.** *Why*: supersession changes what the *current* rule says, but does not retroactively alter what the organization's compliance position *was* under the old rule, nor should it silently flip the current position without a new deterministic evaluation and (where warranted) human review — an automatic silent status flip on supersession would itself violate the human decision boundary. Enforcement: supersession publishes a *candidate reassessment* trigger (M2+ scope), never a direct write to `final_status`.
+
+## Cross-entity / configuration-driven
+
+19. **An `ApplicabilityAssessment`'s aircraft configuration snapshot must be internally consistent with the installation-interval invariants (#7–#10) at the assessment's `evaluated_at` timestamp** — i.e., the as-of query used to build the snapshot must never return two conflicting installations for the same position. *Why*: this is the invariant that makes #7–#10 actually matter for compliance correctness, not just data hygiene — a broken installation history would silently corrupt every assessment computed against it. Enforcement: the as-of query itself relies on #7's exclusion constraint holding; additionally, assessment computation should defensively assert exactly one result per position and raise `INSUFFICIENT_DATA` (never guess) if that invariant is somehow violated.
+
+20. **An Engine's or ComponentInstance's own `ApplicabilityAssessment` history is independent of the host Aircraft's assessment history, even though both may reference the same `RegulatoryRequirement`.** *Why*: per §3's research finding, an engine has its own AD/SB stream; assessing the engine and assessing the airframe are related but distinct facts (an engine assessment travels with the engine across aircraft; an airframe assessment does not). Enforcement: `ApplicabilityAssessment.subject_type` discriminator (`AIRCRAFT | ENGINE`) rather than assuming aircraft is the only assessable subject.
+
+21. **A `Component` marked `requires_serialization = false` must never accumulate a `ComponentInstance`.** *Why*: the inverse of #5 — fabricating individual traceability for a batch-tracked part creates false confidence in evidence chains that don't actually exist in the real maintenance record. Enforcement: service-layer check at instance-creation time.
+
+22. **Every `Organization` has at least one `org_type`, and `org_type = MIXED` requires at least two of the specific role flags to be true** (avoiding a meaningless "mixed" label with no underlying roles). *Why*: research confirmed real companies commonly hold multiple roles (operator + own CAMO); the discriminator must reflect that without becoming a meaningless catch-all. Enforcement: `CHECK` constraint tying `org_type` to underlying boolean role columns.
+
+23. **Cross-tenant data isolation extends to every tenant-owned aviation table** (`Aircraft`, `*Installation`, `ApplicabilityAssessment`, `Evidence`, `MaintenanceRecord`) **exactly as established for M0's `organization_id` pattern — no new isolation mechanism is introduced for aviation data.** *Why*: explicitly re-stated because it would be easy, when modeling new domain tables, to forget the tenancy mixin established in M0; this invariant exists to make that omission a deliberate CTO-reviewable decision, not an oversight. Enforcement: `TenantScopedMixin` reuse (already exists in `app/db/base.py`), applied to every new aviation table at implementation time.
