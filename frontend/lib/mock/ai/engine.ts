@@ -14,9 +14,10 @@
 import { maintenanceProjects, getProjectById } from "../maintenanceProjects";
 import { getAircraftByRegistration, getAircraftById } from "../aircraft";
 import { workOrders } from "../workOrders";
-import { findingsForWorkOrder } from "../findings";
-import { defectsForWorkOrder } from "../defects";
+import { findings, findingsForWorkOrder } from "../findings";
+import { defectsForAircraft, defectsForWorkOrder } from "../defects";
 import { getInspectorReviewForWorkOrder } from "../inspectorReviews";
+import { evidenceForAssessment } from "../evidence";
 import { overdueMaintenanceEvents, maintenanceEventsForAircraft, upcomingMaintenanceEvents } from "../maintenance";
 import { assessments } from "../assessments";
 import { getTechnicianById } from "../technicians";
@@ -85,7 +86,12 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
   },
   {
     category: "Aircraft",
-    questions: ["Give me a health analysis of VT-ABC.", "What maintenance actions are due for VT-ABC?"],
+    questions: [
+      "Give me a health analysis of VT-ABC.",
+      "What maintenance actions are due for VT-ABC?",
+      "What defects does VT-ABC have?",
+      "What is the inspection status for VT-ABC?",
+    ],
   },
   {
     category: "Maintenance",
@@ -95,6 +101,7 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Which parts are at risk?",
       "Show technician workload.",
       "Show me overdue maintenance activities.",
+      "What findings have been recorded?",
     ],
   },
   {
@@ -104,15 +111,23 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Show overdue regulatory actions.",
       "Why is this assessment UNKNOWN?",
       "What regulatory deadlines are coming up?",
+      "What is our compliance health?",
+      "Which assessments are non-compliant?",
+      "Which assessments have evidence gaps?",
     ],
   },
   {
     category: "Inspection",
-    questions: ["Prioritize the inspection queue.", "Which inspections are blocked?"],
+    questions: [
+      "Prioritize the inspection queue.",
+      "Which inspections are blocked?",
+      "Show inspection aging.",
+      "Which checklist items have failed?",
+    ],
   },
   {
     category: "Fleet",
-    questions: ["What is the health of the fleet?"],
+    questions: ["What is the health of the fleet?", "Show the aircraft risk ranking."],
   },
 ];
 
@@ -699,6 +714,129 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       table: { title: "Aircraft At Risk", columns: ["Aircraft", "Risk"], rows: f.aircraftAtRisk.map((a) => [a.registration, a.risk]) },
       buttons: [{ label: "Generate Report", href: "/reports/fleet-risk" }],
       suggestGenerateReport: { reportId: "fleet-risk", title: "Fleet Maintenance Risk Report", scope: "Fleet-wide" },
+    };
+  }
+
+  // Aircraft defects
+  if (resolveAircraft(question, context) && q.includes("defect")) {
+    const a = resolveAircraft(question, context)!;
+    const defs = defectsForAircraft(a.id);
+    const openDefs = defs.filter((d) => d.status === "OPEN");
+    return {
+      id: nextId(),
+      question,
+      headline: `${a.msn} — defects`,
+      narrative: [openDefs.length > 0 ? `${openDefs.length} open defect(s) on this aircraft.` : "No open defects on this aircraft.", TRUST_FOOTER],
+      table: { title: "Defects", columns: ["Description", "Severity", "Status"], rows: defs.map((d) => [d.description, d.severity, d.status]) },
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
+    };
+  }
+
+  // Aircraft inspection status
+  if (resolveAircraft(question, context) && q.includes("inspection") && q.includes("status")) {
+    const a = resolveAircraft(question, context)!;
+    const aircraftWos = workOrders.filter((w) => w.aircraftId === a.id && w.inspectorReviewId);
+    if (aircraftWos.length === 0) return insufficient(question, [`inspection records for ${a.msn}`]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${a.msn} — inspection status`,
+      narrative: [TRUST_FOOTER],
+      table: { title: "Inspections", columns: ["Work Order", "Status"], rows: aircraftWos.map((w) => [w.workOrderNumber, getInspectorReviewForWorkOrder(w.id)?.status.replace(/_/g, " ") ?? "—"]) },
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
+    };
+  }
+
+  // Fleet-wide findings
+  if (q.includes("finding")) {
+    const requiringDefect = findings.filter((f) => f.requiresDefect);
+    return {
+      id: nextId(),
+      question,
+      headline: `${findings.length} finding(s) recorded`,
+      narrative: [requiringDefect.length > 0 ? `${requiringDefect.length} finding(s) required a defect to be raised.` : "No findings currently require a defect.", TRUST_FOOTER],
+      table: { title: "Findings", columns: ["Work Order", "Severity", "Description"], rows: findings.map((f) => [workOrders.find((w) => w.id === f.workOrderId)?.workOrderNumber ?? f.workOrderId, f.severity, f.description]) },
+      buttons: [{ label: "View Defects", href: "/maintenance/defects" }],
+    };
+  }
+
+  // Compliance health
+  if (q.includes("compliance") && q.includes("health")) {
+    const c = getComplianceAnalytics();
+    return {
+      id: nextId(),
+      question,
+      headline: "Compliance health",
+      narrative: [`${c.compliant} of ${c.totalAssessments} assessments are compliant fleet-wide.`, TRUST_FOOTER],
+      kpis: c.kpis,
+      buttons: [{ label: "Compliance Intelligence", href: "/compliance" }, { label: "Generate Report", href: "/reports/compliance-weekly" }],
+      suggestGenerateReport: { reportId: "compliance-weekly", title: "Weekly Compliance Report", scope: "Organization-wide" },
+    };
+  }
+
+  // Non-compliance
+  if (q.includes("non-compliant") || q.includes("non compliance") || q.includes("noncompliance")) {
+    const nonCompliant = assessments.filter((a) => a.finalStatus === "NON_COMPLIANT");
+    return {
+      id: nextId(),
+      question,
+      headline: `${nonCompliant.length} non-compliant assessment(s)`,
+      narrative: [nonCompliant.length > 0 ? "These require human review before further dispatch decisions." : "No assessments are currently Non-Compliant.", TRUST_FOOTER],
+      table: { title: "Non-Compliant Assessments", columns: ["Assessment", "Requirement"], rows: nonCompliant.map((a) => [a.id, requirementLabel(a.regulatoryRequirementId)]) },
+      buttons: [{ label: "View Assessments", href: "/assessments" }],
+    };
+  }
+
+  // Evidence gaps
+  if (q.includes("evidence") && q.includes("gap")) {
+    const noEvidence = assessments.filter((a) => evidenceForAssessment(a.id).length === 0);
+    return {
+      id: nextId(),
+      question,
+      headline: `${noEvidence.length} assessment(s) without evidence`,
+      narrative: [noEvidence.length > 0 ? "These assessments have no linked evidence on file." : "Every assessment has at least one linked evidence record.", TRUST_FOOTER],
+      table: { title: "Assessments Without Evidence", columns: ["Assessment", "Requirement", "Status"], rows: noEvidence.map((a) => [a.id, requirementLabel(a.regulatoryRequirementId), a.finalStatus]) },
+      buttons: [{ label: "View Assessments", href: "/assessments" }],
+    };
+  }
+
+  // Inspection aging
+  if (q.includes("inspection") && q.includes("aging")) {
+    const insp = getInspectionAnalytics();
+    return {
+      id: nextId(),
+      question,
+      headline: "Inspection aging",
+      narrative: [`${insp.pending.length} inspection(s) currently pending review.`, TRUST_FOOTER],
+      table: { title: "Pending Inspections", columns: ["Work Order", "Priority"], rows: insp.pending.map((p) => [p.label, p.priority]) },
+      buttons: [{ label: "Open Inspection Queue", href: "/maintenance/inspections" }],
+    };
+  }
+
+  // Failed checklist items
+  if (q.includes("failed") && q.includes("checklist")) {
+    const withFindings = findings.filter((f) => f.requiresDefect);
+    return {
+      id: nextId(),
+      question,
+      headline: `${withFindings.length} checklist finding(s) with a raised defect`,
+      narrative: ["Live PASS/FAIL/UNKNOWN state is tracked per work order — open a work order's checklist to see current item-level results.", TRUST_FOOTER],
+      table: { title: "Findings Requiring Defect", columns: ["Work Order", "Description"], rows: withFindings.map((f) => [workOrders.find((w) => w.id === f.workOrderId)?.workOrderNumber ?? f.workOrderId, f.description]) },
+      buttons: [{ label: "Open Inspection Queue", href: "/maintenance/inspections" }],
+    };
+  }
+
+  // Aircraft ranking (fleet-wide)
+  if (q.includes("aircraft") && q.includes("ranking")) {
+    const f = getFleetAnalytics();
+    const ranked = [...f.aircraftAtRisk].sort((a, b) => (a.risk === b.risk ? 0 : a.risk === "HIGH" ? -1 : 1));
+    return {
+      id: nextId(),
+      question,
+      headline: "Aircraft risk ranking",
+      narrative: [TRUST_FOOTER],
+      table: { title: "Aircraft Ranking", columns: ["Aircraft", "Risk"], rows: ranked.map((a) => [a.registration, a.risk]) },
+      buttons: [{ label: "View Fleet", href: "/aircraft" }],
     };
   }
 
