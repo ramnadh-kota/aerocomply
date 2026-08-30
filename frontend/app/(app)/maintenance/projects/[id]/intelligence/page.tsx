@@ -15,6 +15,7 @@ import { getAssessmentById } from "@/lib/mock/assessments";
 import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import { getProjectAnalytics, getPartsAtRisk } from "@/lib/mock/ai/analytics";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { PLATFORM_AI_NAME } from "@/lib/brand";
 
 export default function ProjectIntelligencePage({ params }: { params: { id: string } }) {
   const project = getProjectById(params.id);
@@ -80,7 +81,7 @@ export default function ProjectIntelligencePage({ params }: { params: { id: stri
         </div>
         <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
           <Link href={`/maintenance/projects/${project.id}`} className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>← Back to Project</Link>
-          <Link href={`/ai?project=${project.id}`} className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Ask AeroComply AI</Link>
+          <Link href={`/ai?project=${project.id}`} className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Ask {PLATFORM_AI_NAME}</Link>
           <Link href={`/reports/project-${project.id}`} className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Generate Report</Link>
         </div>
       </div>

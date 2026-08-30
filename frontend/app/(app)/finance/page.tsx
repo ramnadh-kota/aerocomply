@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
+import { PLATFORM_AI_NAME, PLATFORM_NAME } from "@/lib/brand";
 import { aircraft, currentRegistration } from "@/lib/mock/aircraft";
 import { workOrders, workOrdersForAircraft } from "@/lib/mock/workOrders";
 import {
@@ -64,6 +65,7 @@ export default function FinancePage() {
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "MRO Financial Intelligence" }]} />
       <div className="ac-section-header">
         <div>
+          <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{PLATFORM_NAME}</p>
           <h1 className="ac-h1">MRO Financial Intelligence</h1>
           <p className="ac-subtitle">
             Operational cost intelligence, not accounting software. {fleet.workOrdersWithCostData} of {fleet.totalWorkOrders} work orders have recorded cost data — the remainder show &ldquo;Insufficient source data.&rdquo;, never a fabricated $0.
@@ -223,7 +225,7 @@ export default function FinancePage() {
           <p className="ac-eyebrow" style={{ marginBottom: 6 }}>Traceability</p>
           <p className="ac-text-sm ac-text-secondary" style={{ margin: 0 }}>
             Aircraft → Work Order → Labor / Parts / Vendor → Cost → Customer Charge → Margin. Every figure above traces to a labeled DEMO_SEED record in lib/mock/finance.ts on a real, existing work order — nothing is invented. Ask{" "}
-            <Link href="/ai" className="ac-mono">AeroComply AI</Link> a financial question, or generate the{" "}
+            <Link href="/ai" className="ac-mono">{PLATFORM_AI_NAME}</Link> a financial question, or generate the{" "}
             <Link href="/reports/financial-intelligence" className="ac-mono">Financial Intelligence report</Link>.
           </p>
         </div>

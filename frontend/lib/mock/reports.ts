@@ -27,6 +27,7 @@ import {
 } from "./finance";
 import { vendors as allVendors, partRequests as allPartRequests, purchaseOrders as allPurchaseOrders, vendorPartAvailability as allVendorPartAvailability, partsWithoutVendorAvailability } from "./procurement";
 import { parts as allParts } from "./parts";
+import { PLATFORM_NAME, PLATFORM_AI_NAME, AI_DEMO_DATA_FOOTER } from "../brand";
 
 export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS" | "AUDIT_DOSSIER" | "GENERAL_OPERATIONAL" | "FINANCIAL_INTELLIGENCE" | "PROCUREMENT_INTELLIGENCE";
 
@@ -47,9 +48,9 @@ export const reportHistory: ReportRecord[] = [
   { id: "inspection-queue", title: "Inspection Queue Summary", type: "INSPECTION_QUEUE", generatedBy: "Diego Alvarez", scope: "Open inspections", generatedDate: "2026-03-17", status: "READY" },
   { id: "compliance-weekly", title: "Weekly Compliance Report", type: "COMPLIANCE_WEEKLY", generatedBy: "Priya Nair", scope: "Organization-wide", generatedDate: "2026-03-10", status: "READY" },
   { id: "maintenance-operations", title: "Maintenance Operations Report", type: "MAINTENANCE_OPERATIONS", generatedBy: "Marcus Webb", scope: "Fleet-wide operations", generatedDate: "2026-03-17", status: "READY" },
-  { id: "general-operational", title: "General Operational Report", type: "GENERAL_OPERATIONAL", generatedBy: "AeroComply AI (Prototype)", scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
-  { id: "financial-intelligence", title: "MRO Financial Intelligence Report", type: "FINANCIAL_INTELLIGENCE", generatedBy: "AeroComply AI (Prototype)", scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
-  { id: "procurement-intelligence", title: "Procurement Intelligence Report", type: "PROCUREMENT_INTELLIGENCE", generatedBy: "AeroComply AI (Prototype)", scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
+  { id: "general-operational", title: "General Operational Report", type: "GENERAL_OPERATIONAL", generatedBy: `${PLATFORM_AI_NAME} (Prototype)`, scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
+  { id: "financial-intelligence", title: "MRO Financial Intelligence Report", type: "FINANCIAL_INTELLIGENCE", generatedBy: `${PLATFORM_AI_NAME} (Prototype)`, scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
+  { id: "procurement-intelligence", title: "Procurement Intelligence Report", type: "PROCUREMENT_INTELLIGENCE", generatedBy: `${PLATFORM_AI_NAME} (Prototype)`, scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
 ];
 
 export function getReportRecord(id: string): ReportRecord | undefined {
@@ -112,7 +113,7 @@ export function buildReportData(id: string): ReportData | null {
   if (!parsed) return null;
   const record = getReportRecord(id);
   const generatedDate = record?.generatedDate ?? MOCK_TODAY;
-  const generatedFrom = record?.generatedBy ?? "AeroComply Prototype";
+  const generatedFrom = record?.generatedBy ?? PLATFORM_NAME;
 
   if (parsed.type === "PROJECT") {
     const project = getProjectById(parsed.scopeId);
@@ -178,7 +179,7 @@ export function buildReportData(id: string): ReportData | null {
         heading: "AI-Generated Summary",
         body: [
           `${project.projectNumber} is ${analytics.health.replace(/_/g, " ").toLowerCase()} with ${analytics.risks.length} identified risk item(s) and ${analytics.complianceExposure.toLowerCase()} compliance exposure.`,
-          "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions.",
+          AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions.",
         ],
       },
     ];
@@ -218,7 +219,7 @@ export function buildReportData(id: string): ReportData | null {
       { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => wos.some((w) => w.assignedTechnicianId === t.technicianId)).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
       { heading: "Recommended Actions", body: analytics.complianceRisk !== "LOW" ? ["Review open defects and non-compliant/review-required assessments before next dispatch."] : ["No immediate action required."] },
       { heading: "Source Data / Traceability", body: ["Source modules: Aircraft, Work Orders, Defects, Assessments, Evidence.", ...auditEventsForObjectLabelContains(analytics.registration).slice(0, 5).map((e) => `${e.timestamp}: ${e.action.replace(/_/g, " ")}`)] },
-      { heading: "AI-Generated Summary", body: [`${analytics.registration} shows ${analytics.complianceRisk.toLowerCase()} compliance risk. ${analytics.reasons[0] ?? ""}`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+      { heading: "AI-Generated Summary", body: [`${analytics.registration} shows ${analytics.complianceRisk.toLowerCase()} compliance risk. ${analytics.reasons[0] ?? ""}`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
     return {
       id,
@@ -243,7 +244,7 @@ export function buildReportData(id: string): ReportData | null {
       { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
       { heading: "Recommended Actions", body: f.aircraftAtRisk.length > 0 ? ["Prioritize review of HIGH-risk aircraft before next scheduled check."] : ["No fleet-wide action required."] },
       { heading: "Source Data / Traceability", body: ["Source modules: Aircraft, Work Orders, Defects, Technicians (fleet-wide aggregation)."] },
-      { heading: "AI-Generated Summary", body: [`Fleet-wide, ${f.aircraftAtRisk.length} aircraft require attention out of ${f.fleetSize}.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+      { heading: "AI-Generated Summary", body: [`Fleet-wide, ${f.aircraftAtRisk.length} aircraft require attention out of ${f.fleetSize}.`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
     return {
       id,
@@ -268,7 +269,7 @@ export function buildReportData(id: string): ReportData | null {
       { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
       { heading: "Recommended Actions", body: insp.pending.length > 0 ? ["Review CRITICAL/HIGH priority work orders first."] : ["Queue is clear."] },
       { heading: "Source Data / Traceability", body: ["Source modules: Work Orders, Inspector Reviews, Findings."] },
-      { heading: "AI-Generated Summary", body: [`${insp.pending.length} inspection(s) pending, ${insp.approved} approved, ${insp.rejected} rejected, ${insp.returned} returned this period.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+      { heading: "AI-Generated Summary", body: [`${insp.pending.length} inspection(s) pending, ${insp.approved} approved, ${insp.rejected} rejected, ${insp.returned} returned this period.`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
     return {
       id,
@@ -294,7 +295,7 @@ export function buildReportData(id: string): ReportData | null {
     { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
     { heading: "Recommended Actions", body: c.nonCompliant + c.reviewRequired > 0 ? ["Prioritize assessments in Review Required / Non-Compliant status."] : ["No action required this week."] },
     { heading: "Source Data / Traceability", body: ["Source modules: Assessments, Work Orders, Technicians (organization-wide aggregation)."] },
-    { heading: "AI-Generated Summary", body: [`${c.compliant}/${c.totalAssessments} assessments are compliant fleet-wide.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+    { heading: "AI-Generated Summary", body: [`${c.compliant}/${c.totalAssessments} assessments are compliant fleet-wide.`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
   ];
   return {
     id,
@@ -409,7 +410,7 @@ export function buildReportData(id: string): ReportData | null {
         heading: "AI-Generated Summary",
         body: [
           `${fleet.aircraftAtRisk.length} aircraft at risk, ${maint.overdue.length} overdue work order(s), ${partsAtRisk.length} part(s) at risk, ${compliance.nonCompliant + compliance.reviewRequired} compliance item(s) needing review.`,
-          "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.",
+          AI_DEMO_DATA_FOOTER,
           "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions.",
         ],
       },
@@ -516,7 +517,7 @@ export function buildReportData(id: string): ReportData | null {
         heading: "AI-Generated Summary",
         body: [
           `${fleet.workOrdersWithCostData} of ${fleet.totalWorkOrders} work orders costed; total recorded cost ${fleet.totalCost.toLocaleString()} USD; gross margin ${fleet.grossMargin !== null ? `${fleet.grossMargin.toLocaleString()} USD` : "Insufficient source data."}.`,
-          "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.",
+          AI_DEMO_DATA_FOOTER,
           "AI-assisted analysis — non-authoritative. Verify against source records before operational/commercial decisions.",
         ],
       },
@@ -610,7 +611,7 @@ export function buildReportData(id: string): ReportData | null {
         heading: "AI-Generated Summary",
         body: [
           `${pending.length} pending request(s), ${aog.length} AOG, ${approvedNoPo.length} approved without a PO.`,
-          "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.",
+          AI_DEMO_DATA_FOOTER,
           "AI-assisted analysis — non-authoritative. Verify against source records before operational/commercial decisions.",
         ],
       },
@@ -644,7 +645,7 @@ export function buildReportData(id: string): ReportData | null {
     { heading: "Compliance Intelligence", body: [`${ops.openProjects} open maintenance project(s).`] },
     { heading: "Recommended Actions", body: ops.overdue > 0 || ops.partsAtRisk.length > 0 ? ["Review overdue work orders and parts currently at risk in Maintenance Operations."] : ["No urgent operational action required."] },
     { heading: "Source Data / Traceability", body: ["Source modules: Work Orders, Projects, Technicians, Parts, Defects (fleet-wide aggregation)."] },
-    { heading: "AI-Generated Summary", body: [`${ops.openWorkOrders} open work order(s), ${ops.overdue} overdue, ${ops.pendingInspections} inspection(s) pending.`, "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+    { heading: "AI-Generated Summary", body: [`${ops.openWorkOrders} open work order(s), ${ops.overdue} overdue, ${ops.pendingInspections} inspection(s) pending.`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
   ];
   return {
     id,

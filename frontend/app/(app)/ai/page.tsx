@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { AIConsole } from "@/components/ai/AIConsole";
+import { PLATFORM_NAME, PLATFORM_AI_NAME, AI_DEMO_DATA_FOOTER } from "@/lib/brand";
 
 function AiAssistantBody() {
   const params = useSearchParams();
@@ -19,10 +20,10 @@ export default function AiAssistantPage() {
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "AI Assistant" }]} />
       <div className="ac-section-header">
         <div>
-          <h1 className="ac-h1">AeroComply AI</h1>
+          <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{PLATFORM_NAME}</p>
+          <h1 className="ac-h1">{PLATFORM_AI_NAME}</h1>
           <p className="ac-subtitle">
-            AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required. Ask
-            about projects, aircraft, work orders, or inspections.
+            {AI_DEMO_DATA_FOOTER} Ask about projects, aircraft, work orders, or inspections.
           </p>
         </div>
       </div>

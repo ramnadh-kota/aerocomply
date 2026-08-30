@@ -6,6 +6,7 @@ import { answerQuestion, CATEGORIZED_QUESTIONS, type AiResponse } from "@/lib/mo
 import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics } from "@/lib/mock/ai/analytics";
 import { AIResponseView } from "@/components/ai/AIResponseView";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { PLATFORM_AI_NAME, PLATFORM_NAME } from "@/lib/brand";
 
 interface Turn {
   id: string;
@@ -37,7 +38,7 @@ export function AIConsole({
     setActiveId(turn.id);
     setDraft("");
     addAuditEvent({
-      actor: "AeroComply AI (Prototype)",
+      actor: `${PLATFORM_AI_NAME} (Prototype)`,
       actorRole: "AI Assistant",
       action: "ai.analysis_generated",
       objectType: "AiQuery",
@@ -94,7 +95,7 @@ export function AIConsole({
       <div>
         <div className="ac-card" style={{ marginBottom: 12 }}>
           <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>
-            Ask AeroComply AI — Prototype · Non-authoritative
+            Ask {PLATFORM_AI_NAME} — Prototype · Non-authoritative
           </p>
           <div className="ac-flex ac-gap-2" style={{ marginBottom: 8 }}>
             <input
@@ -106,7 +107,7 @@ export function AIConsole({
               onKeyDown={(e) => {
                 if (e.key === "Enter") ask(draft);
               }}
-              aria-label="Ask AeroComply AI"
+              aria-label={`Ask ${PLATFORM_AI_NAME}`}
             />
             <button className="ac-btn ac-btn-primary" onClick={() => ask(draft)}>
               Ask
@@ -127,8 +128,8 @@ export function AIConsole({
         {turns.length === 0 && (
           <div className="ac-card" style={{ borderStyle: "dashed" }}>
             <p className="ac-text-sm ac-text-secondary" style={{ margin: 0 }}>
-              Ask a question above, or click a suggestion. Responses are generated from the current AeroComply demo
-              dataset — the assistant explains, summarizes, and ranks; it never makes or overrides a compliance or
+              Ask a question above, or click a suggestion. Responses are generated from the current {PLATFORM_NAME}
+              demo dataset — the assistant explains, summarizes, and ranks; it never makes or overrides a compliance or
               inspection decision.
             </p>
           </div>

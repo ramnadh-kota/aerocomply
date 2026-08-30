@@ -26,6 +26,7 @@ import { partsForWorkOrder, parts } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart } from "../partTraceability";
 import { getWorkOrderCostSummary, getAircraftCostSummary, getFleetFinancialSummary, workOrderIdsWithCostData, highestCostPartCost, highestVendorSpend, vendorCosts } from "../finance";
 import { vendors, partRequests, purchaseOrders, partsWithoutVendorAvailability, scoreVendorOptionsForPart } from "../procurement";
+import { AI_DEMO_DATA_FOOTER } from "../../brand";
 import {
   getProjectAnalytics,
   getAircraftAnalytics,
@@ -222,7 +223,7 @@ function resolveAircraft(text: string, context?: AiQuestionContext) {
   return findAircraftFromText(text) ?? (context?.aircraftId ? getAircraftById(context.aircraftId) : undefined);
 }
 
-const TRUST_FOOTER = "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.";
+const TRUST_FOOTER = AI_DEMO_DATA_FOOTER;
 
 function insufficient(question: string, missing: string[]): AiResponse {
   return {

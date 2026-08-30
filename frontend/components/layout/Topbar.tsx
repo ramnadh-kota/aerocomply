@@ -8,6 +8,7 @@ import { organizations } from "@/lib/mock/organizations";
 import { useRoleSim, simulatableRoles } from "@/lib/role-sim/RoleSimContext";
 import { getRoleById } from "@/lib/mock/roles";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { PLATFORM_AI_NAME } from "@/lib/brand";
 
 export function Topbar() {
   const [orgId, setOrgId] = useState(organizations[0].id);
@@ -37,7 +38,7 @@ export function Topbar() {
       <div className="ac-flex ac-items-center ac-gap-4" style={{ marginLeft: "auto" }}>
         <Link href="/ai" className="ac-btn" style={{ padding: "6px 12px", fontSize: 13 }}>
           <span aria-hidden="true" style={{ marginRight: 6 }}>✦</span>
-          Ask AeroComply AI
+          Ask {PLATFORM_AI_NAME}
         </Link>
         <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm" title="Prototype role simulation — permissions are not enforced">
           <span className="ac-text-muted">Viewing as</span>

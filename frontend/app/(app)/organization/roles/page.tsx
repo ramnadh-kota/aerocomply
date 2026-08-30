@@ -5,6 +5,7 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { DataTable, type Column } from "@/components/tables/DataTable";
 import { roles, usersForRole, type Role } from "@/lib/mock/roles";
+import { PLATFORM_NAME } from "@/lib/brand";
 
 const columns: Column<Role>[] = [
   { key: "role", header: "Role", render: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span>, sortValue: (r) => r.name },
@@ -27,7 +28,7 @@ export default function RolesPage() {
         <div>
           <h1 className="ac-h1">Roles</h1>
           <p className="ac-subtitle">
-            Prototype role &amp; access management. This demonstrates how AeroComply could control access — no real
+            Prototype role &amp; access management. This demonstrates how {PLATFORM_NAME} could control access — no real
             authorization is enforced here.
           </p>
         </div>

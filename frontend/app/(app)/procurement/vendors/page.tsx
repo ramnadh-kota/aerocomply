@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { vendors, vendorPartAvailabilityForVendor } from "@/lib/mock/procurement";
+import { PLATFORM_NAME } from "@/lib/brand";
 import type { VendorApprovalStatus, VendorQualityStatus } from "@/lib/mock/types";
 
 // M11.1 — Vendor Intelligence workspace. Server Component, plain <table>
@@ -52,6 +53,7 @@ export default function VendorIntelligencePage() {
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Procurement", href: "/procurement" }, { label: "Vendor Intelligence" }]} />
       <div className="ac-section-header">
         <div>
+          <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{PLATFORM_NAME} · Procurement</p>
           <h1 className="ac-h1">Vendor Intelligence</h1>
           <p className="ac-subtitle">Compare approved suppliers, availability, lead time, quality and procurement risk.</p>
         </div>

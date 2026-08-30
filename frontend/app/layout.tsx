@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import "./globals.css";
+import { PLATFORM_NAME, PLATFORM_TAGLINE } from "@/lib/brand";
 
 export const metadata = {
-  title: "AeroComply",
-  description: "Aviation compliance intelligence platform",
+  title: PLATFORM_NAME,
+  description: PLATFORM_TAGLINE,
 };
 
 // Applies the persisted theme before first paint, so there is no

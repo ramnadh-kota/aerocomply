@@ -13,6 +13,7 @@ import { workOrdersForAircraft } from "@/lib/mock/workOrders";
 import { findingsForWorkOrder } from "@/lib/mock/findings";
 import { getInspectorReviewForWorkOrder } from "@/lib/mock/inspectorReviews";
 import { certificatesForPart } from "@/lib/mock/partTraceability";
+import { PLATFORM_NAME, MODULE_AEROCOMPLY_NAME, MODULE_AEROCOMPLY_TAGLINE } from "@/lib/brand";
 
 export default function CompliancePage() {
   const analytics = getComplianceAnalytics();
@@ -95,7 +96,8 @@ export default function CompliancePage() {
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Compliance" }]} />
       <div className="ac-section-header">
         <div>
-          <h1 className="ac-h1">Compliance Intelligence</h1>
+          <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{PLATFORM_NAME}</p>
+          <h1 className="ac-h1">{MODULE_AEROCOMPLY_NAME} <span className="ac-text-muted" style={{ fontWeight: 400, fontSize: 16 }}>— {MODULE_AEROCOMPLY_TAGLINE}</span></h1>
           <p className="ac-subtitle">Fleet-wide compliance workspace — every value is derived from current demo data.</p>
         </div>
         <div className="ac-flex ac-gap-2">

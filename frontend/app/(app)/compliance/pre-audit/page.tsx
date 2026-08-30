@@ -23,6 +23,7 @@ import {
   traceabilityStatusForPart,
 } from "@/lib/mock/partTraceability";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { AI_DEMO_DATA_FOOTER } from "@/lib/brand";
 
 export default function PreAuditDossierPage() {
   const { submissions } = useMroState();
@@ -123,7 +124,7 @@ export default function PreAuditDossierPage() {
       { heading: "Audit Risk Concentration", body: auditRiskConcentration },
       { heading: "UNKNOWN Items", body: unknownItems.length > 0 ? unknownItems : ["No UNKNOWN checklist items recorded."] },
       { heading: "Audit Events", body: auditEvents.length > 0 ? auditEvents.slice(0, 15).map((e) => `${e.timestamp}: ${e.action.replace(/_/g, " ")} — ${e.objectLabel} (${e.actor})`) : ["Insufficient source data."] },
-      { heading: "AI-Generated Summary", body: [openGaps.length > 0 || unknownItems.length > 0 ? `This dossier contains ${openGaps.length} open compliance gap(s) and ${unknownItems.length} UNKNOWN item(s) requiring human review before use in an audit response.` : "No open gaps or UNKNOWN items were found for this aircraft in the current demo dataset.", "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.", "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+      { heading: "AI-Generated Summary", body: [openGaps.length > 0 || unknownItems.length > 0 ? `This dossier contains ${openGaps.length} open compliance gap(s) and ${unknownItems.length} UNKNOWN item(s) requiring human review before use in an audit response.` : "No open gaps or UNKNOWN items were found for this aircraft in the current demo dataset.", AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
     ];
 
     setDossier({

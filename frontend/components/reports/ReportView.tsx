@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { ReportData } from "@/lib/mock/reports";
+import { PLATFORM_NAME } from "@/lib/brand";
 
 function renderSectionHtml(s: ReportData["sections"][number]): string {
   let html = `<h2>${s.heading}</h2>`;
@@ -44,11 +45,11 @@ function buildStandaloneHtml(report: ReportData): string {
     .footer { margin-top:32px; font-size:11px; color:#6b7c9c; border-top:1px solid #2a3141; padding-top:12px; }
   `;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${report.title}</title><style>${style}</style></head><body>
-    <h1>AeroComply — ${report.title}</h1>
+    <h1>${PLATFORM_NAME} — ${report.title}</h1>
     <p class="meta">Type: ${report.type.replace(/_/g, " ")} · Scope: ${report.scope} · Generated: ${report.generatedDate} · From: ${report.generatedFrom}</p>
     <p class="meta">Source modules: ${report.sourceModules.join(", ")}</p>
     ${report.sections.map(renderSectionHtml).join("")}
-    <p class="footer">This is a prototype report generated from AeroComply demo data. AI-generated sections are non-authoritative and require human review. Not backend-persisted.</p>
+    <p class="footer">This is a prototype report generated from ${PLATFORM_NAME} demo data. AI-generated sections are non-authoritative and require human review. Not backend-persisted.</p>
   </body></html>`;
 }
 
@@ -71,7 +72,7 @@ export function ReportView({ report }: { report: ReportData }) {
       <div className="ac-card" style={{ marginBottom: 16 }}>
         <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 10 }}>
           <div>
-            <p className="ac-eyebrow" style={{ marginBottom: 4 }}>AeroComply · Report</p>
+            <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{PLATFORM_NAME} · Report</p>
             <h1 className="ac-h1" style={{ margin: 0 }}>{report.title}</h1>
             <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>
               <span className="ac-badge ac-badge-unknown" style={{ marginRight: 6 }}>{report.type.replace(/_/g, " ")}</span>

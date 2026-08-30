@@ -1,6 +1,6 @@
 import type { Aircraft, AircraftType, AircraftVariant } from "./types";
 
-// MOCK DATA — fictional fleet for the AeroComply prototype (M0.5).
+// MOCK DATA — fictional fleet for the KOTA Aerospace OS prototype (M0.5).
 // Entity shapes follow docs/ontology/AVIATION_ONTOLOGY.md §2.
 
 export const aircraftTypes: AircraftType[] = [

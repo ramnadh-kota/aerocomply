@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { AiResponse } from "@/lib/mock/ai/engine";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { recordGeneratedReport } from "@/lib/mock/reports";
+import { PLATFORM_AI_NAME } from "@/lib/brand";
 
 function Bar({ label, percent }: { label: string; percent: number }) {
   return (
@@ -35,9 +36,9 @@ export function AIResponseView({ response }: { response: AiResponse }) {
     if (href.startsWith("/reports/") && response.suggestGenerateReport) {
       e.preventDefault();
       const { reportId, title, scope } = response.suggestGenerateReport;
-      recordGeneratedReport({ id: reportId, title, generatedBy: "AeroComply AI (Prototype)", scope, generatedDate: new Date().toISOString().slice(0, 10), status: "READY" });
+      recordGeneratedReport({ id: reportId, title, generatedBy: `${PLATFORM_AI_NAME} (Prototype)`, scope, generatedDate: new Date().toISOString().slice(0, 10), status: "READY" });
       addAuditEvent({
-        actor: "AeroComply AI (Prototype)",
+        actor: `${PLATFORM_AI_NAME} (Prototype)`,
         actorRole: "AI Assistant",
         action: "report.generated",
         objectType: "Report",

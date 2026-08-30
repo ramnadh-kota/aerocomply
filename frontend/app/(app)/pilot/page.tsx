@@ -23,7 +23,7 @@ import { useRoleSim } from "@/lib/role-sim/RoleSimContext";
 import { getUserById } from "@/lib/mock/roles";
 import { getTechnicianById } from "@/lib/mock/technicians";
 
-// M9 — Pilot Workflow Workspace. This is AeroComply's primary end-to-end
+// M9 — Pilot Workflow Workspace. This is KOTA Aerospace OS's primary end-to-end
 // customer demonstration surface: Aircraft -> Work Order -> Task -> Finding
 // -> Evidence -> Inspection -> Sign-off -> Compliance -> Risk -> AI ->
 // Audit, built entirely from existing mock helpers and the existing

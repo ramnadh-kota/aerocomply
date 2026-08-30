@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRoleSim, NAV_MODULE_MAP } from "@/lib/role-sim/RoleSimContext";
+import { PLATFORM_NAME } from "@/lib/brand";
 
 interface NavItem {
   href: string;
@@ -43,7 +44,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Compliance",
     items: [
-      { href: "/compliance", label: "Compliance Intelligence", glyph: "◆" },
+      { href: "/compliance", label: "AeroComply", glyph: "◆" },
       { href: "/regulations", label: "Regulations", glyph: "§" },
       { href: "/assessments", label: "Assessments", glyph: "✓" },
       { href: "/evidence", label: "Evidence", glyph: "▣" },
@@ -107,9 +108,12 @@ export function Sidebar() {
               color: "white",
             }}
           >
-            A
+            K
           </span>
-          <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>AeroComply</span>
+          <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
+            <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "-0.01em" }}>{PLATFORM_NAME}</span>
+            <span className="ac-text-muted" style={{ fontSize: 10, letterSpacing: "0.04em" }}>KOTA&rsquo;S AEROSPACE</span>
+          </span>
         </Link>
       </div>
 

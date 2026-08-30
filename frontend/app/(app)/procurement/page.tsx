@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
+import { PLATFORM_AI_NAME, PLATFORM_NAME } from "@/lib/brand";
 import { getPartsAtRisk } from "@/lib/mock/ai/analytics";
 import { vendors, partRequests, vendorPartAvailability, partsWithoutVendorAvailability } from "@/lib/mock/procurement";
 import { vendorCosts } from "@/lib/mock/finance";
@@ -32,6 +33,7 @@ export default function ProcurementControlTowerPage() {
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Procurement Control Center" }]} />
       <div className="ac-section-header">
         <div>
+          <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{PLATFORM_NAME}</p>
           <h1 className="ac-h1">Procurement Control Center</h1>
           <p className="ac-subtitle">Part requests, vendor risk, and open procurement exposure — every figure traces to a real request, vendor, or cost record.</p>
         </div>
@@ -129,7 +131,7 @@ export default function ProcurementControlTowerPage() {
 
       <section className="ac-section">
         <p className="ac-text-sm ac-text-muted">
-          Ask <Link href="/ai" className="ac-mono">AeroComply AI</Link> a procurement question, generate the{" "}
+          Ask <Link href="/ai" className="ac-mono">{PLATFORM_AI_NAME}</Link> a procurement question, generate the{" "}
           <Link href="/reports/procurement-intelligence" className="ac-mono">Procurement Intelligence report</Link>, or start the full workflow:{" "}
           <Link href="/procurement/parts" className="ac-mono">Search a part</Link> →{" "}
           <Link href="/procurement/cart" className="ac-mono">review your cart</Link> →{" "}

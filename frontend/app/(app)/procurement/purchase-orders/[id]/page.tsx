@@ -11,6 +11,7 @@ import { getWorkOrderById } from "@/lib/mock/workOrders";
 import { getCurrentUser } from "@/lib/domain/currentUser";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getUserById } from "@/lib/mock/roles";
+import { PLATFORM_NAME } from "@/lib/brand";
 
 // M11.8 — Purchase Order detail: a professional aviation procurement
 // document, plus the "Send Purchase Order" demo email preview and a
@@ -65,7 +66,7 @@ export default function PurchaseOrderDetailPage({ params }: { params: { id: stri
       <div className="ac-card ac-section">
         <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 16, flexWrap: "wrap" }}>
           <div>
-            <p className="ac-eyebrow" style={{ marginBottom: 4 }}>AeroComply OS</p>
+            <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{PLATFORM_NAME}</p>
             <h1 className="ac-h1" style={{ margin: 0 }}>PURCHASE ORDER</h1>
           </div>
           <StatusBadge {...poStatusBadge(po.status)} />
@@ -111,7 +112,7 @@ export default function PurchaseOrderDetailPage({ params }: { params: { id: stri
           <section>
             <h2 className="ac-h2" style={{ marginBottom: 8 }}>Compliance Information</h2>
             <p className="ac-text-sm" style={{ margin: "0 0 4px" }}>Certificate Requirement: {line?.certificationStatus === "VERIFIED" ? "On file (verified)" : "Certificate to be confirmed at receiving"}</p>
-            <p className="ac-text-sm" style={{ margin: "0 0 4px" }}>Traceability Requirement: Full part traceability required per AeroComply procurement policy (demo).</p>
+            <p className="ac-text-sm" style={{ margin: "0 0 4px" }}>Traceability Requirement: Full part traceability required per {PLATFORM_NAME} procurement policy (demo).</p>
             <p className="ac-text-sm" style={{ margin: 0 }}>Documentation: {vendor?.certifications?.join(", ") ?? "Insufficient source data."}</p>
           </section>
         </div>
@@ -138,7 +139,7 @@ export default function PurchaseOrderDetailPage({ params }: { params: { id: stri
           <div className="ac-card" style={{ borderStyle: "dashed" }}>
             <p className="ac-eyebrow" style={{ marginBottom: 8, color: "var(--ac-status-review)" }}>Demo — Email Not Actually Sent</p>
             <p className="ac-text-sm" style={{ margin: "0 0 4px" }}><strong>To:</strong> {vendor?.email ?? "Vendor email unavailable — insufficient source data."}</p>
-            <p className="ac-text-sm" style={{ margin: "0 0 4px" }}><strong>Subject:</strong> Purchase Order {po.poNumber} — AeroComply OS</p>
+            <p className="ac-text-sm" style={{ margin: "0 0 4px" }}><strong>Subject:</strong> Purchase Order {po.poNumber} — {PLATFORM_NAME}</p>
             <div className="ac-card" style={{ background: "var(--ac-bg-surface-hover)", marginTop: 8 }}>
               <p className="ac-text-sm" style={{ margin: "0 0 8px" }}>Dear {vendor?.name ?? "Vendor"},</p>
               <p className="ac-text-sm" style={{ margin: "0 0 8px" }}>Please find Purchase Order {po.poNumber} for the following item(s):</p>
@@ -147,7 +148,7 @@ export default function PurchaseOrderDetailPage({ params }: { params: { id: stri
               </ul>
               <p className="ac-text-sm" style={{ margin: "0 0 8px" }}>Requested delivery: {po.requiredBy ?? "Insufficient source data"}. Reference: {wo?.workOrderNumber ?? "Insufficient source data"}{aircraft ? ` / ${currentRegistration(aircraft)}` : ""}.</p>
               <p className="ac-text-sm" style={{ margin: "0 0 8px" }}>Please confirm availability, lead time, price, certification (FAA 8130-3 / EASA Form 1 or equivalent), and traceability documentation.</p>
-              <p className="ac-text-sm" style={{ margin: 0 }}>Regards,<br />AeroComply Procurement</p>
+              <p className="ac-text-sm" style={{ margin: 0 }}>Regards,<br />{PLATFORM_NAME} Procurement</p>
             </div>
             <div className="ac-flex ac-gap-2" style={{ marginTop: 10 }}>
               <button className="ac-btn ac-btn-primary" onClick={send}>Confirm — Queue Demo Email</button>

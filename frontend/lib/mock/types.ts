@@ -1,4 +1,4 @@
-// AeroComply M0.5 prototype — mock domain types.
+// KOTA Aerospace OS M0.5 prototype — mock domain types.
 // Names and shapes are drawn directly from docs/ontology/*.md and FOUNDATION.md.
 // This file is UI-facing mock data only — it is not a database schema and must
 // not be treated as one (see docs/ontology/M1_SCOPE.md).

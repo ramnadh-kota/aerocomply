@@ -1,9 +1,11 @@
 // MOCK DATA — Role & Access Management prototype.
-// This is a UI demonstration of how AeroComply *could* control access. It is
+// This is a UI demonstration of how KOTA Aerospace OS *could* control access. It is
 // NOT a real authorization system: no server-side enforcement exists, no
 // session is actually scoped by these roles, and nothing here should be
 // treated as a security boundary. See PermissionMatrix rendering in
 // app/(app)/organization/roles for how this is displayed.
+
+import { PLATFORM_NAME } from "../brand";
 
 export type PermissionLevel = "NONE" | "VIEW" | "EDIT" | "APPROVE";
 
@@ -56,7 +58,7 @@ export const roles: Role[] = [
   {
     id: "role-org-admin",
     name: "Organization Admin",
-    description: "Full administrative control over the organization's AeroComply tenant, including user and role management.",
+    description: `Full administrative control over the organization's ${PLATFORM_NAME} tenant, including user and role management.`,
     scope: "Organization-wide",
     permissions: [
       perm("Aircraft", "EDIT"),
