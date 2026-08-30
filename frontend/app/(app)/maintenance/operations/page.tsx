@@ -33,6 +33,7 @@ export default function MaintenanceOperationsPage() {
         </div>
         <div className="ac-flex ac-gap-2">
           <Link href="/ai" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Ask AI</Link>
+          <Link href="/maintenance/planning" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Planning →</Link>
           <Link href="/reports/fleet-risk" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Generate Report</Link>
         </div>
       </div>
