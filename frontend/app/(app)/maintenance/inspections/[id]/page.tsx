@@ -122,7 +122,12 @@ export default function InspectionDetailPage({ params }: { params: { id: string 
                     </div>
                     {state?.actualValue && <p className="ac-text-sm ac-text-muted" style={{ margin: "2px 0 0" }}>Measurement: {state.actualValue} {item.unit}</p>}
                     {state?.note && <p className="ac-text-sm ac-text-secondary" style={{ margin: "2px 0 0" }}>&ldquo;{state.note}&rdquo;</p>}
-                    {state?.evidenceAttached && <p className="ac-text-sm ac-text-muted" style={{ margin: "2px 0 0" }}>Evidence attached ✓</p>}
+                    {state?.evidenceAttached && (
+                      <p className="ac-text-sm ac-text-muted" style={{ margin: "2px 0 0" }}>
+                        Evidence attached ✓ — source: technician note/attachment · by {technician?.name ?? record.technicianId ?? "unknown"}
+                        {record.submittedAt && <> · {new Date(record.submittedAt).toLocaleString()}</>}
+                      </p>
+                    )}
                   </li>
                 );
               })}
