@@ -62,7 +62,7 @@ export default function EvidenceListPage() {
         </div>
       </div>
       <div className="ac-card" style={{ padding: 0 }}>
-        <DataTable columns={columns} rows={evidence} />
+        <DataTable columns={columns} rows={evidence} getRowHref={(e) => `/evidence/${e.id}`} />
       </div>
     </div>
   );

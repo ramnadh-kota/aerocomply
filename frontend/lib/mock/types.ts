@@ -198,6 +198,25 @@ export interface Evidence {
   uploadedOrReferencedAt: string;
   verificationStatus: "VERIFIED" | "UNVERIFIED";
   relatedConditionIds: string[];
+  // M8.4 — optional cross-links into the broader traceability chain, added
+  // without changing the meaning of the fields above (every existing
+  // consumer of Evidence keeps working unchanged). Only present when a
+  // record actually links there; absent/null means "not linked", not
+  // "linked to nothing" and never "compliant by default".
+  uploadedBy?: string | null; // user id
+  linkedWorkOrderId?: string | null;
+  linkedPartId?: string | null;
+}
+
+// M8.4 — richer evidence lifecycle vocabulary for future ingestion
+// workflows (upload -> processing -> verified/rejected). Deliberately kept
+// separate from Evidence.verificationStatus above rather than replacing it,
+// since verificationStatus is already load-bearing across the compliance,
+// pre-audit, and report surfaces — this is additive, not a breaking rename.
+export type EvidenceLifecycleState = "UPLOADED" | "PROCESSING" | "VERIFIED" | "REJECTED" | "UNKNOWN";
+
+export function evidenceLifecycleStateFor(e: Evidence): EvidenceLifecycleState {
+  return e.verificationStatus === "VERIFIED" ? "VERIFIED" : "UNKNOWN";
 }
 
 export type AssessmentSubjectType = "AIRCRAFT" | "ENGINE";
