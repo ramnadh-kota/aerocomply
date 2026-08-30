@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
-import { getComplianceAnalytics } from "@/lib/mock/ai/analytics";
+import { getComplianceAnalytics, getInspectionAnalytics } from "@/lib/mock/ai/analytics";
 import { aircraft, getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
-import { assessmentsForAircraft } from "@/lib/mock/assessments";
-import { getRequirementById } from "@/lib/mock/regulations";
+import { assessmentsForAircraft, assessmentsForRequirement } from "@/lib/mock/assessments";
+import { getRequirementById, regulatoryRequirements } from "@/lib/mock/regulations";
 import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
 import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { defectsForAircraft } from "@/lib/mock/defects";
+import { parts } from "@/lib/mock/parts";
 
 export default function CompliancePage() {
   const analytics = getComplianceAnalytics();
@@ -31,6 +32,28 @@ export default function CompliancePage() {
     })
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score);
+
+  // M4.5 — Audit Readiness Score: an explainable average of real, existing
+  // drivers. Never a black-box number — every driver is shown alongside it.
+  const inspectionAnalytics = getInspectionAnalytics();
+  const inspectionTotal = inspectionAnalytics.approved + inspectionAnalytics.rejected + inspectionAnalytics.returned + inspectionAnalytics.pending.length;
+  const requiredInspectionsPercent = inspectionTotal > 0 ? Math.round((inspectionAnalytics.approved / inspectionTotal) * 100) : null;
+
+  const partsTraceablePercent = parts.length > 0 ? Math.round((parts.filter((p) => p.status === "IN_STOCK").length / parts.length) * 100) : null;
+
+  const mappedRequirements = regulatoryRequirements.filter((r) => assessmentsForRequirement(r.id).length > 0).length;
+  const regulatoryMappingPercent = regulatoryRequirements.length > 0 ? Math.round((mappedRequirements / regulatoryRequirements.length) * 100) : null;
+
+  const readinessDrivers = [
+    { label: "Evidence completeness", value: evidenceCompletenessPercent },
+    { label: "Required inspections approved", value: requiredInspectionsPercent },
+    { label: "Parts traceability (in stock)", value: partsTraceablePercent },
+    { label: "Regulatory mapping", value: regulatoryMappingPercent },
+  ];
+  const knownDrivers = readinessDrivers.filter((d) => d.value !== null) as { label: string; value: number }[];
+  const readinessScore = knownDrivers.length > 0 ? Math.round(knownDrivers.reduce((s, d) => s + d.value, 0) / knownDrivers.length) : null;
+  const criticalDataMissing = readinessDrivers.some((d) => d.value === null);
+  const unknownRecordsCount = openGaps.filter((a) => a.finalStatus === "INSUFFICIENT_DATA").length;
 
   return (
     <div>
@@ -130,6 +153,35 @@ export default function CompliancePage() {
           </div>
         </section>
       </div>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Audit Readiness Score</h2>
+        <div className="ac-card">
+          {readinessScore === null ? (
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>Readiness cannot be fully determined — Insufficient source data.</p>
+          ) : (
+            <>
+              <div className="ac-flex ac-items-center ac-gap-3" style={{ marginBottom: 10 }}>
+                <p className="ac-kpi-value" style={{ fontSize: 32, margin: 0 }}>{readinessScore}%</p>
+                <StatusBadge status={readinessScore >= 90 ? "COMPLIANT" : readinessScore >= 70 ? "REVIEW_REQUIRED" : "NON_COMPLIANT"} label="Audit Readiness" />
+              </div>
+              <p className="ac-text-sm ac-text-secondary" style={{ marginBottom: 8 }}>Drivers:</p>
+              <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13 }}>
+                {readinessDrivers.map((d) => (
+                  <li key={d.label}>{d.label}: {d.value === null ? "Insufficient source data." : `${d.value}%`}</li>
+                ))}
+                <li>Open findings: {openGaps.length}</li>
+                <li>UNKNOWN records: {unknownRecordsCount}</li>
+              </ul>
+              {criticalDataMissing && (
+                <p className="ac-text-sm" style={{ color: "var(--ac-status-review)", margin: 0 }}>
+                  One or more drivers could not be computed from current source data — this score should be treated as partial, not complete.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </section>
 
       <div className="ac-grid-2 ac-section">
         <section>
