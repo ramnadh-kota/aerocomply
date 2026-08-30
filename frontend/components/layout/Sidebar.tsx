@@ -45,6 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Maintenance",
     items: [
       { href: "/maintenance/operations", label: "Operations", glyph: "◪" },
+      { href: "/maintenance/hangar", label: "Hangar Floor", glyph: "⛭" },
       { href: "/maintenance/planning", label: "Planning", glyph: "◔" },
       { href: "/maintenance/projects", label: "Projects", glyph: "◈" },
       { href: "/maintenance/work-orders", label: "Work Orders", glyph: "☰" },
