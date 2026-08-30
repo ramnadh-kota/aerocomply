@@ -6,16 +6,31 @@ import { aircraft, getAircraftById, currentRegistration } from "@/lib/mock/aircr
 import { assessmentsForAircraft } from "@/lib/mock/assessments";
 import { getRequirementById } from "@/lib/mock/regulations";
 import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
+import { evidenceForAssessment } from "@/lib/mock/evidence";
+import { defectsForAircraft } from "@/lib/mock/defects";
 
 export default function CompliancePage() {
   const analytics = getComplianceAnalytics();
 
-  const openGaps = aircraft
-    .flatMap((a) => assessmentsForAircraft(a.id))
+  const allAssessments = aircraft.flatMap((a) => assessmentsForAircraft(a.id));
+  const openGaps = allAssessments
     .filter((asmt) => asmt.finalStatus === "NON_COMPLIANT" || asmt.finalStatus === "REVIEW_REQUIRED" || asmt.finalStatus === "INSUFFICIENT_DATA")
     .sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
 
   const upcomingDeadlines = upcomingMaintenanceEvents(8).filter((e) => e.relatedRequirementId);
+
+  const withEvidence = allAssessments.filter((a) => evidenceForAssessment(a.id).length > 0).length;
+  const evidenceCompletenessPercent = allAssessments.length > 0 ? Math.round((withEvidence / allAssessments.length) * 100) : null;
+
+  const riskByAircraft = aircraft
+    .map((a) => {
+      const asmts = assessmentsForAircraft(a.id);
+      const gaps = asmts.filter((asmt) => asmt.finalStatus === "NON_COMPLIANT" || asmt.finalStatus === "REVIEW_REQUIRED").length;
+      const openDefects = defectsForAircraft(a.id).filter((d) => d.status === "OPEN").length;
+      return { aircraftId: a.id, registration: currentRegistration(a), gaps, openDefects, score: gaps + openDefects };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score);
 
   return (
     <div>
@@ -107,6 +122,49 @@ export default function CompliancePage() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <div className="ac-grid-2 ac-section">
+        <section>
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Evidence Completeness</h2>
+          <div className="ac-card">
+            {evidenceCompletenessPercent === null ? (
+              <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>Insufficient source data.</p>
+            ) : (
+              <>
+                <div className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 6 }}>
+                  <div style={{ width: 120, height: 6, borderRadius: 4, background: "var(--ac-border)", overflow: "hidden" }}>
+                    <div style={{ width: `${evidenceCompletenessPercent}%`, height: "100%", background: "var(--ac-accent)" }} />
+                  </div>
+                  <span className="ac-text-sm ac-text-muted">{evidenceCompletenessPercent}%</span>
+                </div>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>{withEvidence} of {allAssessments.length} assessments have at least one linked evidence record.</p>
+              </>
+            )}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Risk Concentration by Aircraft</h2>
+          <div className="ac-card" style={{ padding: 0 }}>
+            {riskByAircraft.length === 0 ? (
+              <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data.</p>
+            ) : (
+              <table className="ac-table">
+                <thead><tr><th>Aircraft</th><th>Compliance Gaps</th><th>Open Defects</th></tr></thead>
+                <tbody>
+                  {riskByAircraft.map((r) => (
+                    <tr key={r.aircraftId}>
+                      <td><Link href={`/fleet/aircraft/${r.aircraftId}/health`} className="ac-mono">{r.registration}</Link></td>
+                      <td>{r.gaps}</td>
+                      <td>{r.openDefects}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
