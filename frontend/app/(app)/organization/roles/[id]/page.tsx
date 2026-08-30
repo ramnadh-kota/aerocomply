@@ -1,9 +1,14 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
-import { getRoleById, usersForRole, roleAccessSummary } from "@/lib/mock/roles";
+import { getRoleById, usersForRole, roleAccessSummary, updateRole } from "@/lib/mock/roles";
 import { SimulateRoleButton } from "@/components/organization/SimulateRoleButton";
+import { RoleForm } from "@/components/organization/RoleForm";
+import { useMroState } from "@/lib/mro-state/MroStateContext";
 
 const LEVEL_BADGE: Record<string, { status: "UNKNOWN" | "NOT_APPLICABLE" | "REVIEW_REQUIRED" | "COMPLIANT"; label: string }> = {
   NONE: { status: "NOT_APPLICABLE", label: "No Access" },
@@ -13,10 +18,54 @@ const LEVEL_BADGE: Record<string, { status: "UNKNOWN" | "NOT_APPLICABLE" | "REVI
 };
 
 export default function RoleDetailPage({ params }: { params: { id: string } }) {
+  const [version, setVersion] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const { addAuditEvent } = useMroState();
   const role = getRoleById(params.id);
   if (!role) notFound();
   const assignedUsers = usersForRole(role.id);
   const access = roleAccessSummary(role);
+  void version; // forces re-render after an in-place mutation via updateRole()
+
+  if (editing) {
+    return (
+      <div>
+        <Breadcrumbs
+          items={[
+            { label: "Dashboard", href: "/dashboard" },
+            { label: "Organization", href: "/organization" },
+            { label: "Roles", href: "/organization/roles" },
+            { label: role.name },
+          ]}
+        />
+        <div className="ac-section-header">
+          <div>
+            <h1 className="ac-h1">Edit Role — {role.name}</h1>
+          </div>
+        </div>
+        <RoleForm
+          initial={role}
+          submitLabel="Save Changes"
+          onCancel={() => setEditing(false)}
+          onSubmit={(value) => {
+            const previousName = role.name;
+            updateRole(role.id, value);
+            addAuditEvent({
+              actor: "Prototype User",
+              actorRole: "Organization Admin",
+              action: "role.updated",
+              objectType: "Role",
+              objectLabel: value.name,
+              previousState: previousName,
+              newState: value.name,
+            });
+            setEditing(false);
+            setVersion((v) => v + 1);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -35,6 +84,7 @@ export default function RoleDetailPage({ params }: { params: { id: string } }) {
         </div>
         <div className="ac-flex ac-gap-2 ac-items-center">
           <StatusBadge status={role.status === "ACTIVE" ? "ACTIVE" : "STORED"} />
+          <button className="ac-btn" onClick={() => setEditing(true)}>Edit Role</button>
           <SimulateRoleButton roleId={role.id} />
         </div>
       </div>

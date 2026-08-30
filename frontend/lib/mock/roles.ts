@@ -284,3 +284,42 @@ export function roleAccessSummary(role: Role): { approve: string[]; edit: string
     none: role.permissions.filter((p) => p.level === "NONE").map((p) => p.module),
   };
 }
+
+// --- Role Management mutations -------------------------------------------
+// Session-only prototype mutations, mirroring the existing
+// recordGeneratedReport() pattern in lib/mock/reports.ts: mutate the
+// exported array directly rather than standing up a second state system.
+// Not persisted past a page reload; there is no backend here to persist to.
+
+let roleIdCounter = roles.length;
+
+export function updateRole(id: string, patch: { name: string; description: string; scope: string; permissions: ModulePermission[] }): Role | undefined {
+  const role = roles.find((r) => r.id === id);
+  if (!role) return undefined;
+  role.name = patch.name;
+  role.description = patch.description;
+  role.scope = patch.scope;
+  role.permissions = patch.permissions;
+  role.lastUpdated = new Date().toISOString().slice(0, 10);
+  return role;
+}
+
+export function createRole(input: { name: string; description: string; scope: string; permissions: ModulePermission[] }): Role {
+  roleIdCounter += 1;
+  const role: Role = {
+    id: `role-custom-${roleIdCounter}`,
+    name: input.name,
+    description: input.description,
+    scope: input.scope,
+    permissions: input.permissions,
+    aiAccess: { ask: input.permissions.some((p) => p.module === "AI" && p.level !== "NONE"), analytics: false, reports: false },
+    status: "ACTIVE",
+    lastUpdated: new Date().toISOString().slice(0, 10),
+  };
+  roles.push(role);
+  return role;
+}
+
+export function defaultPermissions(): ModulePermission[] {
+  return PERMISSION_MODULES.map((m) => perm(m, "NONE"));
+}

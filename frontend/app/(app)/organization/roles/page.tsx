@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -30,6 +31,7 @@ export default function RolesPage() {
             authorization is enforced here.
           </p>
         </div>
+        <Link href="/organization/roles/new" className="ac-btn ac-btn-primary">Add Role</Link>
       </div>
       <div className="ac-card" style={{ padding: 0 }}>
         <DataTable columns={columns} rows={roles} getRowHref={(r) => `/organization/roles/${r.id}`} />
