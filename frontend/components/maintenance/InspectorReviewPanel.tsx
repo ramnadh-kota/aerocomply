@@ -39,6 +39,7 @@ export function InspectorReviewPanel({ workOrderId, inspectorId, blockPassReason
 
   const alreadyDecided = record.inspectorDecisionStatus !== "PENDING_INSPECTION";
   const passBlocked = blockPassReasons.length > 0;
+  const sameActor = Boolean(record.technicianSignOff && record.technicianSignOff.technicianId === inspectorId);
   const requiresComment = decision === "REJECTED" || decision === "RETURNED_FOR_CORRECTION";
   const commentMissing = requiresComment && comments.trim().length === 0;
   const canSubmit = decision !== null && !commentMissing && !(decision === "APPROVED" && passBlocked);
@@ -75,6 +76,14 @@ export function InspectorReviewPanel({ workOrderId, inspectorId, blockPassReason
             The inspector reviews the technician&rsquo;s checklist, measurements, findings, and evidence — the
             technician cannot approve their own work.
           </p>
+
+          {sameActor && (
+            <div className="ac-card" style={{ marginBottom: 10, borderColor: "var(--ac-status-non-compliant)", background: "rgba(229,72,77,0.06)" }}>
+              <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-non-compliant)" }}>
+                Separation-of-duties warning: the technician sign-off and the assigned inspector are the same person. Route this to a different inspector before recording a decision.
+              </p>
+            </div>
+          )}
 
           {passBlocked && (
             <div className="ac-card" style={{ marginBottom: 10, borderColor: "var(--ac-status-non-compliant)", background: "rgba(229,72,77,0.06)" }}>
