@@ -13,10 +13,11 @@
 
 import { maintenanceProjects, getProjectById } from "../maintenanceProjects";
 import { getAircraftByRegistration, getAircraftById } from "../aircraft";
-import { workOrders } from "../workOrders";
+import { workOrders, isOverdue } from "../workOrders";
 import { findings, findingsForWorkOrder } from "../findings";
-import { defectsForAircraft, defectsForWorkOrder } from "../defects";
+import { defects, defectsForAircraft, defectsForWorkOrder } from "../defects";
 import { getInspectorReviewForWorkOrder } from "../inspectorReviews";
+import { getChecklistByWorkOrderId } from "../checklists";
 import { evidenceForAssessment } from "../evidence";
 import { overdueMaintenanceEvents, maintenanceEventsForAircraft, upcomingMaintenanceEvents } from "../maintenance";
 import { assessments } from "../assessments";
@@ -128,6 +129,15 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
   {
     category: "Fleet",
     questions: ["What is the health of the fleet?", "Show the aircraft risk ranking."],
+  },
+  {
+    category: "Prescriptive",
+    questions: [
+      "What is the TAT risk for this work order?",
+      "Which parts are at risk?",
+      "Which assessments have evidence gaps?",
+      "What AMM reference applies here?",
+    ],
   },
 ];
 
@@ -879,6 +889,98 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative: [TRUST_FOOTER],
       table: { title: "Aircraft Ranking", columns: ["Aircraft", "Risk"], rows: ranked.map((a) => [a.registration, a.risk]) },
       buttons: [{ label: "View Fleet", href: "/aircraft" }],
+    };
+  }
+
+  // M5.2 — AMM/IPC/SRM/CMM/MPD/MEL reference matching. The mock dataset does
+  // not contain any source-document reference library, so this is always
+  // INSUFFICIENT_DATA — that is the correct, honest answer, not a gap in
+  // this branch. Never fabricate a reference number.
+  if (/\b(amm|ipc|srm|cmm|mpd|mel)\b/.test(q) && (q.includes("reference") || q.includes("procedure") || q.includes("which") || q.includes("what"))) {
+    return insufficient(question, [
+      "a source-document reference library (AMM/IPC/SRM/CMM/MPD/MEL) is not present in the current demo dataset — no reference can be returned without fabricating one",
+    ]);
+  }
+
+  // M5.0 — Defect Intelligence: single-defect deep dive.
+  const mentionedDefect = defects.find((d) => q.includes(d.id));
+  if (mentionedDefect || (q.includes("defect") && (q.includes("intelligence") || q.includes("explain") || q.includes("tell me about")))) {
+    const defect = mentionedDefect ?? defectsForAircraft(context?.aircraftId ?? "")[0];
+    if (!defect) return insufficient(question, ["a specific defect ID, or an aircraft context with a recorded defect"]);
+    const wo = defect.workOrderId ? workOrders.find((w) => w.id === defect.workOrderId) : undefined;
+    const relatedFindings = defect.workOrderId ? findingsForWorkOrder(defect.workOrderId) : [];
+    const missing: string[] = [];
+    if (!defect.correctiveAction) missing.push("corrective action not yet recorded");
+    if (!wo?.relatedRequirementId) missing.push("no regulatory requirement linked to the associated work order");
+    const confidence: "LOW" | "MEDIUM" | "HIGH" = defect.correctiveAction && wo ? "HIGH" : wo ? "MEDIUM" : "LOW";
+    return {
+      id: nextId(),
+      question,
+      headline: `Defect ${defect.id} — intelligence`,
+      narrative: [
+        `Observed condition: ${defect.description}`,
+        `Known evidence: ${relatedFindings.length} linked finding(s), severity ${defect.severity}, status ${defect.status}.`,
+        defect.correctiveAction ? `Recorded corrective action: ${defect.correctiveAction}` : "No corrective action recorded — Insufficient source data.",
+        wo?.relatedRequirementId ? `Regulatory implication: linked via ${wo.workOrderNumber} to ${requirementLabel(wo.relatedRequirementId)}.` : "No regulatory implication is supported by current source data.",
+        `Confidence: ${confidence}.`,
+        missing.length > 0 ? `Missing information: ${missing.join("; ")}.` : "",
+        TRUST_FOOTER,
+      ].filter(Boolean),
+      buttons: [
+        { label: "View Aircraft", href: `/aircraft/${defect.aircraftId}` },
+        ...(wo ? [{ label: "View Work Order", href: `/maintenance/work-orders/${wo.id}` }] : []),
+      ],
+    };
+  }
+
+  // M5.1 — Defect → Task recommendation. Only recommends an EXISTING
+  // checklist item on the SAME work order when its label/instruction text
+  // overlaps the defect description — never invents a task.
+  if (q.includes("defect") && (q.includes("recommend") || q.includes("which task"))) {
+    const defect = defects.find((d) => q.includes(d.id)) ?? defectsForAircraft(context?.aircraftId ?? "")[0];
+    if (!defect || !defect.workOrderId) return insufficient(question, ["a defect linked to a work order with an existing checklist"]);
+    const checklist = getChecklistByWorkOrderId(defect.workOrderId);
+    if (!checklist) return insufficient(question, [`a checklist on ${defect.workOrderId} to match against`]);
+    const words = defect.description.toLowerCase().split(/\W+/).filter((w) => w.length > 4);
+    const scored = checklist.items
+      .map((item) => ({ item, score: words.filter((w) => item.label.toLowerCase().includes(w) || item.instruction.toLowerCase().includes(w)).length }))
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score);
+    const match = scored[0];
+    return {
+      id: nextId(),
+      question,
+      headline: `Defect ${defect.id} — task recommendation`,
+      narrative: match
+        ? [`Exact source-supported match: checklist item "${match.item.label}" on ${checklist.title}.`, TRUST_FOOTER]
+        : ["Insufficient source data to recommend a specific task.", TRUST_FOOTER],
+      buttons: defect.workOrderId ? [{ label: "View Work Order", href: `/maintenance/work-orders/${defect.workOrderId}` }] : [],
+    };
+  }
+
+  // M5.3 — Explainable TAT (turnaround time) risk.
+  if (q.includes("tat") && (q.includes("risk") || q.includes("why"))) {
+    const wo = findWorkOrderFromText(question) ?? (context?.aircraftId ? workOrders.find((w) => w.aircraftId === context.aircraftId && w.status !== "COMPLETED" && w.status !== "CANCELLED") : undefined);
+    if (!wo) return insufficient(question, ["a recognizable work order number or an aircraft context with active work"]);
+    // Note: checklist item completion/UNKNOWN state lives in MroStateContext
+    // (client-only) and is not available to this server-safe engine module —
+    // TAT risk here is computed from work-order-level source data only.
+    const factors: string[] = [];
+    let riskPoints = 0;
+    if (isOverdue(wo)) { factors.push(`overdue since ${wo.dueDate}`); riskPoints += 2; }
+    if (wo.priority === "CRITICAL" || wo.priority === "HIGH") { factors.push(`${wo.priority} priority`); riskPoints += 1; }
+    if (wo.status === "WAITING_PARTS") { factors.push("waiting on parts"); riskPoints += 2; }
+    if (wo.status === "WAITING_INSPECTION") { factors.push("waiting on inspection"); riskPoints += 1; }
+    const openDefectsOnWo = defectsForWorkOrder(wo.id).filter((d) => d.status === "OPEN");
+    if (openDefectsOnWo.some((d) => d.severity === "CRITICAL" || d.severity === "HIGH")) { factors.push(`${openDefectsOnWo.length} open HIGH/CRITICAL defect(s)`); riskPoints += 2; }
+    if (wo.relatedRequirementId) factors.push(`tied to regulatory requirement ${requirementLabel(wo.relatedRequirementId)}`);
+    const tatRisk: "LOW" | "MEDIUM" | "HIGH" = riskPoints >= 3 ? "HIGH" : riskPoints >= 1 ? "MEDIUM" : "LOW";
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — TAT risk: ${tatRisk}`,
+      narrative: [factors.length > 0 ? `Why: ${factors.join("; ")}.` : "No risk factors identified from current source data.", TRUST_FOOTER],
+      buttons: [{ label: "View Work Order", href: `/maintenance/work-orders/${wo.id}` }],
     };
   }
 

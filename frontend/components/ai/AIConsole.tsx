@@ -44,6 +44,9 @@ export function AIConsole({
       objectLabel: trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed,
       previousState: null,
       newState: response.insufficientData ? "INSUFFICIENT_DATA" : "ANSWERED",
+      // M5.5 decision traceability: record the recommendation basis without
+      // exposing hidden chain-of-thought — just what was concluded.
+      reason: response.insufficientData ? (response.missing ?? []).join("; ") : response.headline,
     });
   }
 
