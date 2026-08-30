@@ -25,11 +25,10 @@ export default function ProcurementCartPage() {
 
   const cart = procurementRepository.getCart();
   const current = getCurrentUser();
+  const summary = procurementRepository.cartSummary();
 
   function estimatedTotal(item: (typeof cart)[number]): number | null {
-    if (!item.preferredVendorId) return null;
-    const line = procurementRepository.availabilityForPart(item.partId ?? "").find((l) => l.vendorId === item.preferredVendorId);
-    return line?.unitPrice !== undefined && line?.unitPrice !== null ? line.unitPrice * item.quantity : null;
+    return procurementRepository.cartItemLineTotal(item);
   }
 
   function remove(id: string) {
@@ -38,8 +37,11 @@ export default function ProcurementCartPage() {
     setVersion((v) => v + 1);
   }
 
-  function setQty(id: string, qty: number) {
-    procurementRepository.updateCartItemQuantity(id, Math.max(1, qty));
+  function setQty(id: string, qty: number, previousQty: number) {
+    const next = Math.max(1, qty);
+    if (next === previousQty) return;
+    procurementRepository.updateCartItemQuantity(id, next);
+    addAuditEvent({ actor: current?.user.name ?? "Unknown User", actorRole: "Technician", action: "procurement.cart_updated", objectType: "ProcurementCartItem", objectLabel: id, previousState: `qty ${previousQty}`, newState: `qty ${next}` });
     setVersion((v) => v + 1);
   }
 
@@ -77,7 +79,7 @@ export default function ProcurementCartPage() {
         <div className="ac-section">
           <div className="ac-card" style={{ borderColor: "var(--ac-status-compliant)" }}>
             <p className="ac-text-sm" style={{ margin: 0, fontWeight: 600, color: "var(--ac-status-compliant)" }}>
-              Request{submittedIds.length > 1 ? "s" : ""} submitted: {submittedIds.join(", ")}. Status: PENDING_APPROVAL. Track it in{" "}
+              Request{submittedIds.length > 1 ? "s" : ""} submitted: {submittedIds.join(", ")}. Status: SUBMITTED. Track it in{" "}
               <Link href="/procurement" className="ac-mono">Procurement Control Center</Link>.
             </p>
           </div>
@@ -87,7 +89,20 @@ export default function ProcurementCartPage() {
       {cart.length === 0 ? (
         <div className="ac-card"><p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>Your cart is empty. <Link href="/procurement/parts">Search for a part</Link> to get started.</p></div>
       ) : (
-        <div className="ac-flex ac-flex-col ac-gap-3">
+        <>
+          <div className="ac-card ac-section" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <p className="ac-kpi-label">Estimated Procurement Total</p>
+              <p className="ac-kpi-value">
+                {summary.fullyCalculable ? `${summary.currency ?? ""} ${summary.knownTotal.toLocaleString()}` : summary.itemsWithKnownPrice > 0 ? "Partially calculable" : "Insufficient source data."}
+              </p>
+            </div>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              {summary.itemsWithKnownPrice} of {summary.itemCount} item{summary.itemCount === 1 ? "" : "s"} have known pricing.
+              {!summary.fullyCalculable && summary.itemsWithKnownPrice > 0 && summary.currency === null && summary.knownTotal > 0 && " (mixed or unrecorded currency on some lines)"}
+            </p>
+          </div>
+          <div className="ac-flex ac-flex-col ac-gap-3">
           {cart.map((item) => {
             const vendor = item.preferredVendorId ? procurementRepository.getVendorById(item.preferredVendorId) : undefined;
             const line = item.preferredVendorId ? procurementRepository.availabilityForPart(item.partId ?? "").find((l) => l.vendorId === item.preferredVendorId) : undefined;
@@ -109,9 +124,12 @@ export default function ProcurementCartPage() {
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <StatusBadge status={item.priority === "AOG" ? "NON_COMPLIANT" : item.priority === "HIGH" ? "REVIEW_REQUIRED" : "COMPLIANT"} label={item.priority} />
-                    <p className="ac-text-sm ac-text-muted" style={{ margin: "6px 0 4px" }}>
-                      Qty: <input type="number" min={1} value={item.quantity} onChange={(e) => setQty(item.id, Number(e.target.value))} className="ac-input" style={{ width: 60, display: "inline-block", padding: "2px 6px" }} />
-                    </p>
+                    <div className="ac-flex ac-items-center ac-gap-2" style={{ margin: "6px 0 4px", justifyContent: "flex-end" }}>
+                      <span className="ac-text-sm ac-text-muted">Qty:</span>
+                      <button className="ac-btn" style={{ padding: "2px 8px" }} aria-label={`Decrease quantity for ${item.partNumber}`} onClick={() => setQty(item.id, item.quantity - 1, item.quantity)} disabled={item.quantity <= 1}>−</button>
+                      <span className="ac-mono" style={{ minWidth: 24, textAlign: "center", display: "inline-block" }}>{item.quantity}</span>
+                      <button className="ac-btn" style={{ padding: "2px 8px" }} aria-label={`Increase quantity for ${item.partNumber}`} onClick={() => setQty(item.id, item.quantity + 1, item.quantity)}>+</button>
+                    </div>
                     <p className="ac-text-sm" style={{ margin: "0 0 8px", fontWeight: 600 }}>Est. Total: {total !== null ? `${line?.currency ?? ""} ${total.toLocaleString()}` : "Insufficient source data."}</p>
                     <div className="ac-flex ac-gap-2" style={{ justifyContent: "flex-end" }}>
                       <button className="ac-btn" onClick={() => remove(item.id)}>Remove</button>
@@ -142,7 +160,8 @@ export default function ProcurementCartPage() {
               </div>
             );
           })}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

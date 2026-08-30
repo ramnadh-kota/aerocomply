@@ -516,3 +516,48 @@ export function receivePurchaseOrder(id: string): PurchaseOrder | undefined {
   }
   return po;
 }
+
+/** M11.4 — line-cost lookup shared by the cart page and Lisa's cart
+ * questions, so the two can never disagree. Returns null when the item has
+ * no preferred vendor or that vendor has no recorded price for the part —
+ * never a fabricated $0. */
+export function cartItemLineTotal(item: import("./types").ProcurementCartItem): number | null {
+  if (!item.preferredVendorId) return null;
+  const line = vendorPartAvailabilityForPart(item.partId ?? "").find((l) => l.vendorId === item.preferredVendorId);
+  return line?.unitPrice !== undefined && line?.unitPrice !== null ? line.unitPrice * item.quantity : null;
+}
+
+export interface CartSummary {
+  itemCount: number;
+  itemsWithKnownPrice: number;
+  knownTotal: number;
+  fullyCalculable: boolean; // true only if every item's line total is known
+  currency: string | null; // the currency of the known lines, when consistent; null if mixed/unknown
+}
+
+export function cartSummary(): CartSummary {
+  const items = cartItems;
+  let itemsWithKnownPrice = 0;
+  let knownTotal = 0;
+  let currency: string | null = null;
+  let mixedCurrency = false;
+  for (const item of items) {
+    const total = cartItemLineTotal(item);
+    if (total !== null) {
+      itemsWithKnownPrice += 1;
+      knownTotal += total;
+      const line = item.preferredVendorId ? vendorPartAvailabilityForPart(item.partId ?? "").find((l) => l.vendorId === item.preferredVendorId) : undefined;
+      if (line?.currency) {
+        if (currency === null) currency = line.currency;
+        else if (currency !== line.currency) mixedCurrency = true;
+      }
+    }
+  }
+  return {
+    itemCount: items.length,
+    itemsWithKnownPrice,
+    knownTotal,
+    fullyCalculable: items.length > 0 && itemsWithKnownPrice === items.length,
+    currency: mixedCurrency ? null : currency,
+  };
+}

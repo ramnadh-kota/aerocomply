@@ -51,6 +51,8 @@ import {
   removeCartItem,
   updateCartItemQuantity,
   clearCart,
+  cartItemLineTotal,
+  cartSummary,
   createPartRequestFromCartItem,
   approvePartRequest,
   rejectPartRequest,
@@ -60,6 +62,7 @@ import {
   sendPurchaseOrder,
   receivePurchaseOrder,
   type VendorScoreResult,
+  type CartSummary,
 } from "../mock/procurement";
 import type { Vendor, VendorPartAvailability, PartRequest, ProcurementCartItem, PurchaseOrder } from "../mock/types";
 import type { Aircraft, WorkOrder, Defect, InspectorReview, Evidence, Part, PartCertificate, RegulatoryRequirement, AuditEvent, Organization } from "../mock/types";
@@ -239,6 +242,8 @@ export interface ProcurementRepository {
   removeCartItem(id: string): boolean;
   updateCartItemQuantity(id: string, quantity: number): void;
   clearCart(): void;
+  cartItemLineTotal(item: ProcurementCartItem): number | null;
+  cartSummary(): CartSummary;
   submitPartRequest(item: ProcurementCartItem, estimatedCost: number | null): PartRequest;
   approvePartRequest(id: string, approvedBy: string, selectedVendorId: string | null): PartRequest | undefined;
   rejectPartRequest(id: string, approvedBy: string, reason: string): PartRequest | undefined;
@@ -265,6 +270,8 @@ export const procurementRepository: ProcurementRepository = {
   removeCartItem,
   updateCartItemQuantity,
   clearCart,
+  cartItemLineTotal,
+  cartSummary,
   submitPartRequest: createPartRequestFromCartItem,
   approvePartRequest,
   rejectPartRequest,

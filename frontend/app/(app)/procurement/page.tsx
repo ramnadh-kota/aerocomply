@@ -38,8 +38,9 @@ export default function ProcurementControlTowerPage() {
           <p className="ac-subtitle">Part requests, vendor risk, and open procurement exposure — every figure traces to a real request, vendor, or cost record.</p>
         </div>
         <div className="ac-flex ac-gap-2">
-          <Link href="/procurement/parts" className="ac-btn">Parts Search</Link>
-          <Link href="/procurement/approvals" className="ac-btn">Approvals</Link>
+          <Link href="/procurement/parts" className="ac-btn">Find Parts</Link>
+          <Link href="/procurement/cart" className="ac-btn">Procurement Cart</Link>
+          <Link href="/procurement/approvals" className="ac-btn">Submitted Requests</Link>
           <Link href="/procurement/purchase-orders" className="ac-btn">Purchase Orders</Link>
           <Link href="/procurement/vendors" className="ac-btn">Vendor Intelligence →</Link>
         </div>

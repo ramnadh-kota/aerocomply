@@ -79,6 +79,7 @@ export const STANDARD_AUDIT_ACTIONS = [
   // M11.11 — procurement lifecycle actions, same taxonomy, no second audit system.
   "procurement.cart_item_added",
   "procurement.cart_item_removed",
+  "procurement.cart_updated",
   "procurement.request_created",
   "procurement.request_submitted",
   "procurement.approval_requested",

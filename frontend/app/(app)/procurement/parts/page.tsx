@@ -6,7 +6,7 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { parts } from "@/lib/mock/parts";
 import { workOrders } from "@/lib/mock/workOrders";
-import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
+import { aircraft, getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { procurementRepository } from "@/lib/domain/repositories";
 import { getCurrentUser } from "@/lib/domain/currentUser";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
@@ -113,6 +113,37 @@ function AddToCartForm({ part, vendorId, onAdded }: { part: Part; vendorId: stri
   );
 }
 
+function BestOptionSummary({ scores }: { scores: VendorScoreResult[] }) {
+  const top = scores.find((s) => s.score !== null);
+  if (!top) {
+    return (
+      <div className="ac-card" style={{ marginBottom: 10, borderStyle: "dashed" }}>
+        <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Best Available Option</p>
+        <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>Unable to determine a best option from available source data.</p>
+      </div>
+    );
+  }
+  const cheapestKnown = scores.filter((s) => s.line.unitPrice !== null).sort((a, b) => (a.line.unitPrice ?? 0) - (b.line.unitPrice ?? 0))[0];
+  const reasons: string[] = [];
+  if (top.line.availabilityStatus === "IN_STOCK") reasons.push("Known availability (in stock)");
+  if (top.line.unitPrice !== null) reasons.push("Known price");
+  if (top.line.certificationStatus === "VERIFIED") reasons.push("Verified traceability/certification");
+  if (cheapestKnown?.vendorId === top.vendorId) reasons.push("Lowest known cost among compared vendors");
+  return (
+    <div className="ac-card" style={{ marginBottom: 10, borderColor: "var(--ac-accent)" }}>
+      <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Best Available Option</p>
+      <p className="ac-text-sm" style={{ margin: "0 0 4px", fontWeight: 600 }}>Vendor: {top.vendorName}</p>
+      {reasons.length > 0 ? (
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+          {reasons.map((r) => <li key={r}>✓ {r}</li>)}
+        </ul>
+      ) : (
+        <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>Highest relative score, but few factors are actually confirmed — {top.missingFactors.join("; ")}.</p>
+      )}
+    </div>
+  );
+}
+
 function VendorComparisonRow({ score, part }: { score: VendorScoreResult; part: Part }) {
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
@@ -146,17 +177,22 @@ function VendorComparisonRow({ score, part }: { score: VendorScoreResult; part: 
 
 export default function ProcurementPartsPage() {
   const [query, setQuery] = useState("");
+  const [aircraftFilter, setAircraftFilter] = useState("ALL");
+  const [availabilityFilter, setAvailabilityFilter] = useState("ALL");
+  const [certFilter, setCertFilter] = useState("ALL");
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return parts;
-    return parts.filter((p) =>
-      p.partNumber.toLowerCase().includes(q) ||
-      p.description.toLowerCase().includes(q) ||
-      (p.manufacturer ?? "").toLowerCase().includes(q)
-    );
+    return parts.filter((p) => {
+      if (q && !(p.partNumber.toLowerCase().includes(q) || p.description.toLowerCase().includes(q) || (p.manufacturer ?? "").toLowerCase().includes(q))) return false;
+      if (aircraftFilter !== "ALL" && !workOrdersRequiringPart(p.id).some((w) => w.aircraftId === aircraftFilter)) return false;
+      const lines = procurementRepository.availabilityForPart(p.id);
+      if (availabilityFilter !== "ALL" && !lines.some((l) => l.availabilityStatus === availabilityFilter)) return false;
+      if (certFilter !== "ALL" && !lines.some((l) => l.certificationStatus === certFilter)) return false;
+      return true;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, aircraftFilter, availabilityFilter, certFilter]);
 
   return (
     <div>
@@ -170,7 +206,28 @@ export default function ProcurementPartsPage() {
       </div>
 
       <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
-        <input className="ac-input" placeholder="Search part number, description, or manufacturer…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search parts" />
+        <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+          <input className="ac-input" style={{ flex: "1 1 260px" }} placeholder="Search part number, description, or manufacturer…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search parts" />
+          <select className="ac-input" style={{ width: 180 }} value={aircraftFilter} onChange={(e) => setAircraftFilter(e.target.value)} aria-label="Filter by aircraft">
+            <option value="ALL">All Aircraft</option>
+            {aircraft.map((a) => <option key={a.id} value={a.id}>{currentRegistration(a)}</option>)}
+          </select>
+          <select className="ac-input" style={{ width: 190 }} value={availabilityFilter} onChange={(e) => setAvailabilityFilter(e.target.value)} aria-label="Filter by availability">
+            <option value="ALL">All Availability</option>
+            <option value="IN_STOCK">In Stock</option>
+            <option value="LIMITED">Limited</option>
+            <option value="ON_ORDER">On Order</option>
+            <option value="OUT_OF_STOCK">Out of Stock</option>
+            <option value="UNKNOWN">Unknown</option>
+          </select>
+          <select className="ac-input" style={{ width: 200 }} value={certFilter} onChange={(e) => setCertFilter(e.target.value)} aria-label="Filter by certification status">
+            <option value="ALL">All Certification Statuses</option>
+            <option value="VERIFIED">Verified</option>
+            <option value="NOT_VERIFIED">Not Verified</option>
+            <option value="REFERENCE_UNKNOWN">Reference Unknown</option>
+            <option value="UNKNOWN">Unknown</option>
+          </select>
+        </div>
       </div>
 
       {matches.length === 0 && <div className="ac-card"><p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No parts match this search.</p></div>}
@@ -196,7 +253,10 @@ export default function ProcurementPartsPage() {
               {scores.length === 0 ? (
                 <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>Insufficient source data. No vendor has a recorded availability line for this part.</p>
               ) : (
-                scores.map((s) => <VendorComparisonRow key={s.vendorId} score={s} part={part} />)
+                <>
+                  <BestOptionSummary scores={scores} />
+                  {scores.map((s) => <VendorComparisonRow key={s.vendorId} score={s} part={part} />)}
+                </>
               )}
             </section>
           );

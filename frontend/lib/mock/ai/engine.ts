@@ -25,7 +25,7 @@ import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart } from "../partTraceability";
 import { getWorkOrderCostSummary, getAircraftCostSummary, getFleetFinancialSummary, workOrderIdsWithCostData, highestCostPartCost, highestVendorSpend, vendorCosts } from "../finance";
-import { vendors, partRequests, purchaseOrders, partsWithoutVendorAvailability, scoreVendorOptionsForPart } from "../procurement";
+import { vendors, partRequests, purchaseOrders, partsWithoutVendorAvailability, scoreVendorOptionsForPart, cartItems, cartSummary, cartItemLineTotal, getVendorById } from "../procurement";
 import { AI_DEMO_DATA_FOOTER } from "../../brand";
 import {
   getProjectAnalytics,
@@ -164,6 +164,7 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Which AOG parts need immediate attention?",
       "Which vendor has the best delivery performance?",
       "What should procurement do next?",
+      "What is in my procurement cart?",
     ],
   },
 ];
@@ -1348,6 +1349,52 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   // second AI system — with vendor/procurement questions, sourced entirely
   // from lib/mock/procurement.ts. Never invents stock, price, lead time, or
   // certification for a vendor/part combination that has no seeded record.
+
+  // M11.4 — "What is in my procurement cart?" / "how much will this
+  // procurement request cost?" Reuses cartSummary()/cartItemLineTotal(),
+  // the SAME functions the cart page itself uses, so Lisa's answer and the
+  // cart UI can never disagree.
+  if (q.includes("cart") && (q.includes("what") || q.includes("in my"))) {
+    const cart = cartItems;
+    if (cart.length === 0) return insufficient(question, ["any items currently in the procurement cart — the cart is empty"]);
+    const summary = cartSummary();
+    return {
+      id: nextId(),
+      question,
+      headline: `${summary.itemCount} item(s) in the procurement cart`,
+      narrative: [
+        summary.fullyCalculable
+          ? `Estimated total: ${summary.currency ?? ""} ${summary.knownTotal.toLocaleString()}.`
+          : summary.itemsWithKnownPrice > 0
+          ? `Estimated total is partially calculable — ${summary.itemsWithKnownPrice} of ${summary.itemCount} item(s) have known pricing.`
+          : "No item in the cart has a known price yet.",
+        TRUST_FOOTER,
+      ],
+      table: { title: "Procurement Cart", columns: ["Part", "Qty", "Vendor", "Line Total"], rows: cart.map((item) => {
+        const vendor = item.preferredVendorId ? getVendorById(item.preferredVendorId) : undefined;
+        const total = cartItemLineTotal(item);
+        return [item.partNumber, item.quantity, vendor?.name ?? "Insufficient source data.", total !== null ? total.toLocaleString() : "Insufficient source data."];
+      }) },
+      buttons: [{ label: "View Cart", href: "/procurement/cart" }],
+    };
+  }
+
+  if (q.includes("how much") && (q.includes("procurement request") || q.includes("this request") || (q.includes("cost") && q.includes("cart")))) {
+    const cart = cartItems;
+    const summary = cartSummary();
+    if (cart.length === 0) return insufficient(question, ["any items in the procurement cart to estimate a cost for"]);
+    return {
+      id: nextId(),
+      question,
+      headline: summary.fullyCalculable ? `Estimated cost: ${summary.currency ?? ""} ${summary.knownTotal.toLocaleString()}` : "Estimated cost is only partially calculable",
+      narrative: [
+        `${summary.itemsWithKnownPrice} of ${summary.itemCount} cart item(s) have known pricing.`,
+        summary.itemsWithKnownPrice > 0 && !summary.fullyCalculable ? `Known portion: ${summary.currency ?? ""} ${summary.knownTotal.toLocaleString()} — the remaining item(s) have no vendor price on file.` : "",
+        TRUST_FOOTER,
+      ].filter(Boolean),
+      buttons: [{ label: "View Cart", href: "/procurement/cart" }],
+    };
+  }
 
   // "Which vendor should we use for P/N-123?" / "which vendor for this part?"
   // / "why was this vendor recommended?" — all use the SAME deterministic
