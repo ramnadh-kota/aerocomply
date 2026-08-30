@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { GlobalSearch } from "@/components/search/GlobalSearch";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { organizations } from "@/lib/mock/organizations";
 import { useRoleSim, simulatableRoles } from "@/lib/role-sim/RoleSimContext";
 import { getRoleById } from "@/lib/mock/roles";
@@ -76,6 +77,8 @@ export function Topbar() {
             ))}
           </select>
         </label>
+
+        <ThemeToggle />
 
         <div style={{ position: "relative" }}>
           <button

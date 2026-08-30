@@ -19,6 +19,9 @@ out/
 .env.local
 *.env.*.local
 
+# Local dev tooling (machine-specific absolute paths — not portable)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

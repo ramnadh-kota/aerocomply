@@ -1,8 +1,66 @@
-/* AeroComply design system — M0.5 prototype.
-   Dark aviation-engineering primary palette, neutral secondary, semantic
-   status colors always paired with a label/icon (never color alone). */
+/* AeroComply design system.
+   Premium enterprise SaaS surface (light, default) with a fully intentional
+   dark mode — not an inversion of light. Every component consumes these
+   --ac-* tokens rather than hardcoded colors, so both themes are produced
+   entirely from this one block plus the [data-theme="dark"] override below.
+   Semantic status colors are always paired with a label/icon (never color
+   alone) — see components/status/StatusBadge.tsx. */
 
 :root {
+  /* Light mode (default) */
+  --ac-bg: #f6f8fa;
+  --ac-bg-elevated: #ffffff;
+  --ac-bg-surface: #ffffff;
+  --ac-bg-surface-hover: #f1f5f9;
+  --ac-border: #e2e8f0;
+  --ac-border-subtle: #edf1f5;
+
+  --ac-text-primary: #16202b;
+  --ac-text-secondary: #55636f;
+  --ac-text-muted: #8a97a3;
+
+  --ac-accent: #2563eb;
+  --ac-accent-hover: #1d4fc4;
+  --ac-accent-muted: rgba(37, 99, 235, 0.1);
+
+  --ac-status-compliant: #1f9d5a;
+  --ac-status-compliant-bg: rgba(31, 157, 90, 0.12);
+  --ac-status-non-compliant: #d53f3f;
+  --ac-status-non-compliant-bg: rgba(213, 63, 63, 0.12);
+  --ac-status-insufficient: #7c5cfc;
+  --ac-status-insufficient-bg: rgba(124, 92, 252, 0.12);
+  --ac-status-review: #c6821f;
+  --ac-status-review-bg: rgba(198, 130, 31, 0.12);
+  --ac-status-unknown: #6b7686;
+  --ac-status-unknown-bg: rgba(107, 118, 134, 0.1);
+
+  --ac-space-1: 4px;
+  --ac-space-2: 8px;
+  --ac-space-3: 12px;
+  --ac-space-4: 16px;
+  --ac-space-5: 20px;
+  --ac-space-6: 24px;
+  --ac-space-8: 32px;
+  --ac-space-10: 40px;
+
+  --ac-radius-sm: 4px;
+  --ac-radius-md: 6px;
+  --ac-radius-lg: 10px;
+
+  --ac-shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+
+  --ac-font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --ac-font-mono: "SF Mono", "Cascadia Code", Consolas, monospace;
+
+  color-scheme: light;
+}
+
+/* Dark mode — a deliberately separate palette (not light inverted),
+   preserving AeroComply's original dark aviation-engineering identity as
+   an intentional theme rather than the only theme. Toggle via
+   ThemeToggle.tsx, which sets data-theme on <html> and persists to
+   localStorage; see app/layout.tsx for the no-flash bootstrap script. */
+:root[data-theme="dark"] {
   --ac-bg: #0a0f1a;
   --ac-bg-elevated: #10182b;
   --ac-bg-surface: #141d33;
@@ -29,21 +87,7 @@
   --ac-status-unknown: #6b7c9c;
   --ac-status-unknown-bg: rgba(107, 124, 156, 0.16);
 
-  --ac-space-1: 4px;
-  --ac-space-2: 8px;
-  --ac-space-3: 12px;
-  --ac-space-4: 16px;
-  --ac-space-5: 20px;
-  --ac-space-6: 24px;
-  --ac-space-8: 32px;
-  --ac-space-10: 40px;
-
-  --ac-radius-sm: 4px;
-  --ac-radius-md: 6px;
-  --ac-radius-lg: 10px;
-
-  --ac-font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --ac-font-mono: "SF Mono", "Cascadia Code", Consolas, monospace;
+  --ac-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
 
   color-scheme: dark;
 }
@@ -109,6 +153,14 @@ table {
    .ac-shell via the stacking context above. Per-page opacity is set by
    AviationBackground.tsx via the --ac-bg-opacity custom property so one
    image asset and one component serve every screen at the right intensity. */
+
+/* Decorative MRO/hangar imagery is a dark-theme accent only — its overlay
+   gradient is tuned to the dark palette (rgba(10,15,26,...) below) and
+   would read as a muddy wash over the light enterprise surface, which the
+   light theme intentionally keeps clean per the design reference. */
+:root:not([data-theme="dark"]) .ac-aviation-bg {
+  display: none;
+}
 
 .ac-aviation-bg {
   position: fixed;
@@ -233,6 +285,7 @@ table {
   border: 1px solid var(--ac-border);
   border-radius: var(--ac-radius-lg);
   padding: var(--ac-space-5);
+  box-shadow: var(--ac-shadow-card);
 }
 
 .ac-section {
@@ -536,8 +589,8 @@ table {
   padding: var(--ac-space-3) var(--ac-space-4);
   margin: var(--ac-space-3);
   border-radius: var(--ac-radius-md);
-  background: rgba(232, 163, 61, 0.1);
-  border: 1px solid rgba(232, 163, 61, 0.3);
+  background: var(--ac-status-review-bg);
+  border: 1px solid var(--ac-status-review);
   color: var(--ac-status-review);
   font-size: 11px;
   font-weight: 600;
