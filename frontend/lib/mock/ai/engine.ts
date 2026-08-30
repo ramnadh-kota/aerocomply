@@ -296,6 +296,48 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     }
   }
 
+  // --- Contextual (aircraft-scoped) shortcuts — mirrors the project-scoped
+  // block above, for pages that carry only an aircraft context (e.g. Aircraft
+  // Health Intelligence) and only when no project context is also present.
+  if (context?.aircraftId && !context?.projectId) {
+    const ctxAircraft = getAircraftById(context.aircraftId);
+    const ctxAircraftAnalytics = ctxAircraft ? getAircraftAnalytics(ctxAircraft.id) : null;
+    if (ctxAircraft && ctxAircraftAnalytics) {
+      if ((q.includes("prioritize") || q.includes("priorities") || q.includes("next action") || q.includes("what should")) && !q.includes("inspection")) {
+        return {
+          id: nextId(),
+          question,
+          headline: `${ctxAircraftAnalytics.registration} — recommended priorities`,
+          narrative: [...ctxAircraftAnalytics.reasons, TRUST_FOOTER],
+          kpis: ctxAircraftAnalytics.kpis,
+          buttons: [{ label: "View Aircraft", href: `/aircraft/${ctxAircraft.id}` }, { label: "Aircraft Health Intelligence", href: `/fleet/aircraft/${ctxAircraft.id}/health` }],
+        };
+      }
+
+      if (q.includes("why") && !findWorkOrderFromText(question)) {
+        return {
+          id: nextId(),
+          question,
+          headline: `${ctxAircraftAnalytics.registration} — explanation`,
+          narrative: [...ctxAircraftAnalytics.reasons, TRUST_FOOTER],
+          kpis: ctxAircraftAnalytics.kpis,
+          buttons: [{ label: "View Aircraft", href: `/aircraft/${ctxAircraft.id}` }],
+        };
+      }
+
+      if (q.includes("generate") && q.includes("report")) {
+        return {
+          id: nextId(),
+          question,
+          headline: `${ctxAircraftAnalytics.registration} — generate report`,
+          narrative: ["The report uses the same analytics shown on this page.", TRUST_FOOTER],
+          buttons: [{ label: "Generate Report", href: `/reports/aircraft-${ctxAircraft.id}` }],
+          suggestGenerateReport: { reportId: `aircraft-${ctxAircraft.id}`, title: `${ctxAircraftAnalytics.registration} Compliance Exposure Report`, scope: ctxAircraftAnalytics.registration },
+        };
+      }
+    }
+  }
+
   // "What changed between assessment X and Y"
   if (q.includes("changed between") || (q.includes("assessment") && q.includes("vs"))) {
     const ids = findAssessmentIdsFromText(question);
