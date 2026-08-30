@@ -540,4 +540,8 @@ export interface AuditEvent {
   newState: string | null;
   reason?: string;
   relatedAssessmentId?: string;
+  // M8.8 — optional, additive: not every seeded event has these, and
+  // existing events remain valid without them.
+  actorType?: "USER" | "AI" | "SYSTEM";
+  organizationId?: string;
 }

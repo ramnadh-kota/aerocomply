@@ -54,3 +54,26 @@ export const auditEvents: AuditEvent[] = [...heroAuditEvents, ...bulkAuditEvents
 export function auditEventsForObjectLabelContains(fragment: string): AuditEvent[] {
   return auditEvents.filter((e) => e.objectLabel.includes(fragment));
 }
+
+// M8.8 — Standard audit action taxonomy. `AuditEvent.action` remains a
+// plain string (see types.ts) rather than a strict union, since existing
+// seeded events already use their own dotted action names — this constant
+// documents the vocabulary future mutation-emitting code should reuse
+// rather than inventing ad hoc action names per feature. Emitting these is
+// future work (there is no real backend mutation path in this prototype
+// yet); this list exists so that work has one place to start from, and so
+// no second audit system gets invented to log them.
+export const STANDARD_AUDIT_ACTIONS = [
+  "task.started",
+  "task.completed",
+  "finding.created",
+  "evidence.uploaded",
+  "evidence.verified",
+  "part.received",
+  "certificate.verified",
+  "inspection.requested",
+  "inspection.approved",
+  "inspection.rejected",
+  "work_order.completed",
+  "ai.recommendation_generated",
+] as const;

@@ -92,3 +92,62 @@ export function traceabilityStatusForPart(partId: string): TraceabilityStatus {
   if (receiving || certs.length > 0 || installs.length > 0) return "PARTIAL";
   return "UNKNOWN";
 }
+
+// M8.7 — Parts lifecycle expansion. A single explainable stage, derived
+// from the same real records above — never inferred from Part.status
+// alone. QUARANTINED/RETURNED/SCRAPPED are part of the target lifecycle
+// but have no supporting field in the current data model, so they are
+// intentionally unreachable here rather than guessed at.
+export type PartLifecycleStage =
+  | "ORDERED"
+  | "RECEIVED"
+  | "CERTIFICATE_VERIFIED"
+  | "STORED"
+  | "INSTALLED"
+  | "REMOVED"
+  | "UNKNOWN";
+
+export function partLifecycleStage(partId: string): PartLifecycleStage {
+  const part = getPartById(partId);
+  if (!part) return "UNKNOWN";
+  if (removalsForPart(partId).length > 0) return "REMOVED";
+  if (currentInstallationForPart(partId)) return "INSTALLED";
+  if (part.status === "IN_STOCK") {
+    const verified = certificatesForPart(partId).some((c) => c.verificationStatus === "PRESENT");
+    if (verified) return "CERTIFICATE_VERIFIED";
+    if (receivingRecordForPart(partId)) return "STORED";
+  }
+  if (part.status === "ORDERED") return "ORDERED";
+  if (receivingRecordForPart(partId)) return "RECEIVED";
+  return "UNKNOWN";
+}
+
+/** M8.7 — answers the standard parts-traceability questions from real
+ * records only. Every field is a string rather than a structured object so
+ * callers can render it directly; "Insufficient source data." wherever the
+ * underlying record is absent. */
+export interface PartTraceabilityAnswer {
+  origin: string;
+  supportingCertificate: string;
+  installedAircraft: string;
+  installingWorkOrder: string;
+  receivedBy: string;
+  removalInfo: string;
+}
+
+export function partTraceabilityAnswers(partId: string): PartTraceabilityAnswer {
+  const receiving = receivingRecordForPart(partId);
+  const certs = certificatesForPart(partId);
+  const installation = currentInstallationForPart(partId);
+  const removals = removalsForPart(partId);
+  const presentCert = certs.find((c) => c.verificationStatus === "PRESENT");
+
+  return {
+    origin: receiving ? `Received ${receiving.receivedDate} from ${receiving.source}.` : "Insufficient source data.",
+    supportingCertificate: presentCert ? `${presentCert.certificateType.replace(/_/g, " ")} — ${presentCert.certificateReference ?? "Insufficient source data."}` : "Insufficient source data.",
+    installedAircraft: installation ? installation.aircraftId : "Insufficient source data.",
+    installingWorkOrder: installation?.workOrderId ?? "Insufficient source data.",
+    receivedBy: receiving ? receiving.receivedBy : "Insufficient source data.",
+    removalInfo: removals.length > 0 ? removals.map((r) => `${r.removalDate}: ${r.reason}`).join("; ") : "Not removed — still in current disposition, per available records.",
+  };
+}
