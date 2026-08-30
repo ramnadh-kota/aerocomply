@@ -6,8 +6,8 @@
 
 import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getInspectionAnalytics, getComplianceAnalytics, getMaintenanceAnalytics, getOperationsAnalytics, getTechnicianWorkload, getPartsAtRisk, requirementLabel } from "./ai/analytics";
 import { getProjectById, workPackagesForProject } from "./maintenanceProjects";
-import { getAircraftById } from "./aircraft";
-import { workOrdersForProject, workOrdersForAircraft, MOCK_TODAY } from "./workOrders";
+import { getAircraftById, aircraft as allAircraft } from "./aircraft";
+import { workOrdersForProject, workOrdersForAircraft, MOCK_TODAY, workOrders as allWorkOrders } from "./workOrders";
 import { technicians } from "./technicians";
 import { partsForWorkOrder } from "./parts";
 import { defectsForAircraft } from "./defects";
@@ -16,8 +16,17 @@ import { getInspectorReviewForWorkOrder } from "./inspectorReviews";
 import { evidenceForAssessment } from "./evidence";
 import { assessmentsForAircraft } from "./assessments";
 import { auditEventsForObjectLabelContains } from "./audit";
+import {
+  getWorkOrderCostSummary,
+  getAircraftCostSummary,
+  getFleetFinancialSummary,
+  workOrderIdsWithCostData,
+  highestCostPartCost,
+  highestVendorSpend,
+  vendorCosts as allVendorCosts,
+} from "./finance";
 
-export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS" | "AUDIT_DOSSIER" | "GENERAL_OPERATIONAL";
+export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS" | "AUDIT_DOSSIER" | "GENERAL_OPERATIONAL" | "FINANCIAL_INTELLIGENCE";
 
 export interface ReportRecord {
   id: string;
@@ -37,6 +46,7 @@ export const reportHistory: ReportRecord[] = [
   { id: "compliance-weekly", title: "Weekly Compliance Report", type: "COMPLIANCE_WEEKLY", generatedBy: "Priya Nair", scope: "Organization-wide", generatedDate: "2026-03-10", status: "READY" },
   { id: "maintenance-operations", title: "Maintenance Operations Report", type: "MAINTENANCE_OPERATIONS", generatedBy: "Marcus Webb", scope: "Fleet-wide operations", generatedDate: "2026-03-17", status: "READY" },
   { id: "general-operational", title: "General Operational Report", type: "GENERAL_OPERATIONAL", generatedBy: "AeroComply AI (Prototype)", scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
+  { id: "financial-intelligence", title: "MRO Financial Intelligence Report", type: "FINANCIAL_INTELLIGENCE", generatedBy: "AeroComply AI (Prototype)", scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
 ];
 
 export function getReportRecord(id: string): ReportRecord | undefined {
@@ -67,6 +77,7 @@ function parseReportId(id: string): { type: ReportType; scopeId: string } | null
   if (id === "compliance-weekly") return { type: "COMPLIANCE_WEEKLY", scopeId: "" };
   if (id === "maintenance-operations") return { type: "MAINTENANCE_OPERATIONS", scopeId: "" };
   if (id === "general-operational") return { type: "GENERAL_OPERATIONAL", scopeId: "" };
+  if (id === "financial-intelligence") return { type: "FINANCIAL_INTELLIGENCE", scopeId: "" };
   return null;
 }
 
@@ -407,6 +418,113 @@ export function buildReportData(id: string): ReportData | null {
       generatedDate,
       generatedFrom,
       sourceModules: ["Aircraft", "Work Orders", "Defects", "Technicians", "Parts", "Assessments", "Inspections"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
+  }
+
+  if (parsed.type === "FINANCIAL_INTELLIGENCE") {
+    // M10.8 — Visual MRO Financial Intelligence Report. Reuses the same
+    // ReportSection kpis/table/distribution primitives as every other
+    // report type (no new report engine, no new chart library). All
+    // figures come from lib/mock/finance.ts's deterministic arithmetic —
+    // nothing here is estimated or invented.
+    const allWoIds = allWorkOrders.map((w) => w.id);
+    const fleet = getFleetFinancialSummary(allWoIds);
+    const costedSummaries = workOrderIdsWithCostData().map((woId) => getWorkOrderCostSummary(woId)!);
+    const aircraftCosts = allAircraft
+      .map((a) => getAircraftCostSummary(a.id, workOrdersForAircraft(a.id).map((w) => w.id)))
+      .filter((s): s is NonNullable<typeof s> => s !== null && s.coverage !== "INSUFFICIENT_DATA")
+      .sort((a, b) => b.totalCost - a.totalCost);
+    const topPart = highestCostPartCost();
+    const topVendor = highestVendorSpend();
+    const losingMoney = costedSummaries.filter((s) => s.grossMargin !== null && s.grossMargin < 0);
+    const vendorRollupMap = new Map<string, number>();
+    for (const v of allVendorCosts) vendorRollupMap.set(v.vendorName, (vendorRollupMap.get(v.vendorName) ?? 0) + v.amount);
+
+    const sections: ReportSection[] = [
+      {
+        heading: "Financial KPIs",
+        body: [`${fleet.workOrdersWithCostData} of ${fleet.totalWorkOrders} work orders have recorded cost data.`],
+        kpis: [
+          { label: "Total MRO Cost", value: `${fleet.totalCost.toLocaleString()} USD` },
+          { label: "Labor Cost", value: `${fleet.laborCost.toLocaleString()} USD` },
+          { label: "Parts Cost", value: `${fleet.partsCost.toLocaleString()} USD` },
+          { label: "Vendor Spend", value: `${fleet.vendorCost.toLocaleString()} USD` },
+          { label: "Customer Charges", value: fleet.workOrdersWithCharge > 0 ? `${fleet.customerCharge.toLocaleString()} USD` : "Insufficient source data." },
+          { label: "Gross Margin", value: fleet.grossMargin !== null ? `${fleet.grossMargin.toLocaleString()} USD` : "Insufficient source data.", tone: fleet.grossMargin !== null && fleet.grossMargin < 0 ? "bad" : "good" },
+        ],
+      },
+      {
+        heading: "Cost by Aircraft",
+        body: aircraftCosts.length === 0 ? ["Insufficient source data."] : [],
+        bars: aircraftCosts.length > 0 ? aircraftCosts.map((a) => ({ label: a.registration, percent: Math.round((a.totalCost / aircraftCosts[0].totalCost) * 100) })) : undefined,
+        table: { columns: ["Aircraft", "Total Cost", "Work Orders Costed"], rows: aircraftCosts.map((a) => [a.registration, a.totalCost, `${a.workOrdersWithCostData}/${a.totalWorkOrders}`]) },
+      },
+      {
+        heading: "Cost by Work Order",
+        body: [],
+        table: { columns: ["Work Order", "Aircraft", "Labor", "Parts", "Vendor", "Total Cost", "Customer Charge", "Margin %"], rows: costedSummaries.map((s) => [s.workOrderNumber, s.registration, s.laborCost, s.partsCost, s.vendorCost, s.totalCost, s.customerCharge ?? "Insufficient source data.", s.marginPercent !== null ? `${s.marginPercent}%` : "Insufficient source data."]) },
+      },
+      {
+        heading: "Labor vs Parts vs Vendor",
+        body: fleet.totalCost === 0 ? ["Insufficient source data."] : [],
+        distribution: fleet.totalCost > 0 ? [
+          { label: "LABOR", count: fleet.laborCost },
+          { label: "PARTS", count: fleet.partsCost },
+          { label: "VENDOR", count: fleet.vendorCost },
+        ] : undefined,
+      },
+      {
+        heading: "Vendor Spend",
+        body: allVendorCosts.length === 0 ? ["Vendor expenditure data not yet available."] : [],
+        table: allVendorCosts.length > 0 ? { columns: ["Vendor", "Total Spend"], rows: Array.from(vendorRollupMap.entries()) } : undefined,
+      },
+      {
+        heading: "Estimated vs Actual",
+        body: ["Insufficient source data. No estimated-cost field exists anywhere in the current work order domain model, so cost variance cannot be determined for any work order."],
+      },
+      {
+        heading: "Margin Analysis",
+        body: [
+          losingMoney.length > 0 ? `${losingMoney.length} work order(s) show a negative gross margin.` : "No work orders with both cost and customer-charge data show a negative margin.",
+          topPart ? `Highest single part cost: ${topPart.partId} — ${topPart.amount.toLocaleString()} USD.` : "Highest single part cost: Insufficient source data.",
+          topVendor ? `Highest single vendor line item: ${topVendor.vendorName} — ${topVendor.amount.toLocaleString()} USD.` : "Highest single vendor line item: Insufficient source data.",
+        ],
+      },
+      {
+        heading: "Cost Risks",
+        body: [
+          fleet.totalWorkOrders - fleet.workOrdersWithCostData > 0 ? `${fleet.totalWorkOrders - fleet.workOrdersWithCostData} work order(s) have no cost data recorded at all — financial exposure on these is unknown, not zero.` : "",
+          fleet.workOrdersWithCostData - fleet.workOrdersWithCharge > 0 ? `${fleet.workOrdersWithCostData - fleet.workOrdersWithCharge} costed work order(s) have no customer charge on file — margin cannot be determined for these.` : "",
+          "Cost variance cannot be determined because no estimated-cost field exists in the domain model.",
+        ].filter(Boolean),
+      },
+      {
+        heading: "Executive Actions",
+        body: [
+          losingMoney.length > 0 ? `Review pricing/scope on ${losingMoney.map((s) => s.workOrderNumber).join(", ")} — recorded charge is below recorded cost.` : "",
+          aircraftCosts.length > 0 ? `${aircraftCosts[0].registration} carries the highest recorded maintenance cost — review for recurring cost drivers.` : "",
+          fleet.workOrdersWithCostData < fleet.totalWorkOrders ? "Extend cost recording to the remaining uncosted work orders for a complete financial picture." : "",
+        ].filter(Boolean),
+      },
+      {
+        heading: "AI-Generated Summary",
+        body: [
+          `${fleet.workOrdersWithCostData} of ${fleet.totalWorkOrders} work orders costed; total recorded cost ${fleet.totalCost.toLocaleString()} USD; gross margin ${fleet.grossMargin !== null ? `${fleet.grossMargin.toLocaleString()} USD` : "Insufficient source data."}.`,
+          "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.",
+          "AI-assisted analysis — non-authoritative. Verify against source records before operational/commercial decisions.",
+        ],
+      },
+    ];
+    return {
+      id,
+      title: "MRO Financial Intelligence Report",
+      type: "FINANCIAL_INTELLIGENCE",
+      scope: "Fleet-wide",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Work Orders", "Aircraft", "Parts", "Technicians", "Finance (demo cost records)"],
       aiSummary: sections[sections.length - 1].body,
       sections,
     };

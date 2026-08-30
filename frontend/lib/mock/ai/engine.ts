@@ -24,6 +24,7 @@ import { assessments } from "../assessments";
 import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart } from "../partTraceability";
+import { getWorkOrderCostSummary, getAircraftCostSummary, getFleetFinancialSummary, workOrderIdsWithCostData, highestCostPartCost, highestVendorSpend, vendorCosts } from "../finance";
 import {
   getProjectAnalytics,
   getAircraftAnalytics,
@@ -140,6 +141,17 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Which assessments have evidence gaps?",
       "What AMM reference applies here?",
       "What should happen next for this work order?",
+    ],
+  },
+  {
+    category: "Finance",
+    questions: [
+      "Which aircraft is most expensive to maintain?",
+      "How much did VT-ABC cost us?",
+      "What is our margin?",
+      "Which vendors cost us the most?",
+      "Which work orders are losing money?",
+      "Generate a financial report.",
     ],
   },
 ];
@@ -1209,13 +1221,158 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
-  // M9.0 — Financial/cost questions: the topic is understood, but no cost/
-  // financial data model exists yet anywhere in the domain (no labor rate,
-  // part price, or vendor spend fields). Say so specifically rather than
-  // falling through to the generic "not a recognized topic" message, and
-  // never invent a cost figure.
+  // M10.7 — MRO Financial Intelligence questions. Extends this same engine
+  // with plain arithmetic answers from lib/mock/finance.ts — no AI/LLM
+  // computation, no invented price/margin/vendor figure. Cost data exists
+  // for only 3 of 10 work orders; every branch below says so explicitly
+  // when the specific aircraft/work order/vendor asked about has none.
+
+  if (q.includes("generate") && (q.includes("financial") || q.includes("profitability") || (q.includes("maintenance") && q.includes("cost") && q.includes("report")))) {
+    return {
+      id: nextId(),
+      question,
+      headline: "MRO Financial Intelligence Report",
+      narrative: ["Generating the visual financial report from current cost, vendor, and customer charge data.", TRUST_FOOTER],
+      buttons: [{ label: "Open Financial Report", href: "/reports/financial-intelligence" }],
+      suggestGenerateReport: { reportId: "financial-intelligence", title: "MRO Financial Intelligence Report", scope: "Fleet-wide" },
+    };
+  }
+
+  // "How much did VT-ABC cost us?" / aircraft-specific cost
+  if (resolveAircraft(question, context) && (q.includes("cost") || q.includes("expensive") || q.includes("margin"))) {
+    const a = resolveAircraft(question, context)!;
+    const woIds = workOrdersForAircraft(a.id).map((w) => w.id);
+    const summary = getAircraftCostSummary(a.id, woIds);
+    if (!summary || summary.coverage === "INSUFFICIENT_DATA") {
+      return insufficient(question, [`cost data for ${currentRegistration(a)} — no labor, parts, or vendor cost records exist for any of its work orders`]);
+    }
+    return {
+      id: nextId(),
+      question,
+      headline: `${summary.registration} — maintenance cost`,
+      narrative: [
+        `Total cost: ${summary.totalCost.toLocaleString()} USD (Labor ${summary.laborCost.toLocaleString()}, Parts ${summary.partsCost.toLocaleString()}, Vendor ${summary.vendorCost.toLocaleString()}), based on ${summary.workOrdersWithCostData} of ${summary.totalWorkOrders} work order(s) with recorded cost data.`,
+        summary.customerCharge !== null ? `Customer charge: ${summary.customerCharge.toLocaleString()} USD. Gross margin: ${summary.grossMargin?.toLocaleString()} USD.` : "Customer charge: Insufficient source data for the remaining work order(s).",
+        TRUST_FOOTER,
+      ],
+      buttons: [{ label: "View Financial Detail", href: `/finance/${a.id}` }],
+    };
+  }
+
+  // "Which aircraft is most/highest cost to maintain?" / "costing us the most"
+  if (q.includes("aircraft") && (q.includes("most") || q.includes("highest") || q.includes("costing")) && (q.includes("cost") || q.includes("expensive"))) {
+    const ranked = aircraft
+      .map((a) => getAircraftCostSummary(a.id, workOrdersForAircraft(a.id).map((w) => w.id)))
+      .filter((s): s is NonNullable<typeof s> => s !== null && s.coverage !== "INSUFFICIENT_DATA")
+      .sort((a, b) => b.totalCost - a.totalCost);
+    if (ranked.length === 0) return insufficient(question, ["aircraft-level cost data — no work order on any aircraft has recorded cost data"]);
+    const top = ranked[0];
+    return {
+      id: nextId(),
+      question,
+      headline: `Highest maintenance cost: ${top.registration}`,
+      narrative: [
+        `Total cost: ${top.totalCost.toLocaleString()} USD across ${top.workOrdersWithCostData} of ${top.totalWorkOrders} work order(s) with cost data.`,
+        ranked.length < aircraft.length ? `Only ${ranked.length} of ${aircraft.length} aircraft have any cost data — this ranking is partial, not fleet-complete.` : "",
+        TRUST_FOOTER,
+      ].filter(Boolean),
+      table: { title: "Aircraft Cost Ranking", columns: ["Aircraft", "Total Cost", "Work Orders Costed"], rows: ranked.map((a) => [a.registration, a.totalCost, `${a.workOrdersWithCostData}/${a.totalWorkOrders}`]) },
+      buttons: [{ label: "View Financial Detail", href: `/finance/${top.aircraftId}` }],
+    };
+  }
+
+  // "Which work orders are losing money?"
+  if (q.includes("work order") && (q.includes("losing money") || q.includes("unprofitable") || (q.includes("negative") && q.includes("margin")))) {
+    const losing = workOrderIdsWithCostData()
+      .map((id) => getWorkOrderCostSummary(id)!)
+      .filter((s) => s.grossMargin !== null && s.grossMargin < 0);
+    return {
+      id: nextId(),
+      question,
+      headline: losing.length > 0 ? `${losing.length} work order(s) losing money` : "No work orders currently show a negative margin",
+      narrative: [losing.length === 0 ? "Of the work orders with both cost and customer-charge data, none show a negative gross margin." : "These work orders' recorded customer charge is less than their recorded cost.", TRUST_FOOTER],
+      table: losing.length > 0 ? { title: "Unprofitable Work Orders", columns: ["Work Order", "Total Cost", "Customer Charge", "Margin"], rows: losing.map((s) => [s.workOrderNumber, s.totalCost, s.customerCharge ?? 0, s.grossMargin ?? 0]) } : undefined,
+      buttons: [{ label: "View Financial Intelligence", href: "/finance" }],
+    };
+  }
+
+  // "Where are we overspending?" / "biggest cost drivers"
+  if ((q.includes("overspend") || (q.includes("cost") && q.includes("driver"))) ) {
+    const topPart = highestCostPartCost();
+    const topVendor = highestVendorSpend();
+    if (!topPart && !topVendor) return insufficient(question, ["cost driver data — no part or vendor cost records exist"]);
+    return {
+      id: nextId(),
+      question,
+      headline: "Biggest maintenance cost drivers",
+      narrative: [
+        topPart ? `Highest single part cost: ${topPart.partId} on work order ${topPart.workOrderId} — ${topPart.amount.toLocaleString()} USD.` : "No part cost data available.",
+        topVendor ? `Highest single vendor line item: ${topVendor.vendorName} — ${topVendor.amount.toLocaleString()} USD.` : "No vendor cost data available.",
+        TRUST_FOOTER,
+      ],
+      buttons: [{ label: "View Financial Intelligence", href: "/finance" }],
+    };
+  }
+
+  // "Which vendors cost us the most?"
+  if (q.includes("vendor") && (q.includes("most") || q.includes("costing") || q.includes("highest"))) {
+    if (vendorCosts.length === 0) return insufficient(question, ["vendor expenditure data — no vendor cost records exist"]);
+    const byVendor = new Map<string, number>();
+    for (const v of vendorCosts) byVendor.set(v.vendorName, (byVendor.get(v.vendorName) ?? 0) + v.amount);
+    const ranked = Array.from(byVendor.entries()).sort((a, b) => b[1] - a[1]);
+    return {
+      id: nextId(),
+      question,
+      headline: `Highest vendor spend: ${ranked[0][0]}`,
+      narrative: [`Total recorded spend: ${ranked[0][1].toLocaleString()} USD.`, TRUST_FOOTER],
+      table: { title: "Vendor Spend", columns: ["Vendor", "Total Spend"], rows: ranked.map(([name, amount]) => [name, amount]) },
+      buttons: [{ label: "View Financial Intelligence", href: "/finance" }],
+    };
+  }
+
+  // "What is our margin?" (fleet-wide)
+  if (q.includes("margin") && !q.includes("aircraft")) {
+    const fleet = getFleetFinancialSummary(workOrders.map((w) => w.id));
+    if (fleet.grossMargin === null) return insufficient(question, ["fleet-wide margin — no work order with cost data also has a recorded customer charge"]);
+    return {
+      id: nextId(),
+      question,
+      headline: "Fleet-wide gross margin",
+      narrative: [
+        `Gross margin: ${fleet.grossMargin.toLocaleString()} USD across ${fleet.workOrdersWithCharge} of ${fleet.workOrdersWithCostData} costed work order(s) that also have a customer charge on file.`,
+        fleet.workOrdersWithCostData < fleet.totalWorkOrders ? `${fleet.totalWorkOrders - fleet.workOrdersWithCostData} of ${fleet.totalWorkOrders} work orders have no cost data at all and are excluded from this figure.` : "",
+        TRUST_FOOTER,
+      ].filter(Boolean),
+      buttons: [{ label: "View Financial Intelligence", href: "/finance" }],
+    };
+  }
+
+  // "How much should we charge the customer?" — NEVER estimate a price;
+  // only report what has already been recorded for a named work order.
+  if (q.includes("charge") && (q.includes("customer") || q.includes("should we"))) {
+    const wo = findWorkOrderFromText(question);
+    if (!wo) return insufficient(question, ["a specific work order — and even then, this system reports the recorded customer charge, it does not calculate a recommended price without a markup/rate-card model, which does not exist in the current domain model"]);
+    const charge = getWorkOrderCostSummary(wo.id);
+    if (!charge || charge.customerCharge === null) return insufficient(question, [`a recorded customer charge for ${wo.workOrderNumber}`]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — recorded customer charge`,
+      narrative: [`Recorded customer charge: ${charge.customerCharge.toLocaleString()} USD against a total cost of ${charge.totalCost.toLocaleString()} USD.`, "This is the recorded charge, not a system-generated price recommendation — no markup/rate-card model exists in the current domain model.", TRUST_FOOTER],
+      buttons: [{ label: "View Financial Detail", href: `/finance/${wo.id}` }],
+    };
+  }
+
+  // "What caused the cost increase?" — no historical/period-over-period
+  // cost data exists anywhere, so this is honestly unanswerable.
+  if (q.includes("cost") && (q.includes("increase") || q.includes("caused"))) {
+    return insufficient(question, ["cost history/trend data — only a single current snapshot of cost records exists; there is no prior-period data to compare against"]);
+  }
+
+  // Generic cost/charge/margin/spend catch-all — the topic is financial,
+  // but no branch above matched a specific, answerable shape of it.
   if (q.includes("cost") || q.includes("costing") || q.includes("charge") || q.includes("margin") || q.includes("expensive") || q.includes("spend")) {
-    return insufficient(question, ["MRO cost/financial data — no labor rate, part price, vendor spend, or customer charge fields exist in the current domain model"]);
+    return insufficient(question, ["a more specific financial question — try naming an aircraft or work order, or ask 'which aircraft is most expensive to maintain?' / 'what is our margin?' / 'which vendors cost us the most?'"]);
   }
 
   return insufficient(question, [

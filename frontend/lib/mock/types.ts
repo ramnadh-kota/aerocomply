@@ -219,6 +219,65 @@ export function evidenceLifecycleStateFor(e: Evidence): EvidenceLifecycleState {
   return e.verificationStatus === "VERIFIED" ? "VERIFIED" : "UNKNOWN";
 }
 
+// M10.1 — MRO Financial Intelligence domain model. Additive only; nothing
+// here changes an existing type. No Vendor, Customer, or rate-card entity
+// exists elsewhere in the domain model, so these are the first cost-facing
+// types in the repository. Every record is either "DEMO_SEED" (a small,
+// clearly-marked set of illustrative values on real, existing work orders —
+// see lib/mock/finance.ts for exactly which ones and why) or absent
+// entirely; there is no "SYSTEM_CALCULATED" cost ingestion pipeline in this
+// prototype; the arithmetic in finance.ts is calculated fresh from these
+// seed records rather than a third status implying a live feed that
+// doesn't exist.
+export type CostSource = "DEMO_SEED";
+
+export interface LaborCost {
+  id: string;
+  workOrderId: string;
+  taskId: string | null; // checklist item id, when the labor is scoped to one
+  technicianId: string;
+  hours: number;
+  hourlyRate: number;
+  currency: string;
+  amount: number; // hours * hourlyRate, stored explicitly rather than re-derived silently
+  source: CostSource;
+}
+
+export interface PartCost {
+  id: string;
+  workOrderId: string;
+  partId: string;
+  quantity: number;
+  unitCost: number;
+  currency: string;
+  amount: number;
+  vendorName: string | null; // no Vendor entity exists yet (see M11 procurement) — inline label only
+  source: CostSource;
+}
+
+export interface VendorCost {
+  id: string;
+  workOrderId: string;
+  vendorName: string;
+  description: string;
+  amount: number;
+  currency: string;
+  date: string;
+  source: CostSource;
+}
+
+export interface CustomerCharge {
+  id: string;
+  workOrderId: string;
+  customerOrgId: string; // -> Organization (the aircraft's operatorOrgId)
+  laborCharge: number;
+  partsCharge: number;
+  otherCharge: number;
+  totalCharge: number;
+  currency: string;
+  source: CostSource;
+}
+
 export type AssessmentSubjectType = "AIRCRAFT" | "ENGINE";
 
 export interface ConfigurationSnapshot {

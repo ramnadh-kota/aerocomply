@@ -26,6 +26,15 @@ import { regulatoryRequirements as requirementRows, getRequirementById } from ".
 import { auditEvents as auditEventRows, auditEventsForObjectLabelContains } from "../mock/audit";
 import { organizations as organizationRows, getOrganizationById } from "../mock/organizations";
 import { users as userRows, roles as roleRows, getUserById, getRoleById, type UserAccount, type Role } from "../mock/roles";
+import {
+  getWorkOrderCostSummary,
+  getAircraftCostSummary,
+  getFleetFinancialSummary,
+  workOrderIdsWithCostData,
+  type WorkOrderCostSummary,
+  type AircraftCostSummary,
+  type FleetFinancialSummary,
+} from "../mock/finance";
 import type { Aircraft, WorkOrder, Defect, InspectorReview, Evidence, Part, PartCertificate, RegulatoryRequirement, AuditEvent, Organization } from "../mock/types";
 
 export interface AircraftRepository {
@@ -165,4 +174,21 @@ export const userRepository: UserRepository = {
   getById: getUserById,
   listRoles: () => roleRows,
   getRoleById,
+};
+
+// M10.1 — Finance repository seam, following the same pattern as every
+// other repository above: thin delegation to lib/mock/finance.ts, no
+// duplicated calculation logic.
+export interface FinanceRepository {
+  workOrderCostSummary(workOrderId: string): WorkOrderCostSummary | null;
+  aircraftCostSummary(aircraftId: string, workOrderIds: string[]): AircraftCostSummary | null;
+  fleetFinancialSummary(workOrderIds: string[]): FleetFinancialSummary;
+  workOrderIdsWithCostData(): string[];
+}
+
+export const financeRepository: FinanceRepository = {
+  workOrderCostSummary: getWorkOrderCostSummary,
+  aircraftCostSummary: getAircraftCostSummary,
+  fleetFinancialSummary: getFleetFinancialSummary,
+  workOrderIdsWithCostData,
 };
