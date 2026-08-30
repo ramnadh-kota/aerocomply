@@ -62,10 +62,12 @@ export function simulatableRoles() {
 // only routes with a clear module mapping are dimmed; the rest remain
 // visible, since this is a UI demonstration, not a security boundary.
 export const NAV_MODULE_MAP: Record<string, PermissionModule> = {
+  "/compliance": "Compliance",
   "/regulations": "Compliance",
   "/assessments": "Compliance",
   "/evidence": "Evidence",
   "/maintenance/operations": "MRO Operations",
+  "/maintenance/planning": "MRO Operations",
   "/maintenance/projects": "MRO Operations",
   "/maintenance/work-orders": "MRO Operations",
   "/maintenance/technicians": "MRO Operations",

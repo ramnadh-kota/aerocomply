@@ -20,6 +20,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Overview",
     items: [
       { href: "/dashboard", label: "Dashboard", glyph: "◧" },
+      { href: "/executive", label: "Executive", glyph: "◆" },
       { href: "/ai", label: "AI Command Center", glyph: "✦" },
     ],
   },
@@ -34,6 +35,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Compliance",
     items: [
+      { href: "/compliance", label: "Compliance Intelligence", glyph: "◆" },
       { href: "/regulations", label: "Regulations", glyph: "§" },
       { href: "/assessments", label: "Assessments", glyph: "✓" },
       { href: "/evidence", label: "Evidence", glyph: "▣" },
@@ -43,6 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Maintenance",
     items: [
       { href: "/maintenance/operations", label: "Operations", glyph: "◪" },
+      { href: "/maintenance/planning", label: "Planning", glyph: "◔" },
       { href: "/maintenance/projects", label: "Projects", glyph: "◈" },
       { href: "/maintenance/work-orders", label: "Work Orders", glyph: "☰" },
       { href: "/maintenance/inspections", label: "Inspections", glyph: "🔍" },
