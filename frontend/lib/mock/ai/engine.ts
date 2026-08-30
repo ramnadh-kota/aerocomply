@@ -22,6 +22,8 @@ import { evidenceForAssessment } from "../evidence";
 import { overdueMaintenanceEvents, maintenanceEventsForAircraft, upcomingMaintenanceEvents } from "../maintenance";
 import { assessments } from "../assessments";
 import { getTechnicianById } from "../technicians";
+import { partsForWorkOrder } from "../parts";
+import { certificatesForPart, traceabilityStatusForPart } from "../partTraceability";
 import {
   getProjectAnalytics,
   getAircraftAnalytics,
@@ -137,6 +139,7 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Which parts are at risk?",
       "Which assessments have evidence gaps?",
       "What AMM reference applies here?",
+      "What should happen next for this work order?",
     ],
   },
 ];
@@ -965,21 +968,122 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     // Note: checklist item completion/UNKNOWN state lives in MroStateContext
     // (client-only) and is not available to this server-safe engine module —
     // TAT risk here is computed from work-order-level source data only.
-    const factors: string[] = [];
-    let riskPoints = 0;
-    if (isOverdue(wo)) { factors.push(`overdue since ${wo.dueDate}`); riskPoints += 2; }
-    if (wo.priority === "CRITICAL" || wo.priority === "HIGH") { factors.push(`${wo.priority} priority`); riskPoints += 1; }
-    if (wo.status === "WAITING_PARTS") { factors.push("waiting on parts"); riskPoints += 2; }
-    if (wo.status === "WAITING_INSPECTION") { factors.push("waiting on inspection"); riskPoints += 1; }
+    // M7.7 — each factor is scored so the highest-weight driver can be
+    // reported as the Primary Driver and the rest as Secondary Drivers,
+    // rather than a flat, unranked list.
+    const scoredFactors: { text: string; points: number }[] = [];
+    if (isOverdue(wo)) scoredFactors.push({ text: `overdue since ${wo.dueDate}`, points: 2 });
+    if (wo.priority === "CRITICAL" || wo.priority === "HIGH") scoredFactors.push({ text: `${wo.priority} priority`, points: 1 });
+    if (wo.status === "WAITING_PARTS") scoredFactors.push({ text: "waiting on parts", points: 2 });
+    if (wo.status === "WAITING_INSPECTION") scoredFactors.push({ text: "waiting on inspection", points: 1 });
     const openDefectsOnWo = defectsForWorkOrder(wo.id).filter((d) => d.status === "OPEN");
-    if (openDefectsOnWo.some((d) => d.severity === "CRITICAL" || d.severity === "HIGH")) { factors.push(`${openDefectsOnWo.length} open HIGH/CRITICAL defect(s)`); riskPoints += 2; }
-    if (wo.relatedRequirementId) factors.push(`tied to regulatory requirement ${requirementLabel(wo.relatedRequirementId)}`);
+    if (openDefectsOnWo.some((d) => d.severity === "CRITICAL" || d.severity === "HIGH")) scoredFactors.push({ text: `${openDefectsOnWo.length} open HIGH/CRITICAL defect(s)`, points: 2 });
+    if (wo.relatedRequirementId) scoredFactors.push({ text: `tied to regulatory requirement ${requirementLabel(wo.relatedRequirementId)}`, points: 0 });
+    const riskPoints = scoredFactors.reduce((s, f) => s + f.points, 0);
     const tatRisk: "LOW" | "MEDIUM" | "HIGH" = riskPoints >= 3 ? "HIGH" : riskPoints >= 1 ? "MEDIUM" : "LOW";
+    const ranked = [...scoredFactors].sort((a, b) => b.points - a.points);
+    const primaryDriver = ranked[0];
+    const secondaryDrivers = ranked.slice(1);
+    const unknownFactors: string[] = [];
+    unknownFactors.push("Checklist item completion/UNKNOWN state (session-only, client-side) is not evaluated by this server-safe calculation.");
+
+    let recommendedAction: string;
+    if (wo.status === "WAITING_PARTS") recommendedAction = "Expedite outstanding parts to unblock this work order.";
+    else if (openDefectsOnWo.length > 0) recommendedAction = "Resolve open defects before further progress.";
+    else if (isOverdue(wo)) recommendedAction = "Escalate — due date has passed.";
+    else if (wo.status === "WAITING_INSPECTION") recommendedAction = "Assign an inspector to clear the review backlog.";
+    else recommendedAction = "No urgent action indicated by current source data.";
+
     return {
       id: nextId(),
       question,
       headline: `${wo.workOrderNumber} — TAT risk: ${tatRisk}`,
-      narrative: [factors.length > 0 ? `Why: ${factors.join("; ")}.` : "No risk factors identified from current source data.", TRUST_FOOTER],
+      narrative: [
+        `Current TAT Risk: ${tatRisk}`,
+        `Primary Driver: ${primaryDriver ? primaryDriver.text : "None identified from current source data."}`,
+        `Secondary Drivers: ${secondaryDrivers.length > 0 ? secondaryDrivers.map((f) => f.text).join("; ") : "None."}`,
+        `Recommended Action: ${recommendedAction}`,
+        `Unknown Factors: ${unknownFactors.join("; ")}`,
+        TRUST_FOOTER,
+      ],
+      buttons: [{ label: "View Work Order", href: `/maintenance/work-orders/${wo.id}` }],
+    };
+  }
+
+  // M7.6 — Prescriptive AI 2.0: "what should happen next?" Extends this same
+  // engine (no second AI system) with a fixed, source-grounded answer
+  // format. Every field is derived from real work-order/part/defect state —
+  // when the source data cannot support a recommendation, this returns the
+  // standard INSUFFICIENT_DATA response rather than guessing.
+  if (q.includes("what should happen next") || q.includes("next step") || (q.includes("recommend") && q.includes("next"))) {
+    const wo = findWorkOrderFromText(question) ?? (context?.aircraftId ? workOrders.find((w) => w.aircraftId === context.aircraftId && w.status !== "COMPLETED" && w.status !== "CANCELLED") : undefined);
+    if (!wo) return insufficient(question, ["a recognizable work order number or an aircraft context with active work to base a recommendation on"]);
+
+    const openDefectsOnWo = defectsForWorkOrder(wo.id).filter((d) => d.status === "OPEN");
+    const criticalDefects = openDefectsOnWo.filter((d) => d.severity === "CRITICAL" || d.severity === "HIGH");
+    const woParts = partsForWorkOrder(wo.id);
+    const partsNotInStock = woParts.filter((p) => p.status !== "IN_STOCK");
+    const missingCertParts = woParts.filter((p) => {
+      const certs = certificatesForPart(p.id);
+      return certs.length === 0 || certs.some((c) => c.verificationStatus !== "PRESENT");
+    });
+    const review = getInspectorReviewForWorkOrder(wo.id);
+
+    const supportingRecords: string[] = [`Work Order ${wo.workOrderNumber} (status: ${wo.status.replace(/_/g, " ")})`];
+    const unknowns: string[] = [];
+    let recommendation: string;
+    let reason: string;
+    let confidence: "LOW" | "MEDIUM" | "HIGH";
+    let humanDecisionRequired: string;
+
+    if (criticalDefects.length > 0) {
+      recommendation = `Resolve ${criticalDefects.length} open HIGH/CRITICAL defect(s) on ${wo.workOrderNumber} before proceeding.`;
+      reason = `Defect(s) ${criticalDefects.map((d) => d.id).join(", ")} are open with HIGH or CRITICAL severity and are the highest-risk factor currently on this work order.`;
+      supportingRecords.push(...criticalDefects.map((d) => `Defect ${d.id}: ${d.description}`));
+      confidence = "HIGH";
+      humanDecisionRequired = "A qualified technician/inspector must confirm defect resolution before further sign-off.";
+    } else if (wo.status === "WAITING_PARTS" && partsNotInStock.length > 0) {
+      recommendation = `Expedite the ${partsNotInStock.length} part(s) currently not in stock for ${wo.workOrderNumber}.`;
+      reason = `Work order status is WAITING_PARTS and ${partsNotInStock.map((p) => p.partNumber).join(", ")} are not currently IN_STOCK.`;
+      supportingRecords.push(...partsNotInStock.map((p) => `Part ${p.partNumber}: ${p.status.replace(/_/g, " ")}`));
+      confidence = "HIGH";
+      humanDecisionRequired = "Maintenance planning must confirm parts ETA before rescheduling.";
+    } else if (missingCertParts.length > 0) {
+      recommendation = `Confirm certificate evidence for ${missingCertParts.map((p) => p.partNumber).join(", ")} before closing ${wo.workOrderNumber}.`;
+      reason = "One or more parts on this work order do not have a verified (PRESENT) certificate on file — this is an evidence gap, not a compliance failure by itself.";
+      supportingRecords.push(...missingCertParts.map((p) => `Part ${p.partNumber}: traceability ${traceabilityStatusForPart(p.id).replace(/_/g, " ")}`));
+      unknowns.push("Whether a certificate exists but is simply not yet logged, or genuinely was never issued.");
+      confidence = "MEDIUM";
+      humanDecisionRequired = "Quality/compliance staff must verify certificate status against the physical/vendor record.";
+    } else if (!review && wo.status === "WAITING_INSPECTION") {
+      recommendation = `Assign an inspector to review ${wo.workOrderNumber}.`;
+      reason = "Work order status is WAITING_INSPECTION and no inspector review record exists yet.";
+      confidence = "MEDIUM";
+      humanDecisionRequired = "An inspector must be assigned and complete the review.";
+    } else if (isOverdue(wo)) {
+      recommendation = `Escalate ${wo.workOrderNumber} — it is overdue.`;
+      reason = `Due date ${wo.dueDate} has passed and the work order is not yet COMPLETED or CANCELLED.`;
+      confidence = "MEDIUM";
+      humanDecisionRequired = "Maintenance management must decide whether to reprioritize or reassign.";
+    } else {
+      return insufficient(question, [`a clear next-step driver for ${wo.workOrderNumber} — no open critical defect, parts gap, certificate gap, pending inspection, or overdue condition was found in current source data`]);
+    }
+
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — Recommendation`,
+      narrative: [
+        `Recommendation: ${recommendation}`,
+        `Reason: ${reason}`,
+        `Supporting Records: ${supportingRecords.join("; ")}`,
+        `Evidence Status: ${missingCertParts.length > 0 ? "Certificate evidence gap present" : "No certificate evidence gap identified"}`,
+        `Confidence: ${confidence}`,
+        `Unknowns: ${unknowns.length > 0 ? unknowns.join("; ") : "None identified from current source data."}`,
+        `Human Decision Required: ${humanDecisionRequired}`,
+        TRUST_FOOTER,
+      ],
+      recommendedActions: [recommendation],
       buttons: [{ label: "View Work Order", href: `/maintenance/work-orders/${wo.id}` }],
     };
   }
