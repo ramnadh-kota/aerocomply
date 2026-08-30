@@ -29,6 +29,20 @@ export default function ExecutiveControlCenterPage() {
   const rankedAircraft = [...fleet.aircraftAtRisk].sort((a, b) => (a.risk === b.risk ? 0 : a.risk === "HIGH" ? -1 : 1));
   const recentAudit = auditEvents.slice(0, 8);
 
+  const bottlenecks = [
+    { stage: "Waiting on Parts", count: maintenance.waitingParts, href: "/maintenance/parts" },
+    { stage: "Waiting Inspection", count: maintenance.waitingInspection, href: "/maintenance/inspections" },
+    { stage: "Overdue", count: maintenance.overdue.length, href: "/maintenance/work-orders" },
+  ].sort((a, b) => b.count - a.count);
+  const primaryBottleneck = bottlenecks.find((b) => b.count > 0);
+
+  const riskSummaryPoints: string[] = [];
+  if (fleet.aircraftAtRisk.length > 0) riskSummaryPoints.push(`${fleet.aircraftAtRisk.length} of ${fleet.fleetSize} aircraft show elevated risk.`);
+  if (maintenance.overdue.length > 0) riskSummaryPoints.push(`${maintenance.overdue.length} work order(s) are overdue.`);
+  if (compliance.nonCompliant + compliance.reviewRequired > 0) riskSummaryPoints.push(`${compliance.nonCompliant + compliance.reviewRequired} assessment(s) need human review.`);
+  if (partsAtRisk.length > 0) riskSummaryPoints.push(`${partsAtRisk.length} part(s) are at risk.`);
+  if (riskSummaryPoints.length === 0) riskSummaryPoints.push("No significant fleet, maintenance, or compliance risk currently identified.");
+
   return (
     <div>
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Executive Control Center" }]} />
@@ -40,6 +54,7 @@ export default function ExecutiveControlCenterPage() {
         <div className="ac-flex ac-gap-2">
           <Link href="/ai" className="ac-btn ac-btn-primary" style={{ fontSize: 12, padding: "4px 10px" }}>Ask AeroComply AI</Link>
           <Link href="/reports/fleet-risk" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Generate Executive Report</Link>
+          <Link href="/reports/maintenance-operations" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Generate Operations Report</Link>
         </div>
       </div>
 
@@ -74,6 +89,32 @@ export default function ExecutiveControlCenterPage() {
             <p className="ac-kpi-label">Aircraft at Risk</p>
             <p className="ac-kpi-value">{fleet.aircraftAtRisk.length}</p>
           </Link>
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "rgba(154,107,255,0.06)" }}>
+          <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>Executive Risk Summary — Prototype</p>
+          <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13 }}>
+            {riskSummaryPoints.map((p, idx) => <li key={idx}>{p}</li>)}
+          </ul>
+          {primaryBottleneck && (
+            <p className="ac-text-sm" style={{ margin: 0 }}>
+              Primary operational bottleneck: <Link href={primaryBottleneck.href} className="ac-mono">{primaryBottleneck.stage}</Link> ({primaryBottleneck.count})
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Operational Bottlenecks</h2>
+        <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+          {bottlenecks.map((b) => (
+            <Link key={b.stage} href={b.href} className="ac-card" style={{ display: "block", minWidth: 160 }}>
+              <p className="ac-kpi-label">{b.stage}</p>
+              <p className="ac-kpi-value">{b.count}</p>
+            </Link>
+          ))}
         </div>
       </section>
 
