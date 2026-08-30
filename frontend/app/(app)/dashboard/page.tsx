@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { StatusBadge } from "@/components/status/StatusBadge";
 import { CoreLoopDiagram } from "@/components/core-loop/CoreLoopDiagram";
 import { assessments } from "@/lib/mock/assessments";
 import { getAircraftById, currentRegistration, getAircraftVariant } from "@/lib/mock/aircraft";
@@ -9,7 +8,7 @@ import { overdueMaintenanceEvents, upcomingMaintenanceEvents } from "@/lib/mock/
 import { activeProjects } from "@/lib/mock/maintenanceProjects";
 import { openWorkOrders, overdueWorkOrders, awaitingPartsWorkOrders, awaitingReviewWorkOrders } from "@/lib/mock/workOrders";
 import { techniciansOnShift } from "@/lib/mock/technicians";
-import { workOrderStatusBadge, priorityBadge, projectStatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, workOrderStatusBadge, priorityBadge, projectStatusBadge } from "@/components/status/StatusBadge";
 import { inspectorReviews } from "@/lib/mock/inspectorReviews";
 import { findings } from "@/lib/mock/findings";
 import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics } from "@/lib/mock/ai/analytics";
