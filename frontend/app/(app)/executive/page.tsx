@@ -7,7 +7,7 @@ import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getRequirementById } from "@/lib/mock/regulations";
 import { workOrders, workOrdersForAircraft, isOverdue } from "@/lib/mock/workOrders";
-import { defectsForAircraft } from "@/lib/mock/defects";
+import { defects, defectsForAircraft } from "@/lib/mock/defects";
 import { assessmentsForAircraft } from "@/lib/mock/assessments";
 import { auditEvents } from "@/lib/mock/audit";
 
@@ -37,6 +37,28 @@ export default function ExecutiveControlCenterPage() {
     { stage: "Overdue", count: maintenance.overdue.length, href: "/maintenance/work-orders" },
   ].sort((a, b) => b.count - a.count);
   const primaryBottleneck = bottlenecks.find((b) => b.count > 0);
+
+  // M8.12 — commercially meaningful MRO KPIs, computed only where real
+  // source data supports them. Never a fabricated financial figure — cost/
+  // downtime data doesn't exist in this model, so those are explicit
+  // "Insufficient source data." rather than an invented number.
+  const repeatDefectGroups = new Map<string, number>();
+  for (const d of defects) {
+    const key = `${d.aircraftId}::${d.ataChapter}`;
+    repeatDefectGroups.set(key, (repeatDefectGroups.get(key) ?? 0) + 1);
+  }
+  const repeatDefectCount = Array.from(repeatDefectGroups.values()).filter((n) => n > 1).length;
+  const mroKpis: { label: string; value: string; href: string }[] = [
+    { label: "Overdue Work Orders", value: String(maintenance.overdue.length), href: "/maintenance/work-orders" },
+    { label: "Blocked (Waiting Parts/Inspection)", value: String(maintenance.waitingParts + maintenance.waitingInspection), href: "/maintenance/operations" },
+    { label: "Parts Delays", value: String(partsAtRisk.length), href: "/maintenance/parts" },
+    { label: "Inspection Backlog", value: String(inspection.pending.length), href: "/maintenance/inspections" },
+    { label: "Compliance Exposure", value: String(compliance.nonCompliant + compliance.reviewRequired), href: "/compliance" },
+    { label: "Evidence Gaps (Assessments)", value: String(compliance.insufficientData), href: "/compliance" },
+    { label: "Repeat Defects (same aircraft/ATA chapter)", value: String(repeatDefectCount), href: "/maintenance/defects" },
+    { label: "AOG Exposure", value: "Insufficient source data.", href: "/aircraft" },
+    { label: "Aircraft Availability", value: "Insufficient source data.", href: "/aircraft" },
+  ];
 
   const riskSummaryPoints: string[] = [];
   if (fleet.aircraftAtRisk.length > 0) riskSummaryPoints.push(`${fleet.aircraftAtRisk.length} of ${fleet.fleetSize} aircraft show elevated risk.`);
@@ -105,6 +127,18 @@ export default function ExecutiveControlCenterPage() {
               Primary operational bottleneck: <Link href={primaryBottleneck.href} className="ac-mono">{primaryBottleneck.stage}</Link> ({primaryBottleneck.count})
             </p>
           )}
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>MRO KPI Summary</h2>
+        <div className="ac-kpi-grid">
+          {mroKpis.map((k) => (
+            <Link key={k.label} href={k.href} className="ac-kpi-card" style={{ display: "block" }}>
+              <p className="ac-kpi-label">{k.label}</p>
+              <p className="ac-kpi-value" style={{ fontSize: k.value === "Insufficient source data." ? 13 : undefined }}>{k.value}</p>
+            </Link>
+          ))}
         </div>
       </section>
 

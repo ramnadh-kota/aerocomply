@@ -25,6 +25,7 @@ interface ReadinessCategory {
   rating: Rating;
   detail: string;
   href: string;
+  why: string[];
 }
 
 function ratingBadge(rating: Rating): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
@@ -42,67 +43,86 @@ export default function PilotReadinessPage() {
   const evidenceKnown = compliance.totalAssessments - compliance.insufficientData;
   const partsWithReceiving = new Set(partReceivingRecords.map((r) => r.partId)).size;
   const partsWithCertificates = new Set(partCertificates.map((c) => c.partId)).size;
+  const partsMissingReceiving = parts.filter((p) => !partReceivingRecords.some((r) => r.partId === p.id));
+  const partsMissingCertificate = parts.filter((p) => !partCertificates.some((c) => c.partId === p.id));
+  const unmappedRequirements = regulatoryRequirements.filter((r) => assessmentsForRequirement(r.id).length === 0);
 
+  // M8.9 — Pilot Control Center: every rating carries a "why", listing the
+  // actual records behind it (not a restated summary) so the rating is
+  // explainable, not a black box.
   const categories: ReadinessCategory[] = [
     {
       category: "Operational Setup",
       rating: workOrders.length > 0 && technicians.length > 0 ? "READY" : workOrders.length > 0 || technicians.length > 0 ? "PARTIAL" : "BLOCKED",
       detail: `${workOrders.length} work order(s), ${technicians.length} technician(s) configured.`,
       href: "/maintenance/work-orders",
+      why: [`${workOrders.length} work order(s) in lib/mock/workOrders.ts`, `${technicians.length} technician(s) in lib/mock/technicians.ts`],
     },
     {
       category: "Maintenance Data",
       rating: workOrders.length > 0 ? "READY" : "BLOCKED",
       detail: `${workOrders.length} work order(s) tracked.`,
       href: "/maintenance/operations",
+      why: [`${workOrders.length} work order(s) tracked`],
     },
     {
       category: "Aircraft Data",
       rating: aircraft.length > 0 ? "READY" : "BLOCKED",
       detail: `${aircraft.length} aircraft in fleet.`,
       href: "/aircraft",
+      why: [`${aircraft.length} aircraft record(s)`],
     },
     {
       category: "Parts Data",
       rating: parts.length === 0 ? "BLOCKED" : partsWithReceiving > 0 && partsWithCertificates > 0 ? "PARTIAL" : "BLOCKED",
       detail: `${parts.length} part(s) tracked; ${partsWithReceiving} with a receiving record; ${partsWithCertificates} with a certificate record. Full traceability is not yet seeded for every part.`,
       href: "/maintenance/parts",
+      why: [
+        `Missing receiving record: ${partsMissingReceiving.length > 0 ? partsMissingReceiving.map((p) => p.partNumber).join(", ") : "none"}`,
+        `Missing certificate record: ${partsMissingCertificate.length > 0 ? partsMissingCertificate.map((p) => p.partNumber).join(", ") : "none"}`,
+      ],
     },
     {
       category: "Regulatory Data",
       rating: mappedRequirements === regulatoryRequirements.length && regulatoryRequirements.length > 0 ? "READY" : mappedRequirements > 0 ? "PARTIAL" : "BLOCKED",
       detail: `${mappedRequirements} of ${regulatoryRequirements.length} requirement(s) have an assessment.`,
       href: "/compliance/regulatory-register",
+      why: [`Unmapped requirements: ${unmappedRequirements.length > 0 ? unmappedRequirements.map((r) => r.requirementNumber).join(", ") : "none"}`],
     },
     {
       category: "User Setup",
       rating: users.length > 0 && roles.length > 0 ? "READY" : "BLOCKED",
       detail: `${users.length} user(s), ${roles.length} role(s) defined.`,
       href: "/organization/users",
+      why: [`${users.length} user(s) in lib/mock/roles.ts`, `${roles.length} role(s) defined`],
     },
     {
       category: "Evidence",
       rating: evidenceKnown === compliance.totalAssessments && compliance.totalAssessments > 0 ? "READY" : evidenceKnown > 0 ? "PARTIAL" : "BLOCKED",
       detail: `${evidenceKnown} of ${compliance.totalAssessments} assessment(s) have a known status (not UNKNOWN).`,
       href: "/compliance",
+      why: [`${compliance.insufficientData} assessment(s) currently INSUFFICIENT_DATA — see /compliance Open Gaps`],
     },
     {
       category: "Audit Readiness",
       rating: auditEvents.length > 0 ? "PARTIAL" : "BLOCKED",
       detail: `${auditEvents.length} seeded audit event(s). Audit Trail is single-source but not yet backed by a persisted, immutable store — see M8 architecture notes.`,
       href: "/audit",
+      why: [`${auditEvents.length} audit event(s) in-memory only (session-scoped, resets on reload)`, "No persisted/immutable audit store exists yet — see M8.1 domain repository notes"],
     },
     {
       category: "AI Readiness",
       rating: "PARTIAL",
       detail: "Core reasoning engine functional against current demo data; no AMM/IPC/SRM/CMM/MPD/MEL reference library is integrated, so technical-procedure questions correctly return Insufficient Data rather than a fabricated answer.",
       href: "/ai",
+      why: ["Single engine at lib/mock/ai/engine.ts", "No AMM/IPC/SRM/CMM/MPD/MEL reference library integrated — those questions correctly return INSUFFICIENT_DATA"],
     },
     {
       category: "Training Status",
       rating: "UNKNOWN",
       detail: "Not tracked in current data model — Insufficient source data.",
       href: "/organization/users",
+      why: ["No training/authorization record entity exists in the current data model"],
     },
   ];
 
@@ -116,7 +136,7 @@ export default function PilotReadinessPage() {
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Organization", href: "/organization" }, { label: "Pilot Readiness" }]} />
       <div className="ac-section-header">
         <div>
-          <h1 className="ac-h1">Commercial Pilot Readiness</h1>
+          <h1 className="ac-h1">Pilot Control Center</h1>
           <p className="ac-subtitle">{readyCount} of {categories.length} categories fully Ready by current data.</p>
         </div>
       </div>
@@ -137,13 +157,21 @@ export default function PilotReadinessPage() {
 
       <div className="ac-card" style={{ padding: 0 }}>
         <table className="ac-table">
-          <thead><tr><th>Category</th><th>Status</th><th>Detail</th></tr></thead>
+          <thead><tr><th>Category</th><th>Status</th><th>Detail</th><th>Why?</th></tr></thead>
           <tbody>
             {categories.map((cat) => (
               <tr key={cat.category}>
                 <td><Link href={cat.href}>{cat.category}</Link></td>
                 <td><StatusBadge {...ratingBadge(cat.rating)} /></td>
                 <td className="ac-text-sm ac-text-muted">{cat.detail}</td>
+                <td>
+                  <details>
+                    <summary className="ac-text-sm" style={{ cursor: "pointer" }}>Why?</summary>
+                    <ul className="ac-text-sm ac-text-muted" style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+                      {cat.why.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  </details>
+                </td>
               </tr>
             ))}
           </tbody>
