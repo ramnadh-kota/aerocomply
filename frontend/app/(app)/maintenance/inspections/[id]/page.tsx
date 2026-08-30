@@ -45,6 +45,11 @@ export default function InspectionDetailPage({ params }: { params: { id: string 
     blockPassReasons.push(`${openCriticalDefects.length} unresolved CRITICAL defect${openCriticalDefects.length > 1 ? "s" : ""} exist on this work order.`);
   }
 
+  // Tool & calibration status: the domain model has no calibration record
+  // (tools are tracked as plain name strings on the checklist), so status is
+  // honestly UNKNOWN rather than assumed valid — never silently "assumed OK".
+  const requiredTools = checklist?.requiredTools ?? [];
+
   const passCount = checklist && record ? checklist.items.filter((i) => record.items[i.id]?.result === "PASS").length : 0;
   const failCount = checklist && record ? checklist.items.filter((i) => record.items[i.id]?.result === "FAIL").length : 0;
   const naCount = checklist && record ? checklist.items.filter((i) => record.items[i.id]?.result === "NOT_APPLICABLE").length : 0;
@@ -184,6 +189,26 @@ export default function InspectionDetailPage({ params }: { params: { id: string 
               </span>
             </div>
             {record.inspectorComments && <p className="ac-text-sm">{record.inspectorComments}</p>}
+          </div>
+        </section>
+      )}
+
+      {requiredTools.length > 0 && (
+        <section className="ac-section">
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Tool &amp; Calibration Status</h2>
+          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "rgba(154,107,255,0.06)" }}>
+            <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13 }}>
+              {requiredTools.map((tool) => (
+                <li key={tool} className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 4 }}>
+                  <span>{tool}</span>
+                  <StatusBadge status="INSUFFICIENT_DATA" label="Calibration: UNKNOWN" />
+                </li>
+              ))}
+            </ul>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              No calibration record exists in source data for these tools — status is shown as UNKNOWN rather than
+              assumed valid. Verify current calibration before relying on measurements from this task.
+            </p>
           </div>
         </section>
       )}
