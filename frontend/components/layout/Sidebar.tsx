@@ -23,6 +23,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/pilot", label: "Pilot Workflow", glyph: "▶" },
       { href: "/executive", label: "Executive", glyph: "◆" },
       { href: "/finance", label: "MRO Finance", glyph: "$" },
+      { href: "/procurement", label: "Procurement", glyph: "◧" },
+      { href: "/procurement/vendors", label: "Vendor Intelligence", glyph: "◫" },
       { href: "/ai", label: "AI Command Center", glyph: "✦" },
     ],
   },

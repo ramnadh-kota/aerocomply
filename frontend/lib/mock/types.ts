@@ -604,3 +604,144 @@ export interface AuditEvent {
   actorType?: "USER" | "AI" | "SYSTEM";
   organizationId?: string;
 }
+
+// M11.0 — Procurement / Vendor domain model. Additive only. Before this,
+// "vendor" existed only as a bare string (VendorCost.vendorName in
+// finance.ts, PartReceivingRecord.source in partTraceability.ts) — this is
+// the first real Vendor entity. Every optional field below is genuinely
+// optional: most vendors will NOT have every field populated, and callers
+// must render "Insufficient source data." rather than assuming NONE/UNKNOWN
+// defaults mean anything negative.
+
+export type VendorApprovalStatus = "APPROVED" | "PENDING" | "SUSPENDED" | "NOT_APPROVED" | "UNKNOWN";
+export type VendorQualityStatus = "VERIFIED" | "UNDER_REVIEW" | "ISSUES_OPEN" | "UNKNOWN";
+export type VendorRelationshipStatus = "PREFERRED" | "APPROVED" | "NEW" | "UNKNOWN";
+
+export interface Vendor {
+  id: string;
+  name: string;
+  legalName: string | null;
+  vendorCode: string | null;
+  country: string | null;
+  city: string | null;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  status: "ACTIVE" | "INACTIVE";
+  approvalStatus: VendorApprovalStatus;
+  qualityStatus: VendorQualityStatus;
+  approvedForAircraftTypes: string[] | null; // null = not recorded, [] = recorded as none
+  suppliedPartCategories: string[] | null;
+  capabilities: string[] | null;
+  certifications: string[] | null; // e.g. "AS9120", "ISO 9001" — demo-labeled, not verified against a real registry
+  paymentTerms: string | null;
+  currency: string | null;
+  shippingRegions: string[] | null;
+  aogSupport: boolean | null; // null = not recorded
+  leadTimeDays: number | null; // typical/quoted lead time, when known
+  reliabilityScore: number | null; // 0-100, only when a scoring basis exists
+  qualityScore: number | null;
+  deliveryScore: number | null;
+  relationshipStatus: VendorRelationshipStatus;
+  source: CostSource; // reuses the M10 DEMO_SEED marker — see finance.ts
+}
+
+export type PartAvailabilityStatus = "IN_STOCK" | "LIMITED" | "OUT_OF_STOCK" | "ON_ORDER" | "UNKNOWN";
+export type PartCertificationStatus = "VERIFIED" | "REFERENCE_UNKNOWN" | "NOT_VERIFIED" | "UNKNOWN";
+
+export interface VendorPartAvailability {
+  id: string;
+  vendorId: string;
+  partId: string | null; // -> Part, when the vendor's line maps to an existing part record
+  partNumber: string;
+  description: string;
+  availabilityStatus: PartAvailabilityStatus;
+  quantityAvailable: number | null;
+  quantityOnOrder: number | null;
+  leadTimeDays: number | null;
+  unitPrice: number | null;
+  currency: string | null;
+  moq: number | null;
+  aogAvailability: boolean | null;
+  certificationStatus: PartCertificationStatus;
+  lastUpdated: string | null;
+  source: CostSource;
+}
+
+export type PartRequestStatus =
+  | "DRAFT"
+  | "SUBMITTED"
+  | "UNDER_REVIEW"
+  | "APPROVED"
+  | "REJECTED"
+  | "CLARIFICATION_REQUIRED"
+  | "ORDERED"
+  | "RECEIVED"
+  | "CLOSED";
+
+export type PartRequestPriority = "ROUTINE" | "HIGH" | "AOG";
+
+export interface PartRequest {
+  id: string;
+  aircraftId: string;
+  workOrderId: string | null;
+  taskId: string | null;
+  requestedBy: string; // -> UserAccount/Technician id
+  requestedAt: string;
+  partNumber: string;
+  partId: string | null;
+  description: string;
+  quantity: number;
+  priority: PartRequestPriority;
+  reason: string;
+  requiredBy: string | null;
+  preferredVendorId: string | null;
+  alternateVendorIds: string[];
+  evidenceIds: string[];
+  status: PartRequestStatus;
+  estimatedCost: number | null;
+  selectedVendorId: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  source: CostSource;
+}
+
+export interface ProcurementCartItem {
+  id: string;
+  partNumber: string;
+  partId: string | null;
+  description: string;
+  quantity: number;
+  aircraftId: string;
+  workOrderId: string | null;
+  priority: PartRequestPriority;
+  justification: string;
+  requestedBy: string;
+  preferredVendorId: string | null;
+  notes: string | null;
+}
+
+export type PurchaseOrderStatus = "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "SENT" | "ACKNOWLEDGED" | "PARTIALLY_RECEIVED" | "RECEIVED" | "CANCELLED";
+
+export interface PurchaseOrder {
+  id: string;
+  poNumber: string;
+  vendorId: string;
+  requestIds: string[];
+  aircraftId: string | null;
+  workOrderIds: string[];
+  createdBy: string;
+  createdAt: string;
+  status: PurchaseOrderStatus;
+  currency: string;
+  subtotal: number;
+  tax: number | null;
+  shipping: number | null;
+  total: number;
+  requiredBy: string | null;
+  vendorAcknowledgedAt: string | null;
+  sentAt: string | null;
+  source: CostSource;
+}

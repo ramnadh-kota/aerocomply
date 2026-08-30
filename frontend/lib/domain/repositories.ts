@@ -35,6 +35,17 @@ import {
   type AircraftCostSummary,
   type FleetFinancialSummary,
 } from "../mock/finance";
+import {
+  vendors as vendorRows,
+  partRequests as partRequestRows,
+  getVendorById,
+  vendorPartAvailabilityForPart,
+  vendorPartAvailabilityForVendor,
+  getPartRequestById,
+  partRequestsForVendor,
+  partRequestsForAircraft,
+} from "../mock/procurement";
+import type { Vendor, VendorPartAvailability, PartRequest } from "../mock/types";
 import type { Aircraft, WorkOrder, Defect, InspectorReview, Evidence, Part, PartCertificate, RegulatoryRequirement, AuditEvent, Organization } from "../mock/types";
 
 export interface AircraftRepository {
@@ -191,4 +202,28 @@ export const financeRepository: FinanceRepository = {
   aircraftCostSummary: getAircraftCostSummary,
   fleetFinancialSummary: getFleetFinancialSummary,
   workOrderIdsWithCostData,
+};
+
+// M11.0 — Procurement/Vendor repository seam, same pattern as every other
+// repository above: thin delegation to lib/mock/procurement.ts.
+export interface ProcurementRepository {
+  listVendors(): Vendor[];
+  getVendorById(id: string): Vendor | undefined;
+  availabilityForPart(partId: string): VendorPartAvailability[];
+  availabilityForVendor(vendorId: string): VendorPartAvailability[];
+  listPartRequests(): PartRequest[];
+  getPartRequestById(id: string): PartRequest | undefined;
+  requestsForVendor(vendorId: string): PartRequest[];
+  requestsForAircraft(aircraftId: string): PartRequest[];
+}
+
+export const procurementRepository: ProcurementRepository = {
+  listVendors: () => vendorRows,
+  getVendorById,
+  availabilityForPart: vendorPartAvailabilityForPart,
+  availabilityForVendor: vendorPartAvailabilityForVendor,
+  listPartRequests: () => partRequestRows,
+  getPartRequestById,
+  requestsForVendor: partRequestsForVendor,
+  requestsForAircraft: partRequestsForAircraft,
 };
