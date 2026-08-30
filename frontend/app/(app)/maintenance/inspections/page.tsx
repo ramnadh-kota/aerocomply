@@ -12,7 +12,8 @@ import { getProjectById } from "@/lib/mock/maintenanceProjects";
 import { getTechnicianById } from "@/lib/mock/technicians";
 import { getRequirementById } from "@/lib/mock/regulations";
 import { defectsForWorkOrder } from "@/lib/mock/defects";
-import { findingsForWorkOrder } from "@/lib/mock/findings";
+import { findings, findingsForWorkOrder } from "@/lib/mock/findings";
+import { getAssessmentById } from "@/lib/mock/assessments";
 import { useMroState, type WorkOrderChecklistRecord } from "@/lib/mro-state/MroStateContext";
 import type { WorkOrder, InspectorReviewStatus } from "@/lib/mock/types";
 
@@ -86,6 +87,8 @@ export default function InspectionQueuePage() {
   const recentlyApproved = rows.filter((r) => r.reviewStatus === "APPROVED" && r.reviewedAt).sort((a, b) => (b.reviewedAt ?? "").localeCompare(a.reviewedAt ?? "")).slice(0, 3);
   const recentlyReturned = rows.filter((r) => (r.reviewStatus === "RETURNED_FOR_CORRECTION" || r.reviewStatus === "REJECTED") && r.reviewedAt).sort((a, b) => (b.reviewedAt ?? "").localeCompare(a.reviewedAt ?? "")).slice(0, 3);
   const triaged = [...pending].sort((a, b) => triageScore(b) - triageScore(a));
+  const pendingFindings = pending.flatMap((p) => findingsForWorkOrder(p.workOrder.id).map((f) => ({ finding: f, wo: p.workOrder })));
+  const totalRequiringDefect = findings.filter((f) => f.requiresDefect).length;
 
   const filtered = rows.filter((r) => {
     if (statusFilter !== "ALL" && r.reviewStatus !== statusFilter) return false;
@@ -172,6 +175,37 @@ export default function InspectionQueuePage() {
             <p className="ac-kpi-value">{oldestAgingDays}d</p>
           </div>
         </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Findings &amp; Traceability</h2>
+        <div className="ac-card" style={{ padding: 0 }}>
+          {pendingFindings.length === 0 ? (
+            <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data.</p>
+          ) : (
+            <table className="ac-table">
+              <thead><tr><th>Work Order</th><th>Finding</th><th>Severity</th><th>Requirement</th><th>Assessment</th></tr></thead>
+              <tbody>
+                {pendingFindings.map(({ finding, wo }) => {
+                  const req = wo.relatedRequirementId ? getRequirementById(wo.relatedRequirementId) : undefined;
+                  const asmt = wo.relatedAssessmentId ? getAssessmentById(wo.relatedAssessmentId) : undefined;
+                  return (
+                    <tr key={finding.id}>
+                      <td><Link href={`/maintenance/inspections/${wo.id}`} className="ac-mono">{wo.workOrderNumber}</Link></td>
+                      <td className="ac-text-sm">{finding.description}</td>
+                      <td><StatusBadge {...priorityBadge(finding.severity)} label={finding.requiresDefect ? `${finding.severity} · Defect Raised` : finding.severity} /></td>
+                      <td>{req ? <Link href={`/regulations/${req.id}`} className="ac-mono">{req.requirementNumber}</Link> : "—"}</td>
+                      <td>{asmt ? <Link href={`/assessments/${asmt.id}`}><StatusBadge status={asmt.finalStatus} /></Link> : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <p className="ac-text-sm ac-text-muted" style={{ marginTop: 6 }}>
+          {totalRequiringDefect} finding(s) fleet-wide required a defect to be raised. <Link href="/maintenance/defects">View Defects →</Link>
+        </p>
       </section>
 
       {triaged.length > 0 && (
