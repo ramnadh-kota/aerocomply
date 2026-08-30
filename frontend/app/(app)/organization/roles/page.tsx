@@ -1,3 +1,5 @@
+"use client";
+
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { DataTable, type Column } from "@/components/tables/DataTable";
