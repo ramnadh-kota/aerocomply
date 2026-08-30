@@ -88,11 +88,23 @@ export function ChecklistPanel({ checklist, workOrderId }: { checklist: Checklis
             return (
               <div key={item.id} className="ac-card" style={{ background: "var(--ac-bg)", padding: "var(--ac-space-3)" }}>
                 <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 4 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{item.label}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>
+                    <span className="ac-mono ac-text-muted" style={{ marginRight: 6 }}>{item.id}</span>
+                    {item.label}
+                  </span>
                   {state.result && <StatusBadge {...checklistResultBadge(state.result)} />}
                 </div>
                 <p className="ac-text-sm ac-text-secondary" style={{ margin: "0 0 2px" }}>{item.instruction}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 8px" }}>Acceptance: {item.acceptanceCriteria}</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 4px" }}>Acceptance: {item.acceptanceCriteria}</p>
+                {(item.findingRequiredOnFail || item.evidenceRequired || item.requiresMeasurement) && (
+                  <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 8px" }}>
+                    Prerequisites: {[
+                      item.requiresMeasurement && "measurement recorded",
+                      item.evidenceRequired && "evidence attached",
+                      item.findingRequiredOnFail && "finding required if FAIL",
+                    ].filter(Boolean).join(" · ")}
+                  </p>
+                )}
 
                 {item.requiresMeasurement && (
                   <div className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 8 }}>
