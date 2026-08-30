@@ -2,10 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-// DIAGNOSTIC (temporary): useRoleSim/NAV_MODULE_MAP usage removed to isolate
-// whether Role Simulation is responsible for the /organization/roles
-// static-generation timeout. Nav items render always-enabled (0a6757b
-// behavior), same route set as before this diagnostic. Not a permanent change.
+import { useRoleSim, NAV_MODULE_MAP } from "@/lib/role-sim/RoleSimContext";
 
 interface NavItem {
   href: string;
@@ -77,6 +74,7 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { accessFor } = useRoleSim();
 
   return (
     <nav className="ac-sidebar" aria-label="Primary navigation">
@@ -108,20 +106,36 @@ export function Sidebar() {
           <div key={group.label}>
             {gi > 0 && <p className="ac-nav-section-label">{group.label}</p>}
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-              {group.items.map((item) => (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={`ac-nav-link${isActive(pathname, item.href) ? " active" : ""}`}
-                    aria-current={isActive(pathname, item.href) ? "page" : undefined}
-                  >
-                    <span aria-hidden="true" style={{ width: 16, textAlign: "center" }}>
-                      {item.glyph}
-                    </span>
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
+              {group.items.map((item) => {
+                const navModule = NAV_MODULE_MAP[item.href];
+                const level = navModule ? accessFor(navModule) : "APPROVE";
+                const denied = level === "NONE";
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className={`ac-nav-link${isActive(pathname, item.href) ? " active" : ""}`}
+                      aria-current={isActive(pathname, item.href) ? "page" : undefined}
+                      aria-disabled={denied || undefined}
+                      title={denied ? "Not available for the simulated role (prototype only — not enforced)" : undefined}
+                      style={denied ? { opacity: 0.4 } : undefined}
+                      onClick={(e) => {
+                        if (denied) e.preventDefault();
+                      }}
+                    >
+                      <span aria-hidden="true" style={{ width: 16, textAlign: "center" }}>
+                        {item.glyph}
+                      </span>
+                      {item.label}
+                      {denied && (
+                        <span aria-hidden="true" style={{ marginLeft: "auto", fontSize: 11 }}>
+                          🔒
+                        </span>
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}
