@@ -20,6 +20,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Overview",
     items: [
       { href: "/dashboard", label: "Dashboard", glyph: "◧" },
+      { href: "/pilot", label: "Pilot Workflow", glyph: "▶" },
       { href: "/executive", label: "Executive", glyph: "◆" },
       { href: "/ai", label: "AI Command Center", glyph: "✦" },
     ],
