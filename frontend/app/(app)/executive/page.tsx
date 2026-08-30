@@ -2,11 +2,13 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { Timeline } from "@/components/timeline/Timeline";
-import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics, getTechnicianWorkload, getPartsAtRisk } from "@/lib/mock/ai/analytics";
+import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics, getTechnicianWorkload, getPartsAtRisk, getAircraftAnalytics, requirementLabel } from "@/lib/mock/ai/analytics";
 import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getRequirementById } from "@/lib/mock/regulations";
-import { workOrders } from "@/lib/mock/workOrders";
+import { workOrders, workOrdersForAircraft, isOverdue } from "@/lib/mock/workOrders";
+import { defectsForAircraft } from "@/lib/mock/defects";
+import { assessmentsForAircraft } from "@/lib/mock/assessments";
 import { auditEvents } from "@/lib/mock/audit";
 
 const SUGGESTED_QUESTIONS = [
@@ -126,14 +128,49 @@ export default function ExecutiveControlCenterPage() {
               <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data.</p>
             ) : (
               <table className="ac-table">
-                <thead><tr><th>Aircraft</th><th>Risk</th></tr></thead>
+                <thead><tr><th>Aircraft</th><th>Risk</th><th>Why?</th></tr></thead>
                 <tbody>
-                  {rankedAircraft.map((a) => (
-                    <tr key={a.aircraftId}>
-                      <td><Link href={`/fleet/aircraft/${a.aircraftId}/health`} className="ac-mono">{a.registration}</Link></td>
-                      <td><StatusBadge status={a.risk === "HIGH" ? "NON_COMPLIANT" : "REVIEW_REQUIRED"} label={a.risk} /></td>
-                    </tr>
-                  ))}
+                  {rankedAircraft.map((a) => {
+                    // M7.8 — Executive Traceability: no black-box risk score.
+                    // Every risk is backed by the same explainable reasons
+                    // computed in getAircraftAnalytics, drilled down to the
+                    // real work orders/defects/assessments behind them.
+                    const detail = getAircraftAnalytics(a.aircraftId);
+                    const overdueWos = workOrdersForAircraft(a.aircraftId).filter((w) => isOverdue(w));
+                    const seriousDefects = defectsForAircraft(a.aircraftId).filter((d) => d.status === "OPEN" && (d.severity === "HIGH" || d.severity === "CRITICAL"));
+                    const reviewAssessments = assessmentsForAircraft(a.aircraftId).filter((asmt) => asmt.finalStatus === "REVIEW_REQUIRED" || asmt.finalStatus === "NON_COMPLIANT");
+                    return (
+                      <tr key={a.aircraftId}>
+                        <td><Link href={`/fleet/aircraft/${a.aircraftId}/health`} className="ac-mono">{a.registration}</Link></td>
+                        <td><StatusBadge status={a.risk === "HIGH" ? "NON_COMPLIANT" : "REVIEW_REQUIRED"} label={a.risk} /></td>
+                        <td>
+                          <details>
+                            <summary className="ac-text-sm" style={{ cursor: "pointer" }}>Reason</summary>
+                            <div className="ac-text-sm ac-text-muted" style={{ marginTop: 6 }}>
+                              {detail ? (
+                                <ul style={{ margin: 0, paddingLeft: 16 }}>
+                                  {detail.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                                </ul>
+                              ) : "Insufficient source data."}
+                              {overdueWos.length > 0 && (
+                                <p style={{ margin: "4px 0 0" }}>
+                                  Work Orders: {overdueWos.map((w, i) => <span key={w.id}>{i > 0 && ", "}<Link href={`/maintenance/work-orders/${w.id}`} className="ac-mono">{w.workOrderNumber}</Link></span>)}
+                                </p>
+                              )}
+                              {seriousDefects.length > 0 && (
+                                <p style={{ margin: "4px 0 0" }}>Defects: {seriousDefects.map((d) => d.id).join(", ")}</p>
+                              )}
+                              {reviewAssessments.length > 0 && (
+                                <p style={{ margin: "4px 0 0" }}>
+                                  Regulation: {reviewAssessments.map((asmt, i) => <span key={asmt.id}>{i > 0 && ", "}<Link href={`/assessments/${asmt.id}`} className="ac-mono">{requirementLabel(asmt.regulatoryRequirementId)}</Link></span>)}
+                                </p>
+                              )}
+                            </div>
+                          </details>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
