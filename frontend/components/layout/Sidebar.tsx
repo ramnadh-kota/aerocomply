@@ -110,10 +110,7 @@ export function Sidebar() {
           >
             K
           </span>
-          <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
-            <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "-0.01em" }}>{PLATFORM_NAME}</span>
-            <span className="ac-text-muted" style={{ fontSize: 10, letterSpacing: "0.04em" }}>KOTA&rsquo;S AEROSPACE</span>
-          </span>
+          <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: "-0.01em" }}>{PLATFORM_NAME}</span>
         </Link>
       </div>
 

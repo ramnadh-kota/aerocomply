@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { AiResponse } from "@/lib/mock/ai/engine";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { recordGeneratedReport } from "@/lib/mock/reports";
-import { PLATFORM_AI_NAME } from "@/lib/brand";
+import { AI_NAME } from "@/lib/brand";
 
 function Bar({ label, percent }: { label: string; percent: number }) {
   return (
@@ -36,9 +36,9 @@ export function AIResponseView({ response }: { response: AiResponse }) {
     if (href.startsWith("/reports/") && response.suggestGenerateReport) {
       e.preventDefault();
       const { reportId, title, scope } = response.suggestGenerateReport;
-      recordGeneratedReport({ id: reportId, title, generatedBy: `${PLATFORM_AI_NAME} (Prototype)`, scope, generatedDate: new Date().toISOString().slice(0, 10), status: "READY" });
+      recordGeneratedReport({ id: reportId, title, generatedBy: `${AI_NAME} (Prototype)`, scope, generatedDate: new Date().toISOString().slice(0, 10), status: "READY" });
       addAuditEvent({
-        actor: `${PLATFORM_AI_NAME} (Prototype)`,
+        actor: `${AI_NAME} (Prototype)`,
         actorRole: "AI Assistant",
         action: "report.generated",
         objectType: "Report",
@@ -53,7 +53,7 @@ export function AIResponseView({ response }: { response: AiResponse }) {
   return (
     <div className="ac-card" style={{ borderColor: response.insufficientData ? "var(--ac-status-insufficient)" : undefined }}>
       <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>
-        AI Prototype · Non-authoritative
+        {AI_NAME}&rsquo;s Analysis · Non-authoritative
       </p>
       <p style={{ margin: "0 0 8px", fontWeight: 700, fontSize: 15 }}>{response.headline}</p>
 
