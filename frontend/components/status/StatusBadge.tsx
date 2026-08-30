@@ -167,3 +167,27 @@ const PART_STATUS_MAP: Record<string, BadgeKind> = {
 export function partStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: PART_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
+
+// M7.3 — Certificate verification status is deliberately NOT collapsed into
+// compliant/non-compliant: "missing" and "reference unknown" are distinct
+// facts, and neither implies the part itself is non-compliant.
+const CERTIFICATE_VERIFICATION_MAP: Record<string, BadgeKind> = {
+  PRESENT: "COMPLIANT",
+  MISSING: "REVIEW_REQUIRED",
+  REFERENCE_UNKNOWN: "INSUFFICIENT_DATA",
+  NOT_VERIFIED: "UNVERIFIED",
+};
+
+export function certificateVerificationBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: CERTIFICATE_VERIFICATION_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
+
+const TRACEABILITY_STATUS_MAP: Record<string, BadgeKind> = {
+  TRACEABLE: "COMPLIANT",
+  PARTIAL: "REVIEW_REQUIRED",
+  UNKNOWN: "INSUFFICIENT_DATA",
+};
+
+export function traceabilityStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: TRACEABILITY_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
