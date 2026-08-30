@@ -14,6 +14,7 @@ import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getProjectById, getWorkPackageById } from "@/lib/mock/maintenanceProjects";
 import { getTechnicianById } from "@/lib/mock/technicians";
 import { getPartById } from "@/lib/mock/parts";
+import { defectsForWorkOrder } from "@/lib/mock/defects";
 import { getRequirementById } from "@/lib/mock/regulations";
 import { getAssessmentById } from "@/lib/mock/assessments";
 import { evidenceForAssessment } from "@/lib/mock/evidence";
@@ -41,6 +42,20 @@ export default function WorkOrderDetailPage({ params }: { params: { id: string }
 
   const STEPS: WorkOrderStatus[] = ["DRAFT", "ASSIGNED", "IN_PROGRESS", wo.status === "WAITING_PARTS" ? "WAITING_PARTS" : "WAITING_INSPECTION", "COMPLETED"];
   const currentStepIndex = STEPS.indexOf(wo.status);
+
+  const unresolvedPart = wo.requiredPartIds.map((id) => getPartById(id)).find((p) => p && p.status !== "IN_STOCK");
+  const openDefects = defectsForWorkOrder(wo.id).filter((d) => d.status === "OPEN");
+  const unknownItems = checklist && record ? checklist.items.filter((i) => record.items[i.id]?.result === "UNKNOWN") : [];
+  let nextAction: string | null = null;
+  if (wo.status === "CANCELLED") nextAction = null;
+  else if (wo.status === "COMPLETED") nextAction = null;
+  else if (!wo.assignedTechnicianId) nextAction = "Assign a technician to begin work.";
+  else if (wo.status === "WAITING_PARTS" && unresolvedPart) nextAction = `Expedite receipt of ${unresolvedPart.partNumber} (${unresolvedPart.status.replace(/_/g, " ")}).`;
+  else if (unknownItems.length > 0) nextAction = `Resolve ${unknownItems.length} UNKNOWN checklist item(s) before this can proceed to approval.`;
+  else if (openDefects.length > 0) nextAction = `${openDefects.length} open defect(s) require disposition.`;
+  else if (record && record.submissionStatus === "IN_PROGRESS") nextAction = "Technician checklist is in progress — complete and sign off to submit for inspection.";
+  else if (wo.inspectorReviewId && record?.inspectorDecisionStatus === "PENDING_INSPECTION") nextAction = "Awaiting inspector decision.";
+  else if (wo.status === "ASSIGNED" || wo.status === "DRAFT") nextAction = "Begin technician checklist execution.";
 
   return (
     <div>
@@ -79,6 +94,13 @@ export default function WorkOrderDetailPage({ params }: { params: { id: string }
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {nextAction && (
+        <div className="ac-card ac-section" style={{ borderColor: "var(--ac-status-review)", background: "rgba(232,163,61,0.06)" }}>
+          <p className="ac-eyebrow" style={{ color: "var(--ac-status-review)", marginBottom: 4 }}>Next Action</p>
+          <p className="ac-text-sm" style={{ margin: 0, fontWeight: 600 }}>{nextAction}</p>
         </div>
       )}
 
