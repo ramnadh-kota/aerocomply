@@ -17,7 +17,7 @@ import { evidenceForAssessment } from "./evidence";
 import { assessmentsForAircraft } from "./assessments";
 import { auditEventsForObjectLabelContains } from "./audit";
 
-export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS";
+export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS" | "AUDIT_DOSSIER";
 
 export interface ReportRecord {
   id: string;

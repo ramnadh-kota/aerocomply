@@ -45,6 +45,7 @@ export default function CompliancePage() {
           <Link href="/assessments" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Assessments</Link>
           <Link href="/ai" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Ask AI</Link>
           <Link href="/reports/compliance-weekly" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Generate Report</Link>
+          <Link href="/compliance/pre-audit" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Pre-Audit Dossier →</Link>
         </div>
       </div>
 
