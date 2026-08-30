@@ -12,7 +12,7 @@
 // answer the question.
 
 import { maintenanceProjects, getProjectById } from "../maintenanceProjects";
-import { getAircraftByRegistration, getAircraftById } from "../aircraft";
+import { getAircraftByRegistration, getAircraftById, currentRegistration } from "../aircraft";
 import { workOrders, isOverdue } from "../workOrders";
 import { findings, findingsForWorkOrder } from "../findings";
 import { defects, defectsForAircraft, defectsForWorkOrder } from "../defects";
@@ -161,7 +161,14 @@ function findProjectFromText(text: string) {
 }
 
 function findAircraftFromText(text: string) {
-  const tokens = text.toUpperCase().match(/[A-Z0-9]{4,7}/g) ?? [];
+  // Matches both hyphenated (e.g. "VT-ABC") and non-hyphenated (e.g.
+  // "N412ML") registration marks. The previous pattern (`[A-Z0-9]{4,7}`)
+  // could never match a hyphenated mark — the hyphen splits it into two
+  // sub-4-character tokens — which meant every hyphenated aircraft in the
+  // fleet (VT-ABC, VT-XYZ, VT-DEF, VT-GHI, VT-JKL — including both hero
+  // aircraft named in the suggested questions) silently failed to resolve
+  // and fell through to INSUFFICIENT_DATA on every question naming them.
+  const tokens = text.toUpperCase().match(/[A-Z0-9]{2,4}-[A-Z0-9]{2,4}|[A-Z0-9]{4,7}/g) ?? [];
   for (const t of tokens) {
     const a = getAircraftByRegistration(t);
     if (a) return a;
@@ -586,7 +593,7 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     return {
       id: nextId(),
       question,
-      headline: `Maintenance actions due — ${a.msn}`,
+      headline: `Maintenance actions due — ${currentRegistration(a)}`,
       narrative: [outstanding.length > 0 ? `${outstanding.length} maintenance event(s) not yet completed.` : "No outstanding maintenance events.", TRUST_FOOTER],
       table: { title: "Maintenance Events", columns: ["Date", "Type", "Status", "Description"], rows: outstanding.map((e) => [e.date, e.eventType, e.status.replace(/_/g, " "), e.description]) },
       buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
@@ -780,7 +787,7 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     return {
       id: nextId(),
       question,
-      headline: `${a.msn} — defects`,
+      headline: `${currentRegistration(a)} — defects`,
       narrative: [openDefs.length > 0 ? `${openDefs.length} open defect(s) on this aircraft.` : "No open defects on this aircraft.", TRUST_FOOTER],
       table: { title: "Defects", columns: ["Description", "Severity", "Status"], rows: defs.map((d) => [d.description, d.severity, d.status]) },
       buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
@@ -791,11 +798,11 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   if (resolveAircraft(question, context) && q.includes("inspection") && q.includes("status")) {
     const a = resolveAircraft(question, context)!;
     const aircraftWos = workOrders.filter((w) => w.aircraftId === a.id && w.inspectorReviewId);
-    if (aircraftWos.length === 0) return insufficient(question, [`inspection records for ${a.msn}`]);
+    if (aircraftWos.length === 0) return insufficient(question, [`inspection records for ${currentRegistration(a)}`]);
     return {
       id: nextId(),
       question,
-      headline: `${a.msn} — inspection status`,
+      headline: `${currentRegistration(a)} — inspection status`,
       narrative: [TRUST_FOOTER],
       table: { title: "Inspections", columns: ["Work Order", "Status"], rows: aircraftWos.map((w) => [w.workOrderNumber, getInspectorReviewForWorkOrder(w.id)?.status.replace(/_/g, " ") ?? "—"]) },
       buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
