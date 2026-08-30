@@ -198,6 +198,7 @@ export const partRequests: PartRequest[] = [
     approvedBy: "user-3",
     approvedAt: "2026-03-15",
     rejectionReason: null,
+    clarificationNote: null,
     source: "DEMO_SEED",
   },
   {
@@ -223,6 +224,7 @@ export const partRequests: PartRequest[] = [
     approvedBy: null,
     approvedAt: null,
     rejectionReason: null,
+    clarificationNote: null,
     source: "DEMO_SEED",
   },
 ];
@@ -260,4 +262,257 @@ export function getPartRequestById(id: string): PartRequest | undefined {
 export function partsWithoutVendorAvailability(allPartIds: string[]): string[] {
   const covered = new Set(vendorPartAvailability.map((a) => a.partId));
   return allPartIds.filter((id) => !covered.has(id) && getPartById(id));
+}
+
+// M11.3 — Deterministic procurement scoring. ONE scoring function, used by
+// both /procurement/parts (vendor comparison UI) and the AI engine's
+// "which vendor should we use" answer — no duplicate recommendation logic.
+// Weights: Availability 30% / Certification 25% / Lead Time 20% /
+// Price 15% / Vendor Reliability 10%. A factor with no source data
+// contributes to neither the score nor the weight total (never defaulted
+// to 0), and is listed in `missingFactors` so confidence can be judged
+// honestly.
+const WEIGHTS = { availability: 0.30, certification: 0.25, leadTime: 0.20, price: 0.15, reliability: 0.10 };
+
+export interface VendorScoreResult {
+  vendorId: string;
+  vendorName: string;
+  line: VendorPartAvailability;
+  score: number | null; // 0-100, or null if no scoreable factor exists at all
+  confidence: "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+  missingFactors: string[];
+  factors: string[];
+}
+
+export function scoreVendorOptionsForPart(partId: string): VendorScoreResult[] {
+  const lines = vendorPartAvailabilityForPart(partId);
+  const prices = lines.map((l) => l.unitPrice).filter((p): p is number => p !== null);
+  const minPrice = prices.length > 0 ? Math.min(...prices) : null;
+
+  return lines.map((line) => {
+    const vendor = getVendorById(line.vendorId);
+    const vendorName = vendor?.name ?? line.vendorId;
+    const missingFactors: string[] = [];
+    const factors: string[] = [];
+    let weightedSum = 0;
+    let weightTotal = 0;
+
+    const AVAILABILITY_SCORE: Record<string, number> = { IN_STOCK: 100, LIMITED: 55, ON_ORDER: 30, OUT_OF_STOCK: 0 };
+    if (line.availabilityStatus !== "UNKNOWN") {
+      weightedSum += WEIGHTS.availability * AVAILABILITY_SCORE[line.availabilityStatus];
+      weightTotal += WEIGHTS.availability;
+      factors.push(`Availability: ${line.availabilityStatus.replace(/_/g, " ")}`);
+    } else {
+      missingFactors.push("live availability not confirmed");
+    }
+
+    const CERT_SCORE: Record<string, number> = { VERIFIED: 100, NOT_VERIFIED: 40, REFERENCE_UNKNOWN: 20 };
+    if (line.certificationStatus !== "UNKNOWN") {
+      weightedSum += WEIGHTS.certification * CERT_SCORE[line.certificationStatus];
+      weightTotal += WEIGHTS.certification;
+      factors.push(`Certification: ${line.certificationStatus.replace(/_/g, " ")}`);
+    } else {
+      missingFactors.push("certification status unknown");
+    }
+
+    if (line.leadTimeDays !== null) {
+      const leadScore = line.leadTimeDays <= 2 ? 100 : line.leadTimeDays <= 5 ? 70 : line.leadTimeDays <= 10 ? 40 : 20;
+      weightedSum += WEIGHTS.leadTime * leadScore;
+      weightTotal += WEIGHTS.leadTime;
+      factors.push(`${line.leadTimeDays}-day lead time`);
+    } else {
+      missingFactors.push("lead time not on file");
+    }
+
+    if (line.unitPrice !== null && minPrice !== null) {
+      const priceScore = minPrice === 0 ? 100 : Math.max(0, 100 - ((line.unitPrice - minPrice) / minPrice) * 100);
+      weightedSum += WEIGHTS.price * priceScore;
+      weightTotal += WEIGHTS.price;
+      factors.push(`Price: ${line.currency ?? ""} ${line.unitPrice}`);
+    } else {
+      missingFactors.push("price not on file");
+    }
+
+    if (vendor?.reliabilityScore !== null && vendor?.reliabilityScore !== undefined) {
+      weightedSum += WEIGHTS.reliability * vendor.reliabilityScore;
+      weightTotal += WEIGHTS.reliability;
+      factors.push(`Reliability score ${vendor.reliabilityScore}`);
+    } else {
+      missingFactors.push("vendor reliability history unavailable");
+    }
+
+    const score = weightTotal > 0 ? Math.round(weightedSum / weightTotal) : null;
+    const confidence: VendorScoreResult["confidence"] = score === null ? "UNKNOWN" : weightTotal >= 0.85 ? "HIGH" : weightTotal >= 0.5 ? "MEDIUM" : "LOW";
+
+    return { vendorId: line.vendorId, vendorName, line, score, confidence, missingFactors, factors };
+  }).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+}
+
+// --- M11.4/M11.5/M11.8 mutations — session-only, in-memory, mirroring the
+// exact pattern already established by updateRole()/recordGeneratedReport()
+// elsewhere in this codebase: mutate the exported array directly. No second
+// state-management system.
+
+export const cartItems: import("./types").ProcurementCartItem[] = [];
+
+let cartItemCounter = 0;
+export function addCartItem(input: Omit<import("./types").ProcurementCartItem, "id">): import("./types").ProcurementCartItem {
+  cartItemCounter += 1;
+  const item: import("./types").ProcurementCartItem = { id: `cart-${cartItemCounter}`, ...input };
+  cartItems.push(item);
+  return item;
+}
+
+export function removeCartItem(id: string): boolean {
+  const idx = cartItems.findIndex((c) => c.id === id);
+  if (idx < 0) return false;
+  cartItems.splice(idx, 1);
+  return true;
+}
+
+export function updateCartItemQuantity(id: string, quantity: number): void {
+  const item = cartItems.find((c) => c.id === id);
+  if (item) item.quantity = quantity;
+}
+
+export function clearCart(): void {
+  cartItems.length = 0;
+}
+
+let requestIdCounter = partRequests.length;
+export function createPartRequestFromCartItem(item: import("./types").ProcurementCartItem, estimatedCost: number | null): PartRequest {
+  requestIdCounter += 1;
+  const request: PartRequest = {
+    id: `pr-${requestIdCounter}`,
+    aircraftId: item.aircraftId,
+    workOrderId: item.workOrderId,
+    taskId: null,
+    requestedBy: item.requestedBy,
+    requestedAt: new Date().toISOString().slice(0, 10),
+    partNumber: item.partNumber,
+    partId: item.partId,
+    description: item.description,
+    quantity: item.quantity,
+    priority: item.priority,
+    reason: item.justification,
+    requiredBy: null,
+    preferredVendorId: item.preferredVendorId,
+    alternateVendorIds: [],
+    evidenceIds: [],
+    status: "SUBMITTED",
+    estimatedCost,
+    selectedVendorId: null,
+    approvedBy: null,
+    approvedAt: null,
+    rejectionReason: null,
+    clarificationNote: null,
+    source: "DEMO_SEED",
+  };
+  partRequests.push(request);
+  return request;
+}
+
+export function approvePartRequest(id: string, approvedBy: string, selectedVendorId: string | null): PartRequest | undefined {
+  const request = getPartRequestById(id);
+  if (!request) return undefined;
+  request.status = "APPROVED";
+  request.approvedBy = approvedBy;
+  request.approvedAt = new Date().toISOString().slice(0, 10);
+  request.selectedVendorId = selectedVendorId ?? request.preferredVendorId;
+  return request;
+}
+
+export function rejectPartRequest(id: string, approvedBy: string, reason: string): PartRequest | undefined {
+  const request = getPartRequestById(id);
+  if (!request) return undefined;
+  request.status = "REJECTED";
+  request.approvedBy = approvedBy;
+  request.approvedAt = new Date().toISOString().slice(0, 10);
+  request.rejectionReason = reason;
+  return request;
+}
+
+export function returnPartRequestForClarification(id: string, note: string): PartRequest | undefined {
+  const request = getPartRequestById(id);
+  if (!request) return undefined;
+  request.status = "CLARIFICATION_REQUIRED";
+  request.clarificationNote = note;
+  return request;
+}
+
+let poIdCounter = 0;
+export function createPurchaseOrderFromRequest(requestId: string, createdBy: string): PurchaseOrder | { error: string } {
+  const request = getPartRequestById(requestId);
+  if (!request) return { error: "Part request not found." };
+  if (request.status !== "APPROVED") return { error: "A purchase order can only be generated from an APPROVED request." };
+  const vendorId = request.selectedVendorId ?? request.preferredVendorId;
+  if (!vendorId) return { error: "No vendor has been selected for this request — insufficient source data to generate a PO." };
+  const vendor = getVendorById(vendorId);
+  if (!vendor) return { error: "Selected vendor could not be found." };
+
+  const line = vendorPartAvailabilityForPart(request.partId ?? "").find((l) => l.vendorId === vendorId);
+  const part = request.partId ? getPartById(request.partId) : undefined;
+  const unitPrice = line?.unitPrice ?? null;
+  const subtotal = unitPrice !== null ? unitPrice * request.quantity : 0;
+
+  poIdCounter += 1;
+  const poNumber = `PO-2026-${String(1000 + poIdCounter)}`;
+  const po: PurchaseOrder = {
+    id: `po-${poIdCounter}`,
+    poNumber,
+    vendorId,
+    requestIds: [request.id],
+    items: [{
+      requestId: request.id,
+      partNumber: request.partNumber,
+      description: request.description,
+      manufacturer: part?.manufacturer ?? null,
+      quantity: request.quantity,
+      unitPrice,
+      currency: line?.currency ?? null,
+    }],
+    aircraftId: request.aircraftId,
+    workOrderIds: request.workOrderId ? [request.workOrderId] : [],
+    createdBy,
+    approvedBy: request.approvedBy,
+    createdAt: new Date().toISOString().slice(0, 10),
+    status: "DRAFT",
+    currency: line?.currency ?? "USD",
+    subtotal,
+    tax: null,
+    shipping: null,
+    total: subtotal,
+    requiredBy: request.requiredBy,
+    expectedDelivery: null,
+    notes: null,
+    vendorAcknowledgedAt: null,
+    sentAt: null,
+    source: "DEMO_SEED",
+  };
+  purchaseOrders.push(po);
+  request.status = "ORDERED";
+  return po;
+}
+
+export function getPurchaseOrderById(id: string): PurchaseOrder | undefined {
+  return purchaseOrders.find((po) => po.id === id);
+}
+
+export function sendPurchaseOrder(id: string): PurchaseOrder | undefined {
+  const po = getPurchaseOrderById(id);
+  if (!po) return undefined;
+  po.status = "SENT";
+  po.sentAt = new Date().toISOString().slice(0, 10);
+  return po;
+}
+
+export function receivePurchaseOrder(id: string): PurchaseOrder | undefined {
+  const po = getPurchaseOrderById(id);
+  if (!po) return undefined;
+  po.status = "RECEIVED";
+  for (const requestId of po.requestIds) {
+    const req = getPartRequestById(requestId);
+    if (req) req.status = "RECEIVED";
+  }
+  return po;
 }

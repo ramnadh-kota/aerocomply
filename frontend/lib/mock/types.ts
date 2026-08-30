@@ -705,6 +705,7 @@ export interface PartRequest {
   approvedBy: string | null;
   approvedAt: string | null;
   rejectionReason: string | null;
+  clarificationNote: string | null; // M11.5 — set when status is CLARIFICATION_REQUIRED
   source: CostSource;
 }
 
@@ -725,14 +726,26 @@ export interface ProcurementCartItem {
 
 export type PurchaseOrderStatus = "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "SENT" | "ACKNOWLEDGED" | "PARTIALLY_RECEIVED" | "RECEIVED" | "CANCELLED";
 
+export interface PurchaseOrderLineItem {
+  requestId: string;
+  partNumber: string;
+  description: string;
+  manufacturer: string | null;
+  quantity: number;
+  unitPrice: number | null;
+  currency: string | null;
+}
+
 export interface PurchaseOrder {
   id: string;
   poNumber: string;
   vendorId: string;
   requestIds: string[];
+  items: PurchaseOrderLineItem[];
   aircraftId: string | null;
   workOrderIds: string[];
   createdBy: string;
+  approvedBy: string | null;
   createdAt: string;
   status: PurchaseOrderStatus;
   currency: string;
@@ -741,6 +754,8 @@ export interface PurchaseOrder {
   shipping: number | null;
   total: number;
   requiredBy: string | null;
+  expectedDelivery: string | null; // never fabricated — null unless a vendor has actually committed one
+  notes: string | null;
   vendorAcknowledgedAt: string | null;
   sentAt: string | null;
   source: CostSource;

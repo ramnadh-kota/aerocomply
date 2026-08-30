@@ -38,14 +38,30 @@ import {
 import {
   vendors as vendorRows,
   partRequests as partRequestRows,
+  cartItems as cartItemRows,
+  purchaseOrders as purchaseOrderRows,
   getVendorById,
   vendorPartAvailabilityForPart,
   vendorPartAvailabilityForVendor,
+  scoreVendorOptionsForPart,
   getPartRequestById,
   partRequestsForVendor,
   partRequestsForAircraft,
+  addCartItem,
+  removeCartItem,
+  updateCartItemQuantity,
+  clearCart,
+  createPartRequestFromCartItem,
+  approvePartRequest,
+  rejectPartRequest,
+  returnPartRequestForClarification,
+  getPurchaseOrderById,
+  createPurchaseOrderFromRequest,
+  sendPurchaseOrder,
+  receivePurchaseOrder,
+  type VendorScoreResult,
 } from "../mock/procurement";
-import type { Vendor, VendorPartAvailability, PartRequest } from "../mock/types";
+import type { Vendor, VendorPartAvailability, PartRequest, ProcurementCartItem, PurchaseOrder } from "../mock/types";
 import type { Aircraft, WorkOrder, Defect, InspectorReview, Evidence, Part, PartCertificate, RegulatoryRequirement, AuditEvent, Organization } from "../mock/types";
 
 export interface AircraftRepository {
@@ -204,17 +220,34 @@ export const financeRepository: FinanceRepository = {
   workOrderIdsWithCostData,
 };
 
-// M11.0 — Procurement/Vendor repository seam, same pattern as every other
-// repository above: thin delegation to lib/mock/procurement.ts.
+// M11.0/M11.4/M11.5/M11.8 — Procurement/Vendor repository seam, same
+// pattern as every other repository above: thin delegation to
+// lib/mock/procurement.ts, including its in-memory mutations. No UI
+// component should mutate the procurement mock arrays directly.
 export interface ProcurementRepository {
   listVendors(): Vendor[];
   getVendorById(id: string): Vendor | undefined;
   availabilityForPart(partId: string): VendorPartAvailability[];
   availabilityForVendor(vendorId: string): VendorPartAvailability[];
+  scoreVendorsForPart(partId: string): VendorScoreResult[];
   listPartRequests(): PartRequest[];
   getPartRequestById(id: string): PartRequest | undefined;
   requestsForVendor(vendorId: string): PartRequest[];
   requestsForAircraft(aircraftId: string): PartRequest[];
+  getCart(): ProcurementCartItem[];
+  addCartItem(item: Omit<ProcurementCartItem, "id">): ProcurementCartItem;
+  removeCartItem(id: string): boolean;
+  updateCartItemQuantity(id: string, quantity: number): void;
+  clearCart(): void;
+  submitPartRequest(item: ProcurementCartItem, estimatedCost: number | null): PartRequest;
+  approvePartRequest(id: string, approvedBy: string, selectedVendorId: string | null): PartRequest | undefined;
+  rejectPartRequest(id: string, approvedBy: string, reason: string): PartRequest | undefined;
+  returnPartRequest(id: string, note: string): PartRequest | undefined;
+  listPurchaseOrders(): PurchaseOrder[];
+  getPurchaseOrderById(id: string): PurchaseOrder | undefined;
+  createPurchaseOrder(requestId: string, createdBy: string): PurchaseOrder | { error: string };
+  sendPurchaseOrder(id: string): PurchaseOrder | undefined;
+  receivePurchaseOrder(id: string): PurchaseOrder | undefined;
 }
 
 export const procurementRepository: ProcurementRepository = {
@@ -222,8 +255,23 @@ export const procurementRepository: ProcurementRepository = {
   getVendorById,
   availabilityForPart: vendorPartAvailabilityForPart,
   availabilityForVendor: vendorPartAvailabilityForVendor,
+  scoreVendorsForPart: scoreVendorOptionsForPart,
   listPartRequests: () => partRequestRows,
   getPartRequestById,
   requestsForVendor: partRequestsForVendor,
   requestsForAircraft: partRequestsForAircraft,
+  getCart: () => cartItemRows,
+  addCartItem,
+  removeCartItem,
+  updateCartItemQuantity,
+  clearCart,
+  submitPartRequest: createPartRequestFromCartItem,
+  approvePartRequest,
+  rejectPartRequest,
+  returnPartRequest: returnPartRequestForClarification,
+  listPurchaseOrders: () => purchaseOrderRows,
+  getPurchaseOrderById,
+  createPurchaseOrder: createPurchaseOrderFromRequest,
+  sendPurchaseOrder,
+  receivePurchaseOrder,
 };

@@ -25,7 +25,7 @@ import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart } from "../partTraceability";
 import { getWorkOrderCostSummary, getAircraftCostSummary, getFleetFinancialSummary, workOrderIdsWithCostData, highestCostPartCost, highestVendorSpend, vendorCosts } from "../finance";
-import { vendors, vendorPartAvailabilityForPart, partRequests, getVendorById, partsWithoutVendorAvailability } from "../procurement";
+import { vendors, partRequests, purchaseOrders, partsWithoutVendorAvailability, scoreVendorOptionsForPart } from "../procurement";
 import {
   getProjectAnalytics,
   getAircraftAnalytics,
@@ -1349,40 +1349,30 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   // certification for a vendor/part combination that has no seeded record.
 
   // "Which vendor should we use for P/N-123?" / "which vendor for this part?"
-  if (q.includes("vendor") && (q.includes("should we use") || q.includes("recommend"))) {
+  // / "why was this vendor recommended?" — all use the SAME deterministic
+  // scoreVendorOptionsForPart() as /procurement/parts, so the AI's answer
+  // and the comparison UI can never disagree.
+  if (q.includes("vendor") && (q.includes("should we use") || q.includes("recommend") || q.includes("why") && q.includes("recommended"))) {
     const part = parts.find((p) => q.includes(p.partNumber.toLowerCase()));
     if (!part) return insufficient(question, ["a recognizable part number to compare vendors for"]);
-    const lines = vendorPartAvailabilityForPart(part.id);
-    if (lines.length === 0) return insufficient(question, [`vendor availability data for ${part.partNumber} — no vendor has a recorded line for this part`]);
-    const scored = lines.map((l) => {
-      const v = getVendorById(l.vendorId)!;
-      let score = 0;
-      const factors: string[] = [];
-      if (v.approvalStatus === "APPROVED") { score += 2; factors.push("Approved supplier"); }
-      if (l.leadTimeDays !== null) { score += l.leadTimeDays <= 2 ? 2 : 1; factors.push(`${l.leadTimeDays}-day lead time`); }
-      if (l.aogAvailability) { score += 1; factors.push("AOG support confirmed"); }
-      if (v.deliveryScore !== null) { score += v.deliveryScore >= 90 ? 1 : 0; factors.push(`Delivery score ${v.deliveryScore}`); }
-      const missing: string[] = [];
-      if (l.certificationStatus !== "VERIFIED") missing.push("certificate not verified");
-      if (l.unitPrice === null) missing.push("price not on file");
-      if (l.availabilityStatus === "UNKNOWN" || l.quantityAvailable === null) missing.push("live stock not confirmed");
-      return { vendor: v, line: l, score, factors, missing };
-    }).sort((a, b) => b.score - a.score);
+    const scored = scoreVendorOptionsForPart(part.id);
+    if (scored.length === 0) return insufficient(question, [`vendor availability data for ${part.partNumber} — no vendor has a recorded line for this part`]);
     const top = scored[0];
+    const confidenceNote = top.confidence === "LOW" || top.confidence === "UNKNOWN"
+      ? "Recommendation confidence limited by insufficient source data."
+      : `Recommendation confidence: ${top.confidence}.`;
     return {
       id: nextId(),
       question,
-      headline: `${top.vendor.name} appears preferable for ${part.partNumber}`,
+      headline: top.score !== null ? `${top.vendorName} appears preferable for ${part.partNumber}` : `Insufficient source data to recommend a vendor for ${part.partNumber}`,
       narrative: [
-        `Factors: ${top.factors.length > 0 ? top.factors.join("; ") : "no positive factors recorded"}.`,
-        top.missing.length > 0 ? `Missing: ${top.missing.join("; ")}.` : "",
-        top.missing.length > 0
-          ? `${top.vendor.name} is the preferred option based on currently available source data, but ${top.missing.join(" and ")} cannot be confirmed.`
-          : `${top.vendor.name} is the preferred option based on currently available source data.`,
+        `Factors: ${top.factors.length > 0 ? top.factors.join("; ") : "no scoreable factors recorded"}.`,
+        top.missingFactors.length > 0 ? `Missing: ${top.missingFactors.join("; ")}.` : "",
+        confidenceNote,
         TRUST_FOOTER,
       ].filter(Boolean),
-      table: { title: "Vendor Comparison", columns: ["Vendor", "Availability", "Price", "Lead Time", "Certification"], rows: scored.map((s) => [s.vendor.name, s.line.availabilityStatus.replace(/_/g, " "), s.line.unitPrice !== null ? `${s.line.currency} ${s.line.unitPrice}` : "Insufficient source data.", s.line.leadTimeDays !== null ? `${s.line.leadTimeDays}d` : "Insufficient source data.", s.line.certificationStatus.replace(/_/g, " ")]) },
-      buttons: [{ label: "View Vendor", href: `/procurement/vendors/${top.vendor.id}` }],
+      table: { title: "Vendor Comparison", columns: ["Vendor", "Score", "Availability", "Price", "Lead Time", "Certification"], rows: scored.map((s) => [s.vendorName, s.score !== null ? String(s.score) : "Insufficient source data.", s.line.availabilityStatus.replace(/_/g, " "), s.line.unitPrice !== null ? `${s.line.currency} ${s.line.unitPrice}` : "Insufficient source data.", s.line.leadTimeDays !== null ? `${s.line.leadTimeDays}d` : "Insufficient source data.", s.line.certificationStatus.replace(/_/g, " ")]) },
+      buttons: [{ label: "View Vendor", href: `/procurement/vendors/${top.vendorId}` }],
     };
   }
 
@@ -1461,14 +1451,73 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
+  // M11.6 (cont.) — "What part requests are waiting for approval?"
+  if (q.includes("request") && (q.includes("waiting") || q.includes("wait")) && q.includes("approval")) {
+    const waiting = partRequests.filter((r) => r.status === "SUBMITTED" || r.status === "UNDER_REVIEW");
+    return {
+      id: nextId(),
+      question,
+      headline: `${waiting.length} request(s) waiting for approval`,
+      narrative: [TRUST_FOOTER],
+      table: waiting.length > 0 ? { title: "Awaiting Approval", columns: ["Request", "Part", "Priority", "Aircraft"], rows: waiting.map((r) => [r.id, r.partNumber, r.priority, r.aircraftId]) } : undefined,
+      buttons: [{ label: "Open Approval Center", href: "/procurement/approvals" }],
+    };
+  }
+
+  // "Which procurement requests have missing certification?"
+  if (q.includes("request") && q.includes("missing") && q.includes("certif")) {
+    const flagged = partRequests.filter((r) => {
+      if (!r.partId) return false;
+      const scored = scoreVendorOptionsForPart(r.partId);
+      const chosen = scored.find((s) => s.vendorId === (r.selectedVendorId ?? r.preferredVendorId));
+      return chosen ? chosen.line.certificationStatus !== "VERIFIED" : scored.length === 0;
+    });
+    return {
+      id: nextId(),
+      question,
+      headline: `${flagged.length} request(s) with missing/unverified certification`,
+      narrative: [flagged.length > 0 ? "Certificate status is not VERIFIED for the vendor line associated with these requests — this is an evidence gap, not confirmed non-compliance." : "No open request currently has a missing-certification vendor line.", TRUST_FOOTER],
+      table: flagged.length > 0 ? { title: "Certification Gaps", columns: ["Request", "Part", "Status"], rows: flagged.map((r) => [r.id, r.partNumber, r.status.replace(/_/g, " ")]) } : undefined,
+      buttons: [{ label: "Open Approval Center", href: "/procurement/approvals" }],
+    };
+  }
+
+  // "Which approved requests do not yet have a purchase order?"
+  if (q.includes("approved") && q.includes("request") && (q.includes("purchase order") || q.includes("po"))) {
+    const poRequestIds = new Set(purchaseOrders.flatMap((po) => po.requestIds));
+    const noPo = partRequests.filter((r) => r.status === "APPROVED" && !poRequestIds.has(r.id));
+    return {
+      id: nextId(),
+      question,
+      headline: `${noPo.length} approved request(s) without a purchase order`,
+      narrative: [TRUST_FOOTER],
+      table: noPo.length > 0 ? { title: "Approved, No PO Yet", columns: ["Request", "Part", "Aircraft"], rows: noPo.map((r) => [r.id, r.partNumber, r.aircraftId]) } : undefined,
+      buttons: [{ label: "View Purchase Orders", href: "/procurement/purchase-orders" }],
+    };
+  }
+
+  // "Which purchase orders are awaiting vendor response?"
+  if (q.includes("purchase order") && (q.includes("awaiting") || q.includes("waiting")) ) {
+    const awaiting = purchaseOrders.filter((po) => po.status === "SENT" && !po.vendorAcknowledgedAt);
+    return {
+      id: nextId(),
+      question,
+      headline: `${awaiting.length} purchase order(s) awaiting vendor acknowledgement`,
+      narrative: [TRUST_FOOTER],
+      table: awaiting.length > 0 ? { title: "Awaiting Vendor Response", columns: ["PO", "Vendor", "Sent"], rows: awaiting.map((po) => [po.poNumber, po.vendorId, po.sentAt ?? "Insufficient source data."]) } : undefined,
+      buttons: [{ label: "View Purchase Orders", href: "/procurement/purchase-orders" }],
+    };
+  }
+
   // "Generate a procurement report."
-  if (q.includes("procurement") && q.includes("report")) {
+  if (q.includes("procurement") && (q.includes("report") || q.includes("performance"))) {
     return {
       id: nextId(),
       question,
       headline: "Procurement Intelligence Report",
       narrative: ["Generating the visual procurement report from current vendor, request, and spend data.", TRUST_FOOTER],
-      buttons: [{ label: "Open Procurement Control Center", href: "/procurement" }],
+      buttons: [{ label: "Open Procurement Report", href: "/reports/procurement-intelligence" }],
+      suggestGenerateReport: { reportId: "procurement-intelligence", title: "Procurement Intelligence Report", scope: "Fleet-wide" },
     };
   }
 

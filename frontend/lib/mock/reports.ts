@@ -25,8 +25,10 @@ import {
   highestVendorSpend,
   vendorCosts as allVendorCosts,
 } from "./finance";
+import { vendors as allVendors, partRequests as allPartRequests, purchaseOrders as allPurchaseOrders, vendorPartAvailability as allVendorPartAvailability, partsWithoutVendorAvailability } from "./procurement";
+import { parts as allParts } from "./parts";
 
-export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS" | "AUDIT_DOSSIER" | "GENERAL_OPERATIONAL" | "FINANCIAL_INTELLIGENCE";
+export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS" | "AUDIT_DOSSIER" | "GENERAL_OPERATIONAL" | "FINANCIAL_INTELLIGENCE" | "PROCUREMENT_INTELLIGENCE";
 
 export interface ReportRecord {
   id: string;
@@ -47,6 +49,7 @@ export const reportHistory: ReportRecord[] = [
   { id: "maintenance-operations", title: "Maintenance Operations Report", type: "MAINTENANCE_OPERATIONS", generatedBy: "Marcus Webb", scope: "Fleet-wide operations", generatedDate: "2026-03-17", status: "READY" },
   { id: "general-operational", title: "General Operational Report", type: "GENERAL_OPERATIONAL", generatedBy: "AeroComply AI (Prototype)", scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
   { id: "financial-intelligence", title: "MRO Financial Intelligence Report", type: "FINANCIAL_INTELLIGENCE", generatedBy: "AeroComply AI (Prototype)", scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
+  { id: "procurement-intelligence", title: "Procurement Intelligence Report", type: "PROCUREMENT_INTELLIGENCE", generatedBy: "AeroComply AI (Prototype)", scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
 ];
 
 export function getReportRecord(id: string): ReportRecord | undefined {
@@ -78,6 +81,7 @@ function parseReportId(id: string): { type: ReportType; scopeId: string } | null
   if (id === "maintenance-operations") return { type: "MAINTENANCE_OPERATIONS", scopeId: "" };
   if (id === "general-operational") return { type: "GENERAL_OPERATIONAL", scopeId: "" };
   if (id === "financial-intelligence") return { type: "FINANCIAL_INTELLIGENCE", scopeId: "" };
+  if (id === "procurement-intelligence") return { type: "PROCUREMENT_INTELLIGENCE", scopeId: "" };
   return null;
 }
 
@@ -525,6 +529,100 @@ export function buildReportData(id: string): ReportData | null {
       generatedDate,
       generatedFrom,
       sourceModules: ["Work Orders", "Aircraft", "Parts", "Technicians", "Finance (demo cost records)"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
+  }
+
+  if (parsed.type === "PROCUREMENT_INTELLIGENCE") {
+    // M11.7 — Visual Procurement Intelligence Report. Reuses the same
+    // ReportSection primitives as every other report type — no new
+    // visualization system. All figures come from lib/mock/procurement.ts
+    // and lib/mock/finance.ts; nothing here is estimated.
+    const pending = allPartRequests.filter((r) => r.status === "SUBMITTED" || r.status === "UNDER_REVIEW");
+    const aog = allPartRequests.filter((r) => r.priority === "AOG" && !["RECEIVED", "CLOSED", "REJECTED"].includes(r.status));
+    const approvedNoPo = allPartRequests.filter((r) => r.status === "APPROVED" && !allPurchaseOrders.some((po) => po.requestIds.includes(r.id)));
+    const vendorSpendMap = new Map<string, number>();
+    for (const v of allVendorCosts) vendorSpendMap.set(v.vendorName, (vendorSpendMap.get(v.vendorName) ?? 0) + v.amount);
+    const certGaps = allVendorPartAvailability.filter((a) => a.certificationStatus !== "VERIFIED");
+    const noVendorData = partsWithoutVendorAvailability(allParts.map((p) => p.id));
+    const poByStatus = new Map<string, number>();
+    for (const po of allPurchaseOrders) poByStatus.set(po.status, (poByStatus.get(po.status) ?? 0) + 1);
+
+    const sections: ReportSection[] = [
+      {
+        heading: "Procurement KPIs",
+        body: [],
+        kpis: [
+          { label: "Pending Requests", value: String(pending.length), tone: pending.length > 0 ? "warning" : "good" },
+          { label: "AOG Requests", value: String(aog.length), tone: aog.length > 0 ? "bad" : "good" },
+          { label: "Approved, No PO", value: String(approvedNoPo.length), tone: approvedNoPo.length > 0 ? "warning" : "good" },
+          { label: "Certification Gaps", value: `${certGaps.length} of ${allVendorPartAvailability.length}`, tone: certGaps.length > 0 ? "warning" : "good" },
+          { label: "Parts w/o Vendor Data", value: `${noVendorData.length} of ${allParts.length}` },
+          { label: "Purchase Orders", value: String(allPurchaseOrders.length) },
+        ],
+      },
+      {
+        heading: "Pending Requests",
+        body: pending.length === 0 ? ["No requests are currently pending approval."] : [],
+        table: pending.length > 0 ? { columns: ["Request", "Part", "Priority", "Aircraft"], rows: pending.map((r) => [r.id, r.partNumber, r.priority, r.aircraftId]) } : undefined,
+      },
+      {
+        heading: "AOG Requests",
+        body: aog.length === 0 ? ["No open AOG-priority requests."] : [],
+        table: aog.length > 0 ? { columns: ["Request", "Part", "Aircraft", "Status"], rows: aog.map((r) => [r.id, r.partNumber, r.aircraftId, r.status.replace(/_/g, " ")]) } : undefined,
+      },
+      {
+        heading: "Vendor Comparison",
+        body: [],
+        table: { columns: ["Vendor", "Approval", "Quality", "Delivery Score"], rows: allVendors.map((v) => [v.name, v.approvalStatus.replace(/_/g, " "), v.qualityStatus.replace(/_/g, " "), v.deliveryScore ?? "Insufficient source data."]) },
+      },
+      {
+        heading: "Vendor Spend",
+        body: vendorSpendMap.size === 0 ? ["Insufficient source data."] : [],
+        table: vendorSpendMap.size > 0 ? { columns: ["Vendor", "Spend"], rows: Array.from(vendorSpendMap.entries()) } : undefined,
+      },
+      {
+        heading: "Approval Bottlenecks",
+        body: [pending.length > 0 ? `${pending.length} request(s) awaiting management decision.` : "No approval backlog."],
+      },
+      {
+        heading: "PO Status",
+        body: allPurchaseOrders.length === 0 ? ["No purchase orders have been generated yet."] : [],
+        distribution: allPurchaseOrders.length > 0 ? Array.from(poByStatus.entries()).map(([label, count]) => ({ label, count })) : undefined,
+      },
+      {
+        heading: "Parts Availability / Certification Gaps",
+        body: [
+          noVendorData.length > 0 ? `${noVendorData.length} part(s) have no vendor availability data at all.` : "",
+          certGaps.length > 0 ? `${certGaps.length} vendor part line(s) do not have a VERIFIED certificate on file.` : "",
+        ].filter(Boolean),
+      },
+      {
+        heading: "Recommended Actions",
+        body: [
+          aog.length > 0 ? `Resolve ${aog.length} open AOG request(s) first.` : "",
+          approvedNoPo.length > 0 ? `Generate purchase orders for ${approvedNoPo.length} approved request(s).` : "",
+          noVendorData.length > 0 ? `Source vendor coverage for ${noVendorData.length} part(s).` : "",
+        ].filter(Boolean),
+      },
+      {
+        heading: "AI-Generated Summary",
+        body: [
+          `${pending.length} pending request(s), ${aog.length} AOG, ${approvedNoPo.length} approved without a PO.`,
+          "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.",
+          "AI-assisted analysis — non-authoritative. Verify against source records before operational/commercial decisions.",
+        ],
+      },
+    ];
+    return {
+      id,
+      title: "Procurement Intelligence Report",
+      type: "PROCUREMENT_INTELLIGENCE",
+      scope: "Fleet-wide",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Procurement", "Vendors", "Parts", "Finance (vendor spend)"],
       aiSummary: sections[sections.length - 1].body,
       sections,
     };

@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
@@ -33,7 +35,12 @@ export default function ProcurementControlTowerPage() {
           <h1 className="ac-h1">Procurement Control Center</h1>
           <p className="ac-subtitle">Part requests, vendor risk, and open procurement exposure — every figure traces to a real request, vendor, or cost record.</p>
         </div>
-        <Link href="/procurement/vendors" className="ac-btn">Vendor Intelligence →</Link>
+        <div className="ac-flex ac-gap-2">
+          <Link href="/procurement/parts" className="ac-btn">Parts Search</Link>
+          <Link href="/procurement/approvals" className="ac-btn">Approvals</Link>
+          <Link href="/procurement/purchase-orders" className="ac-btn">Purchase Orders</Link>
+          <Link href="/procurement/vendors" className="ac-btn">Vendor Intelligence →</Link>
+        </div>
       </div>
 
       <section className="ac-section">
@@ -122,8 +129,12 @@ export default function ProcurementControlTowerPage() {
 
       <section className="ac-section">
         <p className="ac-text-sm ac-text-muted">
-          Ask <Link href="/ai" className="ac-mono">AeroComply AI</Link> a procurement question, or see the full{" "}
-          <Link href="/procurement/vendors" className="ac-mono">Vendor Intelligence workspace</Link>. Technician cart, management approval, and purchase-order generation are a separate, upcoming milestone (M11.3–M11.8) — not yet built.
+          Ask <Link href="/ai" className="ac-mono">AeroComply AI</Link> a procurement question, generate the{" "}
+          <Link href="/reports/procurement-intelligence" className="ac-mono">Procurement Intelligence report</Link>, or start the full workflow:{" "}
+          <Link href="/procurement/parts" className="ac-mono">Search a part</Link> →{" "}
+          <Link href="/procurement/cart" className="ac-mono">review your cart</Link> →{" "}
+          <Link href="/procurement/approvals" className="ac-mono">management approval</Link> →{" "}
+          <Link href="/procurement/purchase-orders" className="ac-mono">purchase order</Link>.
         </p>
       </section>
     </div>
