@@ -338,6 +338,71 @@ export interface Part {
   installedComponentInstanceId: string | null; // -> ComponentInstance, when this part IS an installed component
   workOrderId: string | null; // work order this part is reserved/required for
   lifeLimitInfo: string | null; // e.g. "12,000 cycles life limit — not applicable to this part"
+  manufacturer: string | null; // UNKNOWN when not recorded — see ADR-009
+  batchOrLot: string | null; // batch/lot number for BATCH-classified parts; null when not applicable or unrecorded
+}
+
+// M7.1 — Aviation Parts Traceability Model. These entities extend (not
+// replace) the existing Part record above. Every record here references a
+// real Part/Aircraft/WorkOrder id already present in the mock dataset — no
+// fabricated aircraft, work orders, or certificate numbers. Where source
+// data would not exist for a given part in real operation (e.g. a part
+// still on order has not been received), NO record is seeded rather than
+// inventing one — see lib/mock/partTraceability.ts helper functions for how
+// callers must treat an absent record (as "Insufficient source data.", not
+// as a negative/failing determination).
+
+export type CertificateType = "FAA_8130_3" | "EASA_FORM_1" | "OTHER" | "UNKNOWN";
+
+// Distinguishes "no certificate record was ever produced or is required"
+// from "a certificate should exist but has not been confirmed present" —
+// these are NOT interchangeable and must never be collapsed into a single
+// compliant/non-compliant flag.
+export type CertificateVerificationStatus =
+  | "PRESENT" // certificate reference recorded and on file
+  | "MISSING" // certificate expected/required but not on file
+  | "REFERENCE_UNKNOWN" // a certificate is believed to exist but its reference/details are not recorded
+  | "NOT_VERIFIED"; // a certificate reference is on file but has not been checked against the issuing authority
+
+export type TraceabilityStatus = "TRACEABLE" | "PARTIAL" | "UNKNOWN";
+
+export interface PartReceivingRecord {
+  id: string;
+  partId: string;
+  receivedDate: string; // ISO date
+  receivedBy: string; // technician/user id
+  source: string; // supplier/vendor name (demo data)
+  quantityReceived: number;
+}
+
+export interface PartCertificate {
+  id: string;
+  partId: string;
+  certificateType: CertificateType;
+  certificateReference: string | null; // clearly-marked demo reference, e.g. "8130-3-DEMO-0042"; null when unrecorded
+  certificateIssuer: string | null;
+  certificateDate: string | null; // ISO date
+  verificationStatus: CertificateVerificationStatus;
+}
+
+export interface PartInstallation {
+  id: string;
+  partId: string;
+  aircraftId: string;
+  componentInstanceId: string | null; // -> ComponentInstance, when applicable
+  workOrderId: string | null;
+  installationDate: string; // ISO date
+  installedBy: string; // technician id
+}
+
+export interface PartRemoval {
+  id: string;
+  partId: string;
+  aircraftId: string;
+  workOrderId: string | null;
+  removalDate: string; // ISO date
+  removedBy: string; // technician id
+  reason: string;
 }
 
 export interface Finding {
