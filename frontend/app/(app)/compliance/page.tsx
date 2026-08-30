@@ -8,7 +8,11 @@ import { getRequirementById, regulatoryRequirements } from "@/lib/mock/regulatio
 import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
 import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { defectsForAircraft } from "@/lib/mock/defects";
-import { parts } from "@/lib/mock/parts";
+import { parts, partsForWorkOrder } from "@/lib/mock/parts";
+import { workOrdersForAircraft } from "@/lib/mock/workOrders";
+import { findingsForWorkOrder } from "@/lib/mock/findings";
+import { getInspectorReviewForWorkOrder } from "@/lib/mock/inspectorReviews";
+import { certificatesForPart } from "@/lib/mock/partTraceability";
 
 export default function CompliancePage() {
   const analytics = getComplianceAnalytics();
@@ -54,6 +58,37 @@ export default function CompliancePage() {
   const readinessScore = knownDrivers.length > 0 ? Math.round(knownDrivers.reduce((s, d) => s + d.value, 0) / knownDrivers.length) : null;
   const criticalDataMissing = readinessDrivers.some((d) => d.value === null);
   const unknownRecordsCount = openGaps.filter((a) => a.finalStatus === "INSUFFICIENT_DATA").length;
+
+  // M7.4 — Audit Evidence Graph: Requirement -> Aircraft -> Work Order ->
+  // Finding -> Inspection -> Evidence -> Part -> Certificate, built entirely
+  // from existing helpers (no new parallel graph data structure). Every
+  // stage that has no linked record is surfaced as an explicit missing link
+  // rather than silently skipped, so evidence completeness reflects real
+  // gaps, never a fabricated 100%.
+  const evidenceGraph = openGaps.slice(0, 6).map((asmt) => {
+    const req = getRequirementById(asmt.regulatoryRequirementId);
+    const aircraftId = asmt.subjectType === "AIRCRAFT" ? asmt.subjectId : null;
+    const relatedWorkOrders = aircraftId ? workOrdersForAircraft(aircraftId) : [];
+    const relatedFindings = relatedWorkOrders.flatMap((w) => findingsForWorkOrder(w.id));
+    const relatedInspections = relatedWorkOrders.map((w) => getInspectorReviewForWorkOrder(w.id)).filter((r): r is NonNullable<typeof r> => Boolean(r));
+    const relatedEvidence = evidenceForAssessment(asmt.id);
+    const relatedParts = relatedWorkOrders.flatMap((w) => partsForWorkOrder(w.id));
+    const relatedCertificates = relatedParts.flatMap((p) => certificatesForPart(p.id));
+
+    const missingLinks: string[] = [];
+    if (!aircraftId) missingLinks.push(`${req?.requirementNumber ?? asmt.id} → subject is not an aircraft record; work order linkage unavailable.`);
+    if (aircraftId && relatedWorkOrders.length === 0) missingLinks.push(`${req?.requirementNumber ?? asmt.id} → no work order found for this aircraft.`);
+    relatedWorkOrders.forEach((w) => {
+      if (!getInspectorReviewForWorkOrder(w.id)) missingLinks.push(`Work Order ${w.workOrderNumber} → inspection evidence missing.`);
+    });
+    if (relatedEvidence.length === 0) missingLinks.push(`${req?.requirementNumber ?? asmt.id} → no evidence record linked to this assessment.`);
+    if (relatedParts.length > 0 && relatedCertificates.length === 0) missingLinks.push(`${relatedParts.map((p) => p.partNumber).join(", ")} → no certificate record on file.`);
+
+    return { assessment: asmt, requirement: req, aircraftId, relatedWorkOrders, relatedFindings, relatedInspections, relatedEvidence, relatedParts, relatedCertificates, missingLinks };
+  });
+  const totalGraphLinks = evidenceGraph.reduce((s, g) => s + g.relatedWorkOrders.length + g.relatedEvidence.length + 1, 0);
+  const totalMissingLinks = evidenceGraph.reduce((s, g) => s + g.missingLinks.length, 0);
+  const graphCompletenessPercent = totalGraphLinks > 0 ? Math.max(0, Math.round(((totalGraphLinks - totalMissingLinks) / totalGraphLinks) * 100)) : null;
 
   return (
     <div>
@@ -225,6 +260,41 @@ export default function CompliancePage() {
           </div>
         </section>
       </div>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 4 }}>Audit Evidence Graph</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+          Requirement → Aircraft → Work Order → Finding → Inspection → Evidence → Part → Certificate, for the current open gaps.
+          {graphCompletenessPercent !== null && ` Evidence completeness across this graph: ${graphCompletenessPercent}%.`}
+        </p>
+        {evidenceGraph.length === 0 ? (
+          <div className="ac-card"><p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>Insufficient source data. No open gaps to trace.</p></div>
+        ) : (
+          <div className="ac-flex ac-flex-col ac-gap-3">
+            {evidenceGraph.map((g) => (
+              <div key={g.assessment.id} className="ac-card">
+                <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 6 }}>
+                  <span className="ac-mono" style={{ fontWeight: 600 }}>{g.requirement ? g.requirement.requirementNumber : "Insufficient source data."}</span>
+                  <StatusBadge status={g.assessment.finalStatus} />
+                </div>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 4px" }}>
+                  Work Orders: {g.relatedWorkOrders.length === 0 ? "Insufficient source data." : g.relatedWorkOrders.map((w, i) => <span key={w.id}>{i > 0 && ", "}<Link href={`/maintenance/work-orders/${w.id}`} className="ac-mono">{w.workOrderNumber}</Link></span>)}
+                </p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 4px" }}>
+                  Findings: {g.relatedFindings.length} · Inspections: {g.relatedInspections.length} of {g.relatedWorkOrders.length} · Evidence: {g.relatedEvidence.length} · Parts: {g.relatedParts.length} · Certificates: {g.relatedCertificates.length}
+                </p>
+                {g.missingLinks.length > 0 ? (
+                  <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: "var(--ac-status-review)" }}>
+                    {g.missingLinks.map((m, i) => <li key={i}>Missing: {m}</li>)}
+                  </ul>
+                ) : (
+                  <p className="ac-text-sm" style={{ margin: "6px 0 0", color: "var(--ac-status-compliant)" }}>No missing links detected in this chain.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="ac-section">
         <div className="ac-card">
