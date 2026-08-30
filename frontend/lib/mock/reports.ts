@@ -4,7 +4,7 @@
 // number an AI answer gave for the same scope. Nothing here is persisted to
 // a backend — "generated" reports are prototype records only.
 
-import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getInspectionAnalytics, getComplianceAnalytics, getMaintenanceAnalytics, getOperationsAnalytics, getTechnicianWorkload, requirementLabel } from "./ai/analytics";
+import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getInspectionAnalytics, getComplianceAnalytics, getMaintenanceAnalytics, getOperationsAnalytics, getTechnicianWorkload, getPartsAtRisk, requirementLabel } from "./ai/analytics";
 import { getProjectById, workPackagesForProject } from "./maintenanceProjects";
 import { getAircraftById } from "./aircraft";
 import { workOrdersForProject, workOrdersForAircraft, MOCK_TODAY } from "./workOrders";
@@ -17,7 +17,7 @@ import { evidenceForAssessment } from "./evidence";
 import { assessmentsForAircraft } from "./assessments";
 import { auditEventsForObjectLabelContains } from "./audit";
 
-export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS" | "AUDIT_DOSSIER";
+export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS" | "AUDIT_DOSSIER" | "GENERAL_OPERATIONAL";
 
 export interface ReportRecord {
   id: string;
@@ -36,6 +36,7 @@ export const reportHistory: ReportRecord[] = [
   { id: "inspection-queue", title: "Inspection Queue Summary", type: "INSPECTION_QUEUE", generatedBy: "Diego Alvarez", scope: "Open inspections", generatedDate: "2026-03-17", status: "READY" },
   { id: "compliance-weekly", title: "Weekly Compliance Report", type: "COMPLIANCE_WEEKLY", generatedBy: "Priya Nair", scope: "Organization-wide", generatedDate: "2026-03-10", status: "READY" },
   { id: "maintenance-operations", title: "Maintenance Operations Report", type: "MAINTENANCE_OPERATIONS", generatedBy: "Marcus Webb", scope: "Fleet-wide operations", generatedDate: "2026-03-17", status: "READY" },
+  { id: "general-operational", title: "General Operational Report", type: "GENERAL_OPERATIONAL", generatedBy: "AeroComply AI (Prototype)", scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
 ];
 
 export function getReportRecord(id: string): ReportRecord | undefined {
@@ -65,6 +66,7 @@ function parseReportId(id: string): { type: ReportType; scopeId: string } | null
   if (id === "inspection-queue") return { type: "INSPECTION_QUEUE", scopeId: "" };
   if (id === "compliance-weekly") return { type: "COMPLIANCE_WEEKLY", scopeId: "" };
   if (id === "maintenance-operations") return { type: "MAINTENANCE_OPERATIONS", scopeId: "" };
+  if (id === "general-operational") return { type: "GENERAL_OPERATIONAL", scopeId: "" };
   return null;
 }
 
@@ -290,6 +292,124 @@ export function buildReportData(id: string): ReportData | null {
     aiSummary: sections[sections.length - 1].body,
     sections,
   };
+  }
+
+  if (parsed.type === "GENERAL_OPERATIONAL") {
+    // M9.2/M9.3 — Visual General Operational Report. Reuses exactly the
+    // same analytics builders as every other report/AI surface (no new
+    // calculations) and the existing ReportSection kpis/bars/distribution/
+    // table primitives (no new report engine) to render as a KPI-card +
+    // chart dashboard rather than a page of paragraphs.
+    const fleet = getFleetAnalytics();
+    const maint = getMaintenanceAnalytics();
+    const compliance = getComplianceAnalytics();
+    const inspection = getInspectionAnalytics();
+    const workload = getTechnicianWorkload();
+    const partsAtRisk = getPartsAtRisk();
+    const activeWorkload = workload.filter((t) => t.openWorkOrders > 0);
+    const overloaded = workload.filter((t) => t.overdueWorkOrders > 0 || t.openWorkOrders >= 3).length;
+
+    const topRisks: string[] = [
+      ...fleet.aircraftAtRisk.slice(0, 3).map((a) => `${a.registration}: ${a.risk} compliance risk`),
+      ...maint.overdue.slice(0, 2).map((w) => `${w.label} overdue since ${w.dueDate}`),
+    ].slice(0, 5);
+    const topBottlenecks: string[] = [
+      maint.waitingParts > 0 ? `${maint.waitingParts} work order(s) waiting on parts` : "",
+      maint.waitingInspection > 0 ? `${maint.waitingInspection} work order(s) waiting on inspection` : "",
+      partsAtRisk.length > 0 ? `${partsAtRisk.length} part(s) not in stock` : "",
+      inspection.pending.length > 0 ? `${inspection.pending.length} inspection(s) pending review` : "",
+    ].filter(Boolean).slice(0, 5);
+    const recommendedActions = [
+      fleet.aircraftAtRisk.length > 0 ? "Prioritize the highest-risk aircraft for inspection/defect resolution." : "",
+      maint.overdue.length > 0 ? "Escalate overdue work orders." : "",
+      partsAtRisk.length > 0 ? "Expedite parts currently not in stock." : "",
+      compliance.nonCompliant + compliance.reviewRequired > 0 ? "Review non-compliant / review-required assessments." : "",
+    ].filter(Boolean);
+
+    const sections: ReportSection[] = [
+      {
+        heading: "Top KPIs",
+        body: [],
+        kpis: [
+          { label: "Aircraft Under Maintenance", value: String(fleet.aircraftAtRisk.length > 0 ? fleet.aircraftAtRisk.length : 0), tone: fleet.aircraftAtRisk.length > 0 ? "warning" : "good" },
+          { label: "Open Work Orders", value: String(maint.totalOpenWorkOrders) },
+          { label: "Overdue Work Orders", value: String(maint.overdue.length), tone: maint.overdue.length > 0 ? "bad" : "good" },
+          { label: "Waiting Parts", value: String(maint.waitingParts), tone: maint.waitingParts > 0 ? "warning" : "good" },
+          { label: "Waiting Inspection", value: String(maint.waitingInspection), tone: maint.waitingInspection > 0 ? "warning" : "good" },
+          { label: "Parts At Risk", value: String(partsAtRisk.length), tone: partsAtRisk.length > 0 ? "warning" : "good" },
+          { label: "Inspection Queue", value: String(inspection.pending.length) },
+          { label: "Evidence Gaps (Assessments)", value: String(compliance.insufficientData), tone: compliance.insufficientData > 0 ? "warning" : "good" },
+          { label: "AOG Aircraft", value: "Insufficient source data." },
+          { label: "Average TAT", value: "Insufficient source data." },
+        ],
+      },
+      {
+        heading: "Section 1 — Fleet Risk",
+        body: [`${fleet.aircraftAtRisk.length} of ${fleet.fleetSize} aircraft show elevated risk.`],
+        distribution: [
+          { label: "HIGH", count: fleet.aircraftAtRisk.filter((a) => a.risk === "HIGH").length },
+          { label: "MEDIUM", count: fleet.aircraftAtRisk.filter((a) => a.risk === "MEDIUM").length },
+          { label: "LOW / NONE", count: fleet.fleetSize - fleet.aircraftAtRisk.length },
+        ],
+        table: { columns: ["Aircraft", "Risk"], rows: fleet.aircraftAtRisk.map((a) => [a.registration, a.risk]) },
+      },
+      {
+        heading: "Section 2 — Maintenance Operations",
+        body: [`${maint.totalOpenWorkOrders} open work order(s); ${maint.overdue.length} overdue.`],
+        bars: [
+          { label: "Waiting Parts", percent: maint.totalOpenWorkOrders > 0 ? Math.round((maint.waitingParts / maint.totalOpenWorkOrders) * 100) : 0 },
+          { label: "Waiting Inspection", percent: maint.totalOpenWorkOrders > 0 ? Math.round((maint.waitingInspection / maint.totalOpenWorkOrders) * 100) : 0 },
+        ],
+        table: { columns: ["Work Order", "Due Date", "Priority"], rows: maint.overdue.map((w) => [w.label, w.dueDate, w.priority]) },
+      },
+      {
+        heading: "Section 3 — Technician Capacity",
+        body: [`${activeWorkload.length} technician(s) with open work; ${overloaded} at or above 3 open work orders or carrying an overdue item.`, "TAT trend: Insufficient source data — no historical TAT time-series is tracked in the current data model."],
+        table: { columns: ["Technician", "Open", "Overdue", "On Shift"], rows: activeWorkload.map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders, t.onShift ? "Yes" : "No"]) },
+      },
+      {
+        heading: "Section 4 — Parts",
+        body: [partsAtRisk.length > 0 ? `${partsAtRisk.length} part(s) currently not in stock.` : "No parts currently at risk.", "Supplier delay data: Insufficient source data."],
+        table: { columns: ["Part", "Description", "Status"], rows: partsAtRisk.map((p) => [p.partNumber, p.description, p.status.replace(/_/g, " ")]) },
+      },
+      {
+        heading: "Section 5 — Compliance",
+        body: [`${compliance.totalAssessments} assessment(s): ${compliance.compliant} compliant, ${compliance.nonCompliant} non-compliant, ${compliance.reviewRequired} review required, ${compliance.insufficientData} insufficient data.`],
+        distribution: [
+          { label: "COMPLIANT", count: compliance.compliant },
+          { label: "NON_COMPLIANT", count: compliance.nonCompliant },
+          { label: "REVIEW_REQUIRED", count: compliance.reviewRequired },
+          { label: "INSUFFICIENT_DATA", count: compliance.insufficientData },
+        ],
+      },
+      {
+        heading: "Section 6 — Executive Actions",
+        body: [
+          `Top risks: ${topRisks.length > 0 ? topRisks.join("; ") : "None identified."}`,
+          `Top bottlenecks: ${topBottlenecks.length > 0 ? topBottlenecks.join("; ") : "None identified."}`,
+        ],
+        chain: recommendedActions.length > 0 ? recommendedActions : ["No urgent action required from current source data."],
+      },
+      {
+        heading: "AI-Generated Summary",
+        body: [
+          `${fleet.aircraftAtRisk.length} aircraft at risk, ${maint.overdue.length} overdue work order(s), ${partsAtRisk.length} part(s) at risk, ${compliance.nonCompliant + compliance.reviewRequired} compliance item(s) needing review.`,
+          "AI Prototype · Based on current AeroComply demo data · Non-authoritative · Human review required.",
+          "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions.",
+        ],
+      },
+    ];
+    return {
+      id,
+      title: "General Operational Report",
+      type: "GENERAL_OPERATIONAL",
+      scope: "Fleet-wide",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Aircraft", "Work Orders", "Defects", "Technicians", "Parts", "Assessments", "Inspections"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
   }
 
   // MAINTENANCE_OPERATIONS

@@ -12,8 +12,8 @@
 // answer the question.
 
 import { maintenanceProjects, getProjectById } from "../maintenanceProjects";
-import { getAircraftByRegistration, getAircraftById, currentRegistration } from "../aircraft";
-import { workOrders, isOverdue } from "../workOrders";
+import { aircraft, getAircraftByRegistration, getAircraftById, currentRegistration } from "../aircraft";
+import { workOrders, isOverdue, workOrdersForAircraft } from "../workOrders";
 import { findings, findingsForWorkOrder } from "../findings";
 import { defects, defectsForAircraft, defectsForWorkOrder } from "../defects";
 import { getInspectorReviewForWorkOrder } from "../inspectorReviews";
@@ -600,8 +600,11 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
-  // Which work orders need attention / at risk / backlog
-  if ((q.includes("work orders") || q.includes("work order")) && (q.includes("risk") || q.includes("attention") || q.includes("backlog"))) {
+  // Which work orders need attention / at risk / backlog / delayed
+  // M9.0 — "delayed" is a real-world synonym for overdue that no branch
+  // previously recognized; added here rather than a new branch since this
+  // is the same underlying question.
+  if ((q.includes("work orders") || q.includes("work order")) && (q.includes("risk") || q.includes("attention") || q.includes("backlog") || q.includes("delayed") || q.includes("delay"))) {
     const m = getMaintenanceAnalytics();
     return {
       id: nextId(),
@@ -969,9 +972,33 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   }
 
   // M5.3 — Explainable TAT (turnaround time) risk.
-  if (q.includes("tat") && (q.includes("risk") || q.includes("why"))) {
+  if (q.includes("tat") && (q.includes("risk") || q.includes("why") || q.includes("driving") || q.includes("drives"))) {
     const wo = findWorkOrderFromText(question) ?? (context?.aircraftId ? workOrders.find((w) => w.aircraftId === context.aircraftId && w.status !== "COMPLETED" && w.status !== "CANCELLED") : undefined);
-    if (!wo) return insufficient(question, ["a recognizable work order number or an aircraft context with active work"]);
+    // M9.0 — no specific work order named: give a fleet-wide TAT driver
+    // summary instead of INSUFFICIENT_DATA. Still entirely source-grounded
+    // (real overdue/waiting-parts/waiting-inspection work orders), just at
+    // fleet scope instead of a single work order.
+    if (!wo) {
+      const m = getMaintenanceAnalytics();
+      const drivers: string[] = [];
+      if (m.overdue.length > 0) drivers.push(`${m.overdue.length} overdue work order(s)`);
+      if (m.waitingParts > 0) drivers.push(`${m.waitingParts} work order(s) waiting on parts`);
+      if (m.waitingInspection > 0) drivers.push(`${m.waitingInspection} work order(s) waiting on inspection`);
+      if (drivers.length === 0) return insufficient(question, ["a recognizable work order number, or fleet-wide TAT driver data (none of overdue/waiting-parts/waiting-inspection work orders currently exist)"]);
+      return {
+        id: nextId(),
+        question,
+        headline: "Fleet-wide TAT risk drivers",
+        narrative: [
+          `Top drivers: ${drivers.join("; ")}.`,
+          "Name a specific work order (e.g. \"What is the TAT risk for WO-1042?\") for a single-work-order breakdown with primary/secondary drivers.",
+          TRUST_FOOTER,
+        ],
+        kpis: m.kpis,
+        table: { title: "Overdue Work Orders", columns: ["Work Order", "Due Date", "Priority"], rows: m.overdue.map((w) => [w.label, w.dueDate, w.priority]) },
+        buttons: [{ label: "View Work Orders", href: "/maintenance/work-orders" }],
+      };
+    }
     // Note: checklist item completion/UNKNOWN state lives in MroStateContext
     // (client-only) and is not available to this server-safe engine module —
     // TAT risk here is computed from work-order-level source data only.
@@ -1022,7 +1049,13 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   // format. Every field is derived from real work-order/part/defect state —
   // when the source data cannot support a recommendation, this returns the
   // standard INSUFFICIENT_DATA response rather than guessing.
-  if (q.includes("what should happen next") || q.includes("next step") || (q.includes("recommend") && q.includes("next"))) {
+  if (
+    q.includes("what should happen next") ||
+    q.includes("next step") ||
+    (q.includes("recommend") && q.includes("next")) ||
+    (q.includes("technician") && q.includes("next")) ||
+    (q.includes("do next"))
+  ) {
     const wo = findWorkOrderFromText(question) ?? (context?.aircraftId ? workOrders.find((w) => w.aircraftId === context.aircraftId && w.status !== "COMPLETED" && w.status !== "CANCELLED") : undefined);
     if (!wo) return insufficient(question, ["a recognizable work order number or an aircraft context with active work to base a recommendation on"]);
 
@@ -1093,6 +1126,96 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       recommendedActions: [recommendation],
       buttons: [{ label: "View Work Order", href: `/maintenance/work-orders/${wo.id}` }],
     };
+  }
+
+  // M9.0 — "Which aircraft has the highest maintenance risk?" Ranks real
+  // aircraft using the same getAircraftAnalytics() driver data shown
+  // everywhere else (Executive "Why?", Aircraft Health) — no separate
+  // scoring system, no black-box number.
+  if (q.includes("aircraft") && (q.includes("highest") || q.includes("most")) && (q.includes("risk") || q.includes("maintenance"))) {
+    const ranked = aircraft
+      .map((a) => getAircraftAnalytics(a.id)!)
+      .filter((a) => a.complianceRisk !== "LOW")
+      .sort((a, b) => (b.overdueWorkOrders + b.criticalOrHighDefects) - (a.overdueWorkOrders + a.criticalOrHighDefects));
+    const top = ranked[0];
+    if (!top) return insufficient(question, ["any aircraft currently showing elevated risk in the current dataset"]);
+    const inspectionNote = workOrdersForAircraft(top.aircraftId).some((w) => w.status === "WAITING_INSPECTION") ? "waiting inspection" : null;
+    return {
+      id: nextId(),
+      question,
+      headline: `Highest identified maintenance risk: ${top.registration}`,
+      narrative: [
+        `Risk drivers: ${top.reasons.join("; ")}${inspectionNote ? `; ${inspectionNote}` : ""}.`,
+        `Recommended action: ${top.criticalOrHighDefects > 0 ? "Prioritize resolution of open HIGH/CRITICAL defects." : top.overdueWorkOrders > 0 ? "Prioritize the overdue work order(s)." : "Review the flagged assessment(s)."}`,
+        "Source: Aircraft → Work Orders → Defects → Inspection → Evidence.",
+        TRUST_FOOTER,
+      ],
+      kpis: top.kpis,
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${top.aircraftId}` }, { label: "Why is this aircraft at risk?", href: `/fleet/aircraft/${top.aircraftId}/health` }],
+    };
+  }
+
+  // M9.0 — "Why is this aircraft at risk?" without a named aircraft: resolve
+  // from context if available, otherwise ask for one rather than a generic
+  // "not a recognized topic" message (the topic IS understood).
+  if (q.includes("why") && q.includes("aircraft") && q.includes("risk") && !resolveAircraft(question, context)) {
+    return insufficient(question, ["a specific aircraft registration — this question is understood, but no aircraft was named or in context to evaluate"]);
+  }
+
+  // M9.0 — Executive operational summary: "what is the current operational
+  // risk?" / "what should management focus on today?" Combines the SAME
+  // fleet/maintenance/compliance/parts analytics used across Executive and
+  // Compliance Intelligence — no new calculation, just a synthesized view.
+  if (
+    (q.includes("operational") && q.includes("risk")) ||
+    (q.includes("management") && q.includes("focus")) ||
+    (q.includes("focus") && q.includes("today"))
+  ) {
+    const fleet = getFleetAnalytics();
+    const maint = getMaintenanceAnalytics();
+    const compliance = getComplianceAnalytics();
+    const partsAtRisk = getPartsAtRisk();
+    const priorities: string[] = [];
+    if (fleet.aircraftAtRisk.length > 0) priorities.push(`${fleet.aircraftAtRisk.length} aircraft at elevated risk (${fleet.aircraftAtRisk.map((a) => a.registration).join(", ")})`);
+    if (maint.overdue.length > 0) priorities.push(`${maint.overdue.length} overdue work order(s)`);
+    if (compliance.nonCompliant + compliance.reviewRequired > 0) priorities.push(`${compliance.nonCompliant + compliance.reviewRequired} compliance assessment(s) needing review`);
+    if (partsAtRisk.length > 0) priorities.push(`${partsAtRisk.length} part(s) at risk (not in stock)`);
+    return {
+      id: nextId(),
+      question,
+      headline: "Executive operational summary",
+      narrative: [
+        priorities.length > 0 ? `Top priorities: ${priorities.join("; ")}.` : "No significant fleet, maintenance, compliance, or parts risk currently identified.",
+        TRUST_FOOTER,
+      ],
+      kpis: fleet.kpis,
+      buttons: [{ label: "Open Executive Control Center", href: "/executive" }, { label: "Generate Report", href: "/reports/general-operational" }],
+      suggestGenerateReport: { reportId: "general-operational", title: "General Operational Report", scope: "Fleet-wide" },
+    };
+  }
+
+  // M9.2 — "Give me a general operational report." Triggers the visual
+  // report engine (lib/mock/reports.ts) rather than answering inline — the
+  // AI's job here is to recognize the request and hand off, not to render
+  // a second reporting surface.
+  if (q.includes("operational report") || (q.includes("operational") && q.includes("report"))) {
+    return {
+      id: nextId(),
+      question,
+      headline: "General Operational Report",
+      narrative: ["Generating the visual operational report from current fleet, maintenance, parts, and compliance data.", TRUST_FOOTER],
+      buttons: [{ label: "Open Operational Report", href: "/reports/general-operational" }],
+      suggestGenerateReport: { reportId: "general-operational", title: "General Operational Report", scope: "Fleet-wide" },
+    };
+  }
+
+  // M9.0 — Financial/cost questions: the topic is understood, but no cost/
+  // financial data model exists yet anywhere in the domain (no labor rate,
+  // part price, or vendor spend fields). Say so specifically rather than
+  // falling through to the generic "not a recognized topic" message, and
+  // never invent a cost figure.
+  if (q.includes("cost") || q.includes("costing") || q.includes("charge") || q.includes("margin") || q.includes("expensive") || q.includes("spend")) {
+    return insufficient(question, ["MRO cost/financial data — no labor rate, part price, vendor spend, or customer charge fields exist in the current domain model"]);
   }
 
   return insufficient(question, [
