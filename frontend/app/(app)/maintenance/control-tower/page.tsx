@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, operationalStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
 import { PLATFORM_NAME } from "@/lib/brand";
-import { getControlTowerFleet, getControlTowerSummary, type ControlTowerAircraftRow, type OperationalStatus } from "@/lib/mock/ai/analytics";
+import { getControlTowerFleet, getControlTowerSummary, getWorkOrderPlanning, type ControlTowerAircraftRow, type OperationalStatus } from "@/lib/mock/ai/analytics";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getCurrentUser } from "@/lib/domain/currentUser";
 
@@ -26,6 +26,7 @@ export default function MaintenanceControlTowerPage() {
 
   const fleet = useMemo(() => getControlTowerFleet(), []);
   const summary = useMemo(() => getControlTowerSummary(), []);
+  const planning = useMemo(() => getWorkOrderPlanning(), []);
 
   const filtered: ControlTowerAircraftRow[] = useMemo(() => {
     switch (filter) {
@@ -96,15 +97,23 @@ export default function MaintenanceControlTowerPage() {
       <section className="ac-section">
         <div className="ac-kpi-grid">
           {kpis.map((k) => (
-            <button
+            <div
               key={k.label}
+              role="button"
+              tabIndex={0}
               onClick={() => setFilter(k.filter)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setFilter(k.filter); }}
               className="ac-kpi-card"
               style={{ textAlign: "left", cursor: "pointer", border: filter === k.filter ? "1px solid var(--ac-accent)" : undefined }}
             >
               <p className="ac-kpi-label">{k.label}</p>
               <p className="ac-kpi-value">{k.value}</p>
-            </button>
+              {k.filter === "OPEN_WORK_ORDERS" && (
+                <Link href="/maintenance/planning" className="ac-text-sm" style={{ display: "block", marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
+                  Open Planning Center →
+                </Link>
+              )}
+            </div>
           ))}
         </div>
         {filter !== "ALL" && (
@@ -136,6 +145,8 @@ export default function MaintenanceControlTowerPage() {
               {filtered.map((row) => {
                 const badge = operationalStatusBadge(row.operationalStatus);
                 const risk = riskLevelBadge(row.risk.risk);
+                const aircraftWos = planning.filter((p) => p.aircraftId === row.aircraftId);
+                const blockedWos = aircraftWos.filter((p) => p.planningStatus === "MATERIAL_BLOCKED" || p.planningStatus === "BOTH_BLOCKED");
                 return (
                   <Fragment key={row.aircraftId}>
                     <tr>
@@ -152,7 +163,17 @@ export default function MaintenanceControlTowerPage() {
                       <td>{row.nextMaintenanceDue ?? <span className="ac-text-muted">Insufficient source data.</span>}</td>
                       <td>{row.openWorkOrders}</td>
                       <td>{row.openDefects}</td>
-                      <td>{row.materialShortageCount > 0 ? <span style={{ color: "var(--ac-status-non_compliant)" }}>{row.materialShortageCount} shortage(s)</span> : "Ready"}</td>
+                      <td>
+                        {blockedWos.length > 0 ? (
+                          <Link href={`/maintenance/planning/${blockedWos[0].workOrderId}`} style={{ color: "var(--ac-status-non_compliant)" }}>
+                            {row.materialShortageCount} shortage(s) — {blockedWos.map((w) => w.workOrderNumber).join(", ")}
+                          </Link>
+                        ) : row.materialShortageCount > 0 ? (
+                          <span style={{ color: "var(--ac-status-non_compliant)" }}>{row.materialShortageCount} shortage(s)</span>
+                        ) : (
+                          "Ready"
+                        )}
+                      </td>
                       <td>
                         <StatusBadge status={risk.status} label={risk.label} />
                         <button className="ac-btn" style={{ padding: "2px 8px", marginLeft: 6 }} onClick={() => toggleRisk(row.aircraftId)}>
@@ -165,11 +186,20 @@ export default function MaintenanceControlTowerPage() {
                         <td colSpan={10}>
                           <div className="ac-card" style={{ background: "var(--ac-bg-surface-hover)", margin: "4px 0" }}>
                             <p className="ac-eyebrow" style={{ marginBottom: 6 }}>Why is {row.registration} {row.risk.risk} risk?</p>
-                            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+                            <ul style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 13 }}>
                               {row.risk.reasons.map((reason) => (
                                 <li key={reason}>→ {reason}</li>
                               ))}
                             </ul>
+                            {aircraftWos.length > 0 && (
+                              <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+                                {aircraftWos.map((w) => (
+                                  <Link key={w.workOrderId} href={`/maintenance/planning/${w.workOrderId}`} className="ac-btn" style={{ padding: "2px 8px" }}>
+                                    Open Work Order {w.workOrderNumber}
+                                  </Link>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>

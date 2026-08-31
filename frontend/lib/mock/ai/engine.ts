@@ -44,6 +44,13 @@ import {
   getAircraftOperationalRisk,
   getDiscrepancyGroups,
   getDiscrepancyGroupAnalysis,
+  getWorkOrderPlanning,
+  getWorkOrderPlanningSummary,
+  getWorkOrderPlanningRow,
+  getMaterialBlockedWorkOrders,
+  getReadyToStartWorkOrders,
+  getTechnicianAssignmentRecommendation,
+  getNextMaintenanceActions,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -182,6 +189,22 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Which aircraft has the most open discrepancies?",
       "What should maintenance do next?",
       "Give me today's maintenance operational report.",
+    ],
+  },
+  {
+    category: "Maintenance Planning",
+    questions: [
+      "Which work orders should maintenance do first?",
+      "Which work orders are blocked?",
+      "Which work orders are ready to start?",
+      "Which work orders are blocked by materials?",
+      "Which work orders need technician assignment?",
+      "What should maintenance work on next?",
+      "Why is WO-1042 blocked?",
+      "Which aircraft has the highest maintenance priority?",
+      "Which work order is most urgent?",
+      "Show me today's maintenance priorities.",
+      "Recommend a technician for WO-1042.",
     ],
   },
 ];
@@ -635,7 +658,10 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
-  // "Why was WO-1042 blocked?"
+  // "Why was WO-1042 blocked?" — only when a specific work order number
+  // resolves; plural phrasing ("which work orders are blocked...") with no
+  // resolvable number falls through to the M12.4 fleet-wide branches below
+  // instead of dead-ending here.
   if (q.includes("blocked") || (q.includes("why") && q.includes("wo"))) {
     const wo = findWorkOrderFromText(question);
     if (wo) {
@@ -654,6 +680,13 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
         narrative.push(`${wo.workOrderNumber} is currently ${wo.status.replace(/_/g, " ")}; no findings or defects are recorded against it in the demo data.`);
       }
       if (review) narrative.push(`Inspector review status: ${review.status.replace(/_/g, " ")}.`);
+      // M12.4 — also surface planning-level blocking (material/technician),
+      // using the same getWorkOrderPlanningRow the Planning UI renders, so
+      // this answer and the Planning table can never disagree.
+      const planningRow = getWorkOrderPlanningRow(wo.id);
+      if (planningRow && (planningRow.planningStatus === "MATERIAL_BLOCKED" || planningRow.planningStatus === "BOTH_BLOCKED" || planningRow.planningStatus === "TECHNICIAN_BLOCKED")) {
+        narrative.push(`Planning status: ${planningRow.planningStatus.replace(/_/g, " ")} — ${planningRow.recommendedAction}`);
+      }
       narrative.push(TRUST_FOOTER);
       return {
         id: nextId(),
@@ -662,11 +695,138 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
         narrative,
         buttons: [
           { label: "View Work Order", href: `/maintenance/work-orders/${wo.id}` },
+          { label: "Open Planning View", href: `/maintenance/planning/${wo.id}` },
           ...(review ? [{ label: "View Inspection", href: `/maintenance/inspections/${review.id}` }] : []),
         ],
       };
     }
-    return insufficient(question, ["a recognizable work order number, e.g. WO-1042"]);
+    // No specific work order resolved from a "blocked" question — fall
+    // through to the M12.4 fleet-wide "which work orders are blocked"
+    // branches below rather than dead-ending in insufficient() here.
+  }
+
+  // --- M12.4 Work Order Planning & Maintenance Scheduling Intelligence.
+  // All of these read getWorkOrderPlanning()/getWorkOrderPlanningSummary()/
+  // getNextMaintenanceActions()/getTechnicianAssignmentRecommendation() —
+  // the same functions the Planning Center UI renders.
+
+  // "Recommend a technician for WO-1042."
+  if (q.includes("recommend") && q.includes("technician")) {
+    const wo = findWorkOrderFromText(question);
+    if (!wo) return insufficient(question, ["a recognizable work order number, e.g. WO-1042"]);
+    const rec = getTechnicianAssignmentRecommendation(wo.id);
+    if (!rec) {
+      return {
+        id: nextId(),
+        question,
+        headline: `${wo.workOrderNumber} — technician recommendation`,
+        narrative: ["Insufficient source data to recommend a technician.", "No technician has a distinguishing certification match, workload advantage, shift availability, or prior aircraft experience for this work order.", TRUST_FOOTER],
+        insufficientData: true,
+        buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+      };
+    }
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — recommended technician: ${rec.name}`,
+      narrative: [...rec.reasons, "Certification matching is keyword overlap with the work order title, not verified skill certification — this dataset has no required-certification field.", TRUST_FOOTER],
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Which work orders are ready to start?"
+  if (q.includes("work order") && q.includes("ready")) {
+    const ready = getReadyToStartWorkOrders();
+    return {
+      id: nextId(),
+      question,
+      headline: `${ready.length} work order(s) ready to start`,
+      narrative: [ready.length > 0 ? "Material and technician assignment are both in place for these." : "No open work order currently has both material and technician assignment in place.", TRUST_FOOTER],
+      table: { title: "Ready to Start", columns: ["Work Order", "Aircraft", "Priority"], rows: ready.map((r) => [r.workOrderNumber, r.aircraftRegistration, r.priority]) },
+      buttons: [{ label: "Open Planning Center", href: "/maintenance/planning" }],
+    };
+  }
+
+  // "Which work orders are blocked by materials?"
+  if (q.includes("work order") && q.includes("block") && (q.includes("material") || q.includes("part"))) {
+    const blocked = getMaterialBlockedWorkOrders();
+    return {
+      id: nextId(),
+      question,
+      headline: `${blocked.length} work order(s) blocked by materials`,
+      narrative: [blocked.length > 0 ? "Required part(s) are not currently in stock for these work orders." : "No open work order is currently blocked by a material shortage.", TRUST_FOOTER],
+      table: { title: "Material Blocked", columns: ["Work Order", "Aircraft", "Missing Part(s)"], rows: blocked.map((r) => [r.workOrderNumber, r.aircraftRegistration, r.shortParts.map((p) => p.partNumber).join(", ")]) },
+      buttons: [{ label: "Open Material Readiness", href: "/maintenance/material-readiness" }],
+    };
+  }
+
+  // "Which work orders need technician assignment?"
+  if (q.includes("work order") && (q.includes("technician assignment") || (q.includes("technician") && q.includes("need")))) {
+    const rows = getWorkOrderPlanning().filter((r) => r.planningStatus === "TECHNICIAN_BLOCKED" || r.planningStatus === "BOTH_BLOCKED");
+    return {
+      id: nextId(),
+      question,
+      headline: `${rows.length} work order(s) need technician assignment`,
+      narrative: [rows.length > 0 ? "These work orders have no assigned technician." : "Every open work order has an assigned technician.", TRUST_FOOTER],
+      table: { title: "Needs Technician", columns: ["Work Order", "Aircraft", "Priority"], rows: rows.map((r) => [r.workOrderNumber, r.aircraftRegistration, r.priority]) },
+      buttons: [{ label: "Open Planning Center", href: "/maintenance/planning" }],
+    };
+  }
+
+  // "Which work orders are blocked?" (general)
+  if (q.includes("work order") && q.includes("block") && !q.includes("material") && !q.includes("part") && !q.includes("technician")) {
+    const rows = getWorkOrderPlanning().filter((r) => r.planningStatus === "MATERIAL_BLOCKED" || r.planningStatus === "TECHNICIAN_BLOCKED" || r.planningStatus === "BOTH_BLOCKED");
+    return {
+      id: nextId(),
+      question,
+      headline: `${rows.length} work order(s) currently blocked`,
+      narrative: [rows.length > 0 ? "Blocked by material shortage, missing technician assignment, or both." : "No open work order is currently blocked.", TRUST_FOOTER],
+      table: { title: "Blocked Work Orders", columns: ["Work Order", "Aircraft", "Blocked By"], rows: rows.map((r) => [r.workOrderNumber, r.aircraftRegistration, r.planningStatus.replace(/_/g, " ")]) },
+      buttons: [{ label: "Open Planning Center", href: "/maintenance/planning" }],
+    };
+  }
+
+  // "Which work orders should maintenance do first?" / "most urgent" / "highest priority"
+  if ((q.includes("work order") && (q.includes("first") || q.includes("do first"))) || q.includes("most urgent")) {
+    const rows = [...getWorkOrderPlanning()].sort((a, b) => (a.risk === b.risk ? 0 : a.risk === "HIGH" ? -1 : b.risk === "HIGH" ? 1 : a.risk === "MEDIUM" ? -1 : 1));
+    const top = rows[0];
+    if (!top) return insufficient(question, ["open work order data"]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${top.workOrderNumber} — highest planning priority`,
+      narrative: [...top.riskReasons, top.recommendedAction, TRUST_FOOTER],
+      table: { title: "Work Order Priority Ranking", columns: ["Work Order", "Aircraft", "Risk"], rows: rows.slice(0, 8).map((r) => [r.workOrderNumber, r.aircraftRegistration, r.risk]) },
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${top.workOrderId}` }],
+    };
+  }
+
+  // "Which aircraft has the highest maintenance priority?"
+  if (q.includes("aircraft") && q.includes("highest") && q.includes("priorit")) {
+    const rows = [...getWorkOrderPlanning()].sort((a, b) => (a.risk === b.risk ? 0 : a.risk === "HIGH" ? -1 : b.risk === "HIGH" ? 1 : a.risk === "MEDIUM" ? -1 : 1));
+    const top = rows[0];
+    if (!top) return insufficient(question, ["open work order data"]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${top.aircraftRegistration} — highest maintenance priority (via ${top.workOrderNumber})`,
+      narrative: [...top.riskReasons, TRUST_FOOTER],
+      buttons: [{ label: "Open Control Tower", href: "/maintenance/control-tower" }, { label: "Open Planning View", href: `/maintenance/planning/${top.workOrderId}` }],
+    };
+  }
+
+  // "What should maintenance work on next?" / "today's maintenance priorities"
+  if ((q.includes("maintenance") && (q.includes("work on next") || q.includes("should work"))) || (q.includes("today") && q.includes("priorit"))) {
+    const actions = getNextMaintenanceActions();
+    const summary = getWorkOrderPlanningSummary();
+    return {
+      id: nextId(),
+      question,
+      headline: "Today's Maintenance Priorities",
+      narrative: [`${summary.readyToStart} ready to start, ${summary.materialBlocked} material blocked, ${summary.technicianAssignmentRequired} need technician assignment.`, TRUST_FOOTER],
+      recommendedActions: actions,
+      buttons: [{ label: "Open Planning Center", href: "/maintenance/planning" }],
+    };
   }
 
   // "What is putting this project at risk?"

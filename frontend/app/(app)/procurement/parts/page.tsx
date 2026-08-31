@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { parts } from "@/lib/mock/parts";
@@ -176,7 +177,16 @@ function VendorComparisonRow({ score, part }: { score: VendorScoreResult; part: 
 }
 
 export default function ProcurementPartsPage() {
-  const [query, setQuery] = useState("");
+  return (
+    <Suspense fallback={null}>
+      <ProcurementPartsPageInner />
+    </Suspense>
+  );
+}
+
+function ProcurementPartsPageInner() {
+  const searchParams = useSearchParams();
+  const [query, setQuery] = useState(searchParams.get("part") ?? "");
   const [aircraftFilter, setAircraftFilter] = useState("ALL");
   const [availabilityFilter, setAvailabilityFilter] = useState("ALL");
   const [certFilter, setCertFilter] = useState("ALL");

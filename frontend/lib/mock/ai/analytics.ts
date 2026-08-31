@@ -4,16 +4,16 @@
 // AI answer always matches the number shown in a generated report.
 
 import { maintenanceProjects, workPackages, getProjectById } from "../maintenanceProjects";
-import { workOrders, isOverdue, workOrdersForProject, workOrdersForAircraft } from "../workOrders";
+import { workOrders, isOverdue, workOrdersForProject, workOrdersForAircraft, workOrdersForTechnician, MOCK_TODAY } from "../workOrders";
 import { parts, partsForWorkOrder } from "../parts";
 import { defects, defectsForAircraft } from "../defects";
 import { inspectorReviews } from "../inspectorReviews";
 import { getAircraftById, aircraft, currentRegistration, getAircraftVariant } from "../aircraft";
 import { assessmentsForAircraft, getAssessmentById } from "../assessments";
 import { getRequirementById } from "../regulations";
-import { technicians, isOnShiftNow } from "../technicians";
+import { technicians, getTechnicianById, isOnShiftNow } from "../technicians";
 import { upcomingMaintenanceEvents } from "../maintenance";
-import type { WorkOrder, Priority, Defect } from "../types";
+import type { WorkOrder, Priority, Defect, Technician } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -610,6 +610,230 @@ export function getDiscrepancyGroups(): DiscrepancyGroup[] {
 
 export function getDiscrepancyGroup(ataChapter: string): DiscrepancyGroup | null {
   return getDiscrepancyGroups().find((g) => g.ataChapter === ataChapter) ?? null;
+}
+
+// --- M12.4 Work Order Planning & Maintenance Scheduling Intelligence ---
+// WorkOrder has no createdDate/labor-hours field and Technician has no
+// skill field distinct from certifications, and no WorkOrder field records a
+// required certification — so "age" below is derived from dueDate (the only
+// date-based signal that exists), and technician recommendation is derived
+// from workload/shift/prior-aircraft-experience plus a keyword overlap
+// between a technician's certifications and the work order title (a real,
+// checkable signal, not an invented skill-matching system). Never presented
+// as certified skill verification.
+
+export type PlanningStatus = "READY" | "MATERIAL_BLOCKED" | "TECHNICIAN_BLOCKED" | "BOTH_BLOCKED" | "IN_PROGRESS" | "WAITING_INSPECTION" | "COMPLETED" | "CANCELLED";
+
+export interface ShortPart {
+  partNumber: string;
+  description: string;
+  status: string;
+  quantity: number;
+}
+
+export interface WorkOrderPlanningRow {
+  workOrderId: string;
+  workOrderNumber: string;
+  title: string;
+  aircraftId: string;
+  aircraftRegistration: string;
+  priority: Priority;
+  status: WorkOrder["status"];
+  planningStatus: PlanningStatus;
+  shortParts: ShortPart[];
+  assignedTechnicianId: string | null;
+  assignedTechnicianName: string | null;
+  dueDate: string;
+  daysOverdue: number | null;
+  aogAircraft: boolean;
+  risk: RiskLevel;
+  riskReasons: string[];
+  recommendedAction: string;
+}
+
+function daysBetween(a: string, b: string): number {
+  return Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
+}
+
+function buildPlanningRow(w: WorkOrder): WorkOrderPlanningRow {
+  const a = getAircraftById(w.aircraftId);
+  const registration = a ? currentRegistration(a) : w.aircraftId;
+  const reqParts = partsForWorkOrder(w.id);
+  const shortParts: ShortPart[] = reqParts.filter((p) => p.status !== "IN_STOCK").map((p) => ({ partNumber: p.partNumber, description: p.description, status: p.status, quantity: p.quantity }));
+  const materialBlocked = shortParts.length > 0;
+  const technicianBlocked = w.assignedTechnicianId === null;
+  const tech = w.assignedTechnicianId ? getTechnicianById(w.assignedTechnicianId) : undefined;
+  const overdue = isOverdue(w);
+  const daysOverdue = overdue ? daysBetween(MOCK_TODAY, w.dueDate) : null;
+  const aircraftRisk = a ? getAircraftOperationalRisk(a.id) : null;
+  const aogAircraft = aircraftRisk?.reasons.some((r) => r.includes("HIGH/CRITICAL-severity defect")) ?? false;
+
+  // Planning status is derived from actual part/technician records, not the
+  // WorkOrder.status label alone — the mock dataset has at least one work
+  // order (WO-1050) whose status says WAITING_PARTS while its linked part
+  // is actually IN_STOCK. Trusting the status label there would produce a
+  // "blocked by: (nothing)" answer; trusting the part record instead keeps
+  // every claim backed by a concrete record. The mismatch itself is
+  // surfaced in dataInconsistencyNote rather than hidden.
+  const statusSaysWaitingParts = w.status === "WAITING_PARTS";
+  const dataInconsistencyNote = statusSaysWaitingParts && !materialBlocked
+    ? `Work order status is WAITING_PARTS, but no part currently linked to this work order shows a shortage (source: lib/mock/parts.ts).`
+    : null;
+
+  let planningStatus: PlanningStatus;
+  if (w.status === "COMPLETED") planningStatus = "COMPLETED";
+  else if (w.status === "CANCELLED") planningStatus = "CANCELLED";
+  else if (w.status === "IN_PROGRESS") planningStatus = "IN_PROGRESS";
+  else if (w.status === "WAITING_INSPECTION") planningStatus = "WAITING_INSPECTION";
+  else if (materialBlocked && technicianBlocked) planningStatus = "BOTH_BLOCKED";
+  else if (materialBlocked) planningStatus = "MATERIAL_BLOCKED";
+  else if (technicianBlocked) planningStatus = "TECHNICIAN_BLOCKED";
+  else planningStatus = "READY";
+
+  const riskReasons: string[] = [];
+  if (aogAircraft) riskReasons.push("Aircraft is AOG (open HIGH/CRITICAL defect)");
+  if (w.priority === "CRITICAL" || w.priority === "HIGH") riskReasons.push(`Work order priority is ${w.priority}`);
+  if (overdue) riskReasons.push(`Overdue by ${daysOverdue} day(s)`);
+  if (materialBlocked) riskReasons.push(`Required material unavailable: ${shortParts.map((p) => p.partNumber).join(", ")}`);
+  if (dataInconsistencyNote) riskReasons.push(dataInconsistencyNote);
+  const risk: RiskLevel = aogAircraft || (overdue && (w.priority === "CRITICAL" || w.priority === "HIGH")) ? "HIGH" : riskReasons.length > 0 ? "MEDIUM" : "LOW";
+
+  let recommendedAction: string;
+  if (planningStatus === "COMPLETED" || planningStatus === "CANCELLED") recommendedAction = "No action required.";
+  else if (planningStatus === "BOTH_BLOCKED") recommendedAction = `Assign a technician and resolve material shortage (${shortParts.map((p) => p.partNumber).join(", ")}) before starting.`;
+  else if (planningStatus === "MATERIAL_BLOCKED") recommendedAction = `Do not start — required part unavailable: ${shortParts.map((p) => p.partNumber).join(", ")}.`;
+  else if (planningStatus === "TECHNICIAN_BLOCKED") recommendedAction = "Assign a technician before starting.";
+  else if (planningStatus === "READY" && dataInconsistencyNote) recommendedAction = `Ready per part records, though work order status still reads WAITING_PARTS — ${dataInconsistencyNote}`;
+  else if (planningStatus === "READY" && (aogAircraft || w.priority === "CRITICAL")) recommendedAction = `Start ${w.workOrderNumber} now — ${aogAircraft ? "aircraft is AOG" : "priority is CRITICAL"} and material is available.`;
+  else if (planningStatus === "READY") recommendedAction = `Ready to start when scheduled — material and technician are in place.`;
+  else if (planningStatus === "WAITING_INSPECTION") recommendedAction = "Awaiting inspector review — no further planning action.";
+  else recommendedAction = "In progress — no further planning action.";
+
+  return {
+    workOrderId: w.id,
+    workOrderNumber: w.workOrderNumber,
+    title: w.title,
+    aircraftId: w.aircraftId,
+    aircraftRegistration: registration,
+    priority: w.priority,
+    status: w.status,
+    planningStatus,
+    shortParts,
+    assignedTechnicianId: w.assignedTechnicianId,
+    assignedTechnicianName: tech?.name ?? null,
+    dueDate: w.dueDate,
+    daysOverdue,
+    aogAircraft,
+    risk,
+    riskReasons: riskReasons.length > 0 ? riskReasons : ["No AOG condition, overdue status, or material shortage found for this work order."],
+    recommendedAction,
+  };
+}
+
+export function getWorkOrderPlanning(): WorkOrderPlanningRow[] {
+  return workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED").map(buildPlanningRow);
+}
+
+export function getWorkOrderPlanningRow(workOrderId: string): WorkOrderPlanningRow | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  return w ? buildPlanningRow(w) : null;
+}
+
+export function getMaterialBlockedWorkOrders(): WorkOrderPlanningRow[] {
+  return getWorkOrderPlanning().filter((r) => r.planningStatus === "MATERIAL_BLOCKED" || r.planningStatus === "BOTH_BLOCKED");
+}
+
+export function getReadyToStartWorkOrders(): WorkOrderPlanningRow[] {
+  return getWorkOrderPlanning().filter((r) => r.planningStatus === "READY");
+}
+
+export interface WorkOrderPlanningSummary {
+  openWorkOrders: number;
+  criticalHigh: number;
+  readyToStart: number;
+  materialBlocked: number;
+  technicianAssignmentRequired: number;
+  overdue: number;
+  aogRelated: number;
+  plannedInProgress: number;
+}
+
+export function getWorkOrderPlanningSummary(): WorkOrderPlanningSummary {
+  const rows = getWorkOrderPlanning();
+  return {
+    openWorkOrders: rows.length,
+    criticalHigh: rows.filter((r) => r.priority === "CRITICAL" || r.priority === "HIGH").length,
+    readyToStart: rows.filter((r) => r.planningStatus === "READY").length,
+    materialBlocked: rows.filter((r) => r.planningStatus === "MATERIAL_BLOCKED" || r.planningStatus === "BOTH_BLOCKED").length,
+    technicianAssignmentRequired: rows.filter((r) => r.planningStatus === "TECHNICIAN_BLOCKED" || r.planningStatus === "BOTH_BLOCKED").length,
+    overdue: rows.filter((r) => r.daysOverdue !== null).length,
+    aogRelated: rows.filter((r) => r.aogAircraft).length,
+    plannedInProgress: rows.filter((r) => r.planningStatus === "IN_PROGRESS" || r.planningStatus === "WAITING_INSPECTION").length,
+  };
+}
+
+export interface TechnicianRecommendation {
+  technicianId: string;
+  name: string;
+  reasons: string[];
+}
+
+const CERT_KEYWORDS_STOPLIST = new Set(["and", "the", "of", "for", "b1.1", "b2"]);
+
+function certificationKeywordMatches(t: Technician, title: string): string[] {
+  const titleLower = title.toLowerCase();
+  return t.certifications.filter((c) => {
+    const words = c.toLowerCase().split(/\s+/).filter((w) => w.length > 3 && !CERT_KEYWORDS_STOPLIST.has(w));
+    return words.some((w) => titleLower.includes(w));
+  });
+}
+
+/** Explainable technician recommendation using only fields that actually
+ * exist: current open/overdue workload, on-shift status, prior assignment
+ * history on this same aircraft, and a keyword overlap between a
+ * technician's certifications and the work order title. There is no field
+ * anywhere recording a work order's *required* certification, so this is
+ * never presented as verified skill-matching — only as the reasons listed.
+ * Returns null when no technician has any distinguishing signal at all,
+ * rather than picking one arbitrarily and calling it a recommendation. */
+export function getTechnicianAssignmentRecommendation(workOrderId: string): TechnicianRecommendation | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return null;
+  const workload = getTechnicianWorkload();
+
+  const candidates = technicians.map((t) => {
+    const wl = workload.find((x) => x.technicianId === t.id)!;
+    const certMatches = certificationKeywordMatches(t, w.title);
+    const priorAircraftWos = workOrdersForTechnician(t.id).filter((pw) => pw.aircraftId === w.aircraftId && pw.id !== w.id);
+    const reasons: string[] = [];
+    if (certMatches.length > 0) reasons.push(`Certification match: ${certMatches.join(", ")}`);
+    if (wl.onShift) reasons.push("On shift now");
+    if (wl.openWorkOrders === 0) reasons.push("No other open work orders");
+    if (priorAircraftWos.length > 0) reasons.push(`Prior work order experience on this aircraft (${priorAircraftWos.length})`);
+    return { technicianId: t.id, name: t.name, reasons, openWorkOrders: wl.openWorkOrders, onShift: wl.onShift, certMatches: certMatches.length };
+  });
+
+  candidates.sort((a, b) => b.certMatches - a.certMatches || Number(b.onShift) - Number(a.onShift) || a.openWorkOrders - b.openWorkOrders);
+  const top = candidates[0];
+  if (!top || top.reasons.length === 0) return null;
+  return { technicianId: top.technicianId, name: top.name, reasons: top.reasons };
+}
+
+/** Deterministic, source-backed "what should maintenance do next" list —
+ * shared by the Planning UI and Lisa so they can never disagree. */
+export function getNextMaintenanceActions(): string[] {
+  const rows = getWorkOrderPlanning();
+  const actions: string[] = [];
+  for (const r of rows.filter((x) => x.planningStatus === "READY" && (x.aogAircraft || x.priority === "CRITICAL"))) {
+    actions.push(`Start ${r.workOrderNumber} because: ${r.riskReasons.join("; ")}.`);
+  }
+  for (const r of rows.filter((x) => x.planningStatus === "MATERIAL_BLOCKED" || x.planningStatus === "BOTH_BLOCKED")) {
+    actions.push(`Do not start ${r.workOrderNumber} — required part(s) unavailable: ${r.shortParts.map((p) => p.partNumber).join(", ")}. Procurement action required.`);
+  }
+  for (const r of rows.filter((x) => x.planningStatus === "TECHNICIAN_BLOCKED")) {
+    actions.push(`Assign a technician before starting ${r.workOrderNumber}.`);
+  }
+  return actions.length > 0 ? actions : ["No urgent planning action indicated by current data."];
 }
 
 /** Lisa's narrative for one discrepancy group. Only claims a recurrence

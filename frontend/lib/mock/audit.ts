@@ -104,4 +104,8 @@ export const STANDARD_AUDIT_ACTIONS = [
   "maintenance.assignment_recommended",
   "maintenance.material_shortage_identified",
   "maintenance.risk_assessed",
+  // M12.4 — Work Order Planning & Maintenance Scheduling Intelligence.
+  "maintenance.technician_assigned",
+  "maintenance.work_started",
+  "maintenance.material_blocking_identified",
 ] as const;

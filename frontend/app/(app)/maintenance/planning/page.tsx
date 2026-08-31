@@ -6,6 +6,7 @@ import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { maintenanceProjects } from "@/lib/mock/maintenanceProjects";
 import { workOrders } from "@/lib/mock/workOrders";
+import { WorkOrderPlanningTable } from "./WorkOrderPlanningTable";
 
 export default function MaintenancePlanningPage() {
   const maintenance = getMaintenanceAnalytics();
@@ -14,13 +15,6 @@ export default function MaintenancePlanningPage() {
   const upcoming = upcomingMaintenanceEvents(10);
 
   const available = workload.filter((t) => t.openWorkOrders === 0 && t.onShift);
-  const overloaded = workload.filter((t) => t.openWorkOrders > 1);
-
-  const priorityRecommendations: string[] = [];
-  for (const w of maintenance.overdue.slice(0, 3)) priorityRecommendations.push(`Escalate overdue ${w.label} (${w.priority} priority, due ${w.dueDate}).`);
-  if (partsAtRisk.length > 0) priorityRecommendations.push(`Expedite ${partsAtRisk.length} part(s) currently at risk.`);
-  if (overloaded.length > 0) priorityRecommendations.push(`Rebalance workload — ${overloaded.length} technician(s) have more than one open work order.`);
-  if (priorityRecommendations.length === 0) priorityRecommendations.push("No urgent planning action required.");
 
   const activeProjects = maintenanceProjects.filter((p) => p.status === "IN_PROGRESS" || p.status === "PLANNED");
   const readinessPercent = activeProjects.length > 0 ? Math.round(activeProjects.reduce((sum, p) => sum + p.progressPercent, 0) / activeProjects.length) : null;
@@ -36,7 +30,10 @@ export default function MaintenancePlanningPage() {
         <Link href="/maintenance/operations" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Operations Command Center →</Link>
       </div>
 
+      <WorkOrderPlanningTable />
+
       <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Fleet Planning Overview</h2>
         <div className="ac-kpi-grid">
           <div className="ac-kpi-card">
             <p className="ac-kpi-label">Maintenance Backlog</p>
@@ -131,15 +128,6 @@ export default function MaintenancePlanningPage() {
               ))}
             </tbody>
           </table>
-        </div>
-      </section>
-
-      <section className="ac-section">
-        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Priority Recommendations</h2>
-        <div className="ac-card">
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
-            {priorityRecommendations.map((r, idx) => <li key={idx}>{r}</li>)}
-          </ul>
         </div>
       </section>
 

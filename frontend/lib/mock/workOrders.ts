@@ -298,3 +298,31 @@ export function awaitingPartsWorkOrders(): WorkOrder[] {
 export function awaitingReviewWorkOrders(): WorkOrder[] {
   return workOrders.filter((w) => w.status === "WAITING_INSPECTION");
 }
+
+// M12.4 — smallest mutations the Planning Center needs, following the same
+// in-place-mutate-the-array pattern as roles/reports/procurement (see
+// updateRole in lib/mock/roles.ts). Both return the updated WorkOrder (or
+// null if the id/precondition doesn't hold) so the caller can emit an audit
+// event with the real before/after state — no separate state store.
+
+export function assignTechnician(workOrderId: string, technicianId: string): WorkOrder | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return null;
+  w.assignedTechnicianId = technicianId;
+  if (w.status === "DRAFT") w.status = "ASSIGNED";
+  return w;
+}
+
+export function startWorkOrder(workOrderId: string): WorkOrder | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w || w.assignedTechnicianId === null) return null;
+  // DRAFT/ASSIGNED are the normal pre-start statuses; WAITING_PARTS is also
+  // allowed here because the planning layer (getWorkOrderPlanningRow) can
+  // derive READY for a WAITING_PARTS work order whose linked part record
+  // shows no actual shortage — see the dataInconsistencyNote comment in
+  // lib/mock/ai/analytics.ts. WAITING_INSPECTION/IN_PROGRESS/COMPLETED/
+  // CANCELLED are never valid states to "start" from.
+  if (w.status !== "ASSIGNED" && w.status !== "DRAFT" && w.status !== "WAITING_PARTS") return null;
+  w.status = "IN_PROGRESS";
+  return w;
+}

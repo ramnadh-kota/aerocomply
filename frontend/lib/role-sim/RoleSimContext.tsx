@@ -71,6 +71,7 @@ export const NAV_MODULE_MAP: Record<string, PermissionModule> = {
   "/maintenance/operations": "MRO Operations",
   "/maintenance/hangar": "MRO Operations",
   "/maintenance/planning": "MRO Operations",
+  "/maintenance/material-readiness": "MRO Operations",
   "/maintenance/projects": "MRO Operations",
   "/maintenance/work-orders": "MRO Operations",
   "/maintenance/technicians": "MRO Operations",
