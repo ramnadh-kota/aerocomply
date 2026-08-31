@@ -39,6 +39,11 @@ import {
   assessmentDiffSummary,
   assessmentUnknownReasons,
   requirementLabel,
+  getControlTowerFleet,
+  getControlTowerSummary,
+  getAircraftOperationalRisk,
+  getDiscrepancyGroups,
+  getDiscrepancyGroupAnalysis,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -165,6 +170,18 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Which vendor has the best delivery performance?",
       "What should procurement do next?",
       "What is in my procurement cart?",
+    ],
+  },
+  {
+    category: "Maintenance Control Tower",
+    questions: [
+      "Which aircraft is most at risk?",
+      "Which aircraft are currently AOG?",
+      "What discrepancies are recurring?",
+      "Which discrepancy is the most common?",
+      "Which aircraft has the most open discrepancies?",
+      "What should maintenance do next?",
+      "Give me today's maintenance operational report.",
     ],
   },
 ];
@@ -444,6 +461,150 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
         { label: "Generate Report", href: "/reports/fleet-risk" },
       ],
       suggestGenerateReport: { reportId: "fleet-risk", title: "Fleet Maintenance Risk Report", scope: "Fleet-wide" },
+    };
+  }
+
+  // --- M12.6 Maintenance Control Tower / Discrepancy Intelligence branches.
+  // All read the same analytics functions the Control Tower and Discrepancy
+  // Intelligence pages use (lib/mock/ai/analytics.ts), so a number shown
+  // here always matches what's on those pages — no separate AI engine, no
+  // separate risk calculation.
+
+  // "Which aircraft is most at risk?"
+  if (q.includes("aircraft") && q.includes("most") && q.includes("risk")) {
+    const fleet = getControlTowerFleet();
+    const ranked = [...fleet].sort((a, b) => (a.risk.risk === b.risk.risk ? 0 : a.risk.risk === "HIGH" ? -1 : b.risk.risk === "HIGH" ? 1 : a.risk.risk === "MEDIUM" ? -1 : 1));
+    const top = ranked[0];
+    if (!top) return insufficient(question, ["fleet data"]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${top.registration} — highest operational risk (${top.risk.risk})`,
+      narrative: [...top.risk.reasons, TRUST_FOOTER],
+      table: { title: "Aircraft Risk Ranking", columns: ["Aircraft", "Risk"], rows: ranked.slice(0, 8).map((r) => [r.registration, r.risk.risk]) },
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${top.aircraftId}` }, { label: "Open Control Tower", href: "/maintenance/control-tower" }],
+    };
+  }
+
+  // "Why is this aircraft at risk?" (operational risk phrasing — placed
+  // before the compliance-risk "why" branch below so operational questions
+  // get the defect/work-order/material explanation, not compliance-only).
+  if (q.includes("why") && q.includes("risk") && resolveAircraft(question, context)) {
+    const a = resolveAircraft(question, context)!;
+    const risk = getAircraftOperationalRisk(a.id)!;
+    return {
+      id: nextId(),
+      question,
+      headline: `${risk.registration} — why ${risk.risk} operational risk`,
+      narrative: [...risk.reasons, TRUST_FOOTER],
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }, { label: "Open Control Tower", href: "/maintenance/control-tower" }],
+    };
+  }
+
+  // "Which aircraft are currently AOG?" — AOG here is the same derived
+  // heuristic as the Control Tower table (open HIGH/CRITICAL defect), not a
+  // tracked AircraftStatus value; the narrative says so explicitly.
+  if (q.includes("aircraft") && q.includes("aog")) {
+    const fleet = getControlTowerFleet().filter((r) => r.operationalStatus === "AOG");
+    return {
+      id: nextId(),
+      question,
+      headline: `${fleet.length} aircraft currently AOG`,
+      narrative: [
+        fleet.length > 0 ? "AOG is derived from an open HIGH/CRITICAL-severity defect — there is no separate AOG status field in this dataset." : "No aircraft currently has an open HIGH/CRITICAL-severity defect.",
+        TRUST_FOOTER,
+      ],
+      table: { title: "AOG Aircraft", columns: ["Aircraft", "Reason"], rows: fleet.map((r) => [r.registration, r.aogReason ?? "—"]) },
+      buttons: [{ label: "Open Control Tower", href: "/maintenance/control-tower" }],
+    };
+  }
+
+  // "What discrepancies are recurring?"
+  if (q.includes("discrepanc") && q.includes("recurring")) {
+    const groups = getDiscrepancyGroups().filter((g) => g.recurringAircraftCount > 0 || g.occurrences > 1);
+    return {
+      id: nextId(),
+      question,
+      headline: `${groups.length} ATA chapter(s) with recurring discrepancies`,
+      narrative: [groups.length > 0 ? "Grouped by ATA chapter; see Discrepancy Intelligence for full detail on each." : "No ATA chapter currently shows more than one recorded discrepancy.", TRUST_FOOTER],
+      table: { title: "Recurring Discrepancy Groups", columns: ["ATA Chapter", "Occurrences", "Aircraft", "Recurring On"], rows: groups.map((g) => [g.ataChapter, g.occurrences, g.aircraftCount, g.recurringAircraftCount]) },
+      buttons: [{ label: "Open Discrepancy Intelligence", href: "/maintenance/discrepancies" }],
+    };
+  }
+
+  // "Which discrepancy is the most common?"
+  if (q.includes("discrepanc") && (q.includes("most common") || q.includes("most frequent"))) {
+    const groups = getDiscrepancyGroups();
+    const top = groups[0];
+    if (!top) return insufficient(question, ["defect data"]);
+    return {
+      id: nextId(),
+      question,
+      headline: `ATA ${top.ataChapter} — most common discrepancy group (${top.occurrences} occurrence(s))`,
+      narrative: [...getDiscrepancyGroupAnalysis(top.ataChapter), TRUST_FOOTER],
+      buttons: [{ label: "Open Discrepancy Intelligence", href: "/maintenance/discrepancies" }],
+    };
+  }
+
+  // "Which aircraft has the most open discrepancies?"
+  if (q.includes("aircraft") && q.includes("most") && q.includes("discrepanc")) {
+    const fleet = [...getControlTowerFleet()].sort((a, b) => b.openDefects - a.openDefects);
+    const top = fleet[0];
+    if (!top || top.openDefects === 0) return insufficient(question, ["an aircraft with at least one open discrepancy"]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${top.registration} — ${top.openDefects} open discrepancy(ies)`,
+      narrative: [TRUST_FOOTER],
+      table: { title: "Open Discrepancies by Aircraft", columns: ["Aircraft", "Open"], rows: fleet.filter((r) => r.openDefects > 0).map((r) => [r.registration, r.openDefects]) },
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${top.aircraftId}` }],
+    };
+  }
+
+  // "What should maintenance do next?" — combined recommendation across
+  // AOG aircraft, overdue work orders, and recurring discrepancies. Placed
+  // before the generic "work orders...attention" branch below since this
+  // phrasing is broader (whole-operation, not just work orders).
+  if (q.includes("maintenance") && (q.includes("do next") || q.includes("should do") || q.includes("priorit"))) {
+    const summary = getControlTowerSummary();
+    const m = getMaintenanceAnalytics();
+    const recurring = getDiscrepancyGroups().filter((g) => g.recurringAircraftCount > 0);
+    const actions: string[] = [];
+    if (summary.aog > 0) actions.push(`Address ${summary.aog} AOG aircraft first.`);
+    if (m.overdue.length > 0) actions.push(`Escalate ${m.overdue.length} overdue work order(s).`);
+    if (recurring.length > 0) actions.push(`Review recurring discrepancies in ATA ${recurring.map((g) => g.ataChapter).join(", ")}.`);
+    if (summary.materialShortages > 0) actions.push(`Resolve ${summary.materialShortages} material shortage(s) blocking work.`);
+    return {
+      id: nextId(),
+      question,
+      headline: "Recommended maintenance priorities",
+      narrative: [actions.length > 0 ? "Based on current AOG, overdue, discrepancy, and material data." : "No urgent maintenance action indicated by current data.", TRUST_FOOTER],
+      recommendedActions: actions,
+      buttons: [{ label: "Open Control Tower", href: "/maintenance/control-tower" }],
+    };
+  }
+
+  // "Give me today's maintenance operational report."
+  if (q.includes("operational report") || (q.includes("today") && q.includes("maintenance") && q.includes("report"))) {
+    const summary = getControlTowerSummary();
+    return {
+      id: nextId(),
+      question,
+      headline: "Today's Maintenance Operational Report",
+      narrative: [
+        `${summary.totalAircraft} aircraft: ${summary.operational} operational, ${summary.underMaintenance} under maintenance, ${summary.aog} AOG.`,
+        `${summary.openWorkOrders} open work order(s), ${summary.criticalDiscrepancies} critical discrepancy(ies), ${summary.materialShortages} material shortage(s), ${summary.upcomingMaintenance} upcoming maintenance event(s).`,
+        TRUST_FOOTER,
+      ],
+      kpis: [
+        { label: "Operational", value: String(summary.operational), tone: "good" },
+        { label: "Under Maintenance", value: String(summary.underMaintenance), tone: "neutral" },
+        { label: "AOG", value: String(summary.aog), tone: summary.aog > 0 ? "bad" : "good" },
+        { label: "Open Work Orders", value: String(summary.openWorkOrders) },
+        { label: "Critical Discrepancies", value: String(summary.criticalDiscrepancies), tone: summary.criticalDiscrepancies > 0 ? "bad" : "good" },
+        { label: "Material Shortages", value: String(summary.materialShortages), tone: summary.materialShortages > 0 ? "warning" : "good" },
+      ],
+      buttons: [{ label: "Open Control Tower", href: "/maintenance/control-tower" }, { label: "Open Discrepancy Intelligence", href: "/maintenance/discrepancies" }],
     };
   }
 

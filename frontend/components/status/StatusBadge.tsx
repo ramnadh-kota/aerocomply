@@ -191,3 +191,30 @@ const TRACEABILITY_STATUS_MAP: Record<string, BadgeKind> = {
 export function traceabilityStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: TRACEABILITY_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
+
+// M12.1 — Operational risk level (lib/mock/ai/analytics.ts RiskLevel).
+const RISK_LEVEL_MAP: Record<string, BadgeKind> = {
+  LOW: "COMPLIANT",
+  MEDIUM: "REVIEW_REQUIRED",
+  HIGH: "NON_COMPLIANT",
+};
+
+export function riskLevelBadge(risk: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: RISK_LEVEL_MAP[risk] ?? "UNKNOWN", label: risk };
+}
+
+// M12.1 — Derived operational status for the Control Tower fleet view. Not a
+// real AircraftStatus value (see analytics.ts OperationalStatus comment) —
+// AOG/Under Maintenance/Operational are heuristics computed from open
+// defects and work orders, always rendered with a note explaining that.
+const OPERATIONAL_STATUS_MAP: Record<string, BadgeKind> = {
+  OPERATIONAL: "COMPLIANT",
+  UNDER_MAINTENANCE: "REVIEW_REQUIRED",
+  AOG: "NON_COMPLIANT",
+  STORED: "STORED",
+  WRITTEN_OFF: "WRITTEN_OFF",
+};
+
+export function operationalStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: OPERATIONAL_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}

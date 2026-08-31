@@ -96,4 +96,12 @@ export const STANDARD_AUDIT_ACTIONS = [
   "procurement.receiving_recorded",
   "procurement.certificate_uploaded",
   "procurement.certificate_verified",
+  // M12.7 — Maintenance Control Tower / Discrepancy Intelligence actions.
+  "maintenance.aircraft_status_changed",
+  "maintenance.discrepancy_reviewed",
+  "maintenance.discrepancy_grouped",
+  "maintenance.work_order_planned",
+  "maintenance.assignment_recommended",
+  "maintenance.material_shortage_identified",
+  "maintenance.risk_assessed",
 ] as const;

@@ -8,11 +8,12 @@ import { workOrders, isOverdue, workOrdersForProject, workOrdersForAircraft } fr
 import { parts, partsForWorkOrder } from "../parts";
 import { defects, defectsForAircraft } from "../defects";
 import { inspectorReviews } from "../inspectorReviews";
-import { getAircraftById, aircraft, currentRegistration } from "../aircraft";
+import { getAircraftById, aircraft, currentRegistration, getAircraftVariant } from "../aircraft";
 import { assessmentsForAircraft, getAssessmentById } from "../assessments";
 import { getRequirementById } from "../regulations";
 import { technicians, isOnShiftNow } from "../technicians";
-import type { WorkOrder, Priority } from "../types";
+import { upcomingMaintenanceEvents } from "../maintenance";
+import type { WorkOrder, Priority, Defect } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -409,4 +410,232 @@ export function assessmentUnknownReasons(assessmentId: string): string[] {
   const unknownConditions = a.conditionEvaluations.filter((c) => c.result === "UNKNOWN");
   if (unknownConditions.length === 0) return ["No condition on this assessment is currently UNKNOWN."];
   return unknownConditions.map((c) => `${c.label}: expected ${c.expected}, actual ${c.actual ?? "not recorded"}${c.note ? ` — ${c.note}` : ""}`);
+}
+
+// --- M12.1 Maintenance Control Tower additions ---
+// Same rule as the Operations Command Center above: every KPI and risk
+// reason here is derived from existing mock data (Aircraft, WorkOrder,
+// Defect, Part). Aircraft status stays ACTIVE/STORED/WRITTEN_OFF exactly as
+// defined in types.ts — "Operational"/"Under Maintenance"/"AOG" below are
+// derived operational-state labels for the tower's fleet view, not new
+// AircraftStatus values, following the same pattern as the existing
+// aircraftGrounded heuristic in getOperationsAnalytics(). There is no
+// Flight/schedule concept anywhere in the mock dataset — "next flight" is
+// never computed here; callers must render "Insufficient source data."
+// rather than infer one.
+
+export type OperationalStatus = "OPERATIONAL" | "UNDER_MAINTENANCE" | "AOG" | "STORED" | "WRITTEN_OFF";
+
+export interface AircraftRiskAssessment {
+  aircraftId: string;
+  registration: string;
+  risk: RiskLevel;
+  reasons: string[];
+}
+
+/** Explainable operational risk for one aircraft — every reason traces to a
+ * real record (open defect, open work order, or a part shortage tied to one
+ * of this aircraft's work orders). Never fabricates a flight-schedule or
+ * location-based reason, since no such data exists in the mock dataset. */
+export function getAircraftOperationalRisk(aircraftId: string): AircraftRiskAssessment | null {
+  const a = getAircraftById(aircraftId);
+  if (!a) return null;
+  const registration = currentRegistration(a);
+  const defs = defectsForAircraft(aircraftId);
+  const openDefs = defs.filter((d) => d.status === "OPEN");
+  const seriousOpenDefs = openDefs.filter((d) => d.severity === "HIGH" || d.severity === "CRITICAL");
+  const wos = workOrdersForAircraft(aircraftId);
+  const openWos = wos.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
+  const criticalOpenWos = openWos.filter((w) => w.priority === "CRITICAL" || w.priority === "HIGH");
+  const overdueWos = wos.filter((w) => isOverdue(w));
+
+  // Recurring signal: this aircraft has more than one defect (any status)
+  // recorded against the same ATA chapter.
+  const byChapter = new Map<string, Defect[]>();
+  for (const d of defs) byChapter.set(d.ataChapter, [...(byChapter.get(d.ataChapter) ?? []), d]);
+  const recurringChapters = Array.from(byChapter.entries()).filter(([, list]) => list.length > 1);
+
+  // Material shortage tied to one of this aircraft's own work orders.
+  const woIds = new Set(wos.map((w) => w.id));
+  const shortageParts = getPartsAtRisk().filter((p) => p.workOrderId && woIds.has(p.workOrderId));
+
+  const reasons: string[] = [];
+  for (const [chapter, list] of recurringChapters) {
+    reasons.push(`${list.length} recurring defect(s) in ATA ${chapter}`);
+  }
+  if (criticalOpenWos.length > 0) reasons.push(`${criticalOpenWos.length} open HIGH/CRITICAL-priority work order(s)`);
+  if (seriousOpenDefs.length > 0) reasons.push(`${seriousOpenDefs.length} open HIGH/CRITICAL-severity defect(s)`);
+  if (shortageParts.length > 0) reasons.push(`Required part unavailable: ${shortageParts.map((p) => p.partNumber).join(", ")}`);
+  if (overdueWos.length > 0) reasons.push(`${overdueWos.length} overdue work order(s)`);
+
+  const risk: RiskLevel = seriousOpenDefs.length > 0 || reasons.length >= 2 ? "HIGH" : reasons.length === 1 ? "MEDIUM" : "LOW";
+
+  return {
+    aircraftId,
+    registration,
+    risk,
+    reasons: reasons.length > 0 ? reasons : ["No open serious defects, no critical work orders, no material shortages, and no recurring defect pattern found."],
+  };
+}
+
+export interface ControlTowerAircraftRow {
+  aircraftId: string;
+  registration: string;
+  model: string;
+  operationalStatus: OperationalStatus;
+  aogReason: string | null;
+  openWorkOrders: number;
+  openDefects: number;
+  criticalOpenDefects: number;
+  nextMaintenanceDue: string | null;
+  materialShortageCount: number;
+  risk: AircraftRiskAssessment;
+}
+
+/** One row per aircraft for the Control Tower fleet table. Location and next
+ * flight are deliberately absent — no such data exists in the mock dataset,
+ * and the page must render "Insufficient source data." for them rather than
+ * this function inventing a value. */
+export function getControlTowerFleet(): ControlTowerAircraftRow[] {
+  const events = upcomingMaintenanceEvents(50);
+  return aircraft.map((a) => {
+    const registration = currentRegistration(a);
+    const variant = getAircraftVariant(a.aircraftVariantId);
+    const wos = workOrdersForAircraft(a.id);
+    const openWos = wos.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
+    const defs = defectsForAircraft(a.id);
+    const openDefs = defs.filter((d) => d.status === "OPEN");
+    const seriousOpenDefect = openDefs.find((d) => d.severity === "HIGH" || d.severity === "CRITICAL");
+    const woIds = new Set(wos.map((w) => w.id));
+    const shortageParts = getPartsAtRisk().filter((p) => p.workOrderId && woIds.has(p.workOrderId));
+    const nextEvent = events.find((e) => e.aircraftId === a.id);
+
+    let operationalStatus: OperationalStatus;
+    if (a.status === "STORED") operationalStatus = "STORED";
+    else if (a.status === "WRITTEN_OFF") operationalStatus = "WRITTEN_OFF";
+    else if (seriousOpenDefect) operationalStatus = "AOG";
+    else if (openWos.length > 0) operationalStatus = "UNDER_MAINTENANCE";
+    else operationalStatus = "OPERATIONAL";
+
+    return {
+      aircraftId: a.id,
+      registration,
+      model: variant?.modelDesignation ?? "Insufficient source data.",
+      operationalStatus,
+      aogReason: seriousOpenDefect ? seriousOpenDefect.description : null,
+      openWorkOrders: openWos.length,
+      openDefects: openDefs.length,
+      criticalOpenDefects: openDefs.filter((d) => d.severity === "HIGH" || d.severity === "CRITICAL").length,
+      nextMaintenanceDue: nextEvent?.date ?? null,
+      materialShortageCount: shortageParts.length,
+      risk: getAircraftOperationalRisk(a.id)!,
+    };
+  });
+}
+
+export interface ControlTowerSummary {
+  totalAircraft: number;
+  operational: number;
+  underMaintenance: number;
+  aog: number;
+  openWorkOrders: number;
+  criticalDiscrepancies: number;
+  upcomingMaintenance: number;
+  materialShortages: number;
+}
+
+export function getControlTowerSummary(): ControlTowerSummary {
+  const fleet = getControlTowerFleet();
+  const m = getMaintenanceAnalytics();
+  return {
+    totalAircraft: fleet.length,
+    operational: fleet.filter((r) => r.operationalStatus === "OPERATIONAL").length,
+    underMaintenance: fleet.filter((r) => r.operationalStatus === "UNDER_MAINTENANCE").length,
+    aog: fleet.filter((r) => r.operationalStatus === "AOG").length,
+    openWorkOrders: m.totalOpenWorkOrders,
+    criticalDiscrepancies: defects.filter((d) => d.status === "OPEN" && (d.severity === "HIGH" || d.severity === "CRITICAL")).length,
+    upcomingMaintenance: upcomingMaintenanceEvents(50).length,
+    materialShortages: getPartsAtRisk().length,
+  };
+}
+
+// --- M12.2 AI Discrepancy Intelligence additions ---
+// "Discrepancy" in this platform's domain model is the existing Defect
+// entity (see lib/mock/defects.ts) — there is no separate Discrepancy type,
+// by design, to avoid a duplicate entity for the same concept. Grouping is
+// done by ATA chapter, the only structural attribute defects already share
+// that maps to "system" in the aviation sense the product spec asks for.
+
+export interface DiscrepancyGroup {
+  ataChapter: string;
+  occurrences: number;
+  aircraftIds: string[];
+  aircraftCount: number;
+  recurringAircraftCount: number;
+  highSeverityCount: number;
+  firstOccurrence: string;
+  latestOccurrence: string;
+  openCount: number;
+  deferredCount: number;
+  resolvedCount: number;
+  defects: Defect[];
+}
+
+export function getDiscrepancyGroups(): DiscrepancyGroup[] {
+  const byChapter = new Map<string, Defect[]>();
+  for (const d of defects) byChapter.set(d.ataChapter, [...(byChapter.get(d.ataChapter) ?? []), d]);
+
+  const groups: DiscrepancyGroup[] = Array.from(byChapter.entries()).map(([ataChapter, list]) => {
+    const byAircraft = new Map<string, Defect[]>();
+    for (const d of list) byAircraft.set(d.aircraftId, [...(byAircraft.get(d.aircraftId) ?? []), d]);
+    const dates = list.map((d) => d.reportedDate).sort();
+    return {
+      ataChapter,
+      occurrences: list.length,
+      aircraftIds: Array.from(byAircraft.keys()),
+      aircraftCount: byAircraft.size,
+      recurringAircraftCount: Array.from(byAircraft.values()).filter((l) => l.length > 1).length,
+      highSeverityCount: list.filter((d) => d.severity === "HIGH" || d.severity === "CRITICAL").length,
+      firstOccurrence: dates[0],
+      latestOccurrence: dates[dates.length - 1],
+      openCount: list.filter((d) => d.status === "OPEN").length,
+      deferredCount: list.filter((d) => d.status === "DEFERRED").length,
+      resolvedCount: list.filter((d) => d.status === "RESOLVED").length,
+      defects: list,
+    };
+  });
+
+  return groups.sort((a, b) => b.occurrences - a.occurrences);
+}
+
+export function getDiscrepancyGroup(ataChapter: string): DiscrepancyGroup | null {
+  return getDiscrepancyGroups().find((g) => g.ataChapter === ataChapter) ?? null;
+}
+
+/** Lisa's narrative for one discrepancy group. Only claims a recurrence
+ * pattern when the data actually shows it (recurring on >1 aircraft, or the
+ * same chapter opened repeatedly) — otherwise says so plainly instead of
+ * inventing a cause. */
+export function getDiscrepancyGroupAnalysis(ataChapter: string): string[] {
+  const g = getDiscrepancyGroup(ataChapter);
+  if (!g) return ["Insufficient source data — no defects recorded against this ATA chapter."];
+  if (g.occurrences < 2 || (g.recurringAircraftCount === 0 && g.aircraftCount < 2)) {
+    return ["Insufficient source data to determine the recurrence cause."];
+  }
+  const parts: string[] = [];
+  parts.push(
+    `${g.occurrences} ATA ${g.ataChapter} discrepanc${g.occurrences === 1 ? "y has" : "ies have"} appeared on ${g.aircraftCount} aircraft` +
+      (g.recurringAircraftCount > 0 ? `, including ${g.recurringAircraftCount} aircraft with more than one occurrence.` : ".")
+  );
+  if (g.resolvedCount > 0 || g.deferredCount > 0) {
+    parts.push(
+      `${g.resolvedCount} occurrence(s) were resolved by corrective action, ${g.deferredCount} deferred, and ${g.openCount} remain open.`
+    );
+  } else {
+    parts.push(`All ${g.openCount} occurrence(s) are currently open.`);
+  }
+  if (g.recurringAircraftCount > 0) {
+    parts.push("The recurrence pattern suggests this should be reviewed as a repeated component/system issue rather than treated as isolated events.");
+  }
+  return parts;
 }
