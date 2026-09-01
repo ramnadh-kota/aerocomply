@@ -779,6 +779,16 @@ export interface TechnicianRecommendation {
   reasons: string[];
 }
 
+export interface TechnicianEligibility {
+  technicianId: string;
+  name: string;
+  reasons: string[];
+  eligible: boolean;
+  certificationMatch: string;
+  availability: string;
+  workload: string;
+}
+
 const CERT_KEYWORDS_STOPLIST = new Set(["and", "the", "of", "for", "b1.1", "b2"]);
 
 function certificationKeywordMatches(t: Technician, title: string): string[] {
@@ -789,19 +799,27 @@ function certificationKeywordMatches(t: Technician, title: string): string[] {
   });
 }
 
-/** Explainable technician recommendation using only fields that actually
- * exist: current open/overdue workload, on-shift status, prior assignment
- * history on this same aircraft, and a keyword overlap between a
- * technician's certifications and the work order title. There is no field
- * anywhere recording a work order's *required* certification, so this is
- * never presented as verified skill-matching — only as the reasons listed.
- * Returns null when no technician has any distinguishing signal at all,
- * rather than picking one arbitrarily and calling it a recommendation. */
-export function getTechnicianAssignmentRecommendation(workOrderId: string): TechnicianRecommendation | null {
-  const w = workOrders.find((x) => x.id === workOrderId);
-  if (!w) return null;
-  const workload = getTechnicianWorkload();
+interface RankedTechnicianCandidate {
+  technicianId: string;
+  name: string;
+  reasons: string[];
+  openWorkOrders: number;
+  onShift: boolean;
+  certMatches: number;
+  priorAircraftCount: number;
+}
 
+/** The ONE ranking pass for technician-to-work-order suitability, shared by
+ * getTechnicianAssignmentRecommendation (top pick only) and
+ * getTechnicianEligibilityForWorkOrder (full ranked list) so the two can
+ * never disagree. Uses only fields that actually exist: current open/
+ * overdue workload, on-shift status, prior assignment history on this same
+ * aircraft, and a keyword overlap between a technician's certifications and
+ * the work order title. There is no field anywhere recording a work
+ * order's *required* certification or a technician's location/working
+ * hours beyond shiftStart/shiftEnd — those criteria are never fabricated. */
+function rankTechniciansForWorkOrder(w: WorkOrder): RankedTechnicianCandidate[] {
+  const workload = getTechnicianWorkload();
   const candidates = technicians.map((t) => {
     const wl = workload.find((x) => x.technicianId === t.id)!;
     const certMatches = certificationKeywordMatches(t, w.title);
@@ -811,13 +829,44 @@ export function getTechnicianAssignmentRecommendation(workOrderId: string): Tech
     if (wl.onShift) reasons.push("On shift now");
     if (wl.openWorkOrders === 0) reasons.push("No other open work orders");
     if (priorAircraftWos.length > 0) reasons.push(`Prior work order experience on this aircraft (${priorAircraftWos.length})`);
-    return { technicianId: t.id, name: t.name, reasons, openWorkOrders: wl.openWorkOrders, onShift: wl.onShift, certMatches: certMatches.length };
+    return { technicianId: t.id, name: t.name, reasons, openWorkOrders: wl.openWorkOrders, onShift: wl.onShift, certMatches: certMatches.length, priorAircraftCount: priorAircraftWos.length };
   });
+  return candidates.sort((a, b) => b.certMatches - a.certMatches || Number(b.onShift) - Number(a.onShift) || a.openWorkOrders - b.openWorkOrders);
+}
 
-  candidates.sort((a, b) => b.certMatches - a.certMatches || Number(b.onShift) - Number(a.onShift) || a.openWorkOrders - b.openWorkOrders);
-  const top = candidates[0];
+/** Explainable technician recommendation — the top-ranked candidate only.
+ * Returns null when no technician has any distinguishing signal at all,
+ * rather than picking one arbitrarily and calling it a recommendation. */
+export function getTechnicianAssignmentRecommendation(workOrderId: string): TechnicianRecommendation | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return null;
+  const top = rankTechniciansForWorkOrder(w)[0];
   if (!top || top.reasons.length === 0) return null;
   return { technicianId: top.technicianId, name: top.name, reasons: top.reasons };
+}
+
+/** Full ranked candidate list (not just the top pick) so a planner can see
+ * every technician and why — or why not — they're eligible. "Eligible"
+ * here means at least one real, source-backed reason exists; it is never a
+ * numeric score. Certification match and availability are reported
+ * per-candidate as explicit strings so the UI never has to guess what
+ * "Insufficient source data." means for a specific technician. */
+export function getTechnicianEligibilityForWorkOrder(workOrderId: string): TechnicianEligibility[] {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return [];
+  return rankTechniciansForWorkOrder(w).map((c) => ({
+    technicianId: c.technicianId,
+    name: c.name,
+    reasons: c.reasons,
+    eligible: c.reasons.length > 0,
+    certificationMatch: c.certMatches > 0 ? `${c.certMatches} keyword match(es)` : "Insufficient source data.",
+    availability: c.onShift ? "On shift now" : "Not on shift now",
+    workload: `${c.openWorkOrders} open work order(s)`,
+  }));
+}
+
+export function getWorkOrdersAwaitingAssignment(): WorkOrderPlanningRow[] {
+  return getWorkOrderPlanning().filter((r) => r.planningStatus === "TECHNICIAN_BLOCKED" || r.planningStatus === "BOTH_BLOCKED");
 }
 
 /** Deterministic, source-backed "what should maintenance do next" list —
@@ -1174,4 +1223,34 @@ export function getMaintenanceControlCenterSummary(): MaintenanceControlCenterSu
     overdueAtRiskMaintenance: planningSummary.overdue,
     highRiskAircraft: fleet.filter((f) => f.risk.risk === "HIGH").length,
   };
+}
+
+// --- M12.6 Maintenance Execution & Action Center ---
+// Turns the existing WorkOrderPlanningRow.planningStatus into a concrete,
+// supported next action. Every action type maps to a real mutation already
+// present in lib/mock/workOrders.ts (assignTechnician/startWorkOrder) or
+// added in this milestone (unassignTechnician/completeWorkOrder/
+// escalateWorkOrder) — never a fake workflow transition.
+
+export type ExecutionActionType = "ASSIGN_TECHNICIAN" | "RESOLVE_MATERIAL_BLOCKER" | "START_WORK" | "ESCALATE" | "REVIEW" | "COMPLETE";
+
+export interface ExecutionQueueItem extends WorkOrderPlanningRow {
+  actionType: ExecutionActionType;
+  actionLabel: string;
+}
+
+function deriveExecutionAction(r: WorkOrderPlanningRow): { actionType: ExecutionActionType; actionLabel: string } {
+  if (r.planningStatus === "BOTH_BLOCKED" || r.planningStatus === "TECHNICIAN_BLOCKED") return { actionType: "ASSIGN_TECHNICIAN", actionLabel: "Assign technician" };
+  if (r.planningStatus === "MATERIAL_BLOCKED") return { actionType: "RESOLVE_MATERIAL_BLOCKER", actionLabel: "Resolve material blocker" };
+  if (r.planningStatus === "READY") return { actionType: "START_WORK", actionLabel: "Start work" };
+  if (r.planningStatus === "IN_PROGRESS" && (r.risk === "HIGH" || r.aogAircraft)) return { actionType: "ESCALATE", actionLabel: "Escalate" };
+  if (r.planningStatus === "IN_PROGRESS") return { actionType: "COMPLETE", actionLabel: "Complete" };
+  return { actionType: "REVIEW", actionLabel: "Review" };
+}
+
+/** The actionable execution queue — one row per open work order, each
+ * carrying a real supported action. Shared by the Control Center UI and
+ * Lisa so "what can maintenance complete today" always matches. */
+export function getExecutionQueue(): ExecutionQueueItem[] {
+  return getWorkOrderPlanning().map((r) => ({ ...r, ...deriveExecutionAction(r) }));
 }

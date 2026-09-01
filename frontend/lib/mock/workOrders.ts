@@ -326,3 +326,37 @@ export function startWorkOrder(workOrderId: string): WorkOrder | null {
   w.status = "IN_PROGRESS";
   return w;
 }
+
+// M12.6 — smallest additional mutations the Execution & Action Center
+// needs, following the exact same pattern as assignTechnician/
+// startWorkOrder above (mutate in place, return the updated WorkOrder or
+// null, let the caller emit the audit event with real before/after state).
+
+/** Removing an assignment is real, supported domain behavior — the field
+ * is nullable — never destructive to anything else on the record. */
+export function unassignTechnician(workOrderId: string): WorkOrder | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return null;
+  w.assignedTechnicianId = null;
+  return w;
+}
+
+export function completeWorkOrder(workOrderId: string, completionDate: string): WorkOrder | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w || w.status !== "IN_PROGRESS") return null;
+  w.status = "COMPLETED";
+  w.completionDate = completionDate;
+  return w;
+}
+
+/** "Escalate" has no dedicated WorkOrderStatus value in the domain model —
+ * inventing one would be a fabricated workflow state. Priority is a real,
+ * existing, mutable field, so escalation is implemented honestly as
+ * raising priority to CRITICAL (the highest real value) rather than a fake
+ * status transition. No-op (returns null) if already CRITICAL. */
+export function escalateWorkOrder(workOrderId: string): WorkOrder | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w || w.priority === "CRITICAL") return null;
+  w.priority = "CRITICAL";
+  return w;
+}

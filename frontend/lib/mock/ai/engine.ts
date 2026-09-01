@@ -59,6 +59,9 @@ import {
   getProcurementActionsForShortages,
   getMaintenanceControlCenter,
   getMaintenanceControlCenterSummary,
+  getTechnicianEligibilityForWorkOrder,
+  getExecutionQueue,
+  getWorkOrdersAwaitingAssignment,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -242,6 +245,21 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "What should maintenance prioritize?",
       "Give me the maintenance control report.",
       "Why is N412MX high risk?",
+    ],
+  },
+  {
+    category: "Maintenance Execution",
+    questions: [
+      "Who should handle WO-1051?",
+      "Which technician is best suited for this work order?",
+      "Why was this technician recommended?",
+      "Which work orders are waiting for technician assignment?",
+      "Which work orders are blocked by materials?",
+      "What can maintenance complete today?",
+      "What needs escalation?",
+      "What should the planner do next?",
+      "Show technician workload.",
+      "Which aircraft have work orders that need action?",
     ],
   },
 ];
@@ -1039,6 +1057,120 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative: [groups.length > 0 ? "Groups with at least one open occurrence." : "No discrepancy group currently has an open occurrence.", TRUST_FOOTER],
       table: { title: "Discrepancies Needing Attention", columns: ["ATA", "Open", "High Severity", "Recurring"], rows: groups.map((g) => [g.ataChapter, g.openCount, g.highSeverityCount, g.recurringAircraftCount]) },
       buttons: [{ label: "Open Discrepancy Intelligence", href: "/maintenance/discrepancies" }],
+    };
+  }
+
+  // --- M12.6 Maintenance Execution & Action Center branches. All read
+  // getTechnicianEligibilityForWorkOrder()/getExecutionQueue()/
+  // getWorkOrdersAwaitingAssignment() — the same functions the Planning
+  // detail page and Control Center execution table render.
+
+  // "Who should handle WO-1051?" / "which technician is best suited for this work order?"
+  if ((q.includes("who should handle") || q.includes("best suited")) || (q.includes("technician") && q.includes("best") && findWorkOrderFromText(question))) {
+    const wo = findWorkOrderFromText(question);
+    if (!wo) return insufficient(question, ["a recognizable work order number, e.g. WO-1042"]);
+    const eligible = getTechnicianEligibilityForWorkOrder(wo.id).filter((e) => e.eligible);
+    if (eligible.length === 0) {
+      return {
+        id: nextId(),
+        question,
+        headline: `${wo.workOrderNumber} — no technician recommendation`,
+        narrative: ["Insufficient source data to recommend a technician — no technician has a distinguishing certification match, workload advantage, shift availability, or prior aircraft experience for this work order.", TRUST_FOOTER],
+        insufficientData: true,
+        buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+      };
+    }
+    const top = eligible[0];
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — ${top.name} recommended`,
+      narrative: [...top.reasons, TRUST_FOOTER],
+      table: { title: "Eligible Technicians", columns: ["Technician", "Certification Match", "Availability", "Workload"], rows: eligible.map((e) => [e.name, e.certificationMatch, e.availability, e.workload]) },
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Why was this technician recommended?"
+  if (q.includes("why") && q.includes("technician") && q.includes("recommend")) {
+    const wo = findWorkOrderFromText(question);
+    if (!wo) return insufficient(question, ["a recognizable work order number, e.g. WO-1042"]);
+    const rec = getTechnicianAssignmentRecommendation(wo.id);
+    if (!rec) return insufficient(question, ["a technician with a distinguishing reason for this work order"]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — why ${rec.name} was recommended`,
+      narrative: [...rec.reasons, "Certification matching is keyword overlap with the work order title, not verified skill certification.", TRUST_FOOTER],
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Which work orders are waiting for technician assignment?" (explicit
+  // phrasing variant not already covered by the M12.4 branch)
+  if (q.includes("work order") && q.includes("waiting") && q.includes("technician")) {
+    const rows = getWorkOrdersAwaitingAssignment();
+    return {
+      id: nextId(),
+      question,
+      headline: `${rows.length} work order(s) waiting for technician assignment`,
+      narrative: [rows.length > 0 ? "These work orders have no assigned technician." : "Every open work order has an assigned technician.", TRUST_FOOTER],
+      table: { title: "Awaiting Assignment", columns: ["Work Order", "Aircraft", "Priority"], rows: rows.map((r) => [r.workOrderNumber, r.aircraftRegistration, r.priority]) },
+      buttons: [{ label: "Open Planning Center", href: "/maintenance/planning" }],
+    };
+  }
+
+  // "What can maintenance complete today?"
+  if (q.includes("complete") && (q.includes("today") || q.includes("can maintenance"))) {
+    const rows = getExecutionQueue().filter((r) => r.actionType === "COMPLETE");
+    return {
+      id: nextId(),
+      question,
+      headline: `${rows.length} work order(s) can be completed today`,
+      narrative: [rows.length > 0 ? "In progress and not flagged for escalation." : "No work order is currently in a completable state.", TRUST_FOOTER],
+      table: { title: "Ready to Complete", columns: ["Work Order", "Aircraft", "Assigned Technician"], rows: rows.map((r) => [r.workOrderNumber, r.aircraftRegistration, r.assignedTechnicianName ?? "Insufficient source data."]) },
+      buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "What needs escalation?"
+  if (q.includes("escalat")) {
+    const rows = getExecutionQueue().filter((r) => r.actionType === "ESCALATE");
+    return {
+      id: nextId(),
+      question,
+      headline: `${rows.length} work order(s) need escalation`,
+      narrative: [rows.length > 0 ? "In progress with HIGH risk or an AOG aircraft." : "No work order currently meets the escalation criteria.", TRUST_FOOTER],
+      table: { title: "Needs Escalation", columns: ["Work Order", "Aircraft", "Priority"], rows: rows.map((r) => [r.workOrderNumber, r.aircraftRegistration, r.priority]) },
+      buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "What should the planner do next?"
+  if (q.includes("planner") && q.includes("next")) {
+    const queue = getExecutionQueue().filter((r) => r.planningStatus !== "COMPLETED" && r.planningStatus !== "CANCELLED" && r.planningStatus !== "WAITING_INSPECTION" && r.planningStatus !== "IN_PROGRESS");
+    return {
+      id: nextId(),
+      question,
+      headline: `${queue.length} work order(s) need planner action`,
+      narrative: [queue.length > 0 ? "Ranked by planning status; each has a real supported action." : "No work order currently needs planner action.", TRUST_FOOTER],
+      table: { title: "Planner Action Queue", columns: ["Work Order", "Aircraft", "Action"], rows: queue.map((r) => [r.workOrderNumber, r.aircraftRegistration, r.actionLabel]) },
+      buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "Which aircraft have work orders that need action?"
+  if (q.includes("aircraft") && q.includes("work order") && q.includes("need") && q.includes("action")) {
+    const queue = getExecutionQueue().filter((r) => r.actionType !== "REVIEW");
+    const byAircraft = new Map<string, number>();
+    for (const r of queue) byAircraft.set(r.aircraftRegistration, (byAircraft.get(r.aircraftRegistration) ?? 0) + 1);
+    return {
+      id: nextId(),
+      question,
+      headline: `${byAircraft.size} aircraft have work orders needing action`,
+      narrative: [TRUST_FOOTER],
+      table: { title: "Aircraft With Actionable Work Orders", columns: ["Aircraft", "Count"], rows: Array.from(byAircraft.entries()) },
+      buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
     };
   }
 

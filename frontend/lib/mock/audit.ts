@@ -114,4 +114,9 @@ export const STANDARD_AUDIT_ACTIONS = [
   "maintenance.material_procurement_linked",
   // M12.5 — Maintenance Control Center.
   "maintenance.control_center_reviewed",
+  // M12.6 — Maintenance Execution & Action Center.
+  "maintenance.technician_reassigned",
+  "maintenance.technician_unassigned",
+  "maintenance.work_order_completed",
+  "maintenance.work_order_escalated",
 ] as const;

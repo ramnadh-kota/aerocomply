@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, operationalStatusBadge, riskLevelBadge, priorityBadge, workOrderStatusBadge } from "@/components/status/StatusBadge";
@@ -9,12 +9,14 @@ import {
   getMaintenanceControlCenter,
   getMaintenanceControlCenterSummary,
   getControlTowerFleet,
-  getWorkOrderPlanning,
+  getExecutionQueue,
   getMaterialShortages,
   getDiscrepancyGroups,
   getProcurementActionsForShortages,
   type ControlCenterPriority,
+  type ExecutionActionType,
 } from "@/lib/mock/ai/analytics";
+import { workOrderRepository } from "@/lib/domain/repositories";
 import { getCurrentUser } from "@/lib/domain/currentUser";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 
@@ -36,14 +38,34 @@ export default function MaintenanceControlCenterPage() {
   const { addAuditEvent } = useMroState();
   const current = getCurrentUser();
   const reviewed = useRef(false);
+  const [, setVersion] = useState(0);
 
   const summary = getMaintenanceControlCenterSummary();
   const queue = getMaintenanceControlCenter();
   const fleet = getControlTowerFleet();
-  const planning = getWorkOrderPlanning().filter((r) => r.planningStatus !== "COMPLETED" && r.planningStatus !== "CANCELLED" && r.planningStatus !== "READY");
+  const executionQueue = getExecutionQueue().filter((r) => r.planningStatus !== "COMPLETED" && r.planningStatus !== "CANCELLED");
   const materialBlockers = getMaterialShortages();
   const discrepancies = getDiscrepancyGroups().filter((g) => g.openCount > 0);
   const procurementHandoff = getProcurementActionsForShortages();
+
+  function runAction(workOrderId: string, workOrderNumber: string, actionType: ExecutionActionType) {
+    if (actionType === "START_WORK") {
+      const updated = workOrderRepository.startWorkOrder(workOrderId);
+      if (!updated) return;
+      addAuditEvent({ actor: current?.user.name ?? "Unknown User", actorRole: "Maintenance", action: "maintenance.work_started", objectType: "WorkOrder", objectLabel: workOrderNumber, previousState: null, newState: "IN_PROGRESS" });
+    } else if (actionType === "COMPLETE") {
+      const updated = workOrderRepository.completeWorkOrder(workOrderId, new Date().toISOString().slice(0, 10));
+      if (!updated) return;
+      addAuditEvent({ actor: current?.user.name ?? "Unknown User", actorRole: "Maintenance", action: "maintenance.work_order_completed", objectType: "WorkOrder", objectLabel: workOrderNumber, previousState: null, newState: "COMPLETED" });
+    } else if (actionType === "ESCALATE") {
+      const updated = workOrderRepository.escalateWorkOrder(workOrderId);
+      if (!updated) return;
+      addAuditEvent({ actor: current?.user.name ?? "Unknown User", actorRole: "Maintenance", action: "maintenance.work_order_escalated", objectType: "WorkOrder", objectLabel: workOrderNumber, previousState: null, newState: "CRITICAL", reason: "Escalated from Maintenance Control Center." });
+    } else {
+      return;
+    }
+    setVersion((v) => v + 1);
+  }
 
   useEffect(() => {
     if (reviewed.current) return;
@@ -162,12 +184,16 @@ export default function MaintenanceControlCenterPage() {
       </section>
 
       <section className="ac-section">
-        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Work Orders Requiring Attention</h2>
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Work Orders Requiring Action</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+          Each action below calls the same mutation used on the Planning detail page (workOrderRepository) and creates a real audit
+          event. &quot;Assign technician&quot; opens the Planning view, where eligible technicians and their reasons are shown.
+        </p>
         <div className="ac-card" style={{ padding: 0, overflowX: "auto" }}>
           <table className="ac-table">
-            <thead><tr><th>WO</th><th>Aircraft</th><th>Description</th><th>Priority</th><th>Status</th><th>Age</th><th>Material</th><th>Assigned Technician</th><th>Recommended Action</th></tr></thead>
+            <thead><tr><th>WO</th><th>Aircraft</th><th>Description</th><th>Priority</th><th>Status</th><th>Age</th><th>Material</th><th>Assigned Technician</th><th>Action</th></tr></thead>
             <tbody>
-              {planning.map((r) => {
+              {executionQueue.map((r) => {
                 const p = priorityBadge(r.priority);
                 const s = workOrderStatusBadge(r.status);
                 return (
@@ -180,11 +206,25 @@ export default function MaintenanceControlCenterPage() {
                     <td>{r.daysOverdue !== null ? `${r.daysOverdue}d overdue` : `Due ${r.dueDate}`}</td>
                     <td>{r.shortParts.length > 0 ? r.shortParts.map((sp) => sp.partNumber).join(", ") : "Ready"}</td>
                     <td>{r.assignedTechnicianName ?? "Insufficient source data."}</td>
-                    <td className="ac-text-sm">{r.recommendedAction}</td>
+                    <td>
+                      {r.actionType === "ASSIGN_TECHNICIAN" || r.actionType === "RESOLVE_MATERIAL_BLOCKER" || r.actionType === "REVIEW" ? (
+                        <Link
+                          href={r.actionType === "RESOLVE_MATERIAL_BLOCKER" ? "/maintenance/material-readiness" : `/maintenance/planning/${r.workOrderId}`}
+                          className="ac-btn"
+                          style={{ padding: "2px 8px" }}
+                        >
+                          {r.actionLabel}
+                        </Link>
+                      ) : (
+                        <button className="ac-btn ac-btn-primary" style={{ padding: "2px 8px" }} onClick={() => runAction(r.workOrderId, r.workOrderNumber, r.actionType)}>
+                          {r.actionLabel}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
-              {planning.length === 0 && <tr><td colSpan={9} className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>No open work order currently requires attention.</td></tr>}
+              {executionQueue.length === 0 && <tr><td colSpan={9} className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>No open work order currently requires action.</td></tr>}
             </tbody>
           </table>
         </div>

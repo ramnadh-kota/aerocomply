@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge, workOrderStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
-import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, requirementLabel } from "@/lib/mock/ai/analytics";
+import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel } from "@/lib/mock/ai/analytics";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { technicians } from "@/lib/mock/technicians";
 import { workOrderRepository } from "@/lib/domain/repositories";
@@ -31,6 +31,8 @@ export default function WorkOrderPlanningDetailPage() {
   const row = getWorkOrderPlanningRow(workOrderId);
   const wo = getWorkOrderById(workOrderId);
   const recommendation = getTechnicianAssignmentRecommendation(workOrderId);
+  const eligibility = getTechnicianEligibilityForWorkOrder(workOrderId);
+  const [showReassign, setShowReassign] = useState(false);
 
   if (!row || !wo) {
     return (
@@ -47,17 +49,34 @@ export default function WorkOrderPlanningDetailPage() {
   const risk = riskLevelBadge(row.risk);
 
   const assign = (technicianId: string) => {
+    const wasAssigned = row.assignedTechnicianId !== null;
     const updated = workOrderRepository.assignTechnician(workOrderId, technicianId);
     if (!updated) return;
     const tech = technicians.find((t) => t.id === technicianId);
     addAuditEvent({
       actor: current?.user.name ?? "Unknown User",
       actorRole: "Maintenance",
-      action: "maintenance.technician_assigned",
+      action: wasAssigned ? "maintenance.technician_reassigned" : "maintenance.technician_assigned",
       objectType: "WorkOrder",
       objectLabel: wo.workOrderNumber,
       previousState: row.assignedTechnicianName,
       newState: tech?.name ?? technicianId,
+    });
+    setShowReassign(false);
+    setVersion((v) => v + 1);
+  };
+
+  const unassign = () => {
+    const updated = workOrderRepository.unassignTechnician(workOrderId);
+    if (!updated) return;
+    addAuditEvent({
+      actor: current?.user.name ?? "Unknown User",
+      actorRole: "Maintenance",
+      action: "maintenance.technician_unassigned",
+      objectType: "WorkOrder",
+      objectLabel: wo.workOrderNumber,
+      previousState: row.assignedTechnicianName,
+      newState: null,
     });
     setVersion((v) => v + 1);
   };
@@ -73,6 +92,38 @@ export default function WorkOrderPlanningDetailPage() {
       objectLabel: wo.workOrderNumber,
       previousState: row.status,
       newState: "IN_PROGRESS",
+    });
+    setVersion((v) => v + 1);
+  };
+
+  const complete = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const updated = workOrderRepository.completeWorkOrder(workOrderId, today);
+    if (!updated) return;
+    addAuditEvent({
+      actor: current?.user.name ?? "Unknown User",
+      actorRole: "Maintenance",
+      action: "maintenance.work_order_completed",
+      objectType: "WorkOrder",
+      objectLabel: wo.workOrderNumber,
+      previousState: row.status,
+      newState: "COMPLETED",
+    });
+    setVersion((v) => v + 1);
+  };
+
+  const escalate = () => {
+    const updated = workOrderRepository.escalateWorkOrder(workOrderId);
+    if (!updated) return;
+    addAuditEvent({
+      actor: current?.user.name ?? "Unknown User",
+      actorRole: "Maintenance",
+      action: "maintenance.work_order_escalated",
+      objectType: "WorkOrder",
+      objectLabel: wo.workOrderNumber,
+      previousState: row.priority,
+      newState: "CRITICAL",
+      reason: "Escalated by maintenance planner.",
     });
     setVersion((v) => v + 1);
   };
@@ -157,10 +208,21 @@ export default function WorkOrderPlanningDetailPage() {
       <section className="ac-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Technician</h2>
         <div className="ac-card">
-          <p className="ac-text-sm" style={{ margin: "0 0 6px" }}>
-            Assigned: {row.assignedTechnicianName ?? <span className="ac-text-muted">Unassigned</span>}
-          </p>
-          {!row.assignedTechnicianId && (
+          <div className="ac-flex ac-justify-between" style={{ flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+            <p className="ac-text-sm" style={{ margin: 0 }}>
+              Assigned: {row.assignedTechnicianName ?? <span className="ac-text-muted">Unassigned</span>}
+            </p>
+            {row.assignedTechnicianId && (
+              <div className="ac-flex ac-gap-2">
+                <button className="ac-btn" style={{ padding: "2px 8px" }} onClick={() => setShowReassign((s) => !s)}>
+                  {showReassign ? "Cancel Reassign" : "Reassign"}
+                </button>
+                <button className="ac-btn" style={{ padding: "2px 8px" }} onClick={unassign}>Remove Assignment</button>
+              </div>
+            )}
+          </div>
+
+          {(!row.assignedTechnicianId || showReassign) && (
             <>
               {recommendation ? (
                 <div style={{ marginTop: 8 }}>
@@ -179,12 +241,24 @@ export default function WorkOrderPlanningDetailPage() {
               ) : (
                 <p className="ac-text-sm ac-text-muted" style={{ margin: "8px 0" }}>Insufficient source data to recommend a technician.</p>
               )}
-              <div className="ac-flex ac-gap-2" style={{ marginTop: 10, flexWrap: "wrap" }}>
-                {technicians.map((t) => (
-                  <button key={t.id} className="ac-btn" style={{ padding: "4px 10px" }} onClick={() => assign(t.id)}>
-                    Assign {t.name}
-                  </button>
-                ))}
+
+              <p className="ac-eyebrow" style={{ margin: "16px 0 6px" }}>Eligible Technicians</p>
+              <div className="ac-card" style={{ padding: 0 }}>
+                <table className="ac-table">
+                  <thead><tr><th>Technician</th><th>Certification Match</th><th>Availability</th><th>Workload</th><th>Reasons</th><th></th></tr></thead>
+                  <tbody>
+                    {eligibility.map((e) => (
+                      <tr key={e.technicianId}>
+                        <td>{e.name}</td>
+                        <td className="ac-text-sm">{e.certificationMatch}</td>
+                        <td className="ac-text-sm">{e.availability}</td>
+                        <td className="ac-text-sm">{e.workload}</td>
+                        <td className="ac-text-sm">{e.reasons.length > 0 ? e.reasons.join("; ") : "Insufficient source data."}</td>
+                        <td><button className="ac-btn" style={{ padding: "2px 8px" }} onClick={() => assign(e.technicianId)}>Assign</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </>
           )}
@@ -192,9 +266,15 @@ export default function WorkOrderPlanningDetailPage() {
       </section>
 
       <section className="ac-section">
-        <div className="ac-flex ac-gap-2">
+        <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
           {row.planningStatus === "READY" && (
             <button className="ac-btn ac-btn-primary" onClick={start}>Start Work</button>
+          )}
+          {row.status === "IN_PROGRESS" && (
+            <button className="ac-btn ac-btn-primary" onClick={complete}>Complete</button>
+          )}
+          {row.priority !== "CRITICAL" && row.status !== "COMPLETED" && row.status !== "CANCELLED" && (
+            <button className="ac-btn" onClick={escalate}>Escalate</button>
           )}
           <Link href={`/maintenance/work-orders/${wo.id}`} className="ac-btn">View Full Work Order</Link>
           <Link href={`/aircraft/${wo.aircraftId}`} className="ac-btn">View Aircraft</Link>

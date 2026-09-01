@@ -16,7 +16,7 @@
 // adding another direct mock-array dependency.
 
 import { aircraft as aircraftRows, getAircraftById, getAircraftByRegistration, currentRegistration } from "../mock/aircraft";
-import { workOrders as workOrderRows, getWorkOrderById, workOrdersForAircraft, workOrdersForProject, workOrdersForTechnician, isOverdue, assignTechnician, startWorkOrder } from "../mock/workOrders";
+import { workOrders as workOrderRows, getWorkOrderById, workOrdersForAircraft, workOrdersForProject, workOrdersForTechnician, isOverdue, assignTechnician, startWorkOrder, unassignTechnician, completeWorkOrder, escalateWorkOrder } from "../mock/workOrders";
 import { defects as defectRows, defectsForAircraft, defectsForWorkOrder } from "../mock/defects";
 import { getInspectorReviewById, getInspectorReviewForWorkOrder, inspectorReviews as inspectorReviewRows } from "../mock/inspectorReviews";
 import { evidence as evidenceRows, getEvidenceById, evidenceForAssessment } from "../mock/evidence";
@@ -83,6 +83,9 @@ export interface WorkOrderRepository {
   isOverdue(w: WorkOrder): boolean;
   assignTechnician(workOrderId: string, technicianId: string): WorkOrder | null;
   startWorkOrder(workOrderId: string): WorkOrder | null;
+  unassignTechnician(workOrderId: string): WorkOrder | null;
+  completeWorkOrder(workOrderId: string, completionDate: string): WorkOrder | null;
+  escalateWorkOrder(workOrderId: string): WorkOrder | null;
 }
 
 export interface DefectRepository {
@@ -156,6 +159,9 @@ export const workOrderRepository: WorkOrderRepository = {
   isOverdue: (w) => isOverdue(w),
   assignTechnician,
   startWorkOrder,
+  unassignTechnician,
+  completeWorkOrder,
+  escalateWorkOrder,
 };
 
 export const defectRepository: DefectRepository = {
