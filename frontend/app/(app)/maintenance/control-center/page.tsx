@@ -19,6 +19,10 @@ import {
 import { workOrderRepository } from "@/lib/domain/repositories";
 import { getCurrentUser } from "@/lib/domain/currentUser";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { workOrders } from "@/lib/mock/workOrders";
+import { getAircraftByRegistration } from "@/lib/mock/aircraft";
+import { ActionHistory, type ActionHistoryLink } from "@/components/audit/ActionHistory";
+import type { AuditEvent } from "@/lib/mock/types";
 
 // M12.5 — Maintenance Control Center. A pure aggregation view: every number
 // and reason on this page is read from the same analytics functions the
@@ -35,7 +39,7 @@ const PRIORITY_BADGE: Record<ControlCenterPriority, { status: Parameters<typeof 
 };
 
 export default function MaintenanceControlCenterPage() {
-  const { addAuditEvent } = useMroState();
+  const { addAuditEvent, auditLog } = useMroState();
   const current = getCurrentUser();
   const reviewed = useRef(false);
   const [, setVersion] = useState(0);
@@ -47,6 +51,20 @@ export default function MaintenanceControlCenterPage() {
   const materialBlockers = getMaterialShortages();
   const discrepancies = getDiscrepancyGroups().filter((g) => g.openCount > 0);
   const procurementHandoff = getProcurementActionsForShortages();
+
+  const recentActions = [...auditLog]
+    .filter((e) => e.action.startsWith("maintenance."))
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    .slice(0, 10);
+
+  function linkForAction(e: AuditEvent): ActionHistoryLink | null {
+    const wo = workOrders.find((w) => w.workOrderNumber === e.objectLabel);
+    if (wo) return { label: `View ${wo.workOrderNumber}`, href: `/maintenance/planning/${wo.id}` };
+    const ac = getAircraftByRegistration(e.objectLabel);
+    if (ac) return { label: "View Aircraft", href: `/aircraft/${ac.id}` };
+    if (e.objectType === "DiscrepancyGroup") return { label: "Investigate →", href: "/maintenance/discrepancies" };
+    return null;
+  }
 
   function runAction(workOrderId: string, workOrderNumber: string, actionType: ExecutionActionType) {
     if (actionType === "START_WORK") {
@@ -307,6 +325,14 @@ export default function MaintenanceControlCenterPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Recent Maintenance Actions</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+          The last {recentActions.length} maintenance action(s) recorded in the audit trail this session, most recent first.
+        </p>
+        <ActionHistory events={recentActions} emptyMessage="No maintenance actions recorded yet this session." linkFor={linkForAction} />
       </section>
 
       <section className="ac-section">

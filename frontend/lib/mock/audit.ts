@@ -55,6 +55,18 @@ export function auditEventsForObjectLabelContains(fragment: string): AuditEvent[
   return auditEvents.filter((e) => e.objectLabel.includes(fragment));
 }
 
+// M12.7 — Maintenance Traceability & Action History. The ONE merge pattern
+// for "static seed events + this session's live mutations", extracted here
+// so every page/component that needs a per-entity history (Planning detail,
+// Control Center, Lisa) calls the same function instead of re-implementing
+// the merge-and-sort each time. Mirrors the pattern already used inline on
+// the procurement approvals detail page.
+export function combinedAuditHistory(objectLabel: string, liveLog: AuditEvent[]): AuditEvent[] {
+  const seeded = auditEvents.filter((e) => e.objectLabel === objectLabel);
+  const live = liveLog.filter((e) => e.objectLabel === objectLabel);
+  return [...seeded, ...live].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
 // M8.8 — Standard audit action taxonomy. `AuditEvent.action` remains a
 // plain string (see types.ts) rather than a strict union, since existing
 // seeded events already use their own dotted action names — this constant

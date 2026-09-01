@@ -11,6 +11,8 @@ import { defectsForAircraft } from "@/lib/mock/defects";
 import { technicians } from "@/lib/mock/technicians";
 import { workOrderRepository } from "@/lib/domain/repositories";
 import { getWorkOrderById } from "@/lib/mock/workOrders";
+import { combinedAuditHistory } from "@/lib/mock/audit";
+import { ActionHistory } from "@/components/audit/ActionHistory";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getCurrentUser } from "@/lib/domain/currentUser";
 
@@ -24,7 +26,7 @@ export default function WorkOrderPlanningDetailPage() {
   const params = useParams<{ id: string }>();
   const workOrderId = params.id;
   const [version, setVersion] = useState(0);
-  const { addAuditEvent } = useMroState();
+  const { addAuditEvent, auditLog } = useMroState();
   const current = getCurrentUser();
   void version;
 
@@ -279,6 +281,18 @@ export default function WorkOrderPlanningDetailPage() {
           <Link href={`/maintenance/work-orders/${wo.id}`} className="ac-btn">View Full Work Order</Link>
           <Link href={`/aircraft/${wo.aircraftId}`} className="ac-btn">View Aircraft</Link>
         </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Work Order History</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+          The recorded history for {row.workOrderNumber}, read directly from the audit trail. This is a session-only prototype — only
+          actions taken in this session (or seeded at startup) appear here; no lifecycle step is shown unless it was actually recorded.
+        </p>
+        <ActionHistory
+          events={combinedAuditHistory(row.workOrderNumber, auditLog)}
+          emptyMessage="No recorded actions for this work order yet."
+        />
       </section>
     </div>
   );

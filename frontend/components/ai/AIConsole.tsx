@@ -26,13 +26,13 @@ export function AIConsole({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
-  const { addAuditEvent } = useMroState();
+  const { addAuditEvent, auditLog } = useMroState();
   const askedInitial = useRef(false);
 
   function ask(question: string) {
     const trimmed = question.trim();
     if (!trimmed) return;
-    const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId });
+    const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId, auditLog });
     const turn: Turn = { id: response.id, question: trimmed, response };
     setTurns((prev) => [...prev, turn]);
     setActiveId(turn.id);

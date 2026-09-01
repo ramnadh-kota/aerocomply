@@ -26,6 +26,8 @@ import { partsForWorkOrder, parts } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart } from "../partTraceability";
 import { getWorkOrderCostSummary, getAircraftCostSummary, getFleetFinancialSummary, workOrderIdsWithCostData, highestCostPartCost, highestVendorSpend, vendorCosts } from "../finance";
 import { vendors, partRequests, purchaseOrders, partsWithoutVendorAvailability, scoreVendorOptionsForPart, cartItems, cartSummary, cartItemLineTotal, getVendorById } from "../procurement";
+import { auditEvents, combinedAuditHistory } from "../audit";
+import type { AuditEvent } from "../types";
 import { AI_DEMO_DATA_FOOTER } from "../../brand";
 import {
   getProjectAnalytics,
@@ -73,6 +75,11 @@ import {
 export interface AiQuestionContext {
   projectId?: string;
   aircraftId?: string;
+  /** M12.7 — this session's live audit events (useMroState().auditLog), so
+   * Lisa's traceability answers see the same mutations the UI does. When
+   * omitted (e.g. server-rendered callers), falls back to the static seed
+   * log only — never a second audit calculation. */
+  auditLog?: AuditEvent[];
 }
 
 export interface AiButton {
@@ -260,6 +267,21 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "What should the planner do next?",
       "Show technician workload.",
       "Which aircraft have work orders that need action?",
+    ],
+  },
+  {
+    category: "Maintenance Traceability",
+    questions: [
+      "What happened to WO-1051?",
+      "Who assigned the technician?",
+      "When was WO-1046 escalated?",
+      "Why was this work order escalated?",
+      "Who reassigned this technician?",
+      "Show the history of WO-1051.",
+      "What maintenance actions happened recently?",
+      "What changed on this work order?",
+      "Who made the latest maintenance decision?",
+      "Show me the audit trail for this aircraft.",
     ],
   },
 ];
@@ -1133,8 +1155,10 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
-  // "What needs escalation?"
-  if (q.includes("escalat")) {
+  // "What needs escalation?" (fleet-wide only — a question naming a
+  // specific work order, e.g. "when/why was WO-1046 escalated", is handled
+  // by the more specific M12.7 traceability branch below instead).
+  if (q.includes("escalat") && !findWorkOrderFromText(question)) {
     const rows = getExecutionQueue().filter((r) => r.actionType === "ESCALATE");
     return {
       id: nextId(),
@@ -1171,6 +1195,91 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative: [TRUST_FOOTER],
       table: { title: "Aircraft With Actionable Work Orders", columns: ["Aircraft", "Count"], rows: Array.from(byAircraft.entries()) },
       buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // --- M12.7 Maintenance Traceability & Action History branches. All read
+  // combinedAuditHistory()/the live auditLog passed via context — the SAME
+  // audit trail the Control Center and Planning detail pages render. Never
+  // reconstructs a historical value from current state.
+
+  // "What happened to WO-1051?" / "Show the history of WO-1051." / "What changed on this work order?"
+  if ((q.includes("what happened") || q.includes("history") || q.includes("what changed")) && findWorkOrderFromText(question)) {
+    const wo = findWorkOrderFromText(question)!;
+    const log = context?.auditLog ?? auditEvents;
+    const history = combinedAuditHistory(wo.workOrderNumber, log);
+    if (history.length === 0) return insufficient(question, [`recorded audit events for ${wo.workOrderNumber} — none exist in the current session or seed data`]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — ${history.length} recorded action(s)`,
+      narrative: [`Most recent: ${history[0].action} by ${history[0].actor} at ${history[0].timestamp}.`, TRUST_FOOTER],
+      table: { title: "Work Order History", columns: ["Timestamp", "Action", "Actor", "Before → After"], rows: history.map((e) => [e.timestamp, e.action, e.actor, `${e.previousState ?? "—"} → ${e.newState ?? "—"}`]) },
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Who assigned the technician?" / "Who reassigned this technician?"
+  if (q.includes("who") && (q.includes("assigned") || q.includes("reassigned")) && q.includes("technician")) {
+    const wo = findWorkOrderFromText(question);
+    if (!wo) return insufficient(question, ["a recognizable work order number, e.g. WO-1042"]);
+    const log = context?.auditLog ?? auditEvents;
+    const history = combinedAuditHistory(wo.workOrderNumber, log).filter((e) => e.action.includes("technician_assigned") || e.action.includes("technician_reassigned"));
+    if (history.length === 0) return insufficient(question, [`a recorded technician assignment event for ${wo.workOrderNumber}`]);
+    const latest = history[0];
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — technician assignment by ${latest.actor}`,
+      narrative: [`${latest.action.includes("reassigned") ? "Reassigned" : "Assigned"}: ${latest.previousState ?? "Unassigned"} → ${latest.newState ?? "Unassigned"}, at ${latest.timestamp}.`, TRUST_FOOTER],
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "When was WO-1046 escalated?" / "Why was this work order escalated?"
+  if (q.includes("escalat") && findWorkOrderFromText(question)) {
+    const wo = findWorkOrderFromText(question)!;
+    const log = context?.auditLog ?? auditEvents;
+    const escalations = combinedAuditHistory(wo.workOrderNumber, log).filter((e) => e.action.includes("escalated"));
+    if (escalations.length === 0) return insufficient(question, [`a recorded escalation event for ${wo.workOrderNumber}`]);
+    const latest = escalations[0];
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — escalated at ${latest.timestamp}`,
+      narrative: [`Priority: ${latest.previousState ?? "Not recorded."} → ${latest.newState ?? "Not recorded."}.`, `Reason: ${latest.reason ?? "Reason not recorded."}`, TRUST_FOOTER],
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "What maintenance actions happened recently?" / "Who made the latest maintenance decision?"
+  if ((q.includes("maintenance") && q.includes("action") && q.includes("recent")) || (q.includes("latest") && q.includes("maintenance") && q.includes("decision"))) {
+    const log = context?.auditLog ?? auditEvents;
+    const recent = [...log].filter((e) => e.action.startsWith("maintenance.")).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 8);
+    if (recent.length === 0) return insufficient(question, ["any recorded maintenance action this session"]);
+    return {
+      id: nextId(),
+      question,
+      headline: q.includes("latest") ? `Latest maintenance decision: ${recent[0].action} by ${recent[0].actor}` : `${recent.length} recent maintenance action(s)`,
+      narrative: [TRUST_FOOTER],
+      table: { title: "Recent Maintenance Actions", columns: ["Timestamp", "Action", "Actor", "Entity"], rows: recent.map((e) => [e.timestamp, e.action, e.actor, e.objectLabel]) },
+      buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "Show me the audit trail for this aircraft."
+  if (q.includes("audit trail") && q.includes("aircraft") && resolveAircraft(question, context)) {
+    const a = resolveAircraft(question, context)!;
+    const log = context?.auditLog ?? auditEvents;
+    const history = combinedAuditHistory(currentRegistration(a), log);
+    if (history.length === 0) return insufficient(question, [`recorded audit events for ${currentRegistration(a)}`]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${currentRegistration(a)} — ${history.length} recorded action(s)`,
+      narrative: [TRUST_FOOTER],
+      table: { title: "Aircraft Audit Trail", columns: ["Timestamp", "Action", "Actor"], rows: history.map((e) => [e.timestamp, e.action, e.actor]) },
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
     };
   }
 
