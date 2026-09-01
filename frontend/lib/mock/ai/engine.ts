@@ -51,6 +51,12 @@ import {
   getReadyToStartWorkOrders,
   getTechnicianAssignmentRecommendation,
   getNextMaintenanceActions,
+  getMaterialReadinessRows,
+  getMaterialReadinessSummary,
+  getAircraftMaterialReadiness,
+  getWorkOrderMaterialReadiness,
+  getMaterialShortages,
+  getProcurementActionsForShortages,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -205,6 +211,20 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Which work order is most urgent?",
       "Show me today's maintenance priorities.",
       "Recommend a technician for WO-1042.",
+    ],
+  },
+  {
+    category: "Material Readiness",
+    questions: [
+      "What materials are blocking maintenance?",
+      "Which work orders are waiting for parts?",
+      "Which aircraft have material shortages?",
+      "What parts do I need to procure?",
+      "Which shortage should procurement handle first?",
+      "Can I procure the part for WO-1042?",
+      "What is the material readiness of N412MX?",
+      "Which parts have known vendor availability?",
+      "What should maintenance do about material shortages?",
     ],
   },
 ];
@@ -826,6 +846,120 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative: [`${summary.readyToStart} ready to start, ${summary.materialBlocked} material blocked, ${summary.technicianAssignmentRequired} need technician assignment.`, TRUST_FOOTER],
       recommendedActions: actions,
       buttons: [{ label: "Open Planning Center", href: "/maintenance/planning" }],
+    };
+  }
+
+  // --- M12.3 Material Readiness & Procurement Planning branches. All read
+  // getMaterialReadinessRows()/getMaterialReadinessSummary() etc. — the same
+  // functions the Material Readiness page renders, so the UI and Lisa can
+  // never disagree.
+
+  // "Can I procure the part for WO-1042?"
+  if (q.includes("procure") && (q.includes("can i") || q.includes("wo"))) {
+    const wo = findWorkOrderFromText(question);
+    if (!wo) return insufficient(question, ["a recognizable work order number, e.g. WO-1042"]);
+    const rows = getWorkOrderMaterialReadiness(wo.id);
+    if (rows.length === 0) return insufficient(question, [`a required part on ${wo.workOrderNumber} — none is recorded in the demo data`]);
+    const row = rows[0];
+    if (!row.bestVendor) {
+      return {
+        id: nextId(),
+        question,
+        headline: `${wo.workOrderNumber} — ${row.partNumber} cannot currently be procured`,
+        narrative: [row.hasVendorAvailability ? "No vendor currently shows a scoreable price/availability for this part." : "No vendor has a recorded availability line for this part.", TRUST_FOOTER],
+        insufficientData: true,
+        buttons: [{ label: "Open Material Readiness", href: "/maintenance/material-readiness" }],
+      };
+    }
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — ${row.partNumber} can be procured from ${row.bestVendor.vendorName}`,
+      narrative: [
+        `Price: ${row.bestVendor.unitPrice != null ? `${row.bestVendor.currency ?? ""} ${row.bestVendor.unitPrice}` : "Insufficient source data."}`,
+        `Lead time: ${row.bestVendor.leadTimeDays != null ? `${row.bestVendor.leadTimeDays} days` : "Insufficient source data."}`,
+        `Current procurement status: ${row.procurementStatus}`,
+        TRUST_FOOTER,
+      ],
+      buttons: [{ label: "Open Material Readiness", href: "/maintenance/material-readiness" }, { label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "What is the material readiness of N412MX?"
+  if (q.includes("material readiness") && resolveAircraft(question, context)) {
+    const a = resolveAircraft(question, context)!;
+    const rows = getAircraftMaterialReadiness(a.id);
+    const blocking = rows.filter((r) => r.materialStatus !== "READY");
+    return {
+      id: nextId(),
+      question,
+      headline: `${currentRegistration(a)} — material readiness`,
+      narrative: [rows.length === 0 ? "No open work order on this aircraft currently requires material." : blocking.length > 0 ? `${blocking.length} of ${rows.length} required part(s) are not ready.` : "All required parts for open work on this aircraft are ready.", TRUST_FOOTER],
+      table: { title: "Required Parts", columns: ["Work Order", "Part", "Status"], rows: rows.map((r) => [r.workOrderNumber, r.partNumber, r.materialStatus]) },
+      buttons: [{ label: "Open Material Readiness", href: "/maintenance/material-readiness" }],
+    };
+  }
+
+  // "Which aircraft have material shortages?"
+  if (q.includes("aircraft") && q.includes("material") && (q.includes("shortage") || q.includes("short"))) {
+    const shortages = getMaterialShortages();
+    const byAircraft = new Map<string, number>();
+    for (const r of shortages) byAircraft.set(r.aircraftRegistration, (byAircraft.get(r.aircraftRegistration) ?? 0) + 1);
+    return {
+      id: nextId(),
+      question,
+      headline: `${byAircraft.size} aircraft with material shortages`,
+      narrative: [byAircraft.size > 0 ? "Aircraft with at least one part not currently ready." : "No aircraft currently has a recorded material shortage.", TRUST_FOOTER],
+      table: { title: "Aircraft With Material Issues", columns: ["Aircraft", "Part(s) Affected"], rows: Array.from(byAircraft.entries()) },
+      buttons: [{ label: "Open Material Readiness", href: "/maintenance/material-readiness" }],
+    };
+  }
+
+  // "Which parts have known vendor availability?"
+  if (q.includes("parts") && q.includes("known") && q.includes("vendor")) {
+    const rows = getMaterialReadinessRows().filter((r) => r.hasVendorAvailability);
+    return {
+      id: nextId(),
+      question,
+      headline: `${rows.length} required part(s) have known vendor availability`,
+      narrative: [rows.length > 0 ? "These parts have at least one recorded vendor availability line." : "No required part currently has a recorded vendor availability line.", TRUST_FOOTER],
+      table: { title: "Parts With Vendor Data", columns: ["Part", "Work Order", "Best Vendor"], rows: rows.map((r) => [r.partNumber, r.workOrderNumber, r.bestVendor?.vendorName ?? "Insufficient source data."]) },
+      buttons: [{ label: "Open Material Readiness", href: "/maintenance/material-readiness" }],
+    };
+  }
+
+  // "Which shortage should procurement handle first?" / "what parts do I need to procure?"
+  if ((q.includes("shortage") && q.includes("first")) || (q.includes("parts") && q.includes("need") && q.includes("procure"))) {
+    const actionable = getProcurementActionsForShortages();
+    if (actionable.length === 0) return insufficient(question, ["a shortage with enough vendor/price data to recommend a procurement action"]);
+    const ranked = [...actionable].sort((a, b) => (a.priority === b.priority ? 0 : a.priority === "CRITICAL" ? -1 : b.priority === "CRITICAL" ? 1 : a.priority === "HIGH" ? -1 : 1));
+    const top = ranked[0];
+    return {
+      id: nextId(),
+      question,
+      headline: `${top.partNumber} for ${top.workOrderNumber} — highest procurement priority`,
+      narrative: [`Work order priority: ${top.priority}. Recommended vendor: ${top.recommendation?.vendorName ?? "Insufficient source data."}.`, TRUST_FOOTER],
+      table: { title: "Actionable Shortages", columns: ["Part", "Work Order", "Priority", "Recommended Vendor"], rows: ranked.map((r) => [r.partNumber, r.workOrderNumber, r.priority, r.recommendation?.vendorName ?? "Insufficient source data."]) },
+      buttons: [{ label: "Open Material Readiness", href: "/maintenance/material-readiness" }],
+    };
+  }
+
+  // "What materials are blocking maintenance?" / "which work orders are waiting for parts?" /
+  // "what should maintenance do about material shortages?"
+  if ((q.includes("material") && (q.includes("block") || q.includes("shortage"))) || (q.includes("work order") && q.includes("waiting") && q.includes("part"))) {
+    const summary = getMaterialReadinessSummary();
+    const shortages = getMaterialShortages();
+    const affectedWorkOrders = new Set(shortages.map((r) => r.workOrderId)).size;
+    return {
+      id: nextId(),
+      question,
+      headline: `${affectedWorkOrders} work order(s) affected by material issues`,
+      narrative: [
+        `${summary.materialShortages} shortage(s), ${summary.partialReadiness} partial, ${summary.partsWithUnknownAvailability} with unknown vendor availability.`,
+        TRUST_FOOTER,
+      ],
+      table: { title: "Material Issues", columns: ["Part", "Work Order", "Aircraft", "Status"], rows: shortages.map((r) => [r.partNumber, r.workOrderNumber, r.aircraftRegistration, r.materialStatus]) },
+      buttons: [{ label: "Open Material Readiness", href: "/maintenance/material-readiness" }],
     };
   }
 

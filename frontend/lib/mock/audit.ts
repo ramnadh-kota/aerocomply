@@ -108,4 +108,8 @@ export const STANDARD_AUDIT_ACTIONS = [
   "maintenance.technician_assigned",
   "maintenance.work_started",
   "maintenance.material_blocking_identified",
+  // M12.3 — Material Readiness & Procurement Planning.
+  "maintenance.material_readiness_reviewed",
+  "maintenance.procurement_request_created",
+  "maintenance.material_procurement_linked",
 ] as const;

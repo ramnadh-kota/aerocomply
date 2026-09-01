@@ -113,6 +113,11 @@ export default function MaintenanceControlTowerPage() {
                   Open Planning Center →
                 </Link>
               )}
+              {k.filter === "MATERIAL_SHORTAGES" && (
+                <Link href="/maintenance/material-readiness" className="ac-text-sm" style={{ display: "block", marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
+                  View Material Readiness →
+                </Link>
+              )}
             </div>
           ))}
         </div>
@@ -164,12 +169,14 @@ export default function MaintenanceControlTowerPage() {
                       <td>{row.openWorkOrders}</td>
                       <td>{row.openDefects}</td>
                       <td>
-                        {blockedWos.length > 0 ? (
-                          <Link href={`/maintenance/planning/${blockedWos[0].workOrderId}`} style={{ color: "var(--ac-status-non_compliant)" }}>
-                            {row.materialShortageCount} shortage(s) — {blockedWos.map((w) => w.workOrderNumber).join(", ")}
-                          </Link>
-                        ) : row.materialShortageCount > 0 ? (
-                          <span style={{ color: "var(--ac-status-non_compliant)" }}>{row.materialShortageCount} shortage(s)</span>
+                        {row.materialShortageCount > 0 ? (
+                          <>
+                            <span style={{ color: "var(--ac-status-non_compliant)" }}>
+                              {row.materialShortageCount} shortage(s){blockedWos.length > 0 ? ` — ${blockedWos.map((w) => w.workOrderNumber).join(", ")}` : ""}
+                            </span>
+                            <br />
+                            <Link href="/maintenance/material-readiness" className="ac-text-sm">View Material Readiness →</Link>
+                          </>
                         ) : (
                           "Ready"
                         )}

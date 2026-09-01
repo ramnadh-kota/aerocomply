@@ -5,7 +5,7 @@
 
 import { maintenanceProjects, workPackages, getProjectById } from "../maintenanceProjects";
 import { workOrders, isOverdue, workOrdersForProject, workOrdersForAircraft, workOrdersForTechnician, MOCK_TODAY } from "../workOrders";
-import { parts, partsForWorkOrder } from "../parts";
+import { parts, partsForWorkOrder, getPartById } from "../parts";
 import { defects, defectsForAircraft } from "../defects";
 import { inspectorReviews } from "../inspectorReviews";
 import { getAircraftById, aircraft, currentRegistration, getAircraftVariant } from "../aircraft";
@@ -13,6 +13,7 @@ import { assessmentsForAircraft, getAssessmentById } from "../assessments";
 import { getRequirementById } from "../regulations";
 import { technicians, getTechnicianById, isOnShiftNow } from "../technicians";
 import { upcomingMaintenanceEvents } from "../maintenance";
+import { vendorPartAvailabilityForPart, scoreVendorOptionsForPart, cartItems, partRequests, purchaseOrders, getVendorById } from "../procurement";
 import type { WorkOrder, Priority, Defect, Technician } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
@@ -834,6 +835,173 @@ export function getNextMaintenanceActions(): string[] {
     actions.push(`Assign a technician before starting ${r.workOrderNumber}.`);
   }
   return actions.length > 0 ? actions : ["No urgent planning action indicated by current data."];
+}
+
+// --- M12.3 Material Readiness & Procurement Planning ---
+// Reuses part status (lib/mock/parts.ts), vendor availability/scoring
+// (lib/mock/procurement.ts — the SAME scoreVendorOptionsForPart used by the
+// procurement/parts comparison page, so a recommendation shown here can
+// never disagree with the one on that page), and existing PartRequest/
+// ProcurementCartItem/PurchaseOrder records. No inventory quantity is
+// invented: a part with zero vendor lines and no IN_STOCK record is UNKNOWN,
+// never silently treated as a shortage.
+
+export type MaterialReadinessStatus = "READY" | "PARTIAL" | "SHORTAGE" | "UNKNOWN";
+
+export interface MaterialVendorOption {
+  vendorId: string;
+  vendorName: string;
+  availabilityStatus: string;
+  unitPrice: number | null;
+  currency: string | null;
+  leadTimeDays: number | null;
+}
+
+export interface MaterialProcurementRecommendation {
+  vendorName: string;
+  reasons: string[];
+}
+
+export interface MaterialReadinessRow {
+  workOrderId: string;
+  workOrderNumber: string;
+  priority: Priority;
+  aircraftId: string;
+  aircraftRegistration: string;
+  partId: string | null;
+  partNumber: string;
+  description: string;
+  materialStatus: MaterialReadinessStatus;
+  bestVendor: MaterialVendorOption | null;
+  hasVendorAvailability: boolean;
+  procurementStatus: string;
+  recommendation: MaterialProcurementRecommendation | null;
+}
+
+function deriveMaterialStatus(partInStock: boolean, scores: ReturnType<typeof scoreVendorOptionsForPart>): MaterialReadinessStatus {
+  if (partInStock) return "READY";
+  const known = scores.filter((s) => s.line.availabilityStatus !== "UNKNOWN");
+  if (known.some((s) => s.line.availabilityStatus === "IN_STOCK")) return "READY";
+  if (known.some((s) => s.line.availabilityStatus === "LIMITED" || s.line.availabilityStatus === "ON_ORDER")) return "PARTIAL";
+  if (known.length > 0) return "SHORTAGE";
+  return "UNKNOWN";
+}
+
+/** Existing PartRequest/cart/PurchaseOrder records for this part+work order —
+ * never a new procurement state, just reading what already exists. */
+function procurementStatusFor(workOrderId: string, partNumber: string): string {
+  const inCart = cartItems.some((c) => c.workOrderId === workOrderId && c.partNumber === partNumber);
+  if (inCart) return "In Cart (not yet submitted)";
+
+  const request = partRequests.find((r) => r.workOrderId === workOrderId && r.partNumber === partNumber);
+  if (request) {
+    const po = purchaseOrders.find((p) => p.requestIds.includes(request.id));
+    if (po) return `Purchase Order ${po.poNumber} — ${po.status.replace(/_/g, " ")}`;
+    return `Request ${request.id} — ${request.status.replace(/_/g, " ")}`;
+  }
+  return "Not yet requested";
+}
+
+function buildMaterialRow(w: WorkOrder, partId: string): MaterialReadinessRow | null {
+  const part = getPartById(partId);
+  if (!part) return null;
+  const a = getAircraftById(w.aircraftId);
+  const scores = scoreVendorOptionsForPart(partId);
+  const materialStatus = deriveMaterialStatus(part.status === "IN_STOCK", scores);
+
+  const scored = scores.filter((s) => s.score !== null).sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
+  const best = scored[0];
+  const bestVendor: MaterialVendorOption | null = best
+    ? { vendorId: best.vendorId, vendorName: best.vendorName, availabilityStatus: best.line.availabilityStatus, unitPrice: best.line.unitPrice, currency: best.line.currency, leadTimeDays: best.line.leadTimeDays }
+    : null;
+
+  let recommendation: MaterialProcurementRecommendation | null = null;
+  if (materialStatus !== "READY" && best) {
+    const cheapest = scores.filter((s) => s.line.unitPrice !== null).sort((x, y) => (x.line.unitPrice ?? 0) - (y.line.unitPrice ?? 0))[0];
+    const reasons: string[] = [];
+    if (best.line.availabilityStatus === "IN_STOCK" || best.line.availabilityStatus === "LIMITED") reasons.push(`Part availability known (${best.line.availabilityStatus.replace(/_/g, " ")})`);
+    if (best.line.unitPrice !== null) reasons.push("Price known");
+    const vendor = getVendorById(best.vendorId);
+    if (vendor && vendor.approvalStatus === "APPROVED") reasons.push("Vendor relationship verified");
+    if (cheapest?.vendorId === best.vendorId) reasons.push("Lowest known cost among available options");
+    if (reasons.length > 0) recommendation = { vendorName: best.vendorName, reasons };
+  }
+
+  return {
+    workOrderId: w.id,
+    workOrderNumber: w.workOrderNumber,
+    priority: w.priority,
+    aircraftId: w.aircraftId,
+    aircraftRegistration: a ? currentRegistration(a) : w.aircraftId,
+    partId: part.id,
+    partNumber: part.partNumber,
+    description: part.description,
+    materialStatus,
+    bestVendor,
+    hasVendorAvailability: scores.length > 0,
+    procurementStatus: procurementStatusFor(w.id, part.partNumber),
+    recommendation,
+  };
+}
+
+/** One row per (open work order, required part) — the full material
+ * readiness table, not just shortages. */
+export function getMaterialReadinessRows(): MaterialReadinessRow[] {
+  const rows: MaterialReadinessRow[] = [];
+  for (const w of workOrders.filter((x) => x.status !== "COMPLETED" && x.status !== "CANCELLED")) {
+    for (const partId of w.requiredPartIds) {
+      const row = buildMaterialRow(w, partId);
+      if (row) rows.push(row);
+    }
+  }
+  return rows;
+}
+
+export function getWorkOrderMaterialReadiness(workOrderId: string): MaterialReadinessRow[] {
+  return getMaterialReadinessRows().filter((r) => r.workOrderId === workOrderId);
+}
+
+export function getAircraftMaterialReadiness(aircraftId: string): MaterialReadinessRow[] {
+  return getMaterialReadinessRows().filter((r) => r.aircraftId === aircraftId);
+}
+
+export function getMaterialShortages(): MaterialReadinessRow[] {
+  return getMaterialReadinessRows().filter((r) => r.materialStatus === "SHORTAGE" || r.materialStatus === "PARTIAL" || r.materialStatus === "UNKNOWN");
+}
+
+export function getPartsBlockingWorkOrders(): MaterialReadinessRow[] {
+  return getMaterialReadinessRows().filter((r) => r.materialStatus === "SHORTAGE");
+}
+
+export function getProcurementActionsForShortages(): MaterialReadinessRow[] {
+  return getMaterialReadinessRows().filter((r) => r.materialStatus !== "READY" && r.recommendation !== null);
+}
+
+export interface MaterialReadinessSummary {
+  workOrdersRequiringMaterial: number;
+  materialReady: number;
+  partialReadiness: number;
+  materialShortages: number;
+  procurementRequests: number;
+  partsWithVendorAvailability: number;
+  partsWithUnknownAvailability: number;
+}
+
+export function getMaterialReadinessSummary(): MaterialReadinessSummary {
+  const rows = getMaterialReadinessRows();
+  const workOrderIds = new Set(rows.map((r) => r.workOrderId));
+  const distinctParts = new Map<string, MaterialReadinessRow>();
+  for (const r of rows) if (!distinctParts.has(r.partNumber)) distinctParts.set(r.partNumber, r);
+
+  return {
+    workOrdersRequiringMaterial: workOrderIds.size,
+    materialReady: rows.filter((r) => r.materialStatus === "READY").length,
+    partialReadiness: rows.filter((r) => r.materialStatus === "PARTIAL").length,
+    materialShortages: rows.filter((r) => r.materialStatus === "SHORTAGE").length,
+    procurementRequests: partRequests.filter((r) => rows.some((row) => row.workOrderId === r.workOrderId && row.partNumber === r.partNumber)).length,
+    partsWithVendorAvailability: Array.from(distinctParts.values()).filter((r) => r.hasVendorAvailability).length,
+    partsWithUnknownAvailability: Array.from(distinctParts.values()).filter((r) => !r.hasVendorAvailability && r.materialStatus !== "READY").length,
+  };
 }
 
 /** Lisa's narrative for one discrepancy group. Only claims a recurrence
