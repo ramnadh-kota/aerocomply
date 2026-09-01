@@ -1031,3 +1031,147 @@ export function getDiscrepancyGroupAnalysis(ataChapter: string): string[] {
   }
   return parts;
 }
+
+// --- M12.5 Maintenance Control Center ---
+// A single aggregation over the FOUR existing analytics surfaces (Control
+// Tower fleet/aircraft risk, Work Order Planning, Material Readiness,
+// Discrepancy Intelligence). This function computes nothing new — every
+// number and reason here is read from the functions those pages already
+// call, so the Control Center, those pages, and Lisa can never disagree.
+
+export type ControlCenterPriority = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+
+export interface ControlCenterItem {
+  priority: ControlCenterPriority;
+  aircraftId: string | null;
+  aircraftRegistration: string | null;
+  category: "WORK_ORDER" | "DISCREPANCY" | "MATERIAL";
+  label: string;
+  issue: string;
+  reasons: string[];
+  status: string;
+  recommendedAction: string;
+  href: string;
+  source: string;
+}
+
+const PRIORITY_RANK: Record<ControlCenterPriority, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
+
+function workOrderControlCenterPriority(r: WorkOrderPlanningRow): ControlCenterPriority {
+  if (r.aogAircraft && r.priority === "CRITICAL") return "CRITICAL";
+  if (r.risk === "HIGH") return r.aogAircraft || r.priority === "CRITICAL" ? "CRITICAL" : "HIGH";
+  if (r.risk === "MEDIUM") return "MEDIUM";
+  if (r.risk === "LOW") return "LOW";
+  return "UNKNOWN";
+}
+
+function materialControlCenterPriority(r: MaterialReadinessRow): ControlCenterPriority {
+  if (r.materialStatus === "READY") return "LOW";
+  if (r.materialStatus === "UNKNOWN") return "UNKNOWN";
+  if (r.priority === "CRITICAL") return "CRITICAL";
+  if (r.priority === "HIGH" || r.materialStatus === "SHORTAGE") return "HIGH";
+  return "MEDIUM";
+}
+
+function discrepancyControlCenterPriority(g: DiscrepancyGroup): ControlCenterPriority {
+  if (g.highSeverityCount > 0 && g.recurringAircraftCount > 0) return "CRITICAL";
+  if (g.highSeverityCount > 0) return "HIGH";
+  if (g.openCount > 0) return "MEDIUM";
+  return "LOW";
+}
+
+/** The prioritized "what needs attention now" queue — one item per open
+ * work order, active material issue, and discrepancy group that isn't
+ * fully clean, ranked CRITICAL first. Every reason traces to a real record;
+ * nothing here is a numeric black-box score. */
+export function getMaintenanceControlCenter(): ControlCenterItem[] {
+  const items: ControlCenterItem[] = [];
+
+  for (const r of getWorkOrderPlanning()) {
+    if (r.planningStatus === "COMPLETED" || r.planningStatus === "CANCELLED") continue;
+    if (r.risk === "LOW" && r.planningStatus === "READY") continue;
+    items.push({
+      priority: workOrderControlCenterPriority(r),
+      aircraftId: r.aircraftId,
+      aircraftRegistration: r.aircraftRegistration,
+      category: "WORK_ORDER",
+      label: r.workOrderNumber,
+      issue: r.title,
+      reasons: r.riskReasons,
+      status: r.planningStatus.replace(/_/g, " "),
+      recommendedAction: r.recommendedAction,
+      href: `/maintenance/planning/${r.workOrderId}`,
+      source: r.workOrderNumber,
+    });
+  }
+
+  for (const r of getMaterialShortages()) {
+    items.push({
+      priority: materialControlCenterPriority(r),
+      aircraftId: r.aircraftId,
+      aircraftRegistration: r.aircraftRegistration,
+      category: "MATERIAL",
+      label: r.partNumber,
+      issue: `Material ${r.materialStatus.toLowerCase()} for ${r.workOrderNumber}`,
+      reasons: [
+        r.materialStatus === "UNKNOWN" ? "No vendor availability record for this part." : `Best known vendor: ${r.bestVendor?.vendorName ?? "Insufficient source data."}`,
+        `Procurement status: ${r.procurementStatus}`,
+      ],
+      status: r.materialStatus,
+      recommendedAction: r.recommendation ? `Review procurement — recommended vendor ${r.recommendation.vendorName}` : "Review material readiness — insufficient data to recommend a vendor",
+      href: "/maintenance/material-readiness",
+      source: r.partNumber,
+    });
+  }
+
+  for (const g of getDiscrepancyGroups()) {
+    if (g.openCount === 0) continue;
+    items.push({
+      priority: discrepancyControlCenterPriority(g),
+      aircraftId: null,
+      aircraftRegistration: null,
+      category: "DISCREPANCY",
+      label: `ATA ${g.ataChapter}`,
+      issue: `${g.occurrences} discrepancy occurrence(s), ${g.openCount} open`,
+      reasons: [
+        `${g.aircraftCount} aircraft affected, ${g.recurringAircraftCount} recurring`,
+        `${g.highSeverityCount} high/critical severity occurrence(s)`,
+      ],
+      status: g.openCount > 0 ? "OPEN" : "RESOLVED",
+      recommendedAction: g.recurringAircraftCount > 0 ? "Investigate recurring pattern" : "Review open occurrences",
+      href: "/maintenance/discrepancies",
+      source: `ATA ${g.ataChapter}`,
+    });
+  }
+
+  return items.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]);
+}
+
+export interface MaintenanceControlCenterSummary {
+  aircraftRequiringAttention: number;
+  aogAircraft: number;
+  criticalWorkOrders: number;
+  criticalDiscrepancies: number;
+  materialShortages: number;
+  workOrdersWaitingForParts: number;
+  overdueAtRiskMaintenance: number;
+  highRiskAircraft: number;
+}
+
+export function getMaintenanceControlCenterSummary(): MaintenanceControlCenterSummary {
+  const fleet = getControlTowerFleet();
+  const towerSummary = getControlTowerSummary();
+  const planningSummary = getWorkOrderPlanningSummary();
+  const materialRows = getMaterialReadinessRows();
+
+  return {
+    aircraftRequiringAttention: fleet.filter((f) => f.risk.risk !== "LOW").length,
+    aogAircraft: towerSummary.aog,
+    criticalWorkOrders: getWorkOrderPlanning().filter((r) => r.priority === "CRITICAL").length,
+    criticalDiscrepancies: towerSummary.criticalDiscrepancies,
+    materialShortages: materialRows.filter((r) => r.materialStatus !== "READY").length,
+    workOrdersWaitingForParts: getMaterialBlockedWorkOrders().length,
+    overdueAtRiskMaintenance: planningSummary.overdue,
+    highRiskAircraft: fleet.filter((f) => f.risk.risk === "HIGH").length,
+  };
+}

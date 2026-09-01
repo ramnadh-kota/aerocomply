@@ -53,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Maintenance",
     items: [
+      { href: "/maintenance/control-center", label: "Maintenance Control Center", glyph: "◈" },
       { href: "/maintenance/control-tower", label: "Control Tower", glyph: "◉" },
       { href: "/maintenance/discrepancies", label: "Discrepancy Intelligence", glyph: "⚡" },
       { href: "/maintenance/operations", label: "Operations", glyph: "◪" },

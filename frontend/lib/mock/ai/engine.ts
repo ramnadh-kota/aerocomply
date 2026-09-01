@@ -57,6 +57,8 @@ import {
   getWorkOrderMaterialReadiness,
   getMaterialShortages,
   getProcurementActionsForShortages,
+  getMaintenanceControlCenter,
+  getMaintenanceControlCenterSummary,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -225,6 +227,21 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "What is the material readiness of N412MX?",
       "Which parts have known vendor availability?",
       "What should maintenance do about material shortages?",
+    ],
+  },
+  {
+    category: "Maintenance Control Center",
+    questions: [
+      "What needs attention right now?",
+      "Which aircraft need immediate attention?",
+      "What are the biggest maintenance blockers?",
+      "Which work orders are blocked?",
+      "What is preventing maintenance from progressing?",
+      "Which aircraft have material issues?",
+      "Which discrepancies need attention?",
+      "What should maintenance prioritize?",
+      "Give me the maintenance control report.",
+      "Why is N412MX high risk?",
     ],
   },
 ];
@@ -900,8 +917,8 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
-  // "Which aircraft have material shortages?"
-  if (q.includes("aircraft") && q.includes("material") && (q.includes("shortage") || q.includes("short"))) {
+  // "Which aircraft have material shortages?" / "which aircraft have material issues?"
+  if (q.includes("aircraft") && q.includes("material") && (q.includes("shortage") || q.includes("short") || q.includes("issue"))) {
     const shortages = getMaterialShortages();
     const byAircraft = new Map<string, number>();
     for (const r of shortages) byAircraft.set(r.aircraftRegistration, (byAircraft.get(r.aircraftRegistration) ?? 0) + 1);
@@ -960,6 +977,68 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       ],
       table: { title: "Material Issues", columns: ["Part", "Work Order", "Aircraft", "Status"], rows: shortages.map((r) => [r.partNumber, r.workOrderNumber, r.aircraftRegistration, r.materialStatus]) },
       buttons: [{ label: "Open Material Readiness", href: "/maintenance/material-readiness" }],
+    };
+  }
+
+  // --- M12.5 Maintenance Control Center branches. All read
+  // getMaintenanceControlCenter()/getMaintenanceControlCenterSummary() —
+  // the same aggregation the Control Center page renders, so the UI and
+  // Lisa can never disagree.
+
+  // "What needs attention right now?" / "give me the maintenance control report"
+  if (q.includes("needs attention") || q.includes("need attention") || (q.includes("maintenance control") && q.includes("report"))) {
+    const queue = getMaintenanceControlCenter();
+    const summary = getMaintenanceControlCenterSummary();
+    const top = queue.slice(0, 5);
+    return {
+      id: nextId(),
+      question,
+      headline: `${queue.length} item(s) need attention`,
+      narrative: [
+        `${summary.aogAircraft} AOG aircraft, ${summary.criticalWorkOrders} critical work order(s), ${summary.materialShortages} material issue(s), ${summary.criticalDiscrepancies} critical discrepancy(ies).`,
+        TRUST_FOOTER,
+      ],
+      table: { title: "Top Priority Items", columns: ["Priority", "Source", "Issue"], rows: top.map((i) => [i.priority, i.source, i.issue]) },
+      buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "Which aircraft need immediate attention?"
+  if (q.includes("aircraft") && (q.includes("immediate attention") || (q.includes("need") && q.includes("attention")))) {
+    const fleet = getControlTowerFleet().filter((f) => f.risk.risk !== "LOW");
+    return {
+      id: nextId(),
+      question,
+      headline: `${fleet.length} aircraft need immediate attention`,
+      narrative: [fleet.length > 0 ? "Ranked by operational risk." : "No aircraft currently shows elevated operational risk.", TRUST_FOOTER],
+      table: { title: "Aircraft Needing Attention", columns: ["Aircraft", "Risk", "Open WOs"], rows: fleet.map((f) => [f.registration, f.risk.risk, f.openWorkOrders]) },
+      buttons: [{ label: "Open Control Tower", href: "/maintenance/control-tower" }, { label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "What are the biggest maintenance blockers?" / "what is preventing maintenance from progressing?"
+  if ((q.includes("biggest") && q.includes("block")) || (q.includes("prevent") && q.includes("maintenance"))) {
+    const queue = getMaintenanceControlCenter().filter((i) => i.priority === "CRITICAL" || i.priority === "HIGH");
+    return {
+      id: nextId(),
+      question,
+      headline: `${queue.length} blocker(s) at CRITICAL or HIGH priority`,
+      narrative: [queue.length > 0 ? "Ranked by priority; each traces to a real work order, part, or discrepancy group." : "No CRITICAL or HIGH priority blocker currently exists.", TRUST_FOOTER],
+      table: { title: "Maintenance Blockers", columns: ["Priority", "Source", "Issue", "Recommended Action"], rows: queue.map((i) => [i.priority, i.source, i.issue, i.recommendedAction]) },
+      buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "Which discrepancies need attention?"
+  if (q.includes("discrepanc") && q.includes("attention")) {
+    const groups = getDiscrepancyGroups().filter((g) => g.openCount > 0);
+    return {
+      id: nextId(),
+      question,
+      headline: `${groups.length} discrepancy group(s) need attention`,
+      narrative: [groups.length > 0 ? "Groups with at least one open occurrence." : "No discrepancy group currently has an open occurrence.", TRUST_FOOTER],
+      table: { title: "Discrepancies Needing Attention", columns: ["ATA", "Open", "High Severity", "Recurring"], rows: groups.map((g) => [g.ataChapter, g.openCount, g.highSeverityCount, g.recurringAircraftCount]) },
+      buttons: [{ label: "Open Discrepancy Intelligence", href: "/maintenance/discrepancies" }],
     };
   }
 
