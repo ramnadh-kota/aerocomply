@@ -219,6 +219,62 @@ table {
   height: 100vh;
 }
 
+.ac-sidebar-backdrop {
+  display: none;
+}
+
+button.ac-menu-toggle {
+  display: none;
+}
+
+/* Mobile: sidebar becomes a slide-in drawer over the content, with a
+   click-to-dismiss backdrop. Desktop layout (sticky column) is untouched
+   above this breakpoint. */
+@media (max-width: 768px) {
+  button.ac-menu-toggle {
+    display: inline-flex;
+  }
+
+  .ac-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 60;
+    width: 272px;
+    max-width: 84vw;
+    transform: translateX(-100%);
+    transition: transform 200ms ease;
+    box-shadow: 4px 0 24px rgba(16, 24, 40, 0.18);
+  }
+
+  .ac-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .ac-sidebar-backdrop.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(10, 15, 26, 0.4);
+    animation: ac-fade-in 180ms ease;
+  }
+
+  .ac-nav-link {
+    min-height: 44px;
+  }
+}
+
+@keyframes ac-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-sidebar { transition: none; }
+  .ac-sidebar-backdrop.open { animation: none; }
+}
+
 .ac-main {
   flex: 1;
   min-width: 0;
@@ -242,6 +298,17 @@ table {
   padding: var(--ac-space-6) var(--ac-space-8);
   max-width: 1440px;
   width: 100%;
+}
+
+@media (max-width: 768px) {
+  .ac-content {
+    padding: var(--ac-space-4);
+  }
+
+  .ac-topbar {
+    padding: 0 var(--ac-space-4);
+    gap: var(--ac-space-2);
+  }
 }
 
 /* --- Typography --- */
@@ -449,6 +516,10 @@ table {
   border-color: var(--ac-text-muted);
 }
 
+.ac-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 .ac-btn-primary {
   background: var(--ac-accent);
   border-color: var(--ac-accent);
@@ -463,6 +534,52 @@ table {
 .ac-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-btn { transition: none; }
+  .ac-btn:active:not(:disabled) { transform: none; }
+}
+
+/* --- Skeleton loading (matches final component dimensions — never a
+   generic full-page spinner) --- */
+
+.ac-skeleton {
+  background: linear-gradient(90deg, var(--ac-bg-surface-hover) 25%, var(--ac-border-subtle) 37%, var(--ac-bg-surface-hover) 63%);
+  background-size: 400% 100%;
+  border-radius: var(--ac-radius-md);
+  animation: ac-skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes ac-skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-skeleton { animation: none; }
+}
+
+/* --- Empty / insufficient-data state (consistent across the app; never a
+   giant decorative icon) --- */
+
+.ac-empty-state {
+  padding: var(--ac-space-6) var(--ac-space-4);
+  text-align: left;
+  color: var(--ac-text-secondary);
+}
+
+.ac-empty-state-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ac-text-primary);
+  margin: 0 0 4px;
+}
+
+.ac-empty-state-detail {
+  font-size: 12px;
+  color: var(--ac-text-muted);
+  margin: 0;
 }
 
 .ac-input {

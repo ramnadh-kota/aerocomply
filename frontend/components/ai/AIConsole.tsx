@@ -104,7 +104,11 @@ export function AIConsole({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") ask(draft);
+                // Some synthetic/automated input paths dispatch a keydown
+                // without a populated `key` — fall back to keyCode 13 so
+                // Enter-to-submit is robust across real browsers, IME
+                // composition, and automated testing alike.
+                if (e.key === "Enter" || e.keyCode === 13) ask(draft);
               }}
               aria-label={`Ask ${AI_NAME}`}
             />

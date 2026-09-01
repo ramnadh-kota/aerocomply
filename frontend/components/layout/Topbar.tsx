@@ -8,6 +8,7 @@ import { organizations } from "@/lib/mock/organizations";
 import { useRoleSim, simulatableRoles } from "@/lib/role-sim/RoleSimContext";
 import { getRoleById } from "@/lib/mock/roles";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
 
 export function Topbar() {
@@ -15,6 +16,7 @@ export function Topbar() {
   const [notifOpen, setNotifOpen] = useState(false);
   const { roleId, setRoleId } = useRoleSim();
   const { addAuditEvent } = useMroState();
+  const { toggle: toggleSidebar } = useSidebarDrawer();
   const activeRole = getRoleById(roleId);
 
   function changeRole(nextRoleId: string) {
@@ -33,6 +35,9 @@ export function Topbar() {
 
   return (
     <header className="ac-topbar">
+      <button className="ac-btn ac-menu-toggle" aria-label="Toggle navigation menu" onClick={toggleSidebar} style={{ padding: "8px 10px" }}>
+        <span aria-hidden="true">☰</span>
+      </button>
       <GlobalSearch />
 
       <div className="ac-flex ac-items-center ac-gap-4" style={{ marginLeft: "auto" }}>

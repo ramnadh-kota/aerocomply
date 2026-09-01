@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRoleSim, NAV_MODULE_MAP } from "@/lib/role-sim/RoleSimContext";
+import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
 import { PLATFORM_NAME } from "@/lib/brand";
 
 interface NavItem {
@@ -92,11 +93,14 @@ function isActive(pathname: string, href: string): boolean {
 export function Sidebar() {
   const pathname = usePathname();
   const { accessFor } = useRoleSim();
+  const { open, close } = useSidebarDrawer();
 
   return (
-    <nav className="ac-sidebar" aria-label="Primary navigation">
+    <>
+      <div className={`ac-sidebar-backdrop${open ? " open" : ""}`} onClick={close} aria-hidden="true" />
+      <nav className={`ac-sidebar${open ? " open" : ""}`} aria-label="Primary navigation">
       <div style={{ padding: "18px 20px 12px" }}>
-        <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 8 }} onClick={close}>
           <span
             aria-hidden="true"
             style={{
@@ -138,6 +142,7 @@ export function Sidebar() {
                       style={denied ? { opacity: 0.4 } : undefined}
                       onClick={(e) => {
                         if (denied) e.preventDefault();
+                        else close();
                       }}
                     >
                       <span aria-hidden="true" style={{ width: 16, textAlign: "center" }}>
@@ -162,6 +167,7 @@ export function Sidebar() {
         <span aria-hidden="true">⚠</span>
 M0.6 Prototype · Mock Data
       </div>
-    </nav>
+      </nav>
+    </>
   );
 }
