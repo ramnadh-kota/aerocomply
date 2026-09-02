@@ -23,6 +23,7 @@ import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import { projectsForAircraft } from "@/lib/mock/maintenanceProjects";
 import { workOrdersForAircraft } from "@/lib/mock/workOrders";
 import { defectsForAircraft } from "@/lib/mock/defects";
+import { getDeferredItemsForAircraft } from "@/lib/mock/ai/analytics";
 import { getTechnicianById } from "@/lib/mock/technicians";
 import { getInspectorReviewById } from "@/lib/mock/inspectorReviews";
 import { Timeline } from "@/components/timeline/Timeline";
@@ -55,6 +56,7 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
   const aircraftWorkOrders = workOrdersForAircraft(aircraft.id);
   const openAircraftWorkOrders = aircraftWorkOrders.filter((w) => !["COMPLETED", "CANCELLED"].includes(w.status));
   const aircraftDefects = defectsForAircraft(aircraft.id);
+  const aircraftDeferredItems = getDeferredItemsForAircraft(aircraft.id);
 
   const engineColumns: Column<EngineInstallation>[] = [
     { key: "position", header: "Position", render: (i) => i.position },
@@ -177,6 +179,27 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
               {componentHistory.filter((c) => c.removedAt === null).length} components currently installed and tracked · {componentHistory.length} installation records total
             </p>
           </section>
+          {aircraftDeferredItems.length > 0 && (
+            <section className="ac-section">
+              <h2 className="ac-h2" style={{ marginBottom: 10 }}>Deferred Items (MEL)</h2>
+              <div className="ac-card" style={{ padding: 0 }}>
+                <table className="ac-table">
+                  <thead><tr><th>Category</th><th>MEL Reference</th><th>Due</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {aircraftDeferredItems.map((d) => (
+                      <tr key={d.id}>
+                        <td>{d.category}</td>
+                        <td className="ac-text-sm">{d.melReference ?? "Insufficient source data."}</td>
+                        <td className="ac-text-sm">{d.dueAt ?? "UNKNOWN"}</td>
+                        <td><StatusBadge status={d.status === "OPEN" ? "REVIEW_REQUIRED" : "COMPLIANT"} label={d.status} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
           <section className="ac-section">
             <h2 className="ac-h2" style={{ marginBottom: 10 }}>Maintenance Events</h2>
             <div className="ac-card" style={{ padding: 0 }}>
