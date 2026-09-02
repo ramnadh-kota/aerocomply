@@ -1464,6 +1464,107 @@ export function getCannibalizationCandidatesForAircraft(aircraftId: string) {
   return cannibalizationRequests.filter((c) => c.targetAircraftId === aircraftId);
 }
 
+// --- M14.1 AOG Recovery Intelligence ---
+// Purely derived: every field below reads an existing analytics function or
+// mock record (Control Tower AOG determination, Work Order Planning,
+// Safety Gates, Material Readiness, Deferred Items, Cannibalization) — no
+// new AOG algorithm, no new state, no persisted recovery record.
+
+export type AogBlockerType = "MATERIAL" | "TECHNICIAN" | "SAFETY" | "INSPECTION" | "PROCUREMENT" | "REGULATORY" | "DEFERRED" | "EXECUTION" | "EVIDENCE" | "UNKNOWN";
+
+export interface AogBlocker {
+  type: AogBlockerType;
+  description: string;
+  source: string; // e.g. "WO-1054", "Part APU-410", "Safety Gate: MATERIAL"
+}
+
+export interface AogRecoveryOption {
+  action: string;
+  responsibleRole: string;
+  requiresHumanApproval: true; // always — this system never auto-executes a recovery action
+  href?: string;
+}
+
+export interface AogRecoveryAnalysis {
+  aircraftId: string;
+  registration: string;
+  isAog: boolean;
+  aogReason: string | null;
+  criticalWorkOrders: { workOrderId: string; workOrderNumber: string; title: string }[];
+  primaryBlocker: AogBlocker | null;
+  secondaryBlockers: AogBlocker[];
+  recoveryOptions: AogRecoveryOption[];
+  dataCompleteness: "COMPLETE" | "PARTIAL" | "INSUFFICIENT";
+}
+
+/** The one AOG recovery analysis function — reused by the Control Center
+ * link-out, the recovery detail page, and Lisa, so all three can never
+ * disagree. AOG status itself is read straight from getControlTowerFleet()
+ * (the existing, only AOG determination in the codebase). */
+export function getAogRecoveryAnalysis(aircraftId: string): AogRecoveryAnalysis | null {
+  const fleetRow = getControlTowerFleet().find((r) => r.aircraftId === aircraftId);
+  if (!fleetRow) return null;
+  const wos = workOrdersForAircraft(aircraftId).filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
+  const criticalWos = wos.filter((w) => w.priority === "CRITICAL" || w.priority === "HIGH");
+  const deferred = deferredItems.filter((d) => d.aircraftId === aircraftId && d.status === "OPEN");
+  const cannibalization = cannibalizationRequests.filter((c) => c.targetAircraftId === aircraftId);
+
+  const blockers: AogBlocker[] = [];
+  for (const w of criticalWos.length > 0 ? criticalWos : wos) {
+    const gates = getSafetyGatesForWorkOrder(w.id);
+    for (const g of gates) {
+      if (g.state === "FAIL" || g.state === "UNKNOWN") {
+        const type: AogBlockerType =
+          g.type === "MATERIAL_GATE" ? "MATERIAL" :
+          g.type === "QUALIFICATION_GATE" ? "TECHNICIAN" :
+          g.type === "INSPECTION_GATE" ? "INSPECTION" :
+          g.type === "EVIDENCE_GATE" ? "EVIDENCE" : "SAFETY";
+        blockers.push({ type: g.state === "UNKNOWN" ? "UNKNOWN" : type, description: g.reason, source: `${w.workOrderNumber} — Safety Gate: ${g.type.replace(/_/g, " ")}` });
+      }
+    }
+  }
+  for (const d of deferred) {
+    blockers.push({ type: "DEFERRED", description: d.dueAt === null ? "Deferred item with no authoritative MEL reference/due date on file." : `Deferred item due ${d.dueAt}.`, source: `Deferred Item ${d.id}` });
+  }
+
+  const primaryBlocker = blockers[0] ?? null;
+  const secondaryBlockers = blockers.slice(1);
+
+  const recoveryOptions: AogRecoveryOption[] = [];
+  if (blockers.some((b) => b.type === "MATERIAL")) {
+    recoveryOptions.push({ action: "Investigate approved vendor sourcing", responsibleRole: "Procurement", requiresHumanApproval: true, href: "/maintenance/material-readiness" });
+    if (cannibalization.length > 0) recoveryOptions.push({ action: "Review cannibalization candidate", responsibleRole: "Maintenance Manager", requiresHumanApproval: true, href: `/aircraft/${aircraftId}` });
+  }
+  if (blockers.some((b) => b.type === "TECHNICIAN")) {
+    recoveryOptions.push({ action: "Assign a qualified technician", responsibleRole: "Maintenance Manager", requiresHumanApproval: true, href: wos[0] ? `/maintenance/planning/${wos[0].id}` : undefined });
+  }
+  if (blockers.some((b) => b.type === "INSPECTION")) {
+    recoveryOptions.push({ action: "Assign an independent inspector", responsibleRole: "Maintenance Manager", requiresHumanApproval: true, href: wos[0] ? `/maintenance/planning/${wos[0].id}` : undefined });
+  }
+  if (blockers.some((b) => b.type === "EVIDENCE" || b.type === "UNKNOWN")) {
+    recoveryOptions.push({ action: "Resolve missing evidence/reference before proceeding", responsibleRole: "Maintenance Manager", requiresHumanApproval: true });
+  }
+  if (blockers.some((b) => b.type === "DEFERRED")) {
+    recoveryOptions.push({ action: "Review deferred item / MEL restriction", responsibleRole: "Maintenance Manager", requiresHumanApproval: true });
+  }
+  recoveryOptions.push({ action: "Escalate blocker to maintenance manager", responsibleRole: "Maintenance Manager", requiresHumanApproval: true, href: wos[0] ? `/maintenance/planning/${wos[0].id}` : undefined });
+
+  const dataCompleteness: AogRecoveryAnalysis["dataCompleteness"] =
+    blockers.some((b) => b.type === "UNKNOWN") ? "PARTIAL" : blockers.length === 0 && fleetRow.operationalStatus === "AOG" ? "INSUFFICIENT" : "COMPLETE";
+
+  return {
+    aircraftId,
+    registration: fleetRow.registration,
+    isAog: fleetRow.operationalStatus === "AOG",
+    aogReason: fleetRow.aogReason,
+    criticalWorkOrders: criticalWos.map((w) => ({ workOrderId: w.id, workOrderNumber: w.workOrderNumber, title: w.title })),
+    primaryBlocker,
+    secondaryBlockers,
+    recoveryOptions,
+    dataCompleteness,
+  };
+}
+
 export function getMaintenanceTaskChain(workOrderId: string): MaintenanceTaskChainStep[] {
   const w = workOrders.find((x) => x.id === workOrderId);
   if (!w) return [];

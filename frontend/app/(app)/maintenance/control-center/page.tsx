@@ -199,7 +199,13 @@ export default function MaintenanceControlCenterPage() {
                     <td>{f.openWorkOrders}</td>
                     <td>{f.criticalOpenDefects}</td>
                     <td>{f.materialShortageCount > 0 ? `${f.materialShortageCount} shortage(s)` : "Ready"}</td>
-                    <td><Link href="/maintenance/control-tower" className="ac-text-sm">View Control Tower →</Link></td>
+                    <td>
+                      {f.operationalStatus === "AOG" ? (
+                        <Link href={`/maintenance/aog-recovery/${f.aircraftId}`} className="ac-text-sm">AOG Recovery →</Link>
+                      ) : (
+                        <Link href="/maintenance/control-tower" className="ac-text-sm">View Control Tower →</Link>
+                      )}
+                    </td>
                   </tr>
                 );
               })}

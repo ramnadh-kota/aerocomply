@@ -70,6 +70,7 @@ import {
   getQuarantinedParts,
   getDeferredItemsForAircraft,
   getCannibalizationCandidatesForAircraft,
+  getAogRecoveryAnalysis,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -291,6 +292,13 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
     ],
   },
   {
+    category: "AOG Recovery",
+    questions: [
+      "How can we recover N412MX?",
+      "What is blocking the AOG recovery for N412MX?",
+    ],
+  },
+  {
     category: "Safety & Release",
     questions: [
       "What is the release status of WO-1054?",
@@ -443,6 +451,47 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative,
       table: { title: "Safety Gates", columns: ["Gate", "State", "Reason"], rows: gates.map((g) => [g.type.replace(/_/g, " "), g.state, g.reason]) },
       buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "How can we recover N412MX?" / "What is blocking the AOG recovery?" —
+  // M14.1. Reuses getAogRecoveryAnalysis (lib/mock/ai/analytics.ts), the
+  // ONE AOG recovery calculation, also rendered by the recovery detail page
+  // — this can never disagree with what a human sees there.
+  if ((q.includes("recover") || (q.includes("aog") && (q.includes("block") || q.includes("next")))) && resolveAircraft(question, context)) {
+    const a = resolveAircraft(question, context)!;
+    const analysis = getAogRecoveryAnalysis(a.id);
+    if (!analysis) return insufficient(question, ["aircraft data"]);
+    if (!analysis.isAog) {
+      return {
+        id: nextId(),
+        question,
+        headline: `${analysis.registration} — not currently AOG`,
+        narrative: [`FACT: ${analysis.registration} is not currently derived as AOG (no open HIGH/CRITICAL defect on file).`, TRUST_FOOTER],
+        buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
+      };
+    }
+    const narrative: string[] = [
+      `FACT: ${analysis.registration} is AOG — ${analysis.aogReason ?? "Insufficient source data."}`,
+      `FACT: ${analysis.criticalWorkOrders.length} critical/high-priority open work order(s): ${analysis.criticalWorkOrders.map((w) => w.workOrderNumber).join(", ") || "none"}.`,
+    ];
+    if (analysis.primaryBlocker) {
+      narrative.push(`FACT: primary blocker is ${analysis.primaryBlocker.type} — ${analysis.primaryBlocker.description} (source: ${analysis.primaryBlocker.source}).`);
+      narrative.push(`INFERENCE: recovery cannot proceed past this blocker until it is resolved.`);
+      narrative.push(`RECOMMENDATION: ${analysis.recoveryOptions[0]?.action ?? "escalate to maintenance manager"}.`);
+    } else {
+      narrative.push("UNKNOWN: no specific safety-gate or deferred-item blocker is identified from current source data, despite AOG status — investigate manually.");
+    }
+    if (analysis.dataCompleteness !== "COMPLETE") narrative.push(`UNKNOWN: recovery data completeness is ${analysis.dataCompleteness} — some blockers may not be identifiable from current records.`);
+    narrative.push("SAFETY_REFUSAL: this system does not authorize or execute recovery actions — every option requires human approval through the existing workflow.");
+    narrative.push(TRUST_FOOTER);
+    return {
+      id: nextId(),
+      question,
+      headline: `${analysis.registration} — AOG recovery analysis`,
+      narrative,
+      table: { title: "Recovery Options", columns: ["Action", "Responsible Role"], rows: analysis.recoveryOptions.map((o) => [o.action, o.responsibleRole]) },
+      buttons: [{ label: "Open Recovery View", href: `/maintenance/aog-recovery/${a.id}` }, { label: "Open Control Tower", href: "/maintenance/control-tower" }],
     };
   }
 
