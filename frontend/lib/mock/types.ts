@@ -665,6 +665,13 @@ export interface MaintenanceTask {
   requiredSkill: string | null; // free-text skill label, matched the same keyword-overlap way as WorkOrder.title already is — not a certification database
   inspectionRequired: boolean;
   evidenceStatus: MaintenanceTaskEvidenceStatus;
+  // M14.4 — utilization-driven planning foundation. None of the seeded
+  // tasks has a real interval on file (this dataset has no maintenance
+  // program source), so these stay undefined/null everywhere today — that
+  // is the honest state, not a gap to silently fill in.
+  fhThreshold?: number | null;
+  fcThreshold?: number | null;
+  calendarThresholdDays?: number | null;
 }
 
 // Execution/release state — deliberately separate from WorkOrderStatus.

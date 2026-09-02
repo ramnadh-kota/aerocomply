@@ -71,6 +71,7 @@ import {
   getDeferredItemsForAircraft,
   getCannibalizationCandidatesForAircraft,
   getAogRecoveryAnalysis,
+  getMaintenanceForecastForAircraft,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -492,6 +493,28 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative,
       table: { title: "Recovery Options", columns: ["Action", "Responsible Role"], rows: analysis.recoveryOptions.map((o) => [o.action, o.responsibleRole]) },
       buttons: [{ label: "Open Recovery View", href: `/maintenance/aog-recovery/${a.id}` }, { label: "Open Control Tower", href: "/maintenance/control-tower" }],
+    };
+  }
+
+  // "What maintenance is coming due for VT-ABC?" — M14.4 utilization
+  // forecasting foundation. Honest by construction: this dataset has no
+  // seeded FH/FC threshold on any task, so this always reports UNKNOWN
+  // today rather than fabricating a due date.
+  if (q.includes("coming due") || (q.includes("due") && q.includes("maintenance") && resolveAircraft(question, context))) {
+    const a = resolveAircraft(question, context);
+    if (!a) return insufficient(question, ["a recognizable aircraft registration, e.g. VT-ABC"]);
+    const forecast = getMaintenanceForecastForAircraft(a.id);
+    return {
+      id: nextId(),
+      question,
+      headline: `${currentRegistration(a)} — maintenance forecast`,
+      narrative: [
+        forecast.length > 0 ? `FACT: ${forecast.length} maintenance task(s) linked to open work on this aircraft.` : "FACT: no maintenance task is currently linked to open work on this aircraft.",
+        "UNKNOWN: no maintenance-interval threshold (FH/FC/calendar) exists in this dataset for any task, so due status cannot be calculated — this is a forecasting foundation, not a working forecast yet.",
+        TRUST_FOOTER,
+      ],
+      table: { title: "Maintenance Forecast", columns: ["Task", "Due Status", "Reason"], rows: forecast.map((f) => [f.taskDescription, f.dueStatus, f.reason]) },
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
     };
   }
 

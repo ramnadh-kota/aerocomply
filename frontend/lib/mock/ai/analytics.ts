@@ -1732,6 +1732,43 @@ export function getAutomationQueue(): AutomationQueueItem[] {
   return items;
 }
 
+// M14.4 — Utilization-driven maintenance forecasting foundation. Uses
+// Aircraft.flightHours/flightCycles (M12.9) and MaintenanceTask.fhThreshold/
+// fcThreshold/calendarThresholdDays (above) when both a current value AND a
+// threshold exist; otherwise honestly UNKNOWN. This dataset currently has
+// no seeded threshold on any task, so this always returns UNKNOWN today —
+// that is a correct reflection of source data, not a bug; it becomes
+// meaningful the moment real threshold data is added.
+export type MaintenanceDueStatus = "CURRENT" | "DUE_SOON" | "DUE" | "OVERDUE" | "UNKNOWN";
+
+export interface MaintenanceForecastItem {
+  workOrderId: string;
+  taskDescription: string;
+  dueStatus: MaintenanceDueStatus;
+  reason: string;
+}
+
+export function getMaintenanceForecastForAircraft(aircraftId: string): MaintenanceForecastItem[] {
+  const a = getAircraftById(aircraftId);
+  if (!a) return [];
+  const wos = workOrdersForAircraft(aircraftId).filter((w) => w.maintenanceTaskId);
+  return wos.map((w) => {
+    const task = getMaintenanceTaskById(w.maintenanceTaskId!);
+    const hasThreshold = task && (task.fhThreshold != null || task.fcThreshold != null || task.calendarThresholdDays != null);
+    const hasUtilization = a.flightHours != null || a.flightCycles != null;
+    let dueStatus: MaintenanceDueStatus = "UNKNOWN";
+    let reason = "Insufficient source data — no maintenance-interval threshold is recorded for this task.";
+    if (!hasThreshold) {
+      reason = "Insufficient source data — no maintenance-interval threshold is recorded for this task.";
+    } else if (!hasUtilization) {
+      reason = "Insufficient source data — no current flight hours/cycles recorded for this aircraft.";
+    } else {
+      reason = "Threshold and utilization both on file, but no forecasting calculation is implemented yet.";
+    }
+    return { workOrderId: w.id, taskDescription: task?.description ?? w.title, dueStatus, reason };
+  });
+}
+
 export function getMaintenanceTaskChain(workOrderId: string): MaintenanceTaskChainStep[] {
   const w = workOrders.find((x) => x.id === workOrderId);
   if (!w) return [];
