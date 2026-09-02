@@ -6,15 +6,16 @@
 import { maintenanceProjects, workPackages, getProjectById } from "../maintenanceProjects";
 import { workOrders, isOverdue, workOrdersForProject, workOrdersForAircraft, workOrdersForTechnician, MOCK_TODAY } from "../workOrders";
 import { parts, partsForWorkOrder, getPartById } from "../parts";
-import { defects, defectsForAircraft } from "../defects";
-import { inspectorReviews } from "../inspectorReviews";
+import { defects, defectsForAircraft, defectsForWorkOrder } from "../defects";
+import { inspectorReviews, getInspectorReviewForWorkOrder } from "../inspectorReviews";
 import { getAircraftById, aircraft, currentRegistration, getAircraftVariant } from "../aircraft";
 import { assessmentsForAircraft, getAssessmentById } from "../assessments";
 import { getRequirementById } from "../regulations";
 import { technicians, getTechnicianById, isOnShiftNow } from "../technicians";
 import { upcomingMaintenanceEvents } from "../maintenance";
 import { vendorPartAvailabilityForPart, scoreVendorOptionsForPart, cartItems, partRequests, purchaseOrders, getVendorById } from "../procurement";
-import type { WorkOrder, Priority, Defect, Technician } from "../types";
+import { getMaintenanceTaskById } from "../maintenanceTasks";
+import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -1253,4 +1254,125 @@ function deriveExecutionAction(r: WorkOrderPlanningRow): { actionType: Execution
  * Lisa so "what can maintenance complete today" always matches. */
 export function getExecutionQueue(): ExecutionQueueItem[] {
   return getWorkOrderPlanning().map((r) => ({ ...r, ...deriveExecutionAction(r) }));
+}
+
+// --- M12.9 ASAL Foundation: Safety-Gated Execution ---
+// The key architectural change of this milestone: WorkOrderStatus.COMPLETED
+// (existing, unchanged) means the technician's step is done — it must never
+// be read as "released" or "airworthy". ExecutionState is a second, derived
+// lens over the SAME existing fields (status, inspectorReviewId, the
+// InspectorReview it points to) — no new stored field, so it can never
+// disagree with what Planning/Control Center already show for `status`.
+
+/** Whether a work order's underlying maintenance step requires independent
+ * inspection before it can be considered released — derived from the linked
+ * MaintenanceTask when one exists, otherwise from the existing
+ * InspectorReview/WAITING_INSPECTION signal already used elsewhere in this
+ * file (getWorkOrderPlanningRow). Never fabricated. */
+export function isInspectionRequired(w: WorkOrder): boolean {
+  const task = w.maintenanceTaskId ? getMaintenanceTaskById(w.maintenanceTaskId) : undefined;
+  if (task) return task.inspectionRequired;
+  return w.inspectorReviewId !== null || w.status === "WAITING_INSPECTION";
+}
+
+export function getExecutionState(w: WorkOrder): ExecutionState {
+  if (w.status === "DRAFT" || w.status === "ASSIGNED") return "NOT_STARTED";
+  if (w.status === "IN_PROGRESS") return "IN_PROGRESS";
+  if (w.status === "WAITING_PARTS") return "NOT_STARTED";
+  if (w.status === "WAITING_INSPECTION") return "INSPECTION_REQUIRED";
+  if (w.status === "CANCELLED") return "NOT_STARTED";
+  // status === "COMPLETED" from here — the technician's step is done. This
+  // is exactly where the milestone's required distinction is made explicit.
+  if (!isInspectionRequired(w)) return "RELEASED";
+  const review = getInspectorReviewForWorkOrder(w.id);
+  if (!review) return "TECHNICIAN_COMPLETED";
+  if (review.status === "APPROVED") return "RELEASED";
+  if (review.status === "PENDING_INSPECTION") return "TECHNICIAN_COMPLETED";
+  // REJECTED / RETURNED_FOR_CORRECTION — inspection happened but did not
+  // clear the work order for release.
+  return "INSPECTION_COMPLETED";
+}
+
+/** Lightweight, derived safety gates — reuses the same material/technician
+ * blocking signal as getWorkOrderPlanningRow (never a second calculation),
+ * plus the new inspection/evidence/release distinctions above. Not a rules
+ * engine: each gate is a direct read of one existing fact. */
+export function getSafetyGatesForWorkOrder(workOrderId: string): SafetyGate[] {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return [];
+  const planningRow = getWorkOrderPlanningRow(workOrderId);
+  const task = w.maintenanceTaskId ? getMaintenanceTaskById(w.maintenanceTaskId) : undefined;
+  const execState = getExecutionState(w);
+  const gates: SafetyGate[] = [];
+
+  gates.push({
+    type: "MATERIAL_GATE",
+    open: planningRow?.planningStatus === "MATERIAL_BLOCKED" || planningRow?.planningStatus === "BOTH_BLOCKED",
+    reason: planningRow && planningRow.shortParts.length > 0 ? `Required material unavailable: ${planningRow.shortParts.map((p) => p.partNumber).join(", ")}` : "No material shortage recorded for this work order.",
+  });
+
+  gates.push({
+    type: "QUALIFICATION_GATE",
+    open: w.assignedTechnicianId === null && w.status !== "COMPLETED" && w.status !== "CANCELLED",
+    reason: w.assignedTechnicianId ? "A technician is assigned." : "No technician currently assigned.",
+  });
+
+  const inspectionRequired = isInspectionRequired(w);
+  gates.push({
+    type: "INSPECTION_GATE",
+    open: inspectionRequired && execState !== "RELEASED" && execState !== "INSPECTION_COMPLETED",
+    reason: inspectionRequired
+      ? execState === "RELEASED"
+        ? "Required inspection has been completed and approved."
+        : "Independent inspection is required before this work order can be released."
+      : "No inspection is indicated as required for this work order.",
+  });
+
+  gates.push({
+    type: "EVIDENCE_GATE",
+    open: task ? task.evidenceStatus === "SOURCE_UNKNOWN" : false,
+    reason: task
+      ? task.evidenceStatus === "SOURCE_UNKNOWN"
+        ? "Authoritative maintenance reference is not available in the current dataset for this task."
+        : `Reference on file: ${task.referenceType}${task.referenceId ? ` (${requirementLabel(task.referenceId)})` : ""}.`
+      : "No maintenance task reference is linked to this work order.",
+  });
+
+  gates.push({
+    type: "RELEASE_GATE",
+    open: execState !== "RELEASED",
+    reason: execState === "RELEASED" ? "Released — technician completion and (where required) inspection are both on record." : `Not yet released — current execution state: ${execState.replace(/_/g, " ")}.`,
+  });
+
+  return gates;
+}
+
+export interface MaintenanceTaskChainStep {
+  label: string;
+  detail: string;
+  href?: string;
+}
+
+/** Aircraft → Discrepancy → Maintenance Task → Work Order chain for display,
+ * reading only fields/records that already exist (Defect.workOrderId is the
+ * existing reverse link used to find a discrepancy for a work order — no new
+ * stored field). Steps with no source-backed value say so explicitly. */
+export function getMaintenanceTaskChain(workOrderId: string): MaintenanceTaskChainStep[] {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return [];
+  const a = getAircraftById(w.aircraftId);
+  const discrepancy = defectsForWorkOrder(w.id)[0];
+  const task = w.maintenanceTaskId ? getMaintenanceTaskById(w.maintenanceTaskId) : undefined;
+
+  return [
+    { label: "Aircraft", detail: a ? currentRegistration(a) : "Insufficient source data.", href: a ? `/aircraft/${a.id}` : undefined },
+    { label: "Discrepancy", detail: discrepancy ? `${discrepancy.description} (${discrepancy.severity})` : "No linked discrepancy record." },
+    {
+      label: "Maintenance Task",
+      detail: task
+        ? `${task.description} — ${task.referenceType === "OTHER" ? "Insufficient source data (no AD/SB/AMM reference on file)" : `${task.referenceType} ${requirementLabel(task.referenceId)}`}`
+        : "No maintenance task linked to this work order.",
+    },
+    { label: "Work Order", detail: `${w.workOrderNumber} — ${w.title}`, href: `/maintenance/planning/${w.id}` },
+  ];
 }

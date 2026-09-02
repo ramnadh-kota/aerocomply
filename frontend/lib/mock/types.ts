@@ -56,6 +56,12 @@ export interface Aircraft {
   status: AircraftStatus;
   entryIntoServiceDate: string;
   registrationHistory: RegistrationHistoryEntry[];
+  // M12.9 — aviation-native aircraft foundation. Optional/nullable because
+  // this prototype has no flight-data ingestion (ACMS, etc.): most aircraft
+  // legitimately have no recorded value here. Absent/null must render
+  // "Insufficient source data.", never 0 or an inferred number.
+  flightHours?: number | null;
+  flightCycles?: number | null;
 }
 
 export interface EngineType {
@@ -398,10 +404,30 @@ export interface Technician {
   shiftEnd: string; // "14:00"
   certifications: string[];
   isInspector?: boolean;
+  // M12.9 — authorization-aware assignment foundation. `licenseType` reuses
+  // the same B1.1/B2 category labels already present as plain strings inside
+  // `certifications` above (never a second, disagreeing source); it is a
+  // structured pointer to that existing signal, not new fabricated data.
+  // `aircraftTypeQualifications` is null/absent, never guessed, because this
+  // dataset has no type-rating record for any technician — the system must
+  // say "system qualification data indicates a match" (keyword-derived),
+  // never "technician is legally authorized" (see lib/mock/ai/engine.ts).
+  licenseType?: string | null;
+  aircraftTypeQualifications?: string[] | null;
 }
 
 export type PartStatus = "IN_STOCK" | "ORDERED" | "AWAITING_RECEIPT";
 export type PartClassification = "BATCH" | "SERIALIZED";
+
+// M12.9 — aviation parts foundation. Additive to, not a replacement for, the
+// existing BATCH/SERIALIZED `classification` above (that field already drives
+// UI/logic elsewhere and stays exactly as-is). These describe two different
+// things: `classification` = how the part is tracked; `aviationClassification`
+// = its real-world rotable/consumable nature; `serviceability` = its current
+// condition state. All optional — this is a foundation, not a rebuilt part
+// record, and unrecorded is UNKNOWN, never a guessed default.
+export type PartAviationClassification = "CONSUMABLE" | "EXPENDABLE" | "ROTABLE" | "REPAIRABLE";
+export type PartServiceability = "SERVICEABLE" | "UNSERVICEABLE" | "QUARANTINED" | "RECEIVING_INSPECTION" | "UNKNOWN";
 
 export interface Part {
   id: string;
@@ -418,6 +444,8 @@ export interface Part {
   lifeLimitInfo: string | null; // e.g. "12,000 cycles life limit — not applicable to this part"
   manufacturer: string | null; // UNKNOWN when not recorded — see ADR-009
   batchOrLot: string | null; // batch/lot number for BATCH-classified parts; null when not applicable or unrecorded
+  aviationClassification?: PartAviationClassification | null;
+  serviceability?: PartServiceability;
 }
 
 // M7.1 — Aviation Parts Traceability Model. These entities extend (not
@@ -533,6 +561,11 @@ export interface WorkOrder {
   findingIds: string[];
   signOff: TechnicianSignOff | null;
   inspectorReviewId: string | null; // -> InspectorReview
+  // M12.9 — optional link to a MaintenanceTask (lib/mock/maintenanceTasks.ts),
+  // the aviation-native "what procedure/reference is this work order actually
+  // performing" layer. Additive/optional: most existing work orders predate
+  // this concept and legitimately have no linked task (null, not fabricated).
+  maintenanceTaskId?: string | null;
 }
 
 // Checklist item DEFINITION (static template data). Runtime completion state
@@ -603,6 +636,55 @@ export interface AuditEvent {
   // existing events remain valid without them.
   actorType?: "USER" | "AI" | "SYSTEM";
   organizationId?: string;
+  // M12.9 — structured reason code alongside the existing free-text `reason`
+  // above (kept, not replaced), preparing for future tamper-evident records
+  // without implementing any cryptographic/ledger mechanism here.
+  reasonCode?: string;
+}
+
+// M12.9 — ASAL (Aviation Safety & Airworthiness Layer) foundation types.
+// Additive only: nothing existing is renamed or removed. See
+// lib/mock/maintenanceTasks.ts for seed data and lib/mock/ai/analytics.ts
+// for the derivation functions that use these.
+
+export type MaintenanceTaskReferenceType = "AMM" | "SB" | "AD" | "MPD" | "OTHER";
+
+// Distinguishes "a source reference is recorded" from "no authoritative
+// source is available in this dataset" — the latter must render as
+// "Insufficient source data.", never as a fabricated AMM/IPC procedure.
+export type MaintenanceTaskEvidenceStatus = "SOURCE_AVAILABLE" | "SOURCE_UNKNOWN";
+
+export interface MaintenanceTask {
+  id: string;
+  description: string;
+  ataChapter: string;
+  referenceType: MaintenanceTaskReferenceType;
+  referenceId: string | null; // -> RegulatoryRequirement id when referenceType is AD/SB and one genuinely exists; otherwise null
+  requiredSkill: string | null; // free-text skill label, matched the same keyword-overlap way as WorkOrder.title already is — not a certification database
+  inspectionRequired: boolean;
+  evidenceStatus: MaintenanceTaskEvidenceStatus;
+}
+
+// Execution/release state — deliberately separate from WorkOrderStatus.
+// COMPLETED (an existing WorkOrderStatus value) means "the technician's
+// work step is done"; it must never be read as "the aircraft is released."
+// This type exists purely to make that distinction explicit and derivable;
+// it does not replace or remove WorkOrderStatus.
+export type ExecutionState =
+  | "NOT_STARTED"
+  | "IN_PROGRESS"
+  | "TECHNICIAN_COMPLETED"
+  | "INSPECTION_REQUIRED"
+  | "INSPECTION_COMPLETED"
+  | "READY_FOR_RELEASE"
+  | "RELEASED";
+
+export type SafetyGateType = "MATERIAL_GATE" | "QUALIFICATION_GATE" | "INSPECTION_GATE" | "EVIDENCE_GATE" | "RELEASE_GATE";
+
+export interface SafetyGate {
+  type: SafetyGateType;
+  open: boolean; // true = this gate is currently blocking release/progress
+  reason: string;
 }
 
 // M11.0 — Procurement / Vendor domain model. Additive only. Before this,

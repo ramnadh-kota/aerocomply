@@ -64,6 +64,8 @@ import {
   getTechnicianEligibilityForWorkOrder,
   getExecutionQueue,
   getWorkOrdersAwaitingAssignment,
+  getExecutionState,
+  getSafetyGatesForWorkOrder,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -284,6 +286,14 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Show me the audit trail for this aircraft.",
     ],
   },
+  {
+    category: "Safety & Release",
+    questions: [
+      "What is the release status of WO-1054?",
+      "What safety gates are open on WO-1055?",
+      "Is this aircraft airworthy?",
+    ],
+  },
 ];
 
 export const SUGGESTED_QUESTIONS = CATEGORIZED_QUESTIONS.flatMap((c) => c.questions);
@@ -358,8 +368,73 @@ function insufficient(question: string, missing: string[]): AiResponse {
   };
 }
 
+// M12.9 — Lisa must never make a final airworthiness/legal/regulatory
+// determination itself; those decisions belong to authorized maintenance
+// personnel. This guard sits ahead of every other branch so no keyword match
+// below it can accidentally produce an authoritative-sounding answer to one
+// of these questions.
+const AIRWORTHINESS_GUARD_PATTERNS = [
+  /\bairworth/i,
+  /\bsafe to dispatch\b/i,
+  /\bsafe to fly\b/i,
+  /\bapproved substitute\b/i,
+  /\blegally (complete|compliant|authorized)\b/i,
+  /\bcertificate of release\b/i,
+  /\bcrs\b/i,
+  /\brelease( it| the aircraft)? to service\b/i,
+];
+
+function answerAirworthinessGuard(question: string): AiResponse | null {
+  if (!AIRWORTHINESS_GUARD_PATTERNS.some((p) => p.test(question))) return null;
+  return {
+    id: nextId(),
+    question,
+    headline: "This requires authorized maintenance personnel",
+    narrative: [
+      "The system currently shows the recorded status of the relevant aircraft, work order, and inspection records — it does not make airworthiness, legal, or certification-of-release determinations.",
+      "Final determination requires authorized maintenance personnel, per applicable regulatory requirements.",
+      "Ask about a specific aircraft or work order's recorded execution state, safety gates, or open discrepancies, and I can summarize what the current data shows.",
+      TRUST_FOOTER,
+    ],
+  };
+}
+
 export function answerQuestion(question: string, context?: AiQuestionContext): AiResponse {
+  const guard = answerAirworthinessGuard(question);
+  if (guard) return guard;
   const q = question.toLowerCase();
+
+  // "What is the execution/release status of WO-XXXX?" / "Is WO-XXXX released?"
+  // / "What safety gates are open on WO-XXXX?" — M12.9. Explicit FACT /
+  // INFERENCE / RECOMMENDATION structure, reusing getExecutionState and
+  // getSafetyGatesForWorkOrder (lib/mock/ai/analytics.ts) so this can never
+  // disagree with the Planning detail page rendering the same functions.
+  if ((q.includes("release") || q.includes("safety gate") || q.includes("execution status")) && findWorkOrderFromText(question)) {
+    const wo = findWorkOrderFromText(question)!;
+    const execState = getExecutionState(wo);
+    const gates = getSafetyGatesForWorkOrder(wo.id);
+    const openGates = gates.filter((g) => g.open);
+    const narrative: string[] = [
+      `FACT: ${wo.workOrderNumber} status is ${wo.status.replace(/_/g, " ")}; derived execution state is ${execState.replace(/_/g, " ")}.`,
+    ];
+    if (openGates.length > 0) {
+      narrative.push(`FACT: ${openGates.length} safety gate(s) currently open: ${openGates.map((g) => g.type.replace(/_/g, " ")).join(", ")}.`);
+      narrative.push(`INFERENCE: this work order is not yet ready for release while these gates remain open.`);
+      narrative.push(`RECOMMENDATION: resolve ${openGates[0].type.replace(/_/g, " ").toLowerCase()} first — ${openGates[0].reason}`);
+    } else {
+      narrative.push("FACT: no safety gate is currently open for this work order.");
+    }
+    narrative.push("Final release/airworthiness determination requires authorized maintenance personnel — this is a summary of recorded system data, not a certification.");
+    narrative.push(TRUST_FOOTER);
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — execution state: ${execState.replace(/_/g, " ")}`,
+      narrative,
+      table: { title: "Safety Gates", columns: ["Gate", "Status", "Reason"], rows: gates.map((g) => [g.type.replace(/_/g, " "), g.open ? "OPEN" : "CLEAR", g.reason]) },
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
 
   // --- Contextual (project-scoped) shortcuts — only apply when the caller
   // has an active project context (e.g. asked from Project Intelligence).

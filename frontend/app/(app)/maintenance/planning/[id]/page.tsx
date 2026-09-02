@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge, workOrderStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
-import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel } from "@/lib/mock/ai/analytics";
+import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain } from "@/lib/mock/ai/analytics";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { technicians } from "@/lib/mock/technicians";
 import { workOrderRepository } from "@/lib/domain/repositories";
@@ -49,6 +49,9 @@ export default function WorkOrderPlanningDetailPage() {
   const priority = priorityBadge(row.priority);
   const statusBadge = workOrderStatusBadge(row.status);
   const risk = riskLevelBadge(row.risk);
+  const executionState = getExecutionState(wo);
+  const safetyGates = getSafetyGatesForWorkOrder(workOrderId);
+  const taskChain = getMaintenanceTaskChain(workOrderId);
 
   const assign = (technicianId: string) => {
     const wasAssigned = row.assignedTechnicianId !== null;
@@ -280,6 +283,46 @@ export default function WorkOrderPlanningDetailPage() {
           )}
           <Link href={`/maintenance/work-orders/${wo.id}`} className="ac-btn">View Full Work Order</Link>
           <Link href={`/aircraft/${wo.aircraftId}`} className="ac-btn">View Aircraft</Link>
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Maintenance Task &amp; Release</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+          Technician completion is separate from release. &quot;{statusBadge.label}&quot; describes the work order status; the
+          execution state below tracks whether this work order has actually cleared inspection and is ready for release.
+        </p>
+        <div className="ac-grid-2">
+          <div className="ac-card">
+            <p className="ac-eyebrow" style={{ marginBottom: 6 }}>Traceability Chain</p>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+              {taskChain.map((step) => (
+                <li key={step.label} style={{ marginBottom: 4 }}>
+                  <strong>{step.label}:</strong>{" "}
+                  {step.href ? <Link href={step.href}>{step.detail}</Link> : step.detail}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="ac-card">
+            <p className="ac-eyebrow" style={{ marginBottom: 6 }}>
+              Execution State: {executionState.replace(/_/g, " ")}
+            </p>
+            <table className="ac-table">
+              <thead><tr><th>Safety Gate</th><th>Status</th><th>Reason</th></tr></thead>
+              <tbody>
+                {safetyGates.map((g) => (
+                  <tr key={g.type}>
+                    <td className="ac-text-sm">{g.type.replace(/_/g, " ")}</td>
+                    <td>
+                      <StatusBadge status={g.open ? "NON_COMPLIANT" : "COMPLIANT"} label={g.open ? "OPEN" : "CLEAR"} />
+                    </td>
+                    <td className="ac-text-sm">{g.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 

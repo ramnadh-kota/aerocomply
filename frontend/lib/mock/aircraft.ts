@@ -24,6 +24,9 @@ export const aircraft: Aircraft[] = [
     status: "ACTIVE",
     entryIntoServiceDate: "2024-01-01",
     registrationHistory: [{ id: "reg-1a", registrationMark: "VT-ABC", effectiveFrom: "2024-01-01", effectiveTo: null }],
+    // M12.9 — demo-labeled synthetic FH/FC, not real operational data.
+    flightHours: 8420,
+    flightCycles: 3110,
   },
   {
     id: "ac-2",
@@ -45,6 +48,9 @@ export const aircraft: Aircraft[] = [
       { id: "reg-3a", registrationMark: "N412ML", effectiveFrom: "2022-09-10", effectiveTo: "2025-04-01" },
       { id: "reg-3b", registrationMark: "N412MX", effectiveFrom: "2025-04-01", effectiveTo: null },
     ],
+    // M12.9 — demo-labeled synthetic FH/FC, not real operational data.
+    flightHours: 14210,
+    flightCycles: 6890,
   },
   {
     id: "ac-4",
@@ -63,6 +69,9 @@ export const aircraft: Aircraft[] = [
     status: "ACTIVE",
     entryIntoServiceDate: "2020-11-05",
     registrationHistory: [{ id: "reg-5a", registrationMark: "VT-DEF", effectiveFrom: "2020-11-05", effectiveTo: null }],
+    // M12.9 — demo-labeled synthetic FH/FC, not real operational data.
+    flightHours: 19875,
+    flightCycles: 9420,
   },
   {
     id: "ac-6",

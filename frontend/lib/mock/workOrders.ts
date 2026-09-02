@@ -35,6 +35,7 @@ export const workOrders: WorkOrder[] = [
     findingIds: ["finding-1"],
     signOff: { technicianId: "tech-1", timestamp: "2026-03-16T13:40:00Z", confirmed: true },
     inspectorReviewId: "ir-1",
+    maintenanceTaskId: "mtask-1042",
   },
   {
     id: "wo-1043",
@@ -110,6 +111,7 @@ export const workOrders: WorkOrder[] = [
     findingIds: ["finding-2"],
     signOff: { technicianId: "tech-3", timestamp: "2026-03-16T17:00:00Z", confirmed: true },
     inspectorReviewId: "ir-5",
+    maintenanceTaskId: "mtask-1045",
   },
   {
     id: "wo-1046",
@@ -135,6 +137,7 @@ export const workOrders: WorkOrder[] = [
     findingIds: [],
     signOff: null,
     inspectorReviewId: null,
+    maintenanceTaskId: "mtask-1046",
   },
   {
     id: "wo-1047",
@@ -265,6 +268,7 @@ export const workOrders: WorkOrder[] = [
     findingIds: [],
     signOff: null,
     inspectorReviewId: null,
+    maintenanceTaskId: "mtask-1051",
   },
   // --- M12.7.1 operational data enrichment. Every new work order links to
   // an existing aircraft/technician; nothing here invents a new aircraft or
@@ -347,6 +351,7 @@ export const workOrders: WorkOrder[] = [
     findingIds: [],
     signOff: null,
     inspectorReviewId: null,
+    maintenanceTaskId: "mtask-1054",
   },
   {
     id: "wo-1055",
@@ -372,6 +377,7 @@ export const workOrders: WorkOrder[] = [
     findingIds: [],
     signOff: null,
     inspectorReviewId: null,
+    maintenanceTaskId: "mtask-1055",
   },
   {
     id: "wo-1056",
