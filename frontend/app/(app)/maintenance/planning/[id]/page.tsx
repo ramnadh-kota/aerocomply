@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge, workOrderStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
-import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain } from "@/lib/mock/ai/analytics";
+import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView } from "@/lib/mock/ai/analytics";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { technicians } from "@/lib/mock/technicians";
 import { workOrderRepository } from "@/lib/domain/repositories";
@@ -52,6 +52,7 @@ export default function WorkOrderPlanningDetailPage() {
   const executionState = getExecutionState(wo);
   const safetyGates = getSafetyGatesForWorkOrder(workOrderId);
   const taskChain = getMaintenanceTaskChain(workOrderId);
+  const taskExecution = getMaintenanceTaskExecutionView(workOrderId);
 
   const assign = (technicianId: string) => {
     const wasAssigned = row.assignedTechnicianId !== null;
@@ -303,6 +304,13 @@ export default function WorkOrderPlanningDetailPage() {
                 </li>
               ))}
             </ul>
+            {taskExecution && (
+              <>
+                <p className="ac-eyebrow" style={{ margin: "12px 0 6px" }}>Task Execution</p>
+                <p className="ac-text-sm" style={{ margin: "0 0 2px" }}>Performed by: {taskExecution.performedBy}</p>
+                <p className="ac-text-sm" style={{ margin: 0 }}>Inspected by: {taskExecution.inspectedBy}</p>
+              </>
+            )}
           </div>
           <div className="ac-card">
             <p className="ac-eyebrow" style={{ marginBottom: 6 }}>

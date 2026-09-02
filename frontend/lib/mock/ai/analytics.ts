@@ -1751,3 +1751,36 @@ export function getMaintenanceTaskChain(workOrderId: string): MaintenanceTaskCha
     { label: "Work Order", detail: `${w.workOrderNumber} — ${w.title}`, href: `/maintenance/planning/${w.id}` },
   ];
 }
+
+/** M14.3 — Maintenance Task execution view: WHO performed the task and WHO
+ * (if anyone yet) independently inspected it, plus the M12.9/M13
+ * ExecutionState — reads the same WorkOrder.signOff/InspectorReview fields
+ * getSignatureRecordsForWorkOrder already reads, no second data source. */
+export interface MaintenanceTaskExecutionView {
+  taskId: string | null;
+  taskDescription: string;
+  executionState: ExecutionState;
+  performedBy: string; // technician name, or "Insufficient source data."
+  performedAt: string | null;
+  inspectedBy: string; // inspector name, or "Not yet inspected." / "Insufficient source data."
+  inspectedAt: string | null;
+}
+
+export function getMaintenanceTaskExecutionView(workOrderId: string): MaintenanceTaskExecutionView | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return null;
+  const task = w.maintenanceTaskId ? getMaintenanceTaskById(w.maintenanceTaskId) : undefined;
+  const review = getInspectorReviewForWorkOrder(w.id);
+  const performer = w.signOff ? getTechnicianById(w.signOff.technicianId) : (w.assignedTechnicianId ? getTechnicianById(w.assignedTechnicianId) : undefined);
+  const inspector = review ? getTechnicianById(review.inspectorId) : undefined;
+
+  return {
+    taskId: task?.id ?? null,
+    taskDescription: task?.description ?? "No maintenance task linked to this work order.",
+    executionState: getExecutionState(w),
+    performedBy: w.signOff ? (performer?.name ?? "Insufficient source data.") : performer ? `${performer.name} (assigned, not yet signed off)` : "Insufficient source data.",
+    performedAt: w.signOff?.timestamp ?? null,
+    inspectedBy: review ? (review.reviewedAt ? inspector?.name ?? "Insufficient source data." : `Pending — ${inspector?.name ?? "inspector not yet reviewed"}`) : isInspectionRequired(w) ? "Not yet inspected." : "No inspection required for this task.",
+    inspectedAt: review?.reviewedAt ?? null,
+  };
+}
