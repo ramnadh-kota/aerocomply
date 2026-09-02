@@ -548,17 +548,26 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     const part = parts.find((p) => q.includes(p.partNumber.toLowerCase()))!;
     const answers = partTraceabilityAnswers(part.id);
     const stage = partLifecycleStage(part.id);
+    const narrative = [
+      `FACT: Origin — ${answers.origin}`,
+      `FACT: Certificate — ${answers.supportingCertificate}`,
+      `FACT: Installed aircraft — ${answers.installedAircraft}`,
+      `FACT: Removal — ${answers.removalInfo}`,
+    ];
+    // M14.7 — rotable lifecycle foundation. A ROTABLE part's full
+    // REMOVED→QUARANTINE→SHOP→REPAIR→INSPECTION→SERVICEABLE lifecycle is
+    // NOT tracked in this dataset (no shop/repair-order records exist) —
+    // partLifecycleStage only covers the receiving/install/remove portion.
+    if (part.aviationClassification === "ROTABLE") {
+      narrative.push(`FACT: classification is ROTABLE — current lifecycle stage: ${stage.replace(/_/g, " ")}.`);
+      narrative.push("UNKNOWN: shop/repair-cycle stages (quarantine → shop → repair → inspection → serviceable) are not tracked in this dataset — only receiving, installation, and removal are.");
+    }
+    narrative.push(TRUST_FOOTER);
     return {
       id: nextId(),
       question,
       headline: `${part.partNumber} — traceability (lifecycle stage: ${stage.replace(/_/g, " ")})`,
-      narrative: [
-        `FACT: Origin — ${answers.origin}`,
-        `FACT: Certificate — ${answers.supportingCertificate}`,
-        `FACT: Installed aircraft — ${answers.installedAircraft}`,
-        `FACT: Removal — ${answers.removalInfo}`,
-        TRUST_FOOTER,
-      ],
+      narrative,
       buttons: [{ label: "View Parts", href: "/maintenance/parts" }],
     };
   }
