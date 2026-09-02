@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { Timeline } from "@/components/timeline/Timeline";
-import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics, getTechnicianWorkload, getPartsAtRisk, getAircraftAnalytics, requirementLabel, getControlTowerSummary, getMaintenanceControlCenterSummary } from "@/lib/mock/ai/analytics";
+import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics, getTechnicianWorkload, getPartsAtRisk, getAircraftAnalytics, requirementLabel, getControlTowerSummary, getMaintenanceControlCenterSummary, getReleaseQueue, getAutomationQueue, getQuarantinedParts } from "@/lib/mock/ai/analytics";
 import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getRequirementById } from "@/lib/mock/regulations";
@@ -68,6 +68,11 @@ export default function ExecutiveControlCenterPage() {
     { label: "Aircraft Availability", value: `${towerSummary.operational}/${towerSummary.totalAircraft} operational`, href: "/maintenance/control-tower" },
     { label: "Critical Work Orders", value: String(controlCenterSummary.criticalWorkOrders), href: "/maintenance/control-center" },
     { label: "Material Blockers", value: String(controlCenterSummary.materialShortages), href: "/maintenance/material-readiness" },
+    // M14.12 — operational intelligence: reuses the M14.1/M13/M14.2
+    // functions, never a second calculation.
+    { label: "Release Queue", value: String(getReleaseQueue().length), href: "/maintenance/planning" },
+    { label: "Automation Queue", value: String(getAutomationQueue().length), href: "/automation" },
+    { label: "Quarantined Parts", value: String(getQuarantinedParts().length), href: "/maintenance/parts" },
   ];
 
   const riskSummaryPoints: string[] = [];
