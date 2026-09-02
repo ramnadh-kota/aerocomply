@@ -1549,6 +1549,11 @@ export function getAogRecoveryAnalysis(aircraftId: string): AogRecoveryAnalysis 
   for (const d of deferred) {
     blockers.push({ type: "DEFERRED", description: d.dueAt === null ? "Deferred item with no authoritative MEL reference/due date on file." : `Deferred item due ${d.dueAt}.`, source: `Deferred Item ${d.id}` });
   }
+  // M14.10 — regulatory compliance tracking: reuses the existing
+  // ApplicabilityAssessment system (M0), never a second compliance engine.
+  for (const asmt of assessmentsForAircraft(aircraftId).filter((a) => a.finalStatus === "NON_COMPLIANT" || a.finalStatus === "REVIEW_REQUIRED")) {
+    blockers.push({ type: "REGULATORY", description: `Assessment ${asmt.id} is ${asmt.finalStatus.replace(/_/g, " ")}.`, source: `Assessment ${asmt.id}` });
+  }
 
   const primaryBlocker = blockers[0] ?? null;
   const secondaryBlockers = blockers.slice(1);
@@ -1569,6 +1574,9 @@ export function getAogRecoveryAnalysis(aircraftId: string): AogRecoveryAnalysis 
   }
   if (blockers.some((b) => b.type === "DEFERRED")) {
     recoveryOptions.push({ action: "Review deferred item / MEL restriction", responsibleRole: "Maintenance Manager", requiresHumanApproval: true });
+  }
+  if (blockers.some((b) => b.type === "REGULATORY")) {
+    recoveryOptions.push({ action: "Resolve non-compliant/review-required assessment", responsibleRole: "Compliance", requiresHumanApproval: true, href: "/compliance" });
   }
   recoveryOptions.push({ action: "Escalate blocker to maintenance manager", responsibleRole: "Maintenance Manager", requiresHumanApproval: true, href: wos[0] ? `/maintenance/planning/${wos[0].id}` : undefined });
 
