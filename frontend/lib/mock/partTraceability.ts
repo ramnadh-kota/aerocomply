@@ -95,12 +95,15 @@ export function traceabilityStatusForPart(partId: string): TraceabilityStatus {
 
 // M8.7 — Parts lifecycle expansion. A single explainable stage, derived
 // from the same real records above — never inferred from Part.status
-// alone. QUARANTINED/RETURNED/SCRAPPED are part of the target lifecycle
-// but have no supporting field in the current data model, so they are
-// intentionally unreachable here rather than guessed at.
+// alone. RETURNED/SCRAPPED are part of the target lifecycle but have no
+// supporting field in the current data model, so they are intentionally
+// unreachable here rather than guessed at.
+// M14.6/M14.7 — QUARANTINED is now reachable: M13 added Part.serviceability,
+// which supersedes the "no supporting field" note above for that one stage.
 export type PartLifecycleStage =
   | "ORDERED"
   | "RECEIVED"
+  | "QUARANTINED"
   | "CERTIFICATE_VERIFIED"
   | "STORED"
   | "INSTALLED"
@@ -112,6 +115,7 @@ export function partLifecycleStage(partId: string): PartLifecycleStage {
   if (!part) return "UNKNOWN";
   if (removalsForPart(partId).length > 0) return "REMOVED";
   if (currentInstallationForPart(partId)) return "INSTALLED";
+  if (part.serviceability === "QUARANTINED") return "QUARANTINED";
   if (part.status === "IN_STOCK") {
     const verified = certificatesForPart(partId).some((c) => c.verificationStatus === "PRESENT");
     if (verified) return "CERTIFICATE_VERIFIED";

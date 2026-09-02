@@ -23,7 +23,7 @@ import { overdueMaintenanceEvents, maintenanceEventsForAircraft, upcomingMainten
 import { assessments } from "../assessments";
 import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
-import { certificatesForPart, traceabilityStatusForPart } from "../partTraceability";
+import { certificatesForPart, traceabilityStatusForPart, partLifecycleStage, partTraceabilityAnswers } from "../partTraceability";
 import { getWorkOrderCostSummary, getAircraftCostSummary, getFleetFinancialSummary, workOrderIdsWithCostData, highestCostPartCost, highestVendorSpend, vendorCosts } from "../finance";
 import { vendors, partRequests, purchaseOrders, partsWithoutVendorAvailability, scoreVendorOptionsForPart, cartItems, cartSummary, cartItemLineTotal, getVendorById } from "../procurement";
 import { auditEvents, combinedAuditHistory } from "../audit";
@@ -536,6 +536,30 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
         TRUST_FOOTER,
       ],
       buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Trace part FCU-220" / "where did this part come from" — M14.6.
+  // Reuses the existing M7.1/M8.7 traceability functions (never a second
+  // traceability calculation) — origin, certificate, installation, removal,
+  // and lifecycle stage, all "Insufficient source data." where no record
+  // exists rather than guessed.
+  if ((q.includes("trace") || q.includes("where did") || q.includes("origin of")) && parts.find((p) => q.includes(p.partNumber.toLowerCase()))) {
+    const part = parts.find((p) => q.includes(p.partNumber.toLowerCase()))!;
+    const answers = partTraceabilityAnswers(part.id);
+    const stage = partLifecycleStage(part.id);
+    return {
+      id: nextId(),
+      question,
+      headline: `${part.partNumber} — traceability (lifecycle stage: ${stage.replace(/_/g, " ")})`,
+      narrative: [
+        `FACT: Origin — ${answers.origin}`,
+        `FACT: Certificate — ${answers.supportingCertificate}`,
+        `FACT: Installed aircraft — ${answers.installedAircraft}`,
+        `FACT: Removal — ${answers.removalInfo}`,
+        TRUST_FOOTER,
+      ],
+      buttons: [{ label: "View Parts", href: "/maintenance/parts" }],
     };
   }
 
