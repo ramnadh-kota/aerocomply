@@ -1800,6 +1800,25 @@ export function getMaintenanceForecastForAircraft(aircraftId: string): Maintenan
   });
 }
 
+// M14.11 — inspection/release foundation clarity. Does not change how
+// ExecutionState is derived (M12.9/M13, unchanged) — only labels it more
+// explicitly so the four distinct concepts this milestone requires
+// (TECHNICIAN COMPLETED / INSPECTED / RELEASE READY / RELEASED) are never
+// blurred together in a response.
+export function explainExecutionState(state: ExecutionState): string {
+  switch (state) {
+    case "NOT_STARTED": return "Work has not started.";
+    case "BLOCKED": return "Work is blocked before starting (material or qualification gate open).";
+    case "IN_PROGRESS": return "Technician work is in progress — not yet complete, not inspected, not released.";
+    case "TECHNICIAN_COMPLETED": return "TECHNICIAN COMPLETED — the technician's step is done. This is NOT inspected and NOT released.";
+    case "INSPECTION_REQUIRED": return "Awaiting independent inspection — technician step is done, inspection has not occurred.";
+    case "INSPECTION_COMPLETED": return "INSPECTED — an inspection occurred but did not clear the work order for release (rejected/returned).";
+    case "READY_FOR_RELEASE": return "RELEASE READY — all required steps are complete; a release action has not yet been recorded.";
+    case "RELEASED": return "RELEASED — technician completion and (where required) inspection are both on record.";
+    default: return "Insufficient source data.";
+  }
+}
+
 export function getMaintenanceTaskChain(workOrderId: string): MaintenanceTaskChainStep[] {
   const w = workOrders.find((x) => x.id === workOrderId);
   if (!w) return [];

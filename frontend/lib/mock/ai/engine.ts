@@ -73,6 +73,7 @@ import {
   getAogRecoveryAnalysis,
   getMaintenanceForecastForAircraft,
   getTechnicianAuthorizationForWorkOrder,
+  explainExecutionState,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -434,6 +435,7 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     const openGates = gates.filter((g) => g.open);
     const narrative: string[] = [
       `FACT: ${wo.workOrderNumber} status is ${wo.status.replace(/_/g, " ")}; derived execution state is ${execState.replace(/_/g, " ")}.`,
+      `FACT: ${explainExecutionState(execState)}`,
     ];
     if (openGates.length > 0) {
       const unknownGates = openGates.filter((g) => g.state === "UNKNOWN");

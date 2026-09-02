@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge, workOrderStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
-import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView } from "@/lib/mock/ai/analytics";
+import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView, explainExecutionState } from "@/lib/mock/ai/analytics";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { technicians } from "@/lib/mock/technicians";
 import { workOrderRepository } from "@/lib/domain/repositories";
@@ -316,6 +316,7 @@ export default function WorkOrderPlanningDetailPage() {
             <p className="ac-eyebrow" style={{ marginBottom: 6 }}>
               Execution State: {executionState.replace(/_/g, " ")}
             </p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 10px" }}>{explainExecutionState(executionState)}</p>
             <table className="ac-table">
               <thead><tr><th>Safety Gate</th><th>Status</th><th>Reason</th></tr></thead>
               <tbody>
