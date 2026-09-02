@@ -15,7 +15,9 @@ import { technicians, getTechnicianById, isOnShiftNow } from "../technicians";
 import { upcomingMaintenanceEvents } from "../maintenance";
 import { vendorPartAvailabilityForPart, scoreVendorOptionsForPart, cartItems, partRequests, purchaseOrders, getVendorById } from "../procurement";
 import { getMaintenanceTaskById } from "../maintenanceTasks";
-import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate } from "../types";
+import { deferredItems } from "../deferredItems";
+import { cannibalizationRequests } from "../cannibalization";
+import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SignatureRecord } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -1276,9 +1278,12 @@ export function isInspectionRequired(w: WorkOrder): boolean {
 }
 
 export function getExecutionState(w: WorkOrder): ExecutionState {
-  if (w.status === "DRAFT" || w.status === "ASSIGNED") return "NOT_STARTED";
+  if (w.status === "DRAFT" || w.status === "ASSIGNED") {
+    const row = getWorkOrderPlanningRow(w.id);
+    return row && row.shortParts.length > 0 ? "BLOCKED" : "NOT_STARTED";
+  }
   if (w.status === "IN_PROGRESS") return "IN_PROGRESS";
-  if (w.status === "WAITING_PARTS") return "NOT_STARTED";
+  if (w.status === "WAITING_PARTS") return "BLOCKED";
   if (w.status === "WAITING_INSPECTION") return "INSPECTION_REQUIRED";
   if (w.status === "CANCELLED") return "NOT_STARTED";
   // status === "COMPLETED" from here — the technician's step is done. This
@@ -1297,6 +1302,21 @@ export function getExecutionState(w: WorkOrder): ExecutionState {
  * blocking signal as getWorkOrderPlanningRow (never a second calculation),
  * plus the new inspection/evidence/release distinctions above. Not a rules
  * engine: each gate is a direct read of one existing fact. */
+/** Independent inspectors eligible for this work order — the ONE place RII
+ * (Required Inspection Item) exclusion is enforced: whoever performed the
+ * work (assignedTechnicianId) can never appear as an eligible inspector for
+ * their own work order, no matter how well-qualified. Reuses the existing
+ * isInspector flag and workload/shift signals already used by
+ * rankTechniciansForWorkOrder — no second ranking system. */
+export function getEligibleInspectorsForWorkOrder(workOrderId: string): TechnicianEligibility[] {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return [];
+  return getTechnicianEligibilityForWorkOrder(workOrderId).filter((e) => {
+    const t = getTechnicianById(e.technicianId);
+    return t?.isInspector === true && e.technicianId !== w.assignedTechnicianId;
+  });
+}
+
 export function getSafetyGatesForWorkOrder(workOrderId: string): SafetyGate[] {
   const w = workOrders.find((x) => x.id === workOrderId);
   if (!w) return [];
@@ -1305,32 +1325,43 @@ export function getSafetyGatesForWorkOrder(workOrderId: string): SafetyGate[] {
   const execState = getExecutionState(w);
   const gates: SafetyGate[] = [];
 
+  const materialBlocked = planningRow?.planningStatus === "MATERIAL_BLOCKED" || planningRow?.planningStatus === "BOTH_BLOCKED";
   gates.push({
     type: "MATERIAL_GATE",
-    open: planningRow?.planningStatus === "MATERIAL_BLOCKED" || planningRow?.planningStatus === "BOTH_BLOCKED",
+    open: materialBlocked,
+    state: materialBlocked ? "FAIL" : "PASS",
     reason: planningRow && planningRow.shortParts.length > 0 ? `Required material unavailable: ${planningRow.shortParts.map((p) => p.partNumber).join(", ")}` : "No material shortage recorded for this work order.",
   });
 
+  const qualificationOpen = w.assignedTechnicianId === null && w.status !== "COMPLETED" && w.status !== "CANCELLED";
   gates.push({
     type: "QUALIFICATION_GATE",
-    open: w.assignedTechnicianId === null && w.status !== "COMPLETED" && w.status !== "CANCELLED",
+    open: qualificationOpen,
+    state: qualificationOpen ? "FAIL" : "PASS",
     reason: w.assignedTechnicianId ? "A technician is assigned." : "No technician currently assigned.",
   });
 
   const inspectionRequired = isInspectionRequired(w);
+  const inspectionOpen = inspectionRequired && execState !== "RELEASED" && execState !== "INSPECTION_COMPLETED";
+  const eligibleInspectors = inspectionRequired ? getEligibleInspectorsForWorkOrder(workOrderId) : [];
   gates.push({
     type: "INSPECTION_GATE",
-    open: inspectionRequired && execState !== "RELEASED" && execState !== "INSPECTION_COMPLETED",
-    reason: inspectionRequired
-      ? execState === "RELEASED"
-        ? "Required inspection has been completed and approved."
-        : "Independent inspection is required before this work order can be released."
-      : "No inspection is indicated as required for this work order.",
+    open: inspectionOpen,
+    state: !inspectionRequired ? "NOT_REQUIRED" : inspectionOpen ? (eligibleInspectors.length === 0 ? "UNKNOWN" : "FAIL") : "PASS",
+    reason: !inspectionRequired
+      ? "No inspection is indicated as required for this work order."
+      : !inspectionOpen
+      ? "Required inspection has been completed and approved."
+      : eligibleInspectors.length > 0
+      ? `Independent inspection required before release — eligible inspector(s): ${eligibleInspectors.map((e) => e.name).join(", ")}. The assigned technician cannot inspect their own work.`
+      : "Independent inspection required before release — no eligible inspector (other than the assigned technician) currently identified.",
   });
 
+  const evidenceUnknown = task ? task.evidenceStatus === "SOURCE_UNKNOWN" : true;
   gates.push({
     type: "EVIDENCE_GATE",
-    open: task ? task.evidenceStatus === "SOURCE_UNKNOWN" : false,
+    open: evidenceUnknown,
+    state: !task ? "UNKNOWN" : evidenceUnknown ? "UNKNOWN" : "PASS",
     reason: task
       ? task.evidenceStatus === "SOURCE_UNKNOWN"
         ? "Authoritative maintenance reference is not available in the current dataset for this task."
@@ -1341,10 +1372,63 @@ export function getSafetyGatesForWorkOrder(workOrderId: string): SafetyGate[] {
   gates.push({
     type: "RELEASE_GATE",
     open: execState !== "RELEASED",
+    state: execState === "RELEASED" ? "PASS" : "FAIL",
     reason: execState === "RELEASED" ? "Released — technician completion and (where required) inspection are both on record." : `Not yet released — current execution state: ${execState.replace(/_/g, " ")}.`,
   });
 
   return gates;
+}
+
+/** Work orders whose technician step is done but release is not yet
+ * cleared — the "release queue" the Control Center and Executive KPIs
+ * reuse (never a second calculation of what "released" means). */
+export function getReleaseQueue(): { workOrderId: string; workOrderNumber: string; aircraftRegistration: string; executionState: ExecutionState }[] {
+  return workOrders
+    .filter((w) => w.status === "COMPLETED" || w.status === "WAITING_INSPECTION")
+    .map((w) => ({ w, state: getExecutionState(w) }))
+    .filter(({ state }) => state !== "RELEASED")
+    .map(({ w, state }) => {
+      const a = getAircraftById(w.aircraftId);
+      return { workOrderId: w.id, workOrderNumber: w.workOrderNumber, aircraftRegistration: a ? currentRegistration(a) : w.aircraftId, executionState: state };
+    });
+}
+
+/** Derived signature-record view over the existing TechnicianSignOff /
+ * InspectorReview fields — never a second stored record. A prototype
+ * compliance-ready foundation only; NOT a claim of electronic-signature
+ * regulatory compliance. */
+export function getSignatureRecordsForWorkOrder(workOrderId: string): SignatureRecord[] {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return [];
+  const records: SignatureRecord[] = [];
+  if (w.signOff) {
+    records.push({
+      id: `sig-signoff-${w.id}`,
+      userId: w.signOff.technicianId,
+      action: "TECHNICIAN_SIGN_OFF",
+      recordType: "WorkOrder",
+      recordId: w.id,
+      timestamp: w.signOff.timestamp,
+      authenticationMethod: "PROTOTYPE_SESSION",
+      signatureIntent: "Technician confirms work performed as recorded.",
+      reasonCode: null,
+    });
+  }
+  const review = getInspectorReviewForWorkOrder(w.id);
+  if (review && review.reviewedAt) {
+    records.push({
+      id: `sig-review-${review.id}`,
+      userId: review.inspectorId,
+      action: "INSPECTOR_REVIEW",
+      recordType: "WorkOrder",
+      recordId: w.id,
+      timestamp: review.reviewedAt,
+      authenticationMethod: "PROTOTYPE_SESSION",
+      signatureIntent: `Inspector ${review.status.toLowerCase().replace(/_/g, " ")}.`,
+      reasonCode: review.comments || null,
+    });
+  }
+  return records;
 }
 
 export interface MaintenanceTaskChainStep {
@@ -1357,6 +1441,29 @@ export interface MaintenanceTaskChainStep {
  * reading only fields/records that already exist (Defect.workOrderId is the
  * existing reverse link used to find a discrepancy for a work order — no new
  * stored field). Steps with no source-backed value say so explicitly. */
+/** Parts currently held out of service pending disposition — reuses the
+ * same Part.serviceability field the material readiness/part pages already
+ * read, no second quarantine list. */
+export function getQuarantinedParts(): { partId: string; partNumber: string; description: string; reason: string }[] {
+  return parts.filter((p) => p.serviceability === "QUARANTINED").map((p) => ({ partId: p.id, partNumber: p.partNumber, description: p.description, reason: p.quarantineReason ?? "Insufficient source data." }));
+}
+
+/** Deferred items (MEL foundation) for a named aircraft — reads
+ * lib/mock/deferredItems.ts directly rather than a second calculation. */
+export function getDeferredItemsForAircraft(aircraftId: string) {
+  return deferredItems.filter((d) => d.aircraftId === aircraftId);
+}
+
+export function getOpenDeferredItems() {
+  return deferredItems.filter((d) => d.status === "OPEN");
+}
+
+/** Cannibalization candidates targeting a named aircraft — reads
+ * lib/mock/cannibalization.ts directly; never auto-authorizes anything. */
+export function getCannibalizationCandidatesForAircraft(aircraftId: string) {
+  return cannibalizationRequests.filter((c) => c.targetAircraftId === aircraftId);
+}
+
 export function getMaintenanceTaskChain(workOrderId: string): MaintenanceTaskChainStep[] {
   const w = workOrders.find((x) => x.id === workOrderId);
   if (!w) return [];

@@ -315,7 +315,10 @@ export default function WorkOrderPlanningDetailPage() {
                   <tr key={g.type}>
                     <td className="ac-text-sm">{g.type.replace(/_/g, " ")}</td>
                     <td>
-                      <StatusBadge status={g.open ? "NON_COMPLIANT" : "COMPLIANT"} label={g.open ? "OPEN" : "CLEAR"} />
+                      <StatusBadge
+                        status={g.state === "PASS" ? "COMPLIANT" : g.state === "NOT_REQUIRED" ? "COMPLIANT" : g.state === "UNKNOWN" ? "INSUFFICIENT_DATA" : "NON_COMPLIANT"}
+                        label={g.state.replace(/_/g, " ")}
+                      />
                     </td>
                     <td className="ac-text-sm">{g.reason}</td>
                   </tr>

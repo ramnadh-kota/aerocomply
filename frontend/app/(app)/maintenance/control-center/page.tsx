@@ -13,6 +13,7 @@ import {
   getMaterialShortages,
   getDiscrepancyGroups,
   getProcurementActionsForShortages,
+  getReleaseQueue,
   type ControlCenterPriority,
   type ExecutionActionType,
 } from "@/lib/mock/ai/analytics";
@@ -51,6 +52,7 @@ export default function MaintenanceControlCenterPage() {
   const materialBlockers = getMaterialShortages();
   const discrepancies = getDiscrepancyGroups().filter((g) => g.openCount > 0);
   const procurementHandoff = getProcurementActionsForShortages();
+  const releaseQueue = getReleaseQueue();
 
   const recentActions = [...auditLog]
     .filter((e) => e.action.startsWith("maintenance."))
@@ -109,6 +111,11 @@ export default function MaintenanceControlCenterPage() {
     { label: "Work Orders Waiting for Parts", value: summary.workOrdersWaitingForParts, href: "/maintenance/planning", linkLabel: "View Planning Center →" },
     { label: "Overdue / At-Risk Maintenance", value: summary.overdueAtRiskMaintenance, href: "/maintenance/planning", linkLabel: "View Planning Center →" },
     { label: "High-Risk Aircraft", value: summary.highRiskAircraft, href: "/maintenance/control-tower", linkLabel: "View Control Tower →" },
+    // M13 — release queue: work orders whose technician step is done but
+    // are not yet RELEASED (inspection pending/incomplete), read from the
+    // same getExecutionState/getSafetyGatesForWorkOrder derivation the
+    // Planning detail page uses — never a second "released" calculation.
+    { label: "Release Queue", value: releaseQueue.length, href: "/maintenance/planning", linkLabel: "View Planning Center →" },
   ];
 
   return (

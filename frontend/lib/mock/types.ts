@@ -446,6 +446,8 @@ export interface Part {
   batchOrLot: string | null; // batch/lot number for BATCH-classified parts; null when not applicable or unrecorded
   aviationClassification?: PartAviationClassification | null;
   serviceability?: PartServiceability;
+  // M13 — only meaningful when serviceability is QUARANTINED; null otherwise.
+  quarantineReason?: string | null;
 }
 
 // M7.1 — Aviation Parts Traceability Model. These entities extend (not
@@ -677,14 +679,83 @@ export type ExecutionState =
   | "INSPECTION_REQUIRED"
   | "INSPECTION_COMPLETED"
   | "READY_FOR_RELEASE"
-  | "RELEASED";
+  | "RELEASED"
+  // M13 — a work order can be blocked before/without ever starting (material
+  // or qualification gate open while status is DRAFT/ASSIGNED/WAITING_PARTS)
+  // — distinct from NOT_STARTED, which implies "could start, just hasn't".
+  | "BLOCKED";
 
 export type SafetyGateType = "MATERIAL_GATE" | "QUALIFICATION_GATE" | "INSPECTION_GATE" | "EVIDENCE_GATE" | "RELEASE_GATE";
+
+// M13 — four-valued gate state, additive alongside the existing `open`
+// boolean (unchanged, still what the M12.9 UI/Lisa branches read). PASS/FAIL
+// are true opposites; UNKNOWN is a THIRD, distinct outcome for "no source
+// record exists to evaluate this gate at all" — it must never be treated as
+// PASS. NOT_REQUIRED is for a gate that structurally doesn't apply (e.g. no
+// inspection required for this task).
+export type SafetyGateState = "PASS" | "FAIL" | "UNKNOWN" | "NOT_REQUIRED";
 
 export interface SafetyGate {
   type: SafetyGateType;
   open: boolean; // true = this gate is currently blocking release/progress
   reason: string;
+  state: SafetyGateState;
+}
+
+// M13 — MEL/deferred-item foundation. Category A-D is the real ATA/MEL
+// vocabulary; UNKNOWN is used, never a fabricated category or countdown,
+// when this dataset has no authoritative MEL reference for a deferred
+// defect (see lib/mock/deferredItems.ts).
+export type DeferredItemCategory = "A" | "B" | "C" | "D" | "UNKNOWN";
+export type DeferredItemStatus = "OPEN" | "CLOSED";
+
+export interface DeferredItem {
+  id: string;
+  aircraftId: string;
+  defectId: string;
+  melReference: string | null;
+  category: DeferredItemCategory;
+  openedAt: string;
+  dueAt: string | null; // null = UNKNOWN, never a guessed deadline
+  status: DeferredItemStatus;
+}
+
+// M13 — cannibalization foundation. A candidate only; Lisa/the system may
+// surface one for human review but never authorizes it (authorizationStatus
+// starts and stays PENDING_HUMAN_REVIEW in this prototype — there is no
+// approval mutation).
+export type CannibalizationAuthorizationStatus = "PENDING_HUMAN_REVIEW" | "AUTHORIZED" | "REJECTED";
+export type CannibalizationTraceabilityStatus = "TRACEABLE" | "UNKNOWN";
+
+export interface CannibalizationRequest {
+  id: string;
+  sourceAircraftId: string | null; // null = no candidate donor identified
+  targetAircraftId: string;
+  partId: string;
+  reason: string;
+  authorizationStatus: CannibalizationAuthorizationStatus;
+  removalStatus: "NOT_STARTED" | "REMOVED";
+  installationStatus: "NOT_STARTED" | "INSTALLED";
+  traceabilityStatus: CannibalizationTraceabilityStatus;
+  createdAt: string;
+}
+
+// M13 — signature-record shape, DERIVED (never a second stored record) from
+// the existing TechnicianSignOff/InspectorReview fields that already carry
+// this information (see getSignatureRecordsForWorkOrder in
+// lib/mock/ai/analytics.ts). This is a prototype compliance-ready
+// foundation only — it is NOT a claim of FAA/EASA/Part 11 electronic
+// signature compliance.
+export interface SignatureRecord {
+  id: string;
+  userId: string;
+  action: "TECHNICIAN_SIGN_OFF" | "INSPECTOR_REVIEW";
+  recordType: "WorkOrder";
+  recordId: string;
+  timestamp: string;
+  authenticationMethod: "PROTOTYPE_SESSION"; // no real auth/identity provider exists in this prototype
+  signatureIntent: string;
+  reasonCode: string | null;
 }
 
 // M11.0 — Procurement / Vendor domain model. Additive only. Before this,

@@ -66,6 +66,10 @@ import {
   getWorkOrdersAwaitingAssignment,
   getExecutionState,
   getSafetyGatesForWorkOrder,
+  getEligibleInspectorsForWorkOrder,
+  getQuarantinedParts,
+  getDeferredItemsForAircraft,
+  getCannibalizationCandidatesForAircraft,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -291,6 +295,10 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
     questions: [
       "What is the release status of WO-1054?",
       "What safety gates are open on WO-1055?",
+      "Who can independently inspect WO-1042?",
+      "Which parts are quarantined?",
+      "What is the deferred status of VT-ABC?",
+      "Is there a cannibalization candidate for N412MX?",
       "Is this aircraft airworthy?",
     ],
   },
@@ -389,10 +397,10 @@ function answerAirworthinessGuard(question: string): AiResponse | null {
   return {
     id: nextId(),
     question,
-    headline: "This requires authorized maintenance personnel",
+    headline: "SAFETY_REFUSAL — this requires authorized maintenance personnel",
     narrative: [
-      "The system currently shows the recorded status of the relevant aircraft, work order, and inspection records — it does not make airworthiness, legal, or certification-of-release determinations.",
-      "Final determination requires authorized maintenance personnel, per applicable regulatory requirements.",
+      "SAFETY_REFUSAL: I cannot determine airworthiness, legal compliance, or certification of release — those are determinations for authorized maintenance personnel using applicable approved data and procedures, not this system.",
+      "The system can summarize recorded facts: aircraft/work order status, open safety gates, and open discrepancies.",
       "Ask about a specific aircraft or work order's recorded execution state, safety gates, or open discrepancies, and I can summarize what the current data shows.",
       TRUST_FOOTER,
     ],
@@ -418,21 +426,99 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       `FACT: ${wo.workOrderNumber} status is ${wo.status.replace(/_/g, " ")}; derived execution state is ${execState.replace(/_/g, " ")}.`,
     ];
     if (openGates.length > 0) {
-      narrative.push(`FACT: ${openGates.length} safety gate(s) currently open: ${openGates.map((g) => g.type.replace(/_/g, " ")).join(", ")}.`);
+      const unknownGates = openGates.filter((g) => g.state === "UNKNOWN");
+      narrative.push(`FACT: ${openGates.length} safety gate(s) currently open: ${openGates.map((g) => `${g.type.replace(/_/g, " ")} (${g.state})`).join(", ")}.`);
+      if (unknownGates.length > 0) narrative.push(`UNKNOWN: ${unknownGates.map((g) => g.type.replace(/_/g, " ")).join(", ")} cannot be evaluated from current source data — UNKNOWN is never treated as PASS.`);
       narrative.push(`INFERENCE: this work order is not yet ready for release while these gates remain open.`);
       narrative.push(`RECOMMENDATION: resolve ${openGates[0].type.replace(/_/g, " ").toLowerCase()} first — ${openGates[0].reason}`);
     } else {
       narrative.push("FACT: no safety gate is currently open for this work order.");
     }
-    narrative.push("Final release/airworthiness determination requires authorized maintenance personnel — this is a summary of recorded system data, not a certification.");
+    narrative.push("SAFETY_REFUSAL: final release/airworthiness determination requires authorized maintenance personnel — this is a summary of recorded system data, not a certification.");
     narrative.push(TRUST_FOOTER);
     return {
       id: nextId(),
       question,
       headline: `${wo.workOrderNumber} — execution state: ${execState.replace(/_/g, " ")}`,
       narrative,
-      table: { title: "Safety Gates", columns: ["Gate", "Status", "Reason"], rows: gates.map((g) => [g.type.replace(/_/g, " "), g.open ? "OPEN" : "CLEAR", g.reason]) },
+      table: { title: "Safety Gates", columns: ["Gate", "State", "Reason"], rows: gates.map((g) => [g.type.replace(/_/g, " "), g.state, g.reason]) },
       buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Who can independently inspect WO-XXXX?" — M13 RII enforcement: the
+  // assigned technician is never eligible to inspect their own work.
+  if ((q.includes("independently inspect") || q.includes("who can inspect")) && findWorkOrderFromText(question)) {
+    const wo = findWorkOrderFromText(question)!;
+    const eligible = getEligibleInspectorsForWorkOrder(wo.id);
+    const assignedTech = wo.assignedTechnicianId ? getTechnicianById(wo.assignedTechnicianId) : undefined;
+    return {
+      id: nextId(),
+      question,
+      headline: eligible.length > 0 ? `${wo.workOrderNumber} — ${eligible.length} eligible independent inspector(s)` : `${wo.workOrderNumber} — no eligible independent inspector identified`,
+      narrative: [
+        assignedTech ? `FACT: ${assignedTech.name} performed/is assigned this work and cannot independently inspect it.` : "FACT: no technician is currently assigned to this work order.",
+        eligible.length > 0
+          ? `FACT: eligible inspector(s): ${eligible.map((e) => `${e.name} (${e.availability})`).join(", ")}.`
+          : "UNKNOWN: no technician other than the one assigned is currently marked as an inspector in this dataset.",
+        TRUST_FOOTER,
+      ],
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Which parts are quarantined?" — M13 receiving/quarantine foundation.
+  if (q.includes("quarantin")) {
+    const quarantined = getQuarantinedParts();
+    return {
+      id: nextId(),
+      question,
+      headline: `${quarantined.length} part(s) currently quarantined`,
+      narrative: [quarantined.length > 0 ? "FACT: these parts are physically received but not serviceable pending disposition." : "FACT: no part is currently recorded as quarantined.", TRUST_FOOTER],
+      table: { title: "Quarantined Parts", columns: ["Part", "Description", "Reason"], rows: quarantined.map((p) => [p.partNumber, p.description, p.reason]) },
+      buttons: [{ label: "Open Parts", href: "/maintenance/parts" }],
+    };
+  }
+
+  // "What is the MEL/deferred status of VT-ABC?" — M13 MEL foundation.
+  // Deliberately never invents a countdown/deadline.
+  if ((q.includes("mel") || q.includes("deferred")) && resolveAircraft(question, context)) {
+    const a = resolveAircraft(question, context)!;
+    const items = getDeferredItemsForAircraft(a.id);
+    return {
+      id: nextId(),
+      question,
+      headline: `${currentRegistration(a)} — ${items.length} deferred item(s)`,
+      narrative: [
+        items.length > 0
+          ? `FACT: ${items.length} deferred item(s) recorded.`
+          : "FACT: no deferred item is currently recorded for this aircraft.",
+        ...items.filter((i) => i.dueAt === null).map(() => "UNKNOWN: no authoritative MEL reference or due date exists in this dataset for at least one deferred item — never presented as an invented deadline."),
+        TRUST_FOOTER,
+      ],
+      table: { title: "Deferred Items", columns: ["Category", "MEL Reference", "Due", "Status"], rows: items.map((i) => [i.category, i.melReference ?? "Insufficient source data.", i.dueAt ?? "UNKNOWN", i.status]) },
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
+    };
+  }
+
+  // "Is there a cannibalization candidate for N412MX?" — M13 foundation.
+  // Never authorizes anything; always routes to human review.
+  if (q.includes("cannibaliz") && resolveAircraft(question, context)) {
+    const a = resolveAircraft(question, context)!;
+    const candidates = getCannibalizationCandidatesForAircraft(a.id);
+    if (candidates.length === 0) return insufficient(question, [`a recorded cannibalization candidate for ${currentRegistration(a)}`]);
+    const c = candidates[0];
+    return {
+      id: nextId(),
+      question,
+      headline: `${currentRegistration(a)} — cannibalization candidate identified (pending human review)`,
+      narrative: [
+        `FACT: ${c.reason}`,
+        `FACT: traceability status is ${c.traceabilityStatus} — ${c.traceabilityStatus === "UNKNOWN" ? "the source part is not confirmed installed on the donor aircraft in current records." : "the source part record is confirmed."}`,
+        "SAFETY_REFUSAL: this system does not authorize cannibalization — authorization status stays PENDING_HUMAN_REVIEW until an authorized person acts.",
+        TRUST_FOOTER,
+      ],
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
     };
   }
 

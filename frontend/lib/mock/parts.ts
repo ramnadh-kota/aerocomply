@@ -18,6 +18,10 @@ export const parts: Part[] = [
   { id: "part-6", partNumber: "LATCH-778", serialNumber: null, description: "Cargo Door Latch Mechanism", classification: "BATCH", status: "AWAITING_RECEIPT", quantity: 1, location: "In Transit", installedAircraftId: null, installedComponentInstanceId: null, workOrderId: "wo-1046", lifeLimitInfo: null, manufacturer: null, batchOrLot: null, aviationClassification: "EXPENDABLE", serviceability: "UNKNOWN" },
   { id: "part-7", partNumber: "SEAL-014", serialNumber: null, description: "Hydraulic Seal Kit", classification: "BATCH", status: "IN_STOCK", quantity: 10, location: "Stores — Bay 3", installedAircraftId: null, installedComponentInstanceId: null, workOrderId: null, lifeLimitInfo: null, manufacturer: "Parker Aerospace (demo)", batchOrLot: "LOT-5510", aviationClassification: "CONSUMABLE", serviceability: "SERVICEABLE" },
   { id: "part-8", partNumber: "APU-410", serialNumber: "APU301", description: "APU Starter Motor", classification: "SERIALIZED", status: "ORDERED", quantity: 1, location: "On Order", installedAircraftId: "ac-3", installedComponentInstanceId: "ci-apu301", workOrderId: "wo-1054", lifeLimitInfo: null, manufacturer: null, batchOrLot: null, aviationClassification: "ROTABLE", serviceability: "UNKNOWN" },
+  // M13 — receiving/quarantine scenario: physically in stores (IN_STOCK) but
+  // NOT automatically serviceable — the receiving-inspection documentation
+  // discrepancy is a real gate, not skipped just because the box arrived.
+  { id: "part-9", partNumber: "SEAL-014B", serialNumber: null, description: "Hydraulic Seal Kit (second batch)", classification: "BATCH", status: "IN_STOCK", quantity: 8, location: "Stores — Receiving Hold", installedAircraftId: null, installedComponentInstanceId: null, workOrderId: null, lifeLimitInfo: null, manufacturer: "Parker Aerospace (demo)", batchOrLot: "LOT-5511", aviationClassification: "CONSUMABLE", serviceability: "QUARANTINED", quarantineReason: "Batch/lot certificate on file does not match the received shipment paperwork — held pending receiving-inspection resolution." },
 ];
 
 export function getPartById(id: string): Part | undefined {
