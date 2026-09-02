@@ -157,6 +157,38 @@ export const vendors: Vendor[] = [
     relationshipStatus: "UNKNOWN",
     source: "DEMO_SEED",
   },
+  // M12.7.1 — added to give GEN-305 (part-5, WO-1051/N412MX) and LATCH-778
+  // (part-6, WO-1046) real, known-vendor procurement scenarios instead of
+  // zero recorded vendor lines.
+  {
+    id: "vendor-6",
+    name: "Aerostructures Supply Co (demo)",
+    legalName: null,
+    vendorCode: "V-ASC-06",
+    country: "United Kingdom",
+    city: null,
+    contactName: null,
+    email: null,
+    phone: null,
+    website: null,
+    status: "ACTIVE",
+    approvalStatus: "APPROVED",
+    qualityStatus: "VERIFIED",
+    approvedForAircraftTypes: ["737-800"],
+    suppliedPartCategories: ["Airframe hardware"],
+    capabilities: null,
+    certifications: null,
+    paymentTerms: null,
+    currency: "USD",
+    shippingRegions: null,
+    aogSupport: false,
+    leadTimeDays: 21,
+    reliabilityScore: null,
+    qualityScore: null,
+    deliveryScore: null,
+    relationshipStatus: "APPROVED",
+    source: "DEMO_SEED",
+  },
 ];
 
 // Prices reconcile exactly with the PartCost records already seeded in
@@ -167,7 +199,29 @@ export const vendorPartAvailability: VendorPartAvailability[] = [
   { id: "vpa-2", vendorId: "vendor-1", partId: "part-7", partNumber: "SEAL-014", description: "Hydraulic Seal Kit", availabilityStatus: "IN_STOCK", quantityAvailable: 20, quantityOnOrder: 0, leadTimeDays: 2, unitPrice: 72, currency: "USD", moq: 1, aogAvailability: true, certificationStatus: "UNKNOWN", lastUpdated: "2026-03-15", source: "DEMO_SEED" },
   { id: "vpa-3", vendorId: "vendor-2", partId: "part-2", partNumber: "ABC-123", description: "Fan Disk Assembly", availabilityStatus: "LIMITED", quantityAvailable: 1, quantityOnOrder: null, leadTimeDays: null, unitPrice: null, currency: null, moq: null, aogAvailability: null, certificationStatus: "VERIFIED", lastUpdated: "2026-05-18", source: "DEMO_SEED" },
   { id: "vpa-4", vendorId: "vendor-3", partId: "part-4", partNumber: "BRK-210", description: "Brake Lining Set", availabilityStatus: "UNKNOWN", quantityAvailable: null, quantityOnOrder: null, leadTimeDays: null, unitPrice: null, currency: null, moq: null, aogAvailability: null, certificationStatus: "REFERENCE_UNKNOWN", lastUpdated: null, source: "DEMO_SEED" },
+  // M12.7.1 — GEN-305 (part-5): two real vendor options, so
+  // scoreVendorOptionsForPart has a genuine ranking to perform (vendor-1 is
+  // cheaper, faster, and certification-verified — vendor-2 is not) rather
+  // than a single, uncontested line. Anchors the AOG + material-blocker
+  // connected scenario for N412MX / WO-1051 (CRITICAL).
+  { id: "vpa-5", vendorId: "vendor-1", partId: "part-5", partNumber: "GEN-305", description: "IDG Bearing", availabilityStatus: "LIMITED", quantityAvailable: 2, quantityOnOrder: 0, leadTimeDays: 5, unitPrice: 640, currency: "USD", moq: 1, aogAvailability: true, certificationStatus: "VERIFIED", lastUpdated: "2026-03-16", source: "DEMO_SEED" },
+  { id: "vpa-6", vendorId: "vendor-2", partId: "part-5", partNumber: "GEN-305", description: "IDG Bearing", availabilityStatus: "IN_STOCK", quantityAvailable: 5, quantityOnOrder: 0, leadTimeDays: 9, unitPrice: 710, currency: "USD", moq: 1, aogAvailability: null, certificationStatus: "NOT_VERIFIED", lastUpdated: "2026-03-10", source: "DEMO_SEED" },
+  // LATCH-778 (part-6): a real vendor record that is genuinely out of
+  // stock — this is a true SHORTAGE (a known vendor reporting zero
+  // quantity), distinct from an UNKNOWN part with no vendor record at all.
+  { id: "vpa-7", vendorId: "vendor-6", partId: "part-6", partNumber: "LATCH-778", description: "Cargo Door Latch Mechanism", availabilityStatus: "OUT_OF_STOCK", quantityAvailable: 0, quantityOnOrder: 4, leadTimeDays: 21, unitPrice: 410, currency: "USD", moq: 1, aogAvailability: false, certificationStatus: "NOT_VERIFIED", lastUpdated: "2026-03-14", source: "DEMO_SEED" },
+  // ABC-123 (part-2): a second vendor option alongside the existing
+  // vendor-2 line, so an already-active work order (WO-1042 / VT-ABC) also
+  // demonstrates multi-vendor ranking, not just a single-source part.
+  { id: "vpa-8", vendorId: "vendor-1", partId: "part-2", partNumber: "ABC-123", description: "Fan Disk Assembly", availabilityStatus: "LIMITED", quantityAvailable: 1, quantityOnOrder: 0, leadTimeDays: 10, unitPrice: 950, currency: "USD", moq: 1, aogAvailability: true, certificationStatus: "NOT_VERIFIED", lastUpdated: "2026-03-12", source: "DEMO_SEED" },
 ];
+
+// M12.7.1 — part-3 (FCU-220) and part-8 (APU-410) are deliberately left with
+// NO VendorPartAvailability line at all. Both are required by real, active
+// work orders (WO-1055 CRITICAL and WO-1054 respectively) so the UNKNOWN
+// state is exercised where it actually matters operationally, not just on
+// an inactive part — this is the intentional "UNKNOWN ≠ SHORTAGE" case the
+// milestone requires, not an oversight.
 
 // Two illustrative requests on real, existing work orders/parts/technicians.
 // pr-1 traces directly to the PartCost already recorded for WO-1050 in

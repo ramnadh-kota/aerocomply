@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { Timeline } from "@/components/timeline/Timeline";
-import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics, getTechnicianWorkload, getPartsAtRisk, getAircraftAnalytics, requirementLabel } from "@/lib/mock/ai/analytics";
+import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics, getTechnicianWorkload, getPartsAtRisk, getAircraftAnalytics, requirementLabel, getControlTowerSummary, getMaintenanceControlCenterSummary } from "@/lib/mock/ai/analytics";
 import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getRequirementById } from "@/lib/mock/regulations";
@@ -28,6 +28,13 @@ export default function ExecutiveControlCenterPage() {
   const inspection = getInspectionAnalytics();
   const workload = getTechnicianWorkload().filter((t) => t.openWorkOrders > 0);
   const partsAtRisk = getPartsAtRisk();
+  // M12.7.1/M12.8 — the Control Tower and Control Center now exist and give
+  // this page a real answer for what used to be hardcoded "Insufficient
+  // source data." (AOG Exposure had no derivation before M12.1). Reusing
+  // the same summary functions those pages render — never a second
+  // AOG/risk calculation.
+  const towerSummary = getControlTowerSummary();
+  const controlCenterSummary = getMaintenanceControlCenterSummary();
   const regulatoryDeadlines = upcomingMaintenanceEvents(8).filter((e) => e.relatedRequirementId);
   const rankedAircraft = [...fleet.aircraftAtRisk].sort((a, b) => (a.risk === b.risk ? 0 : a.risk === "HIGH" ? -1 : 1));
   const recentAudit = auditEvents.slice(0, 8);
@@ -57,8 +64,10 @@ export default function ExecutiveControlCenterPage() {
     { label: "Compliance Exposure", value: String(compliance.nonCompliant + compliance.reviewRequired), href: "/compliance" },
     { label: "Evidence Gaps (Assessments)", value: String(compliance.insufficientData), href: "/compliance" },
     { label: "Repeat Defects (same aircraft/ATA chapter)", value: String(repeatDefectCount), href: "/maintenance/defects" },
-    { label: "AOG Exposure", value: "Insufficient source data.", href: "/aircraft" },
-    { label: "Aircraft Availability", value: "Insufficient source data.", href: "/aircraft" },
+    { label: "AOG Exposure", value: String(towerSummary.aog), href: "/maintenance/control-tower" },
+    { label: "Aircraft Availability", value: `${towerSummary.operational}/${towerSummary.totalAircraft} operational`, href: "/maintenance/control-tower" },
+    { label: "Critical Work Orders", value: String(controlCenterSummary.criticalWorkOrders), href: "/maintenance/control-center" },
+    { label: "Material Blockers", value: String(controlCenterSummary.materialShortages), href: "/maintenance/material-readiness" },
   ];
 
   const riskSummaryPoints: string[] = [];
