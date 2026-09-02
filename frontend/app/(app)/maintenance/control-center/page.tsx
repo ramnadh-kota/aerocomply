@@ -14,6 +14,9 @@ import {
   getDiscrepancyGroups,
   getProcurementActionsForShortages,
   getReleaseQueue,
+  getAutomationQueue,
+  getQuarantinedParts,
+  getOpenDeferredItems,
   type ControlCenterPriority,
   type ExecutionActionType,
 } from "@/lib/mock/ai/analytics";
@@ -116,6 +119,12 @@ export default function MaintenanceControlCenterPage() {
     // same getExecutionState/getSafetyGatesForWorkOrder derivation the
     // Planning detail page uses — never a second "released" calculation.
     { label: "Release Queue", value: releaseQueue.length, href: "/maintenance/planning", linkLabel: "View Planning Center →" },
+    // M14.14 — unified command center: consolidates the M14.2-M14.13
+    // additions (automation queue, quarantine, deferred/MEL) onto the one
+    // existing operations command page, reusing their derivations exactly.
+    { label: "Automation Queue", value: getAutomationQueue().length, href: "/automation", linkLabel: "Open Automation Queue →" },
+    { label: "Quarantined Parts", value: getQuarantinedParts().length, href: "/maintenance/parts", linkLabel: "View Parts →" },
+    { label: "Open Deferred Items", value: getOpenDeferredItems().length, href: "/maintenance/defects", linkLabel: "View Defects →" },
   ];
 
   return (
