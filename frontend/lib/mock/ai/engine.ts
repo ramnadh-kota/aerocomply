@@ -72,6 +72,7 @@ import {
   getCannibalizationCandidatesForAircraft,
   getAogRecoveryAnalysis,
   getMaintenanceForecastForAircraft,
+  getTechnicianAuthorizationForWorkOrder,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -569,6 +570,28 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       headline: `${part.partNumber} — traceability (lifecycle stage: ${stage.replace(/_/g, " ")})`,
       narrative,
       buttons: [{ label: "View Parts", href: "/maintenance/parts" }],
+    };
+  }
+
+  // "Who is authorized to work on WO-XXXX?" / "who is blocked" — M14.9.
+  // Reuses getTechnicianAuthorizationForWorkOrder, itself a wrapper over the
+  // ONE existing technician ranking — never a second engine.
+  if ((q.includes("authoriz") || q.includes("who is blocked") || q.includes("hard block")) && findWorkOrderFromText(question)) {
+    const wo = findWorkOrderFromText(question)!;
+    const auth = getTechnicianAuthorizationForWorkOrder(wo.id);
+    const blocked = auth.filter((a) => a.hardBlocked);
+    const eligible = auth.filter((a) => !a.hardBlocked);
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — ${eligible.length} authorized, ${blocked.length} hard-blocked`,
+      narrative: [
+        `FACT: ${blocked.length} technician(s) are hard-blocked (2 or more of: no certification match, off shift, workload >= 3).`,
+        eligible.length > 0 ? `FACT: ${eligible.map((e) => e.name).join(", ")} remain authorization candidates.` : "UNKNOWN: no technician currently clears authorization for this work order from available data.",
+        TRUST_FOOTER,
+      ],
+      table: { title: "Technician Authorization", columns: ["Technician", "Status", "Reasons"], rows: auth.map((a) => [a.name, a.hardBlocked ? "BLOCKED" : "OK", a.blockReasons.join("; ") || "No blocking condition identified."]) },
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
     };
   }
 

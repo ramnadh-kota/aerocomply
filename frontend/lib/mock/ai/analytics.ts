@@ -868,6 +868,29 @@ export function getTechnicianEligibilityForWorkOrder(workOrderId: string): Techn
   }));
 }
 
+// M14.9 — technician authorization hard-block classification. A read-only
+// wrapper over the SAME getTechnicianEligibilityForWorkOrder ranking (never
+// a second ranking engine) — classifies each candidate as hard-blocked or
+// not, with real reasons drawn from the same availability/certMatch/workload
+// signals already computed there. Missing qualification data is NEVER
+// treated as "qualified" — it hard-blocks, per the same UNKNOWN-is-not-PASS
+// principle the safety gates use.
+export interface TechnicianAuthorizationView extends TechnicianEligibility {
+  hardBlocked: boolean;
+  blockReasons: string[];
+}
+
+export function getTechnicianAuthorizationForWorkOrder(workOrderId: string): TechnicianAuthorizationView[] {
+  return getTechnicianEligibilityForWorkOrder(workOrderId).map((e) => {
+    const blockReasons: string[] = [];
+    if (e.certificationMatch === "Insufficient source data.") blockReasons.push("No certification-keyword match on file for this work order.");
+    if (e.availability !== "On shift now") blockReasons.push("Not currently on shift.");
+    const openCount = parseInt(e.workload, 10);
+    if (!Number.isNaN(openCount) && openCount >= 3) blockReasons.push(`Workload already at ${openCount} open work order(s).`);
+    return { ...e, hardBlocked: blockReasons.length >= 2, blockReasons };
+  });
+}
+
 export function getWorkOrdersAwaitingAssignment(): WorkOrderPlanningRow[] {
   return getWorkOrderPlanning().filter((r) => r.planningStatus === "TECHNICIAN_BLOCKED" || r.planningStatus === "BOTH_BLOCKED");
 }
