@@ -17,7 +17,7 @@ import { vendorPartAvailabilityForPart, scoreVendorOptionsForPart, cartItems, pa
 import { getMaintenanceTaskById } from "../maintenanceTasks";
 import { deferredItems } from "../deferredItems";
 import { cannibalizationRequests } from "../cannibalization";
-import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SignatureRecord } from "../types";
+import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SignatureRecord, AutomationQueueItem } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -1563,6 +1563,173 @@ export function getAogRecoveryAnalysis(aircraftId: string): AogRecoveryAnalysis 
     recoveryOptions,
     dataCompleteness,
   };
+}
+
+// --- M14.2 Automation Queue ---
+// A human-approval action queue, not an autonomous engine: every item is
+// recomputed from existing analytics/records on each call (getMaterialShortages,
+// getWorkOrdersAwaitingAssignment, getSafetyGatesForWorkOrder,
+// getQuarantinedParts, deferredItems, cannibalizationRequests, Control Tower
+// AOG rows), never a second calculation. Nothing here mutates data.
+
+export function getAutomationQueue(): AutomationQueueItem[] {
+  const items: AutomationQueueItem[] = [];
+
+  for (const r of getMaterialShortages()) {
+    items.push({
+      id: `auto-material-${r.workOrderId}-${r.partId ?? r.partNumber}`,
+      category: "MATERIAL_BLOCKER",
+      title: `${r.partNumber} — material ${r.materialStatus}`,
+      detection: `${r.workOrderNumber} (${r.aircraftRegistration}) requires ${r.partNumber}, currently ${r.materialStatus}.`,
+      source: r.workOrderNumber,
+      impact: r.priority === "CRITICAL" || r.priority === "HIGH" ? "Blocks a critical/high-priority work order." : "Blocks a work order.",
+      recommendedAction: r.recommendation ? `Consider ${r.recommendation.vendorName} — ${r.recommendation.reasons[0]}` : "Investigate sourcing — insufficient source data for a specific vendor recommendation.",
+      responsibleRole: "Procurement",
+      approvalRequired: true,
+      destinationHref: "/maintenance/material-readiness",
+    });
+  }
+
+  for (const r of getWorkOrdersAwaitingAssignment()) {
+    items.push({
+      id: `auto-tech-${r.workOrderId}`,
+      category: "TECHNICIAN_RECOMMENDATION",
+      title: `${r.workOrderNumber} — needs technician assignment`,
+      detection: `${r.workOrderNumber} (${r.aircraftRegistration}) has no technician assigned.`,
+      source: r.workOrderNumber,
+      impact: r.priority === "CRITICAL" || r.priority === "HIGH" ? "Critical/high-priority work cannot start." : "Work cannot start.",
+      recommendedAction: "Review the ranked eligible-technician list on the Planning detail page.",
+      responsibleRole: "Maintenance Manager",
+      approvalRequired: true,
+      destinationHref: `/maintenance/planning/${r.workOrderId}`,
+    });
+  }
+
+  for (const row of getControlTowerFleet().filter((f) => f.operationalStatus === "AOG")) {
+    items.push({
+      id: `auto-aog-${row.aircraftId}`,
+      category: "AOG_ESCALATION",
+      title: `${row.registration} — AOG`,
+      detection: row.aogReason ?? "Insufficient source data.",
+      source: row.registration,
+      impact: "Aircraft unavailable for service.",
+      recommendedAction: "Open AOG Recovery to review blockers and options.",
+      responsibleRole: "Maintenance Manager",
+      approvalRequired: true,
+      destinationHref: `/maintenance/aog-recovery/${row.aircraftId}`,
+    });
+  }
+
+  for (const w of workOrders.filter((x) => x.status !== "COMPLETED" && x.status !== "CANCELLED")) {
+    const gates = getSafetyGatesForWorkOrder(w.id);
+    const inspGate = gates.find((g) => g.type === "INSPECTION_GATE");
+    if (inspGate && inspGate.state === "UNKNOWN") {
+      items.push({
+        id: `auto-rii-${w.id}`,
+        category: "RII_INSPECTOR_RECOMMENDATION",
+        title: `${w.workOrderNumber} — no eligible independent inspector`,
+        detection: inspGate.reason,
+        source: w.workOrderNumber,
+        impact: "Cannot clear the inspection safety gate.",
+        recommendedAction: "Identify or qualify an independent inspector other than the assigned technician.",
+        responsibleRole: "Maintenance Manager",
+        approvalRequired: true,
+        destinationHref: `/maintenance/planning/${w.id}`,
+      });
+    }
+    const evGate = gates.find((g) => g.type === "EVIDENCE_GATE");
+    if (evGate && evGate.state === "UNKNOWN") {
+      items.push({
+        id: `auto-evidence-${w.id}`,
+        category: "MISSING_EVIDENCE",
+        title: `${w.workOrderNumber} — missing maintenance reference`,
+        detection: evGate.reason,
+        source: w.workOrderNumber,
+        impact: "Evidence gate cannot be cleared without a reference on file.",
+        recommendedAction: "Attach or confirm the authoritative maintenance reference for this task.",
+        responsibleRole: "Maintenance Manager",
+        approvalRequired: true,
+        destinationHref: `/maintenance/planning/${w.id}`,
+      });
+    }
+    const failedGates = gates.filter((g) => g.state === "FAIL" && g.type !== "MATERIAL_GATE" && g.type !== "QUALIFICATION_GATE" && g.type !== "INSPECTION_GATE");
+    for (const g of failedGates) {
+      items.push({
+        id: `auto-gate-${w.id}-${g.type}`,
+        category: "SAFETY_GATE_FAILURE",
+        title: `${w.workOrderNumber} — ${g.type.replace(/_/g, " ")} open`,
+        detection: g.reason,
+        source: w.workOrderNumber,
+        impact: "Blocks progress toward release.",
+        recommendedAction: "Review and resolve on the Planning detail page.",
+        responsibleRole: "Maintenance Manager",
+        approvalRequired: true,
+        destinationHref: `/maintenance/planning/${w.id}`,
+      });
+    }
+  }
+
+  for (const p of getQuarantinedParts()) {
+    items.push({
+      id: `auto-quarantine-${p.partId}`,
+      category: "QUARANTINE_REVIEW",
+      title: `${p.partNumber} — quarantined`,
+      detection: p.reason,
+      source: `Part ${p.partNumber}`,
+      impact: "Part unavailable for installation until disposition is resolved.",
+      recommendedAction: "Review receiving-inspection documentation and disposition the part.",
+      responsibleRole: "Quality / Receiving",
+      approvalRequired: true,
+      destinationHref: "/maintenance/parts",
+    });
+  }
+
+  for (const d of getOpenDeferredItems()) {
+    items.push({
+      id: `auto-deferred-${d.id}`,
+      category: "DEFERRED_ITEM_REVIEW",
+      title: `Deferred item ${d.id} — ${d.category}`,
+      detection: d.dueAt === null ? "No authoritative MEL reference or due date on file." : `Due ${d.dueAt}.`,
+      source: `Deferred Item ${d.id}`,
+      impact: "Operational limitation may apply.",
+      recommendedAction: "Confirm MEL category/reference and monitor for the applicable time limit.",
+      responsibleRole: "Maintenance Manager",
+      approvalRequired: true,
+      destinationHref: `/aircraft/${d.aircraftId}`,
+    });
+  }
+
+  for (const c of cannibalizationRequests.filter((x) => x.authorizationStatus === "PENDING_HUMAN_REVIEW")) {
+    items.push({
+      id: `auto-cann-${c.id}`,
+      category: "CANNIBALIZATION_REVIEW",
+      title: `Cannibalization candidate — ${c.partId} → target aircraft`,
+      detection: c.reason,
+      source: `Cannibalization ${c.id}`,
+      impact: "Potential AOG recovery path pending verification.",
+      recommendedAction: "Verify donor part record and traceability before approving.",
+      responsibleRole: "Maintenance Manager",
+      approvalRequired: true,
+      destinationHref: `/aircraft/${c.targetAircraftId}`,
+    });
+  }
+
+  for (const r of getReleaseQueue()) {
+    items.push({
+      id: `auto-release-${r.workOrderId}`,
+      category: "RELEASE_PACKAGE_INCOMPLETE",
+      title: `${r.workOrderNumber} — release package incomplete`,
+      detection: `Execution state is ${r.executionState.replace(/_/g, " ")}, not RELEASED.`,
+      source: r.workOrderNumber,
+      impact: "Aircraft/component cannot be considered released.",
+      recommendedAction: "Complete remaining inspection/evidence steps on the Planning detail page.",
+      responsibleRole: "Maintenance Manager",
+      approvalRequired: true,
+      destinationHref: `/maintenance/planning/${r.workOrderId}`,
+    });
+  }
+
+  return items;
 }
 
 export function getMaintenanceTaskChain(workOrderId: string): MaintenanceTaskChainStep[] {

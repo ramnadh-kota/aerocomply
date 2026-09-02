@@ -746,6 +746,36 @@ export interface CannibalizationRequest {
 // lib/mock/ai/analytics.ts). This is a prototype compliance-ready
 // foundation only — it is NOT a claim of FAA/EASA/Part 11 electronic
 // signature compliance.
+// M14.2 — Automation Queue foundation. Every item is DERIVED (recomputed
+// from existing analytics on each read, never persisted) — this is a
+// human-approval action queue, not an autonomous automation engine. There
+// is no mutation anywhere that changes `AutomationQueueCategory` state on
+// its own; `approvalRequired` is always true.
+export type AutomationQueueCategory =
+  | "MATERIAL_BLOCKER"
+  | "TECHNICIAN_RECOMMENDATION"
+  | "AOG_ESCALATION"
+  | "RII_INSPECTOR_RECOMMENDATION"
+  | "QUARANTINE_REVIEW"
+  | "DEFERRED_ITEM_REVIEW"
+  | "CANNIBALIZATION_REVIEW"
+  | "SAFETY_GATE_FAILURE"
+  | "MISSING_EVIDENCE"
+  | "RELEASE_PACKAGE_INCOMPLETE";
+
+export interface AutomationQueueItem {
+  id: string;
+  category: AutomationQueueCategory;
+  title: string;
+  detection: string; // what triggered this item
+  source: string; // e.g. "WO-1055", "Part FCU-220"
+  impact: string;
+  recommendedAction: string;
+  responsibleRole: string;
+  approvalRequired: true;
+  destinationHref: string; // existing workflow this item routes to
+}
+
 export interface SignatureRecord {
   id: string;
   userId: string;
