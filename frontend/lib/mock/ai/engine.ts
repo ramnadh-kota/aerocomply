@@ -572,6 +572,14 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
+  // "Are there pooling partners for FCU-220?" — M14.8. This dataset has no
+  // airline-pooling partner/agreement entity at all (unlike cannibalization,
+  // which has a real seeded candidate) — honestly insufficient, not a
+  // fabricated "no partners available" negative claim.
+  if (q.includes("pooling") || q.includes("pool partner")) {
+    return insufficient(question, ["a pooling-partner/agreement record — this dataset has no such entity yet; see cannibalization candidates for the one cross-aircraft material option that does exist"]);
+  }
+
   // "Which parts are quarantined?" — M13 receiving/quarantine foundation.
   if (q.includes("quarantin")) {
     const quarantined = getQuarantinedParts();
