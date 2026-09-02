@@ -74,6 +74,7 @@ import {
   getMaintenanceForecastForAircraft,
   getTechnicianAuthorizationForWorkOrder,
   explainExecutionState,
+  getAutomationQueue,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -299,6 +300,15 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
     questions: [
       "How can we recover N412MX?",
       "What is blocking the AOG recovery for N412MX?",
+    ],
+  },
+  {
+    category: "Operational Copilot",
+    questions: [
+      "What should I work on?",
+      "Who is authorized to work on WO-1054?",
+      "Trace part FCU-220.",
+      "What maintenance is coming due for VT-ABC?",
     ],
   },
   {
@@ -539,6 +549,28 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
         TRUST_FOOTER,
       ],
       buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "What should I work on?" — M14.13 general operational copilot shortcut.
+  // Reuses the existing next-actions/automation-queue functions (never a
+  // second prioritization calculation); placed narrowly (exact "work on"
+  // phrasing without "maintenance") so it doesn't shadow the more specific
+  // M12.4 branch below.
+  if (q.includes("what should i work on") || q === "what should i do?") {
+    const actions = getNextMaintenanceActions();
+    const queue = getAutomationQueue();
+    return {
+      id: nextId(),
+      question,
+      headline: "Recommended priorities",
+      narrative: [
+        `FACT: ${queue.length} item(s) are currently in the automation queue awaiting human review.`,
+        actions.length > 0 ? "RECOMMENDATION: see the prioritized actions below." : "FACT: no urgent planning action indicated by current data.",
+        TRUST_FOOTER,
+      ],
+      recommendedActions: actions,
+      buttons: [{ label: "Open Automation Queue", href: "/automation" }, { label: "Open Planning Center", href: "/maintenance/planning" }],
     };
   }
 
