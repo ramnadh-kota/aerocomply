@@ -122,7 +122,7 @@ export default function MaintenanceControlCenterPage() {
     // are not yet RELEASED (inspection pending/incomplete), read from the
     // same getExecutionState/getSafetyGatesForWorkOrder derivation the
     // Planning detail page uses — never a second "released" calculation.
-    { label: "Release Queue", value: releaseQueue.length, href: "/maintenance/planning", linkLabel: "View Planning Center →" },
+    { label: "Release Queue", value: releaseQueue.length, href: "/maintenance/release-readiness", linkLabel: "View Release Readiness →" },
     // M14.14 — unified command center: consolidates the M14.2-M14.13
     // additions (automation queue, quarantine, deferred/MEL) onto the one
     // existing operations command page, reusing their derivations exactly.

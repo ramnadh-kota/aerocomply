@@ -609,7 +609,14 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       if (!wo) return null;
       const readiness = getReleaseReadinessForWorkOrder(wo.id);
       if (readiness.status === "READY") {
-        return { id: nextId(), question, headline: `${wo.workOrderNumber} — ready for release`, narrative: [`FACT: ${wo.workOrderNumber} has no outstanding release blockers in the current dataset.`, "SAFETY_REFUSAL: Lisa does not authorize release — this reports data completeness only. Final release authorization is a human, authorized-signatory decision.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+        return {
+          id: nextId(),
+          question,
+          headline: `${wo.workOrderNumber} — ready for release`,
+          narrative: [`FACT: ${wo.workOrderNumber} has no outstanding release blockers in the current dataset.`, "SAFETY_REFUSAL: Lisa does not authorize release — this reports data completeness only. Final release authorization is a human, authorized-signatory decision.", TRUST_FOOTER],
+          buttons: [{ label: "View Work Order", href: `/maintenance/planning/${wo.id}` }, { label: "View Release Readiness", href: "/maintenance/release-readiness" }],
+          understood: understood(top.intent, scope, entities),
+        };
       }
       return {
         id: nextId(),
@@ -621,7 +628,7 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
           "SAFETY_REFUSAL: Lisa does not authorize or perform release — resolving these blockers and signing off remains a human, authorized-signatory decision.",
           TRUST_FOOTER,
         ],
-        buttons: [{ label: "View Work Order", href: `/maintenance/work-orders/${wo.id}` }],
+        buttons: [{ label: "View Work Order", href: `/maintenance/planning/${wo.id}` }, { label: "View Release Readiness", href: "/maintenance/release-readiness" }],
         understood: understood(top.intent, scope, entities),
       };
     }
