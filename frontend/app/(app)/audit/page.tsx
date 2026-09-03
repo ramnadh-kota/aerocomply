@@ -6,6 +6,7 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { Timeline } from "@/components/timeline/Timeline";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { verifyAuditChain } from "@/lib/mock/audit";
 
 function actorKind(actorRole: string, actor: string): "AI" | "SYSTEM" | "HUMAN" {
   if (actor.toLowerCase().includes("ai") || actorRole.toLowerCase().includes("ai")) return "AI";
@@ -15,6 +16,7 @@ function actorKind(actorRole: string, actor: string): "AI" | "SYSTEM" | "HUMAN" 
 
 export default function AuditTrailPage() {
   const { auditLog } = useMroState();
+  const chainVerification = verifyAuditChain();
   const [actorFilter, setActorFilter] = useState("ALL");
   const [actionFilter, setActionFilter] = useState("ALL");
   const [sourceFilter, setSourceFilter] = useState("ALL");
@@ -41,6 +43,16 @@ export default function AuditTrailPage() {
             in-memory events for this session only — not yet backend-persisted.
           </p>
         </div>
+      </div>
+
+      <div className="ac-card ac-section">
+        <div className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 6 }}>
+          <StatusBadge status={chainVerification.status === "VALID" ? "COMPLIANT" : chainVerification.status === "BROKEN" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"} label={`Ledger: ${chainVerification.status}`} />
+        </div>
+        <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+          {chainVerification.note} This is a prototype hash chain over the seeded compliance audit events only (M20) — a
+          checksum for internal consistency, not a cryptographic or legally compliant electronic record.
+        </p>
       </div>
 
       <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>

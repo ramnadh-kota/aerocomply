@@ -67,6 +67,89 @@ export function combinedAuditHistory(objectLabel: string, liveLog: AuditEvent[])
   return [...seeded, ...live].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 }
 
+/** getEntityAuditHistory — same merge pattern as combinedAuditHistory
+ * above, exposed under the M20 name for entity-scoped lookups (matches by
+ * `entityId` fragment the same way auditEventsForObjectLabelContains does,
+ * rather than an exact objectLabel match). Never a second history
+ * calculation — delegates straight to auditEventsForObjectLabelContains. */
+export function getEntityAuditHistory(entityId: string, liveLog: AuditEvent[] = []): AuditEvent[] {
+  const seeded = auditEventsForObjectLabelContains(entityId);
+  const live = liveLog.filter((e) => e.objectLabel.includes(entityId));
+  return [...seeded, ...live].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
+// --- M20 Audit Ledger (prototype hash chain) ---
+// A DERIVED, deterministic hash chain over the existing append-only
+// auditEvents array — no new stored fields, no second audit system. This
+// is a prototype tamper-EVIDENT mechanism (detects whether the recorded
+// event sequence is internally consistent when recomputed), NOT a
+// cryptographic-grade or legally compliant ledger — see the explicit
+// disclaimer on verifyAuditChain() below. Live session events
+// (useMroState().auditLog) are append-only in memory and are not currently
+// chained — only the seeded, truly immutable auditEvents array is, since
+// that's the only append-only-for-real dataset in this prototype.
+
+/** Simple deterministic string hash (FNV-1a, 32-bit). NOT cryptographic —
+ * explicitly a prototype checksum, not SHA-256/HMAC. Good enough to detect
+ * accidental corruption or reordering in this in-memory demo; not a
+ * security control. */
+function fnv1aHash(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export interface AuditChainLink {
+  event: AuditEvent;
+  previousEventHash: string; // "genesis" for the first event in chronological order
+  eventHash: string;
+}
+
+const chronological = () => [...auditEvents].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+/** The full chain, oldest first, each link's hash deterministically derived
+ * from its own fields + the previous link's hash. */
+export function getAuditChain(): AuditChainLink[] {
+  const chain: AuditChainLink[] = [];
+  let previousHash = "genesis";
+  for (const event of chronological()) {
+    const canonical = `${event.id}|${event.timestamp}|${event.actor}|${event.action}|${event.objectType}|${event.objectLabel}|${event.previousState ?? ""}|${event.newState ?? ""}|${previousHash}`;
+    const eventHash = fnv1aHash(canonical);
+    chain.push({ event, previousEventHash: previousHash, eventHash });
+    previousHash = eventHash;
+  }
+  return chain;
+}
+
+export type AuditChainStatus = "VALID" | "BROKEN" | "UNKNOWN";
+
+export interface AuditChainVerification {
+  status: AuditChainStatus;
+  brokenAtEventId: string | null;
+  note: string;
+}
+
+/** Recomputes the chain fresh and checks self-consistency. In this
+ * prototype there is no UI path that can directly edit a historical
+ * auditEvents record, so BROKEN is not currently reachable in practice —
+ * this validates the chain's internal mathematical consistency, not
+ * resistance to someone with direct data access. NOT a claim of legal or
+ * regulatory electronic-record compliance. */
+export function verifyAuditChain(): AuditChainVerification {
+  if (auditEvents.length === 0) return { status: "UNKNOWN", brokenAtEventId: null, note: "No audit events exist to verify." };
+  const recomputed = getAuditChain();
+  for (let i = 0; i < recomputed.length; i++) {
+    const expectedPrev = i === 0 ? "genesis" : recomputed[i - 1].eventHash;
+    if (recomputed[i].previousEventHash !== expectedPrev) {
+      return { status: "BROKEN", brokenAtEventId: recomputed[i].event.id, note: `Chain link broken at event ${recomputed[i].event.id} — recorded previous-hash does not match the recomputed value.` };
+    }
+  }
+  return { status: "VALID", brokenAtEventId: null, note: `${recomputed.length} event(s) form a self-consistent chain. This is a prototype hash chain — not a claim of cryptographic or regulatory electronic-record compliance.` };
+}
+
 // M8.8 — Standard audit action taxonomy. `AuditEvent.action` remains a
 // plain string (see types.ts) rather than a strict union, since existing
 // seeded events already use their own dotted action names — this constant
@@ -131,4 +214,6 @@ export const STANDARD_AUDIT_ACTIONS = [
   "maintenance.technician_unassigned",
   "maintenance.work_order_completed",
   "maintenance.work_order_escalated",
+  // M19 — deferred-item closure workflow.
+  "maintenance.deferred_item_closed",
 ] as const;

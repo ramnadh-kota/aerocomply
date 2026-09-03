@@ -25,10 +25,11 @@ import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart, partLifecycleStage, partTraceabilityAnswers } from "../partTraceability";
 import { maintenanceRequirements } from "../maintenanceProgram";
+import { deferredItems } from "../deferredItems";
 import type { MaintenanceIntervalType } from "../types";
 import { getWorkOrderCostSummary, getAircraftCostSummary, getFleetFinancialSummary, workOrderIdsWithCostData, highestCostPartCost, highestVendorSpend, vendorCosts } from "../finance";
 import { vendors, partRequests, purchaseOrders, partsWithoutVendorAvailability, scoreVendorOptionsForPart, cartItems, cartSummary, cartItemLineTotal, getVendorById } from "../procurement";
-import { auditEvents, combinedAuditHistory } from "../audit";
+import { auditEvents, combinedAuditHistory, verifyAuditChain } from "../audit";
 import type { AuditEvent } from "../types";
 import { AI_DEMO_DATA_FOOTER } from "../../brand";
 import {
@@ -73,6 +74,7 @@ import {
   getDeferredItemsForAircraft,
   getFleetDeferredItems,
   getDeferredItemStatus,
+  getDeferredClosureReadiness,
   getCannibalizationCandidatesForAircraft,
   getAogRecoveryAnalysis,
   getMaintenanceDueForAircraft,
@@ -751,6 +753,54 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       headline: `${fleet.length} deferred item(s) ${wantOverdue ? "overdue" : "due soon"}`,
       narrative: [fleet.length > 0 ? `FACT: ${fleet.map((d) => `${d.registration} (due ${d.dueAt})`).join(", ")}.` : `FACT: no deferred item is currently ${wantOverdue ? "overdue" : "due soon"}.`, TRUST_FOOTER],
       table: { title: wantOverdue ? "Overdue Deferred Items" : "Deferred Items Due Soon", columns: ["Aircraft", "Category", "Due", "Basis"], rows: fleet.map((d) => [d.registration, d.category, d.dueAt ?? "UNKNOWN", d.deferralBasis]) },
+      buttons: [{ label: "Open Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "Is the audit chain valid?" / "verify the audit ledger" — M20.
+  if (q.includes("audit") && (q.includes("chain") || q.includes("ledger") || q.includes("tamper") || q.includes("verify"))) {
+    const v = verifyAuditChain();
+    return {
+      id: nextId(),
+      question,
+      headline: `Audit ledger: ${v.status}`,
+      narrative: [`FACT: ${v.note}`, v.status === "BROKEN" ? `FACT: broken at event ${v.brokenAtEventId}.` : "", TRUST_FOOTER].filter(Boolean),
+      buttons: [{ label: "Open Audit Trail", href: "/audit" }],
+    };
+  }
+
+  // "Can defer-2 be closed?" / "what is required to close this deferred
+  // item?" — M19. Reuses getDeferredClosureReadiness (analytics.ts), the
+  // ONE closure-readiness calculation, same one the aircraft-detail Close
+  // button reads.
+  if ((q.includes("close") || q.includes("closure")) && q.includes("defer")) {
+    const idMatch = question.match(/defer-\d+/i);
+    if (idMatch) {
+      const itemId = idMatch[0].toLowerCase();
+      const item = deferredItems.find((d) => d.id === itemId);
+      if (!item) return insufficient(question, [`a recognizable deferred item id, e.g. defer-1`]);
+      const readiness = getDeferredClosureReadiness(itemId);
+      return {
+        id: nextId(),
+        question,
+        headline: `${itemId} — closure readiness: ${readiness.readiness}`,
+        narrative: [
+          `FACT: ${itemId} is currently ${item.status}.`,
+          readiness.readiness === "READY" ? "FACT: all closure prerequisites are on file." : `FACT: ${readiness.blockers.length} blocker(s): ${readiness.blockers.join(" ")}`,
+          "SAFETY_REFUSAL: closing a deferred item records that the tracked corrective action is complete — it is not an airworthiness or release determination.",
+          TRUST_FOOTER,
+        ],
+        buttons: [{ label: "View Aircraft", href: `/aircraft/${item.aircraftId}` }],
+      };
+    }
+    // "Which deferred items are ready to close?" — fleet-wide.
+    const ready = deferredItems.filter((d) => d.status === "OPEN" && getDeferredClosureReadiness(d.id).readiness === "READY");
+    return {
+      id: nextId(),
+      question,
+      headline: `${ready.length} deferred item(s) ready to close`,
+      narrative: [ready.length > 0 ? `FACT: ${ready.map((d) => d.id).join(", ")}.` : "FACT: no open deferred item currently meets closure readiness.", TRUST_FOOTER],
+      table: { title: "Ready to Close", columns: ["Item", "Aircraft"], rows: ready.map((d) => [d.id, d.aircraftId]) },
       buttons: [{ label: "Open Control Center", href: "/maintenance/control-center" }],
     };
   }

@@ -23,7 +23,10 @@ import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import { projectsForAircraft } from "@/lib/mock/maintenanceProjects";
 import { workOrdersForAircraft } from "@/lib/mock/workOrders";
 import { defectsForAircraft } from "@/lib/mock/defects";
-import { getDeferredItemsForAircraft, getAircraftUtilization, getMaintenanceDueForAircraft, getDeferredItemStatus } from "@/lib/mock/ai/analytics";
+import { getDeferredItemsForAircraft, getAircraftUtilization, getMaintenanceDueForAircraft, getDeferredItemStatus, getDeferredClosureReadiness } from "@/lib/mock/ai/analytics";
+import { closeDeferredItem } from "@/lib/mock/deferredItems";
+import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { getCurrentUser } from "@/lib/domain/currentUser";
 import { getTechnicianById } from "@/lib/mock/technicians";
 import { getInspectorReviewById } from "@/lib/mock/inspectorReviews";
 import { Timeline } from "@/components/timeline/Timeline";
@@ -35,6 +38,9 @@ type Tab = (typeof TABS)[number];
 export default function AircraftDetailPage({ params }: { params: { id: string } }) {
   const aircraft = getAircraftById(params.id);
   const [tab, setTab] = useState<Tab>("Overview");
+  const [, setVersion] = useState(0);
+  const { addAuditEvent } = useMroState();
+  const current = getCurrentUser();
 
   if (!aircraft) notFound();
 
@@ -234,10 +240,11 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
               <h2 className="ac-h2" style={{ marginBottom: 10 }}>Deferred Items (MEL)</h2>
               <div className="ac-card" style={{ padding: 0 }}>
                 <table className="ac-table">
-                  <thead><tr><th>Category</th><th>Basis</th><th>Due</th><th>Status</th><th>Limitations</th></tr></thead>
+                  <thead><tr><th>Category</th><th>Basis</th><th>Due</th><th>Status</th><th>Limitations</th><th>Closure</th></tr></thead>
                   <tbody>
                     {aircraftDeferredItems.map((d) => {
                       const opStatus = getDeferredItemStatus(d);
+                      const closure = getDeferredClosureReadiness(d.id);
                       return (
                         <tr key={d.id}>
                           <td>{d.category}</td>
@@ -250,12 +257,47 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
                             />
                           </td>
                           <td className="ac-text-sm">{d.operationalLimitations ?? "Insufficient source data."}</td>
+                          <td className="ac-text-sm">
+                            {d.status === "CLOSED" ? (
+                              <span className="ac-text-muted">Closed</span>
+                            ) : closure.readiness === "READY" ? (
+                              <button
+                                className="ac-btn ac-btn-primary"
+                                style={{ padding: "2px 8px" }}
+                                onClick={() => {
+                                  const updated = closeDeferredItem(d.id);
+                                  if (!updated) return;
+                                  addAuditEvent({
+                                    actor: current?.user.name ?? "Unknown User",
+                                    actorRole: "Maintenance",
+                                    action: "maintenance.deferred_item_closed",
+                                    objectType: "DeferredItem",
+                                    objectLabel: d.id,
+                                    previousState: "OPEN",
+                                    newState: "CLOSED",
+                                    reason: "Closure readiness evaluated as READY — evidence, corrective work order, and required approval all on file.",
+                                  });
+                                  setVersion((v) => v + 1);
+                                }}
+                              >
+                                Close
+                              </button>
+                            ) : (
+                              <span className="ac-text-muted" title={closure.blockers.join(" ")}>
+                                {closure.readiness}: {closure.blockers[0] ?? "Insufficient source data."}
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
+              <p className="ac-text-sm ac-text-muted" style={{ marginTop: 6 }}>
+                Closing a deferred item records that the tracked corrective action is complete — it is not an airworthiness or
+                release determination.
+              </p>
             </section>
           )}
 

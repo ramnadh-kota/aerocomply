@@ -93,3 +93,19 @@ export function getDeferredItemsForAircraft(aircraftId: string): DeferredItem[] 
 export function getOpenDeferredItems(): DeferredItem[] {
   return deferredItems.filter((d) => d.status === "OPEN");
 }
+
+export function getDeferredItemById(id: string): DeferredItem | undefined {
+  return deferredItems.find((d) => d.id === id);
+}
+
+// M19 — the ONE closure mutation. Deliberately does NOT check readiness
+// itself (that's getDeferredClosureReadiness's job, lib/mock/ai/analytics.ts
+// — never duplicated here); callers MUST check readiness first and pass
+// through only when READY. Returns null on any invalid transition so a
+// caller that skips the check still can't force-close silently.
+export function closeDeferredItem(id: string): DeferredItem | null {
+  const item = deferredItems.find((d) => d.id === id);
+  if (!item || item.status === "CLOSED") return null;
+  item.status = "CLOSED";
+  return item;
+}
