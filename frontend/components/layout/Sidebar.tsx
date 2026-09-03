@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRoleSim, NAV_MODULE_MAP } from "@/lib/role-sim/RoleSimContext";
 import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
-import { PLATFORM_NAME } from "@/lib/brand";
+import { Logo } from "@/components/branding/Logo";
 
 interface NavItem {
   href: string;
@@ -103,25 +103,8 @@ export function Sidebar() {
       <div className={`ac-sidebar-backdrop${open ? " open" : ""}`} onClick={close} aria-hidden="true" />
       <nav className={`ac-sidebar${open ? " open" : ""}`} aria-label="Primary navigation">
       <div style={{ padding: "18px 20px 12px" }}>
-        <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 8 }} onClick={close}>
-          <span
-            aria-hidden="true"
-            style={{
-              width: 26,
-              height: 26,
-              borderRadius: 6,
-              background: "var(--ac-accent)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 700,
-              fontSize: 13,
-              color: "white",
-            }}
-          >
-            K
-          </span>
-          <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: "-0.01em" }}>{PLATFORM_NAME}</span>
+        <Link href="/dashboard" style={{ display: "flex", alignItems: "center" }} onClick={close}>
+          <Logo height={30} />
         </Link>
       </div>
 

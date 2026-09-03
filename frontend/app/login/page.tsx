@@ -3,7 +3,7 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, authApi } from "@/lib/apiClient";
-import { PLATFORM_NAME } from "@/lib/brand";
+import { Logo } from "@/components/branding/Logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,7 +30,8 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center" }}>
+    <main style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 20 }}>
+      <Logo height={48} />
       <form
         onSubmit={handleSubmit}
         style={{
@@ -41,7 +42,7 @@ export default function LoginPage() {
           border: "1px solid #23324a",
         }}
       >
-        <h2 style={{ marginTop: 0 }}>Sign in to {PLATFORM_NAME}</h2>
+        <h2 style={{ marginTop: 0 }}>Sign in</h2>
 
         <label style={{ display: "block", marginBottom: 12 }}>
           <span style={{ display: "block", marginBottom: 4, fontSize: 13, opacity: 0.8 }}>Email</span>

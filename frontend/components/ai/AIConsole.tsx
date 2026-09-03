@@ -44,7 +44,8 @@ export function AIConsole({
   function ask(question: string) {
     const trimmed = question.trim();
     if (!trimmed) return;
-    const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId, auditLog });
+    const previousQuestion = turns.length > 0 ? turns[turns.length - 1].question : undefined;
+    const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId, auditLog, previousQuestion });
     const turn: Turn = { id: response.id, question: trimmed, response, askedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
     setTurns((prev) => [...prev, turn]);
     setActiveId(turn.id);

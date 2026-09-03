@@ -33,6 +33,7 @@ import { vendors, partRequests, purchaseOrders, partsWithoutVendorAvailability, 
 import { auditEvents, combinedAuditHistory, verifyAuditChain } from "../audit";
 import type { AuditEvent } from "../types";
 import { AI_DEMO_DATA_FOOTER } from "../../brand";
+import { resolveLisaIntent, INTENT_LABEL, INTENT_DATA_AREAS, type LisaIntent } from "./intent";
 import {
   getProjectAnalytics,
   getAircraftAnalytics,
@@ -108,6 +109,12 @@ export interface AiQuestionContext {
    * omitted (e.g. server-rendered callers), falls back to the static seed
    * log only — never a second audit calculation. */
   auditLog?: AuditEvent[];
+  /** The raw text of the immediately preceding turn, if any — lets a
+   * follow-up like "What about the parts?" inherit an aircraft/work order
+   * named in the prior question instead of forcing the user to repeat it.
+   * Populated by the caller (AIConsole) from its own conversation history;
+   * the engine never stores conversation state itself. */
+  previousQuestion?: string;
 }
 
 export interface AiButton {
@@ -131,6 +138,17 @@ export interface AiResponse {
   table?: { title: string; columns: string[]; rows: (string | number)[][] };
   buttons?: AiButton[];
   suggestGenerateReport?: { reportId: string; title: string; scope: string };
+  /** "Lisa Understood" transparency panel — populated only by the
+   * natural-language intent fallback path (see resolveByIntent below), so
+   * the UI can show the user what Lisa inferred without exposing internal
+   * function names or chain-of-thought. Absent on responses produced by an
+   * exact/legacy branch match — those are already self-explanatory. */
+  understood?: {
+    intent: string;
+    scope: string;
+    entities: string[];
+    dataAreas: string;
+  };
 }
 
 export interface QuestionCategory {
@@ -412,10 +430,226 @@ function resolveProject(text: string, context?: AiQuestionContext) {
 }
 
 function resolveAircraft(text: string, context?: AiQuestionContext) {
-  return findAircraftFromText(text) ?? (context?.aircraftId ? getAircraftById(context.aircraftId) : undefined);
+  return (
+    findAircraftFromText(text) ??
+    (context?.aircraftId ? getAircraftById(context.aircraftId) : undefined) ??
+    (context?.previousQuestion ? findAircraftFromText(context.previousQuestion) : undefined)
+  );
+}
+
+function resolveWorkOrder(text: string, context?: AiQuestionContext) {
+  return findWorkOrderFromText(text) ?? (context?.previousQuestion ? findWorkOrderFromText(context.previousQuestion) : undefined);
 }
 
 const TRUST_FOOTER = AI_DEMO_DATA_FOOTER;
+
+function understood(intent: LisaIntent, scope: string, entities: string[]) {
+  return { intent: INTENT_LABEL[intent], scope, entities: entities.length ? entities : ["None"], dataAreas: INTENT_DATA_AREAS[intent] };
+}
+
+/** Dispatches a natural-language question to an existing canonical
+ * analytics function based on classified intent + extracted entities. This
+ * function calculates NOTHING itself — every branch below calls the same
+ * analytics.ts function an equivalent exact-match branch elsewhere in this
+ * file already calls. Returns null when the top intent match is too weak
+ * or ambiguous to act on, so the caller can fall through to a
+ * clarification prompt instead of guessing. */
+function answerByIntent(question: string, context?: AiQuestionContext): AiResponse | null {
+  const matches = resolveLisaIntent(question);
+  if (matches.length === 0) return null;
+  const top = matches[0];
+  // Require a reasonably confident, unambiguous top match — if the second
+  // candidate is nearly as strong, this is genuinely ambiguous and should
+  // fall through to clarification rather than guessing wrong.
+  if (top.confidence < 0.34) return null;
+  if (matches.length > 1 && matches[1].confidence >= top.confidence * 0.9) return null;
+
+  const wo = resolveWorkOrder(question, context);
+  const ac = resolveAircraft(question, context);
+  const acReg = ac ? currentRegistration(ac) : null;
+  const entities = [wo ? wo.workOrderNumber : null, acReg].filter(Boolean) as string[];
+  const scope = acReg ? `Aircraft ${acReg}` : wo ? `Work Order ${wo.workOrderNumber}` : "Fleet";
+
+  switch (top.intent) {
+    case "WORK_ORDER_PRIORITY": {
+      const actions = getNextMaintenanceActions();
+      if (actions.length === 0) {
+        return {
+          id: nextId(),
+          question,
+          headline: "No prioritized actions outstanding",
+          narrative: ["FACT: There are no items in the prioritized action queue right now.", TRUST_FOOTER],
+          understood: understood(top.intent, scope, entities),
+        };
+      }
+      return {
+        id: nextId(),
+        question,
+        headline: "Recommended priority order",
+        narrative: [
+          "RECOMMENDATION: Here is the current priority order, ranked by operational risk and blocking severity:",
+          ...actions.map((a, i) => `${i + 1}. ${a}`),
+          TRUST_FOOTER,
+        ],
+        understood: understood(top.intent, scope, entities),
+      };
+    }
+    case "OVERDUE_MAINTENANCE": {
+      const items = ac
+        ? getMaintenanceDueForAircraft(ac.id).filter((i) => i.dueStatus === "OVERDUE").map((i) => `${acReg}: ${i.description} — ${i.remaining}`)
+        : getFleetMaintenanceDue().flatMap((row) => row.items.filter((i) => i.dueStatus === "OVERDUE").map((i) => `${row.registration}: ${i.description} — ${i.remaining}`));
+      if (items.length === 0) {
+        return { id: nextId(), question, headline: "No overdue maintenance", narrative: ["FACT: No maintenance items are currently overdue" + (ac ? ` for ${acReg}.` : " fleet-wide."), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      }
+      return { id: nextId(), question, headline: "Overdue maintenance", narrative: ["FACT: The following maintenance is overdue:", ...items, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "DUE_SOON_MAINTENANCE": {
+      const items = ac
+        ? getMaintenanceDueForAircraft(ac.id).filter((i) => i.dueStatus === "DUE_SOON" || i.dueStatus === "DUE").map((i) => `${acReg}: ${i.description} — ${i.remaining}`)
+        : getFleetMaintenanceDue().flatMap((row) => row.items.filter((i) => i.dueStatus === "DUE_SOON" || i.dueStatus === "DUE").map((i) => `${row.registration}: ${i.description} — ${i.remaining}`));
+      if (items.length === 0) {
+        return { id: nextId(), question, headline: "Nothing due soon", narrative: ["FACT: No maintenance items are approaching due" + (ac ? ` for ${acReg}.` : " fleet-wide."), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      }
+      return { id: nextId(), question, headline: "Upcoming maintenance", narrative: ["FACT: The following maintenance is coming due:", ...items, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "AIRCRAFT_HEALTH": {
+      if (!ac) return null;
+      const risk = getAircraftOperationalRisk(ac.id);
+      if (!risk) return { id: nextId(), question, headline: `${acReg} — no health data`, narrative: [`UNKNOWN: No operational risk data is available for ${acReg}.`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return {
+        id: nextId(),
+        question,
+        headline: `${acReg} — operational risk`,
+        narrative: [`FACT: ${acReg} risk level is ${risk.risk}.`, `INFERENCE: ${risk.reasons.join(" ")}`, TRUST_FOOTER],
+        buttons: [{ label: "View Aircraft", href: `/aircraft/${ac.id}` }],
+        understood: understood(top.intent, scope, entities),
+      };
+    }
+    case "AOG_RECOVERY": {
+      if (!ac) return null;
+      const plan = getAircraftRecoveryPlan(ac.id);
+      if (!plan) return { id: nextId(), question, headline: `${acReg} — no recovery data`, narrative: [`UNKNOWN: No AOG recovery data is available for ${acReg}.`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      if (!plan.isAog) return { id: nextId(), question, headline: `${acReg} is not AOG`, narrative: [`FACT: ${acReg} is not currently marked AOG.`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return {
+        id: nextId(),
+        question,
+        headline: `${acReg} — AOG recovery`,
+        narrative: [
+          `FACT: ${acReg} is AOG. Reason: ${plan.aogReason ?? "not recorded"}.`,
+          plan.primaryBlocker ? `FACT: Primary blocker — ${plan.primaryBlocker.description}` : "FACT: No primary blocker recorded.",
+          plan.recoveryOptions.length > 0 ? `RECOMMENDATION: ${plan.recoveryOptions[0].action}` : "UNKNOWN: No recovery option has been identified yet.",
+          TRUST_FOOTER,
+        ],
+        buttons: [{ label: "View Recovery Plan", href: `/maintenance/control-tower` }],
+        understood: understood(top.intent, scope, entities),
+      };
+    }
+    case "RELEASE_READINESS": {
+      if (!wo) return null;
+      const readiness = getReleaseReadinessForWorkOrder(wo.id);
+      if (readiness.status === "READY") {
+        return { id: nextId(), question, headline: `${wo.workOrderNumber} — ready for release`, narrative: [`FACT: ${wo.workOrderNumber} has no outstanding release blockers in the current dataset.`, "SAFETY_REFUSAL: Lisa does not authorize release — this reports data completeness only. Final release authorization is a human, authorized-signatory decision.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      }
+      return {
+        id: nextId(),
+        question,
+        headline: `${wo.workOrderNumber} — release blocked`,
+        narrative: [
+          `FACT: ${wo.workOrderNumber} release status is ${readiness.status}.`,
+          ...readiness.blockers.map((b) => `FACT: ${b.category} — ${b.explanation} Required action: ${b.requiredAction}`),
+          "SAFETY_REFUSAL: Lisa does not authorize or perform release — resolving these blockers and signing off remains a human, authorized-signatory decision.",
+          TRUST_FOOTER,
+        ],
+        buttons: [{ label: "View Work Order", href: `/maintenance/work-orders/${wo.id}` }],
+        understood: understood(top.intent, scope, entities),
+      };
+    }
+    case "INSPECTION_RII": {
+      if (!wo) return null;
+      const req = getInspectionRequirement(wo.id);
+      return {
+        id: nextId(),
+        question,
+        headline: `${wo.workOrderNumber} — inspection status`,
+        narrative: [`FACT: Inspection status is ${req.status}. ${req.reason}`, req.eligibleInspectors.length > 0 ? `FACT: Eligible inspectors: ${req.eligibleInspectors.map((i) => i.name).join(", ")}.` : "UNKNOWN: No eligible inspectors are currently identified.", "SAFETY_REFUSAL: Lisa does not perform or substitute for the independent inspection itself.", TRUST_FOOTER],
+        understood: understood(top.intent, scope, entities),
+      };
+    }
+    case "TECHNICIAN_AUTHORIZATION": {
+      if (!wo) return null;
+      const matrix = getTechnicianAuthorizationMatrix(wo.id);
+      const authorized = matrix.filter((m) => m.status === "AUTHORIZED");
+      if (authorized.length === 0) {
+        return { id: nextId(), question, headline: `${wo.workOrderNumber} — no authorized technicians`, narrative: [`UNKNOWN: No technician currently meets the authorization requirements for ${wo.workOrderNumber}.`, ...matrix.slice(0, 5).map((m) => `FACT: ${m.name} — ${m.status}: ${m.reasons.join("; ")}`), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      }
+      return { id: nextId(), question, headline: `${wo.workOrderNumber} — authorized technicians`, narrative: [`FACT: The following technicians are authorized for ${wo.workOrderNumber}: ${authorized.map((a) => a.name).join(", ")}.`, "SAFETY_REFUSAL: Lisa does not assign or approve technicians — this reports current authorization data only.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "DEFERRED_MEL": {
+      const items = getFleetDeferredItems().filter((d) => !ac || d.registration === acReg);
+      if (items.length === 0) {
+        return { id: nextId(), question, headline: "No deferred items", narrative: ["FACT: No deferred/MEL items are currently open" + (ac ? ` for ${acReg}.` : " fleet-wide."), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      }
+      return { id: nextId(), question, headline: "Deferred items", narrative: ["FACT: The following deferred items are open:", ...items.slice(0, 10).map((d) => `${d.registration}: ${d.melReference ?? d.category} — ${d.operationalStatus}`), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "EVIDENCE": {
+      if (wo) {
+        const status = getExecutionEvidenceStatus(wo.id);
+        return { id: nextId(), question, headline: `${wo.workOrderNumber} — evidence status`, narrative: [`FACT: ${JSON.stringify(status)}`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      }
+      const blocked = getEvidenceBlockedWorkOrders();
+      if (blocked.length === 0) {
+        return { id: nextId(), question, headline: "No work orders blocked on evidence", narrative: ["FACT: No work orders are currently blocked on missing execution evidence.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      }
+      return { id: nextId(), question, headline: "Work orders blocked on evidence", narrative: ["FACT: The following work orders are blocked on missing execution evidence:", ...blocked.map((w) => w.workOrderNumber), "SAFETY_REFUSAL: Evidence presence is not treated as proof of workmanship or airworthiness — it only unblocks the workflow gate.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "PARTS_MATERIAL": {
+      const rows = getMaterialShortages().filter((r) => (!ac || r.aircraftRegistration === acReg) && (!wo || r.workOrderId === wo.id));
+      if (rows.length === 0) {
+        return { id: nextId(), question, headline: "No material shortages", narrative: ["FACT: No material shortages are currently recorded" + (ac ? ` for ${acReg}.` : wo ? ` for ${wo.workOrderNumber}.` : " fleet-wide."), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      }
+      return { id: nextId(), question, headline: "Material shortages", narrative: ["FACT: The following parts are short:", ...rows.slice(0, 10).map((r) => `${r.workOrderNumber}: ${r.partNumber} — ${r.materialStatus}`), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "TRACEABILITY": {
+      return { id: nextId(), question, headline: "Traceability — need a part or serial number", narrative: ["UNKNOWN: I understand you're asking about part traceability, but I couldn't find a part number or serial number in the question.", "Try including a specific part number so I can trace its receiving, certification, installation, and removal history.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "UTILIZATION": {
+      const fleet = getFleetUtilization().filter((u) => !ac || u.aircraftId === ac.id);
+      if (fleet.length === 0) return { id: nextId(), question, headline: "No utilization data", narrative: ["UNKNOWN: No utilization data is available.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return { id: nextId(), question, headline: "Aircraft utilization", narrative: ["FACT: Recorded utilization:", ...fleet.map((u) => `${u.registration}: ${u.flightHours ?? "unknown"} FH / ${u.flightCycles ?? "unknown"} FC (${u.dataQuality}${u.daysSinceUpdate !== null ? `, ${u.daysSinceUpdate} days since update` : ""})`), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "MAINTENANCE_PROGRAM": {
+      if (!ac) return null;
+      const due = getMaintenanceDueForAircraft(ac.id);
+      if (due.length === 0) return { id: nextId(), question, headline: `${acReg} — no program data`, narrative: [`UNKNOWN: No maintenance program requirements resolved for ${acReg}.`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return { id: nextId(), question, headline: `${acReg} — maintenance program status`, narrative: ["FACT: Program requirement status:", ...due.slice(0, 10).map((d) => `${d.description} (${d.basis}) — ${d.dueStatus}, ${d.remaining}`), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "COMPLIANCE": {
+      const c = getComplianceAnalytics();
+      return { id: nextId(), question, headline: "Compliance summary", narrative: [`FACT: ${c.compliant} compliant, ${c.nonCompliant} non-compliant, ${c.reviewRequired} review-required, ${c.insufficientData} insufficient-data, out of ${c.totalAssessments} assessments.`, TRUST_FOOTER], kpis: c.kpis, understood: understood(top.intent, scope, entities) };
+    }
+    case "AUDIT": {
+      const label = acReg ?? wo?.workOrderNumber;
+      if (!label) return null;
+      const history = combinedAuditHistory(label, context?.auditLog ?? []);
+      if (history.length === 0) return { id: nextId(), question, headline: `${label} — no audit history`, narrative: [`FACT: No audit events are recorded for ${label}.`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return { id: nextId(), question, headline: `${label} — audit history`, narrative: ["FACT: Recent audit events:", ...history.slice(0, 8).map((e) => `${e.timestamp}: ${e.action} by ${e.actor}`), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "AUTOMATION": {
+      const queue = getAutomationQueue();
+      if (queue.length === 0) return { id: nextId(), question, headline: "Automation queue is empty", narrative: ["FACT: No items are currently in the automation queue.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return { id: nextId(), question, headline: "Automation queue", narrative: ["FACT: The following items are queued for automation review:", ...queue.slice(0, 10).map((i) => `${i.title} (${i.source}) — requires approval from ${i.responsibleRole}`), "SAFETY_REFUSAL: Lisa surfaces this queue but does not execute automation itself — every item requires human approval.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+    }
+    case "PROJECT": {
+      const project = findProjectFromText(question) ?? (context?.projectId ? getProjectById(context.projectId) : undefined);
+      if (!project) return null;
+      const analytics = getProjectAnalytics(project.id);
+      if (!analytics) return { id: nextId(), question, headline: `${project.projectNumber} — no data`, narrative: [`UNKNOWN: No analytics available for ${project.projectNumber}.`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return { id: nextId(), question, headline: `${project.projectNumber} — status`, narrative: [`FACT: ${project.title} is ${analytics.health.replace("_", " ").toLowerCase()}.`, TRUST_FOOTER], kpis: analytics.kpis, understood: understood(top.intent, scope, [project.projectNumber]) };
+    }
+    default:
+      return null;
+  }
+}
 
 function insufficient(question: string, missing: string[]): AiResponse {
   return {
@@ -446,6 +680,11 @@ const AIRWORTHINESS_GUARD_PATTERNS = [
   /\bcertificate of release\b/i,
   /\bcrs\b/i,
   /\brelease( it| the aircraft)? to service\b/i,
+  // M0.6 — natural-language phrasings of the same underlying question
+  // ("Can we release this aircraft?") that the original patterns above
+  // didn't cover because they require the exact "to service" wording.
+  /\b(can|could|should|may) we release (this|the|that) aircraft\b/i,
+  /\brelease (this|the|that) aircraft\b/i,
 ];
 
 function answerAirworthinessGuard(question: string): AiResponse | null {
@@ -797,7 +1036,7 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       headline: `${fleet.length} deferred item(s) ${wantOverdue ? "overdue" : "due soon"}`,
       narrative: [fleet.length > 0 ? `FACT: ${fleet.map((d) => `${d.registration} (due ${d.dueAt})`).join(", ")}.` : `FACT: no deferred item is currently ${wantOverdue ? "overdue" : "due soon"}.`, TRUST_FOOTER],
       table: { title: wantOverdue ? "Overdue Deferred Items" : "Deferred Items Due Soon", columns: ["Aircraft", "Category", "Due", "Basis"], rows: fleet.map((d) => [d.registration, d.category, d.dueAt ?? "UNKNOWN", d.deferralBasis]) },
-      buttons: [{ label: "Open Control Center", href: "/maintenance/control-center" }],
+      buttons: [{ label: "Open Deferred / MEL", href: "/maintenance/deferred" }],
     };
   }
 
@@ -952,7 +1191,7 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       headline: `${ready.length} deferred item(s) ready to close`,
       narrative: [ready.length > 0 ? `FACT: ${ready.map((d) => d.id).join(", ")}.` : "FACT: no open deferred item currently meets closure readiness.", TRUST_FOOTER],
       table: { title: "Ready to Close", columns: ["Item", "Aircraft"], rows: ready.map((d) => [d.id, d.aircraftId]) },
-      buttons: [{ label: "Open Control Center", href: "/maintenance/control-center" }],
+      buttons: [{ label: "Open Deferred / MEL", href: "/maintenance/deferred" }],
     };
   }
 
@@ -966,7 +1205,7 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       headline: `${byAircraft.size} aircraft with open deferred item(s)`,
       narrative: [byAircraft.size > 0 ? `FACT: ${Array.from(byAircraft).join(", ")}.` : "FACT: no aircraft currently has an open deferred item.", TRUST_FOOTER],
       table: { title: "Deferred Items", columns: ["Aircraft", "Category", "Status", "Due"], rows: fleet.map((d) => [d.registration, d.category, d.operationalStatus, d.dueAt ?? "UNKNOWN"]) },
-      buttons: [{ label: "Open Control Center", href: "/maintenance/control-center" }],
+      buttons: [{ label: "Open Deferred / MEL", href: "/maintenance/deferred" }],
     };
   }
 
@@ -3041,6 +3280,37 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   // but no branch above matched a specific, answerable shape of it.
   if (q.includes("cost") || q.includes("costing") || q.includes("charge") || q.includes("margin") || q.includes("expensive") || q.includes("spend")) {
     return insufficient(question, ["a more specific financial question — try naming an aircraft or work order, or ask 'which aircraft is most expensive to maintain?' / 'what is our margin?' / 'which vendors cost us the most?'"]);
+  }
+
+  // M0.6 — natural-language intent fallback. Every branch above this point
+  // is an exact/legacy substring match already covering the suggested
+  // questions; if none of them matched, the question may still be
+  // perfectly answerable — the user just phrased it differently (e.g.
+  // "How do I handle the critical priority items smartly?" instead of
+  // "Which work orders need attention?"). Rather than immediately giving
+  // up, classify the intent and dispatch to the SAME canonical analytics
+  // functions the exact-match branches above already use. This can only
+  // rescue a question that would otherwise have fallen to the generic
+  // catch-all below — it never overrides an exact-match branch, so it
+  // carries zero regression risk to phrasings that already worked.
+  const fallback = answerByIntent(question, context);
+  if (fallback) return fallback;
+
+  const matches = resolveLisaIntent(question);
+  if (matches.length > 0) {
+    // Lisa recognizes a domain here but couldn't extract enough to answer
+    // (e.g. an ambiguous multi-intent question) — ask for clarification
+    // rather than claiming the topic itself is unrecognized.
+    return {
+      id: nextId(),
+      question,
+      headline: "CLARIFICATION_NEEDED",
+      narrative: [
+        "I can help, but I need a little more context.",
+        "Are you asking about a work order, aircraft, maintenance due item, deferred item, technician, parts, inspection, or release readiness?",
+        TRUST_FOOTER,
+      ],
+    };
   }
 
   return insufficient(question, [

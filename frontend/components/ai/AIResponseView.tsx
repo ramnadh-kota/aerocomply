@@ -92,6 +92,32 @@ export function AIResponseView({ response }: { response: AiResponse }) {
       <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>
         {AI_NAME}&rsquo;s Analysis · Non-authoritative
       </p>
+
+      {response.understood && (
+        <div
+          className="ac-text-sm"
+          style={{
+            margin: "0 0 12px",
+            padding: "8px 10px",
+            borderRadius: 6,
+            border: "1px solid var(--ac-border)",
+            background: "var(--ac-bg-elevated)",
+          }}
+        >
+          <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{AI_NAME} Understood</p>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", rowGap: 2, columnGap: 8 }}>
+            <span className="ac-text-muted">Intent</span>
+            <span>{response.understood.intent}</span>
+            <span className="ac-text-muted">Scope</span>
+            <span>{response.understood.scope}</span>
+            <span className="ac-text-muted">Entities</span>
+            <span>{response.understood.entities.join(", ")}</span>
+            <span className="ac-text-muted">Data areas</span>
+            <span>{response.understood.dataAreas}</span>
+          </div>
+        </div>
+      )}
+
       <p style={{ margin: "0 0 8px", fontWeight: 700, fontSize: 15 }}>{response.headline}</p>
 
       <div style={{ margin: "0 0 10px" }}>
