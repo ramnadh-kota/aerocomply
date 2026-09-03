@@ -62,6 +62,14 @@ export interface Aircraft {
   // "Insufficient source data.", never 0 or an inferred number.
   flightHours?: number | null;
   flightCycles?: number | null;
+  // M16 — utilization data quality/provenance. When flightHours/flightCycles
+  // is set, `utilizationAsOfDate` records when that snapshot was taken and
+  // `utilizationSource` says where it came from — both required to judge
+  // freshness/trust, never assumed. Absent alongside a present flightHours
+  // value means "value on file, provenance unknown" (still surfaced as a
+  // data-quality gap, not silently trusted).
+  utilizationAsOfDate?: string | null;
+  utilizationSource?: string | null;
 }
 
 export interface EngineType {

@@ -23,7 +23,7 @@ import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import { projectsForAircraft } from "@/lib/mock/maintenanceProjects";
 import { workOrdersForAircraft } from "@/lib/mock/workOrders";
 import { defectsForAircraft } from "@/lib/mock/defects";
-import { getDeferredItemsForAircraft } from "@/lib/mock/ai/analytics";
+import { getDeferredItemsForAircraft, getAircraftUtilization } from "@/lib/mock/ai/analytics";
 import { getTechnicianById } from "@/lib/mock/technicians";
 import { getInspectorReviewById } from "@/lib/mock/inspectorReviews";
 import { Timeline } from "@/components/timeline/Timeline";
@@ -57,6 +57,7 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
   const openAircraftWorkOrders = aircraftWorkOrders.filter((w) => !["COMPLETED", "CANCELLED"].includes(w.status));
   const aircraftDefects = defectsForAircraft(aircraft.id);
   const aircraftDeferredItems = getDeferredItemsForAircraft(aircraft.id);
+  const utilization = getAircraftUtilization(aircraft.id);
 
   const engineColumns: Column<EngineInstallation>[] = [
     { key: "position", header: "Position", render: (i) => i.position },
@@ -179,6 +180,24 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
               {componentHistory.filter((c) => c.removedAt === null).length} components currently installed and tracked · {componentHistory.length} installation records total
             </p>
           </section>
+          {utilization && (
+            <section className="ac-section">
+              <h2 className="ac-h2" style={{ marginBottom: 10 }}>Utilization</h2>
+              <div className="ac-card">
+                <p className="ac-text-sm" style={{ margin: "0 0 4px" }}>
+                  Flight Hours: {utilization.flightHours ?? "Insufficient source data."} · Flight Cycles: {utilization.flightCycles ?? "Insufficient source data."}
+                </p>
+                <p className="ac-text-sm" style={{ margin: "0 0 4px" }}>
+                  As of: {utilization.utilizationAsOfDate ?? "Insufficient source data."} · Source: {utilization.utilizationSource ?? "Insufficient source data."}
+                </p>
+                <StatusBadge
+                  status={utilization.dataQuality === "CURRENT" ? "COMPLIANT" : utilization.dataQuality === "STALE" ? "REVIEW_REQUIRED" : "INSUFFICIENT_DATA"}
+                  label={utilization.dataQuality.replace(/_/g, " ")}
+                />
+              </div>
+            </section>
+          )}
+
           {aircraftDeferredItems.length > 0 && (
             <section className="ac-section">
               <h2 className="ac-h2" style={{ marginBottom: 10 }}>Deferred Items (MEL)</h2>

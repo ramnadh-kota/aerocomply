@@ -27,6 +27,8 @@ export const aircraft: Aircraft[] = [
     // M12.9 — demo-labeled synthetic FH/FC, not real operational data.
     flightHours: 8420,
     flightCycles: 3110,
+    utilizationAsOfDate: "2026-03-16",
+    utilizationSource: "DEMO_SEED",
   },
   {
     id: "ac-2",
@@ -51,6 +53,9 @@ export const aircraft: Aircraft[] = [
     // M12.9 — demo-labeled synthetic FH/FC, not real operational data.
     flightHours: 14210,
     flightCycles: 6890,
+    // M16 — deliberately no utilizationAsOfDate/utilizationSource here:
+    // demonstrates the "value on file, provenance unknown" data-quality
+    // gap for this aircraft, distinct from ac-1/ac-5 which have both.
   },
   {
     id: "ac-4",
@@ -72,6 +77,8 @@ export const aircraft: Aircraft[] = [
     // M12.9 — demo-labeled synthetic FH/FC, not real operational data.
     flightHours: 19875,
     flightCycles: 9420,
+    utilizationAsOfDate: "2026-01-05",
+    utilizationSource: "DEMO_SEED",
   },
   {
     id: "ac-6",

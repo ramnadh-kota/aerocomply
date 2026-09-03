@@ -75,6 +75,8 @@ import {
   getFleetMaintenanceForecast,
   getTechnicianAuthorizationForWorkOrder,
   explainExecutionState,
+  getFleetUtilization,
+  getUtilizationDataQuality,
   getAutomationQueue,
   type KpiCard,
   type RiskItem,
@@ -310,6 +312,8 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Who is authorized to work on WO-1054?",
       "Trace part FCU-220.",
       "What maintenance is coming due for VT-ABC?",
+      "What are the current fleet utilization levels?",
+      "Which aircraft have stale utilization data?",
     ],
   },
   {
@@ -507,6 +511,36 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative,
       table: { title: "Recovery Options", columns: ["Action", "Responsible Role"], rows: analysis.recoveryOptions.map((o) => [o.action, o.responsibleRole]) },
       buttons: [{ label: "Open Recovery View", href: `/maintenance/aog-recovery/${a.id}` }, { label: "Open Control Tower", href: "/maintenance/control-tower" }],
+    };
+  }
+
+  // "What are the current fleet utilization levels?" / "which aircraft
+  // have stale utilization data?" / "which aircraft have unknown FH/FC?"
+  // — M16. Reuses getFleetUtilization/getUtilizationDataQuality — no
+  // second utilization store.
+  if (q.includes("utilization") || (q.includes("fh") && q.includes("fc") && q.includes("unknown"))) {
+    const fleet = getFleetUtilization();
+    const quality = getUtilizationDataQuality();
+    const stale = fleet.filter((f) => f.dataQuality === "STALE");
+    const noData = fleet.filter((f) => f.dataQuality === "NO_DATA");
+    const unknownProv = fleet.filter((f) => f.dataQuality === "UNKNOWN_PROVENANCE");
+    const narrative: string[] = [
+      `FACT: ${quality.current} of ${quality.total} aircraft have current utilization data; ${quality.stale} stale; ${quality.unknownProvenance} of unknown provenance; ${quality.noData} with no data at all.`,
+    ];
+    if (q.includes("stale")) {
+      narrative.push(stale.length > 0 ? `FACT: stale (>30 days old): ${stale.map((f) => `${f.registration} (${f.daysSinceUpdate}d old)`).join(", ")}.` : "FACT: no aircraft currently has stale utilization data.");
+    } else if (q.includes("unknown")) {
+      narrative.push(noData.length + unknownProv.length > 0 ? `FACT: no-data: ${noData.map((f) => f.registration).join(", ") || "none"}. Unknown-provenance: ${unknownProv.map((f) => f.registration).join(", ") || "none"}.` : "FACT: every aircraft has FH/FC with known provenance.");
+    }
+    narrative.push("INFERENCE: stale or missing utilization data limits how reliable any FH/FC-based maintenance forecast can be for the affected aircraft.");
+    narrative.push(TRUST_FOOTER);
+    return {
+      id: nextId(),
+      question,
+      headline: "Fleet utilization data quality",
+      narrative,
+      table: { title: "Fleet Utilization", columns: ["Aircraft", "FH", "FC", "As Of", "Quality"], rows: fleet.map((f) => [f.registration, f.flightHours ?? "UNKNOWN", f.flightCycles ?? "UNKNOWN", f.utilizationAsOfDate ?? "UNKNOWN", f.dataQuality]) },
+      buttons: [{ label: "View Aircraft", href: "/aircraft" }],
     };
   }
 

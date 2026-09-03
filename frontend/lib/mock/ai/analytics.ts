@@ -1838,6 +1838,72 @@ export function getFleetMaintenanceForecast(): { aircraftId: string; registratio
   return aircraft.map((a) => ({ aircraftId: a.id, registration: currentRegistration(a), items: getMaintenanceForecastForAircraft(a.id) }));
 }
 
+// --- M16 Aircraft Utilization Intelligence ---
+// Reads only Aircraft.flightHours/flightCycles/utilizationAsOfDate/
+// utilizationSource (M12.9/M16) — no second utilization store, no
+// fabricated historical values. "Stale" is a derived judgment call (>30
+// days old), not a stored flag.
+
+export type UtilizationDataQuality = "CURRENT" | "STALE" | "UNKNOWN_PROVENANCE" | "NO_DATA";
+
+export interface AircraftUtilizationView {
+  aircraftId: string;
+  registration: string;
+  flightHours: number | null;
+  flightCycles: number | null;
+  utilizationAsOfDate: string | null;
+  utilizationSource: string | null;
+  dataQuality: UtilizationDataQuality;
+  daysSinceUpdate: number | null;
+}
+
+export function getAircraftUtilization(aircraftId: string): AircraftUtilizationView | null {
+  const a = getAircraftById(aircraftId);
+  if (!a) return null;
+  const hasValue = a.flightHours != null || a.flightCycles != null;
+  const daysSinceUpdate = a.utilizationAsOfDate != null ? daysBetween(MOCK_TODAY, a.utilizationAsOfDate) : null;
+
+  let dataQuality: UtilizationDataQuality;
+  if (!hasValue) dataQuality = "NO_DATA";
+  else if (a.utilizationAsOfDate == null) dataQuality = "UNKNOWN_PROVENANCE";
+  else if (daysSinceUpdate !== null && daysSinceUpdate > 30) dataQuality = "STALE";
+  else dataQuality = "CURRENT";
+
+  return {
+    aircraftId,
+    registration: currentRegistration(a),
+    flightHours: a.flightHours ?? null,
+    flightCycles: a.flightCycles ?? null,
+    utilizationAsOfDate: a.utilizationAsOfDate ?? null,
+    utilizationSource: a.utilizationSource ?? null,
+    dataQuality,
+    daysSinceUpdate,
+  };
+}
+
+export function getFleetUtilization(): AircraftUtilizationView[] {
+  return aircraft.map((a) => getAircraftUtilization(a.id)!);
+}
+
+export interface UtilizationDataQualitySummary {
+  total: number;
+  current: number;
+  stale: number;
+  unknownProvenance: number;
+  noData: number;
+}
+
+export function getUtilizationDataQuality(): UtilizationDataQualitySummary {
+  const fleet = getFleetUtilization();
+  return {
+    total: fleet.length,
+    current: fleet.filter((f) => f.dataQuality === "CURRENT").length,
+    stale: fleet.filter((f) => f.dataQuality === "STALE").length,
+    unknownProvenance: fleet.filter((f) => f.dataQuality === "UNKNOWN_PROVENANCE").length,
+    noData: fleet.filter((f) => f.dataQuality === "NO_DATA").length,
+  };
+}
+
 export function getMaintenanceTaskChain(workOrderId: string): MaintenanceTaskChainStep[] {
   const w = workOrders.find((x) => x.id === workOrderId);
   if (!w) return [];
