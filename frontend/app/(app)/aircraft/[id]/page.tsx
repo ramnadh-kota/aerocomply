@@ -21,10 +21,11 @@ import { getRequirementById } from "@/lib/mock/regulations";
 import { auditEventsForObjectLabelContains } from "@/lib/mock/audit";
 import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import { projectsForAircraft } from "@/lib/mock/maintenanceProjects";
-import { workOrdersForAircraft } from "@/lib/mock/workOrders";
+import { workOrdersForAircraft, getWorkOrderById } from "@/lib/mock/workOrders";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { getDeferredItemsForAircraft, getAircraftUtilization, getMaintenanceDueForAircraft, getDeferredItemStatus, getDeferredClosureReadiness } from "@/lib/mock/ai/analytics";
 import { closeDeferredItem } from "@/lib/mock/deferredItems";
+import { evidenceRecordsForAircraft } from "@/lib/mock/evidenceRecords";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getCurrentUser } from "@/lib/domain/currentUser";
 import { getTechnicianById } from "@/lib/mock/technicians";
@@ -66,6 +67,13 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
   const utilization = getAircraftUtilization(aircraft.id);
   const DUE_PRIORITY: Record<string, number> = { OVERDUE: 0, DUE: 1, DUE_SOON: 2, UNKNOWN: 3, CURRENT: 4 };
   const maintenanceDue = [...getMaintenanceDueForAircraft(aircraft.id)].sort((a, b) => DUE_PRIORITY[a.dueStatus] - DUE_PRIORITY[b.dueStatus]);
+  const aircraftEvidence = evidenceRecordsForAircraft(aircraft.id);
+  const aircraftEvidenceByWorkOrder: { workOrderId: string; count: number; latest: (typeof aircraftEvidence)[number] }[] = [];
+  for (const e of aircraftEvidence) {
+    const existing = aircraftEvidenceByWorkOrder.find((g) => g.workOrderId === e.workOrderId);
+    if (existing) existing.count += 1;
+    else aircraftEvidenceByWorkOrder.push({ workOrderId: e.workOrderId, count: 1, latest: e });
+  }
 
   const engineColumns: Column<EngineInstallation>[] = [
     { key: "position", header: "Position", render: (i) => i.position },
@@ -232,6 +240,36 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
               <p className="ac-text-sm ac-text-muted" style={{ marginTop: 6 }}>
                 <Link href="/maintenance-program" className="ac-mono">Full maintenance program →</Link>
               </p>
+            </section>
+          )}
+
+          {aircraftEvidenceByWorkOrder.length > 0 && (
+            <section className="ac-section">
+              <h2 className="ac-h2" style={{ marginBottom: 10 }}>Recent Maintenance Evidence</h2>
+              <div className="ac-card" style={{ padding: 0 }}>
+                <table className="ac-table">
+                  <thead><tr><th>Work Order</th><th>Task</th><th>Count</th><th>Latest Upload</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {aircraftEvidenceByWorkOrder.map((g) => {
+                      const wo = getWorkOrderById(g.workOrderId);
+                      return (
+                        <tr key={g.workOrderId}>
+                          <td>{wo ? <Link href={`/maintenance/planning/${wo.id}`} className="ac-mono">{wo.workOrderNumber}</Link> : g.workOrderId}</td>
+                          <td className="ac-text-sm">{wo?.title ?? "Insufficient source data."}</td>
+                          <td>{g.count}</td>
+                          <td className="ac-text-sm">{new Date(g.latest.capturedAt).toLocaleString()}</td>
+                          <td>
+                            <StatusBadge
+                              status={g.latest.status === "ACCEPTED" ? "COMPLIANT" : g.latest.status === "REJECTED" ? "NON_COMPLIANT" : "PENDING"}
+                              label={g.latest.status}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </section>
           )}
 

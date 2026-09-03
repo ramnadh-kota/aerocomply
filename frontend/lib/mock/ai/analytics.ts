@@ -19,7 +19,8 @@ import { deferredItems } from "../deferredItems";
 import { cannibalizationRequests } from "../cannibalization";
 import { maintenanceRequirements, getMaintenanceProgramById } from "../maintenanceProgram";
 import { latestAccomplishment } from "../maintenanceAccomplishments";
-import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SignatureRecord, AutomationQueueItem, MaintenanceRequirement, MaintenanceIntervalType, DeferredItem } from "../types";
+import { evidenceRecordsForWorkOrder, evidenceRecordsForAircraft } from "../evidenceRecords";
+import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SafetyGateState, SignatureRecord, AutomationQueueItem, MaintenanceRequirement, MaintenanceIntervalType, DeferredItem, MaintenanceTask } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -1359,6 +1360,11 @@ export function getExecutionState(w: WorkOrder): ExecutionState {
   if (w.status === "CANCELLED") return "NOT_STARTED";
   // status === "COMPLETED" from here — the technician's step is done. This
   // is exactly where the milestone's required distinction is made explicit.
+  // M28 — defense in depth: even if a caller bypassed the UI/mutation-level
+  // evidence guard, a COMPLETED work order whose required execution
+  // evidence is missing/rejected is never read as genuinely complete.
+  const task = w.maintenanceTaskId ? getMaintenanceTaskById(w.maintenanceTaskId) : undefined;
+  if (evaluateExecutionEvidenceGate(w, task).state === "FAIL") return "BLOCKED";
   if (!isInspectionRequired(w)) return "RELEASED";
   const review = getInspectorReviewForWorkOrder(w.id);
   if (!review) return "TECHNICIAN_COMPLETED";
@@ -1474,6 +1480,14 @@ export function getSafetyGatesForWorkOrder(workOrderId: string): SafetyGate[] {
       : "No maintenance task reference is linked to this work order.",
   });
 
+  const execEvidence = evaluateExecutionEvidenceGate(w, task);
+  gates.push({
+    type: "EXECUTION_EVIDENCE_GATE",
+    open: execEvidence.state === "FAIL" || execEvidence.state === "UNKNOWN",
+    state: execEvidence.state,
+    reason: execEvidence.reason,
+  });
+
   gates.push({
     type: "RELEASE_GATE",
     open: execState !== "RELEASED",
@@ -1482,6 +1496,48 @@ export function getSafetyGatesForWorkOrder(workOrderId: string): SafetyGate[] {
   });
 
   return gates;
+}
+
+// --- M28 Execution Evidence (technician-captured photos/proof-of-work) ---
+// A distinct fact from EVIDENCE_GATE above (reference-document
+// availability). Reads MaintenanceTask.evidenceRequirement (M28) and the
+// evidenceRecords store (lib/mock/evidenceRecords.ts) — never a second
+// evidence-tracking mechanism.
+function evaluateExecutionEvidenceGate(w: WorkOrder, task: MaintenanceTask | undefined): { state: SafetyGateState; reason: string } {
+  const requirement = task ? task.evidenceRequirement : "NOT_REQUIRED";
+  if (task && requirement == null) {
+    return { state: "UNKNOWN", reason: "Evidence requirement is not defined for this task." };
+  }
+  if (!requirement || requirement === "NOT_REQUIRED") {
+    return { state: "NOT_REQUIRED", reason: "No execution evidence is required for this task." };
+  }
+  const records = evidenceRecordsForWorkOrder(w.id);
+  const nonRejected = records.filter((r) => r.status !== "REJECTED");
+  if (requirement === "OPTIONAL") {
+    return { state: "NOT_REQUIRED", reason: nonRejected.length > 0 ? `Evidence is optional for this task — ${nonRejected.length} item(s) submitted.` : "Evidence is optional for this task — none submitted." };
+  }
+  // requirement === "REQUIRED"
+  if (records.length === 0) {
+    return { state: "FAIL", reason: "Required execution evidence has not been submitted for this task." };
+  }
+  if (nonRejected.length === 0) {
+    return { state: "FAIL", reason: `All ${records.length} submitted evidence item(s) were rejected — resubmission required. Latest reason: ${records[records.length - 1].reviewNote ?? "Insufficient source data."}` };
+  }
+  return { state: "PASS", reason: `${nonRejected.length} required evidence item(s) submitted${nonRejected.length !== records.length ? ` (${records.length - nonRejected.length} rejected item(s) excluded)` : ""}.` };
+}
+
+/** Open work orders currently blocked by missing/rejected required
+ * execution evidence — the ONE such calculation, reused by Control Center,
+ * the Automation Queue, and Lisa's "evidence blockers" question. */
+export function getEvidenceBlockedWorkOrders(): WorkOrder[] {
+  return workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED" && getExecutionEvidenceStatus(w.id)?.state === "FAIL");
+}
+
+export function getExecutionEvidenceStatus(workOrderId: string) {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return null;
+  const task = w.maintenanceTaskId ? getMaintenanceTaskById(w.maintenanceTaskId) : undefined;
+  return evaluateExecutionEvidenceGate(w, task);
 }
 
 /** Work orders whose technician step is done but release is not yet
@@ -1527,10 +1583,16 @@ export function getReleaseReadinessForWorkOrder(workOrderId: string): ReleaseRea
   const gates = getSafetyGatesForWorkOrder(w.id);
   for (const g of gates) {
     if (g.state === "FAIL") {
-      const category: ReleaseBlocker["category"] = g.type === "MATERIAL_GATE" ? "MATERIAL" : g.type === "QUALIFICATION_GATE" ? "QUALIFICATION" : g.type === "INSPECTION_GATE" ? "INSPECTION" : "UNKNOWN";
-      blockers.push({ category, source: `Safety Gate: ${g.type}`, explanation: g.reason, requiredAction: category === "MATERIAL" ? "Resolve the material shortage (Material Readiness / Procurement)." : category === "QUALIFICATION" ? "Assign a technician." : "Assign an eligible independent inspector." });
+      const category: ReleaseBlocker["category"] = g.type === "MATERIAL_GATE" ? "MATERIAL" : g.type === "QUALIFICATION_GATE" ? "QUALIFICATION" : g.type === "INSPECTION_GATE" ? "INSPECTION" : g.type === "EXECUTION_EVIDENCE_GATE" ? "EVIDENCE" : "UNKNOWN";
+      const requiredAction =
+        category === "MATERIAL" ? "Resolve the material shortage (Material Readiness / Procurement)." :
+        category === "QUALIFICATION" ? "Assign a technician." :
+        category === "INSPECTION" ? "Assign an eligible independent inspector." :
+        category === "EVIDENCE" ? "Submit the required execution evidence for this task." :
+        "Resolve the identified blocker.";
+      blockers.push({ category, source: `Safety Gate: ${g.type}`, explanation: g.reason, requiredAction });
     } else if (g.state === "UNKNOWN") {
-      blockers.push({ category: g.type === "EVIDENCE_GATE" ? "EVIDENCE" : "UNKNOWN", source: `Safety Gate: ${g.type}`, explanation: g.reason, requiredAction: "Resolve the missing source data before this gate can be evaluated as PASS or FAIL." });
+      blockers.push({ category: g.type === "EVIDENCE_GATE" || g.type === "EXECUTION_EVIDENCE_GATE" ? "EVIDENCE" : "UNKNOWN", source: `Safety Gate: ${g.type}`, explanation: g.reason, requiredAction: "Resolve the missing source data before this gate can be evaluated as PASS or FAIL." });
     }
   }
 
@@ -1936,7 +1998,26 @@ export function getAutomationQueue(): AutomationQueueItem[] {
         destinationHref: `/maintenance/planning/${w.id}`,
       });
     }
-    const failedGates = gates.filter((g) => g.state === "FAIL" && g.type !== "MATERIAL_GATE" && g.type !== "QUALIFICATION_GATE" && g.type !== "INSPECTION_GATE");
+    // M28 — execution-evidence blocker gets its own MISSING_EVIDENCE item
+    // with a specific recommended action, rather than falling into the
+    // generic SAFETY_GATE_FAILURE bucket below (which explicitly excludes
+    // this gate type to avoid listing it twice).
+    const execEvGate = gates.find((g) => g.type === "EXECUTION_EVIDENCE_GATE");
+    if (execEvGate && execEvGate.state === "FAIL") {
+      items.push({
+        id: `auto-exec-evidence-${w.id}`,
+        category: "MISSING_EVIDENCE",
+        title: `${w.workOrderNumber} — required execution evidence missing`,
+        detection: execEvGate.reason,
+        source: w.workOrderNumber,
+        impact: "Blocks release readiness until the technician submits the required evidence.",
+        recommendedAction: "Request technician to submit required evidence.",
+        responsibleRole: "Technician",
+        approvalRequired: true,
+        destinationHref: `/maintenance/planning/${w.id}`,
+      });
+    }
+    const failedGates = gates.filter((g) => g.state === "FAIL" && g.type !== "MATERIAL_GATE" && g.type !== "QUALIFICATION_GATE" && g.type !== "INSPECTION_GATE" && g.type !== "EXECUTION_EVIDENCE_GATE");
     for (const g of failedGates) {
       items.push({
         id: `auto-gate-${w.id}-${g.type}`,

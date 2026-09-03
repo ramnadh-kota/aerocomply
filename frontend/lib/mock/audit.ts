@@ -216,4 +216,9 @@ export const STANDARD_AUDIT_ACTIONS = [
   "maintenance.work_order_escalated",
   // M19 — deferred-item closure workflow.
   "maintenance.deferred_item_closed",
+  // M28 — technician execution evidence lifecycle.
+  "maintenance.evidence_uploaded",
+  "maintenance.evidence_removed",
+  "maintenance.evidence_reviewed",
+  "maintenance.evidence_rejected",
 ] as const;

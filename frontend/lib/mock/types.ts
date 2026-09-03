@@ -742,6 +742,47 @@ export interface MaintenanceTask {
   // authoritatively justifies this task's interval. Absent = no program
   // citation exists for this task (the honest default for most tasks).
   governingRequirementId?: string | null;
+  // M28 — execution EVIDENCE requirement (photos/proof-of-work captured by
+  // the technician during execution). Deliberately a SEPARATE concept from
+  // `evidenceStatus` above (which is about whether an authoritative AMM/
+  // IPC/AD/SB REFERENCE document exists for the task) — conflating "we
+  // have a reference to follow" with "the technician proved they did the
+  // work" would blur two genuinely different facts. Undefined = evidence
+  // requirement itself is not on file for this task (UNKNOWN, not
+  // NOT_REQUIRED — see getSafetyGatesForWorkOrder's EXECUTION_EVIDENCE_GATE).
+  evidenceRequirement?: "NOT_REQUIRED" | "OPTIONAL" | "REQUIRED";
+}
+
+// M28 — Technician execution evidence (photos/proof-of-work), a genuinely
+// new concept distinct from the existing compliance-assessment `Evidence`
+// type above (lib/mock/evidence.ts, scoped to ApplicabilityAssessment).
+// See lib/mock/evidenceRecords.ts for the mutable store and mutations.
+export type EvidenceRecordType = "BEFORE" | "DAMAGE" | "INSPECTION" | "REMOVAL" | "INSTALLATION" | "AFTER" | "COMPLETION" | "OTHER";
+export type EvidenceRecordStatus = "SUBMITTED" | "REVIEWED" | "ACCEPTED" | "REJECTED";
+
+export interface EvidenceRecord {
+  id: string;
+  workOrderId: string;
+  maintenanceTaskId: string | null;
+  aircraftId: string;
+  uploadedByTechnicianId: string;
+  evidenceType: EvidenceRecordType;
+  // PROTOTYPE STORAGE ONLY — this is not a production object-storage
+  // reference (no signed URL, no persistence beyond this browser session,
+  // no access control, no encryption, no malware scanning, no retention
+  // policy). It holds whatever the browser's File API/camera capture
+  // produced (an object URL) — see the Task Card upload component. A real
+  // deployment requires actual object storage before this can be trusted
+  // as a durable record.
+  fileRef: string;
+  fileName: string;
+  capturedAt: string;
+  technicianNote: string | null;
+  status: EvidenceRecordStatus;
+  createdAt: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
 }
 
 // Execution/release state — deliberately separate from WorkOrderStatus.
@@ -762,7 +803,11 @@ export type ExecutionState =
   // — distinct from NOT_STARTED, which implies "could start, just hasn't".
   | "BLOCKED";
 
-export type SafetyGateType = "MATERIAL_GATE" | "QUALIFICATION_GATE" | "INSPECTION_GATE" | "EVIDENCE_GATE" | "RELEASE_GATE";
+// M28 — EXECUTION_EVIDENCE_GATE added alongside the existing EVIDENCE_GATE
+// (which stays exactly as-is: reference-document availability). The new
+// gate evaluates technician-submitted execution evidence (photos) — a
+// different fact, never merged into the existing gate's meaning.
+export type SafetyGateType = "MATERIAL_GATE" | "QUALIFICATION_GATE" | "INSPECTION_GATE" | "EVIDENCE_GATE" | "EXECUTION_EVIDENCE_GATE" | "RELEASE_GATE";
 
 // M13 — four-valued gate state, additive alongside the existing `open`
 // boolean (unchanged, still what the M12.9 UI/Lisa branches read). PASS/FAIL

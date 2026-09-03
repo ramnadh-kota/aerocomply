@@ -25,6 +25,9 @@ export const maintenanceTasks: MaintenanceTask[] = [
     // interval on file — an interval alone is not enough to forecast.
     fhThreshold: 500,
     governingRequirementId: "mreq-1042",
+    // M28 — inspection task, evidence required. See lib/mock/evidenceRecords.ts
+    // (ev-exec-1/2, both ACCEPTED) for the demo scenario this satisfies.
+    evidenceRequirement: "REQUIRED",
   },
   {
     id: "mtask-1045",
@@ -41,6 +44,8 @@ export const maintenanceTasks: MaintenanceTask[] = [
     // MOCK_TODAY — see getMaintenanceDueForAircraft (M17).
     calendarThresholdDays: 30,
     governingRequirementId: "mreq-1045",
+    // M28 — evidence encouraged but not mandatory for this task.
+    evidenceRequirement: "OPTIONAL",
   },
   {
     id: "mtask-1046",
@@ -75,6 +80,9 @@ export const maintenanceTasks: MaintenanceTask[] = [
     // part-8), not a fabricated regulatory requirement.
     inspectionRequired: true,
     evidenceStatus: "SOURCE_UNKNOWN",
+    // M28 — required, but zero evidence records exist yet: demonstrates
+    // the FAIL/missing-evidence scenario on the Planning/Task Card page.
+    evidenceRequirement: "REQUIRED",
   },
   {
     id: "mtask-1055",
@@ -85,6 +93,10 @@ export const maintenanceTasks: MaintenanceTask[] = [
     requiredSkill: "Fuel Systems",
     inspectionRequired: true,
     evidenceStatus: "SOURCE_UNKNOWN",
+    // M28 — required; the one submitted record (ev-exec-3) was REJECTED,
+    // demonstrating that a rejected-only evidence set does not satisfy
+    // the gate.
+    evidenceRequirement: "REQUIRED",
   },
 ];
 

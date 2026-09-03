@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge, workOrderStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
-import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView, explainExecutionState, getReleaseReadinessForWorkOrder } from "@/lib/mock/ai/analytics";
+import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView, explainExecutionState, getReleaseReadinessForWorkOrder, getExecutionEvidenceStatus } from "@/lib/mock/ai/analytics";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { technicians } from "@/lib/mock/technicians";
 import { workOrderRepository } from "@/lib/domain/repositories";
@@ -15,6 +15,13 @@ import { combinedAuditHistory } from "@/lib/mock/audit";
 import { ActionHistory } from "@/components/audit/ActionHistory";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getCurrentUser } from "@/lib/domain/currentUser";
+import { evidenceRecordsForWorkOrder, addEvidenceRecord, removeEvidenceRecord, reviewEvidenceRecord } from "@/lib/mock/evidenceRecords";
+import type { EvidenceRecordType } from "@/lib/mock/types";
+
+const EVIDENCE_TYPES: EvidenceRecordType[] = ["BEFORE", "DAMAGE", "INSPECTION", "REMOVAL", "INSTALLATION", "AFTER", "COMPLETION", "OTHER"];
+// M28 — the representative technician identity, same convention already
+// used by /workspace (no real per-user login in this prototype).
+const REPRESENTATIVE_TECHNICIAN_ID = "tech-1";
 
 // M12.4 — Work Order execution/planning view. Deliberately a separate route
 // from the existing /maintenance/work-orders/[id] (checklist/inspection
@@ -36,6 +43,13 @@ export default function WorkOrderPlanningDetailPage() {
   const eligibility = getTechnicianEligibilityForWorkOrder(workOrderId);
   const [showReassign, setShowReassign] = useState(false);
 
+  // M28 — evidence capture form state.
+  const [evidenceType, setEvidenceType] = useState<EvidenceRecordType>("BEFORE");
+  const [evidenceNote, setEvidenceNote] = useState("");
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [evidencePreviewUrl, setEvidencePreviewUrl] = useState<string | null>(null);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+
   if (!row || !wo) {
     return (
       <div>
@@ -54,6 +68,92 @@ export default function WorkOrderPlanningDetailPage() {
   const taskChain = getMaintenanceTaskChain(workOrderId);
   const taskExecution = getMaintenanceTaskExecutionView(workOrderId);
   const releaseReadiness = getReleaseReadinessForWorkOrder(workOrderId);
+  const evidenceRecords = evidenceRecordsForWorkOrder(workOrderId);
+  const evidenceStatus = getExecutionEvidenceStatus(workOrderId);
+  const evidenceBlocksCompletion = evidenceStatus?.state === "FAIL";
+
+  const onEvidenceFileChange = (file: File | null) => {
+    setEvidenceError(null);
+    if (evidencePreviewUrl) URL.revokeObjectURL(evidencePreviewUrl);
+    if (!file) {
+      setEvidenceFile(null);
+      setEvidencePreviewUrl(null);
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setEvidenceError("Only image files are accepted.");
+      setEvidenceFile(null);
+      setEvidencePreviewUrl(null);
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setEvidenceError("Image is larger than 15 MB — choose a smaller file.");
+      setEvidenceFile(null);
+      setEvidencePreviewUrl(null);
+      return;
+    }
+    setEvidenceFile(file);
+    setEvidencePreviewUrl(URL.createObjectURL(file));
+  };
+
+  const cancelEvidence = () => {
+    if (evidencePreviewUrl) URL.revokeObjectURL(evidencePreviewUrl);
+    setEvidenceFile(null);
+    setEvidencePreviewUrl(null);
+    setEvidenceNote("");
+    setEvidenceError(null);
+  };
+
+  const submitEvidence = () => {
+    if (!evidenceFile || !evidencePreviewUrl) {
+      setEvidenceError("Choose an image before submitting.");
+      return;
+    }
+    const record = addEvidenceRecord({
+      workOrderId,
+      maintenanceTaskId: wo.maintenanceTaskId ?? null,
+      aircraftId: wo.aircraftId,
+      uploadedByTechnicianId: REPRESENTATIVE_TECHNICIAN_ID,
+      evidenceType,
+      fileRef: evidencePreviewUrl,
+      fileName: evidenceFile.name,
+      technicianNote: evidenceNote.trim() || null,
+    });
+    addAuditEvent({
+      actor: current?.user.name ?? "Unknown User",
+      actorRole: "Technician",
+      action: "maintenance.evidence_uploaded",
+      objectType: "EvidenceRecord",
+      // Matches wo.workOrderNumber exactly (not a compound label) so this
+      // event surfaces in the same combinedAuditHistory(row.workOrderNumber, ...)
+      // lookup every other WO-scoped audit event on this page already uses.
+      objectLabel: wo.workOrderNumber,
+      previousState: null,
+      newState: evidenceType,
+      reason: `Evidence ${record.id} (${evidenceType}) uploaded${evidenceNote.trim() ? `: ${evidenceNote.trim()}` : "."}`,
+    });
+    setEvidenceFile(null);
+    setEvidencePreviewUrl(null);
+    setEvidenceNote("");
+    setEvidenceType("BEFORE");
+    setVersion((v) => v + 1);
+  };
+
+  const removeEvidence = (id: string) => {
+    const removed = removeEvidenceRecord(id);
+    if (!removed) return;
+    addAuditEvent({
+      actor: current?.user.name ?? "Unknown User",
+      actorRole: "Technician",
+      action: "maintenance.evidence_removed",
+      objectType: "EvidenceRecord",
+      objectLabel: wo.workOrderNumber,
+      previousState: "SUBMITTED",
+      newState: null,
+      reason: `Evidence ${id} removed by uploader before review.`,
+    });
+    setVersion((v) => v + 1);
+  };
 
   const assign = (technicianId: string) => {
     const wasAssigned = row.assignedTechnicianId !== null;
@@ -104,6 +204,7 @@ export default function WorkOrderPlanningDetailPage() {
   };
 
   const complete = () => {
+    if (evidenceBlocksCompletion) return; // guarded — see the disabled-button message below
     const today = new Date().toISOString().slice(0, 10);
     const updated = workOrderRepository.completeWorkOrder(workOrderId, today);
     if (!updated) return;
@@ -278,13 +379,111 @@ export default function WorkOrderPlanningDetailPage() {
             <button className="ac-btn ac-btn-primary" onClick={start}>Start Work</button>
           )}
           {row.status === "IN_PROGRESS" && (
-            <button className="ac-btn ac-btn-primary" onClick={complete}>Complete</button>
+            <button className="ac-btn ac-btn-primary" onClick={complete} disabled={evidenceBlocksCompletion} title={evidenceBlocksCompletion ? evidenceStatus?.reason : undefined}>
+              Complete
+            </button>
           )}
           {row.priority !== "CRITICAL" && row.status !== "COMPLETED" && row.status !== "CANCELLED" && (
             <button className="ac-btn" onClick={escalate}>Escalate</button>
           )}
           <Link href={`/maintenance/work-orders/${wo.id}`} className="ac-btn">View Full Work Order</Link>
           <Link href={`/aircraft/${wo.aircraftId}`} className="ac-btn">View Aircraft</Link>
+        </div>
+        {row.status === "IN_PROGRESS" && evidenceBlocksCompletion && (
+          <p className="ac-text-sm" style={{ color: "var(--ac-status-non_compliant)", marginTop: 8 }}>
+            Cannot complete task — {evidenceStatus?.reason}
+          </p>
+        )}
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Evidence</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+          Prototype storage only — images are held as in-browser object references for this session and are not persisted to
+          production object storage. Uploading a photo records that an artifact was captured; it is never treated as proof of
+          airworthiness, compliance, or acceptable workmanship on its own.
+        </p>
+        <div className="ac-card" style={{ marginBottom: 12 }}>
+          <StatusBadge
+            status={evidenceStatus?.state === "PASS" ? "COMPLIANT" : evidenceStatus?.state === "FAIL" ? "NON_COMPLIANT" : evidenceStatus?.state === "UNKNOWN" ? "INSUFFICIENT_DATA" : "COMPLIANT"}
+            label={evidenceStatus?.state ?? "NOT_REQUIRED"}
+          />
+          <p className="ac-text-sm" style={{ margin: "8px 0 0" }}>{evidenceStatus?.reason}</p>
+        </div>
+
+        {evidenceRecords.length > 0 ? (
+          <div className="ac-card" style={{ padding: 0, marginBottom: 12 }}>
+            <table className="ac-table">
+              <thead><tr><th>Type</th><th>Preview</th><th>Uploaded By</th><th>Captured</th><th>Note</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {evidenceRecords.map((e) => {
+                  const uploader = technicians.find((t) => t.id === e.uploadedByTechnicianId);
+                  return (
+                    <tr key={e.id}>
+                      <td>{e.evidenceType}</td>
+                      <td>
+                        {e.fileRef !== "DEMO_SEED_PLACEHOLDER" ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={e.fileRef} alt={e.fileName} style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 4 }} />
+                        ) : (
+                          <span className="ac-text-sm ac-text-muted">{e.fileName}</span>
+                        )}
+                      </td>
+                      <td className="ac-text-sm">{uploader?.name ?? e.uploadedByTechnicianId}</td>
+                      <td className="ac-text-sm">{new Date(e.capturedAt).toLocaleString()}</td>
+                      <td className="ac-text-sm">{e.technicianNote ?? "—"}{e.status === "REJECTED" && e.reviewNote ? ` (Rejected: ${e.reviewNote})` : ""}</td>
+                      <td>
+                        <StatusBadge
+                          status={e.status === "ACCEPTED" ? "COMPLIANT" : e.status === "REJECTED" ? "NON_COMPLIANT" : "PENDING"}
+                          label={e.status}
+                        />
+                      </td>
+                      <td>
+                        {e.status === "SUBMITTED" && (
+                          <button className="ac-btn" style={{ padding: "2px 8px" }} onClick={() => removeEvidence(e.id)}>Remove</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 12 }}>No evidence submitted for this work order yet.</p>
+        )}
+
+        <div className="ac-card">
+          <p className="ac-eyebrow" style={{ marginBottom: 8 }}>Add Evidence</p>
+          <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap", marginBottom: 8 }}>
+            <select className="ac-input" value={evidenceType} onChange={(e) => setEvidenceType(e.target.value as EvidenceRecordType)}>
+              {EVIDENCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => onEvidenceFileChange(e.target.files?.[0] ?? null)}
+            />
+          </div>
+          {evidenceError && <p className="ac-text-sm" style={{ color: "var(--ac-status-non_compliant)", marginBottom: 8 }}>{evidenceError}</p>}
+          {evidencePreviewUrl && (
+            <div style={{ marginBottom: 8 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={evidencePreviewUrl} alt="Evidence preview" style={{ maxWidth: 200, maxHeight: 200, borderRadius: 4 }} />
+            </div>
+          )}
+          <textarea
+            className="ac-input"
+            style={{ width: "100%", marginBottom: 8 }}
+            placeholder="Optional note"
+            value={evidenceNote}
+            onChange={(e) => setEvidenceNote(e.target.value)}
+          />
+          <div className="ac-flex ac-gap-2">
+            <button className="ac-btn ac-btn-primary" onClick={submitEvidence} disabled={!evidenceFile}>Submit Evidence</button>
+            {evidenceFile && <button className="ac-btn" onClick={cancelEvidence}>Cancel</button>}
+          </div>
         </div>
       </section>
 

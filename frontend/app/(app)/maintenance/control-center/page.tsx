@@ -19,6 +19,7 @@ import {
   getOpenDeferredItems,
   getDeferredRiskSummary,
   getFleetMaintenanceDueSummary,
+  getEvidenceBlockedWorkOrders,
   type ControlCenterPriority,
   type ExecutionActionType,
 } from "@/lib/mock/ai/analytics";
@@ -136,6 +137,9 @@ export default function MaintenanceControlCenterPage() {
     { label: "Overdue Maintenance", value: maintenanceDueSummary.overdue, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },
     { label: "Maintenance Due Soon", value: maintenanceDueSummary.dueSoon + maintenanceDueSummary.due, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },
     { label: "Maintenance Due Status Unknown", value: maintenanceDueSummary.unknown, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },
+    // M28 — evidence blockers, reusing getEvidenceBlockedWorkOrders (the
+    // same function Lisa and the Automation Queue read).
+    { label: "Evidence Blockers", value: getEvidenceBlockedWorkOrders().length, href: "/maintenance/planning", linkLabel: "View Planning Center →" },
   ];
 
   return (

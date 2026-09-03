@@ -24,6 +24,7 @@ import { assessments } from "../assessments";
 import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart, partLifecycleStage, partTraceabilityAnswers } from "../partTraceability";
+import { evidenceRecordsForWorkOrder } from "../evidenceRecords";
 import { maintenanceRequirements } from "../maintenanceProgram";
 import { deferredItems } from "../deferredItems";
 import type { MaintenanceIntervalType } from "../types";
@@ -80,6 +81,8 @@ import {
   getAircraftRecoveryPlan,
   getReleaseReadinessForWorkOrder,
   getInspectionRequirement,
+  getExecutionEvidenceStatus,
+  getEvidenceBlockedWorkOrders,
   getMaintenanceDueForAircraft,
   getFleetMaintenanceDue,
   getTechnicianAuthorizationForWorkOrder,
@@ -324,6 +327,8 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "What maintenance is coming due for VT-ABC?",
       "What are the current fleet utilization levels?",
       "Which aircraft have stale utilization data?",
+      "Does WO-1054 have evidence?",
+      "How many evidence blockers do we have?",
     ],
   },
   {
@@ -794,6 +799,49 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       headline: `${wo.workOrderNumber} — inspection: ${insp.status}`,
       narrative: [`FACT: ${insp.reason}`, insp.status === "READY" ? `RECOMMENDATION: assign ${insp.eligibleInspectors[0]?.name} or another eligible inspector.` : "", TRUST_FOOTER].filter(Boolean),
       buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Does WO-1054 have evidence?" / "what evidence is missing for
+  // WO-1054?" / "who uploaded the evidence?" / "show me the evidence
+  // status for this task." — M28. Reuses evidenceRecordsForWorkOrder +
+  // getExecutionEvidenceStatus (the SAME gate the Planning Task Card and
+  // Release Readiness read) — never a second evidence calculation.
+  if (q.includes("evidence") && findWorkOrderFromText(question) && !q.includes("blockers")) {
+    const wo = findWorkOrderFromText(question)!;
+    const records = evidenceRecordsForWorkOrder(wo.id);
+    const status = getExecutionEvidenceStatus(wo.id);
+    const narrative: string[] = [
+      records.length > 0 ? `FACT: ${wo.workOrderNumber} has ${records.length} evidence record(s).` : `FACT: ${wo.workOrderNumber} has no evidence records on file.`,
+    ];
+    if (records.length > 0) {
+      narrative.push(`FACT: ${records.map((r) => `${r.evidenceType} by ${getTechnicianById(r.uploadedByTechnicianId)?.name ?? r.uploadedByTechnicianId} at ${new Date(r.capturedAt).toLocaleString()} (${r.status})`).join("; ")}.`);
+    }
+    narrative.push(status ? `${status.state === "UNKNOWN" ? "UNKNOWN" : "FACT"}: ${status.reason}` : "UNKNOWN: evidence requirement could not be evaluated.");
+    if (status?.state === "FAIL") narrative.push("INFERENCE: the execution-evidence gate blocks this work order's release readiness until resolved.");
+    narrative.push("SAFETY_REFUSAL: an uploaded image is evidence that an artifact exists — it is never proof of airworthiness, compliance, or acceptable workmanship on its own.");
+    narrative.push(TRUST_FOOTER);
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — evidence: ${status?.state ?? "UNKNOWN"}`,
+      narrative,
+      table: records.length > 0 ? { title: "Evidence Records", columns: ["Type", "Uploaded By", "Captured", "Status"], rows: records.map((r) => [r.evidenceType, getTechnicianById(r.uploadedByTechnicianId)?.name ?? r.uploadedByTechnicianId, new Date(r.capturedAt).toLocaleString(), r.status]) } : undefined,
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "How many evidence blockers do we have?" / "which work orders are
+  // waiting for evidence?" fleet-wide.
+  if (q.includes("evidence") && (q.includes("blocker") || q.includes("waiting for evidence"))) {
+    const blocked = getEvidenceBlockedWorkOrders();
+    return {
+      id: nextId(),
+      question,
+      headline: `${blocked.length} work order(s) blocked by missing execution evidence`,
+      narrative: [blocked.length > 0 ? `FACT: ${blocked.map((w) => w.workOrderNumber).join(", ")}.` : "FACT: no open work order is currently blocked by missing execution evidence.", TRUST_FOOTER],
+      table: blocked.length > 0 ? { title: "Evidence Blockers", columns: ["Work Order", "Reason"], rows: blocked.map((w) => [w.workOrderNumber, getExecutionEvidenceStatus(w.id)?.reason ?? ""]) } : undefined,
+      buttons: [{ label: "Open Automation Queue", href: "/automation" }],
     };
   }
 
