@@ -61,12 +61,17 @@
    ThemeToggle.tsx, which sets data-theme on <html> and persists to
    localStorage; see app/layout.tsx for the no-flash bootstrap script. */
 :root[data-theme="dark"] {
-  --ac-bg: #0a0f1a;
-  --ac-bg-elevated: #10182b;
-  --ac-bg-surface: #141d33;
-  --ac-bg-surface-hover: #1a2440;
-  --ac-border: #24304d;
-  --ac-border-subtle: #1a2440;
+  /* M0.7 — retinted toward the mission-control navy/cyan reference palette
+     (near-black navy ground, cool blue-gray surfaces/borders) without
+     changing the accent or status colors below, which already read as
+     "electric aviation blue" and were left alone to avoid re-tuning
+     contrast against every status badge in one pass. */
+  --ac-bg: #050b14;
+  --ac-bg-elevated: #0b1624;
+  --ac-bg-surface: #0e1b2a;
+  --ac-bg-surface-hover: #111f30;
+  --ac-border: #1c2b42;
+  --ac-border-subtle: #142030;
 
   --ac-text-primary: #e8edf7;
   --ac-text-secondary: #9fb0cc;
