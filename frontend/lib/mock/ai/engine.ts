@@ -115,6 +115,13 @@ export interface AiQuestionContext {
    * Populated by the caller (AIConsole) from its own conversation history;
    * the engine never stores conversation state itself. */
   previousQuestion?: string;
+  /** Recent turns (most-recent-last), for follow-ups more than one hop
+   * removed from the question that actually named an entity — e.g.
+   * "What's pending for N412MX?" -> "What about the work orders?" -> "What
+   * about inspections?" needs to look back two turns, not one, since the
+   * middle turn never repeats "N412MX" itself. Optional; when absent,
+   * resolution falls back to previousQuestion alone. */
+  recentQuestions?: string[];
 }
 
 export interface AiButton {
@@ -429,16 +436,30 @@ function resolveProject(text: string, context?: AiQuestionContext) {
   return findProjectFromText(text) ?? (context?.projectId ? getProjectById(context.projectId) : undefined) ?? maintenanceProjects[0];
 }
 
+function recentHistory(context?: AiQuestionContext): string[] {
+  if (context?.recentQuestions && context.recentQuestions.length > 0) return [...context.recentQuestions].reverse();
+  if (context?.previousQuestion) return [context.previousQuestion];
+  return [];
+}
+
 function resolveAircraft(text: string, context?: AiQuestionContext) {
-  return (
-    findAircraftFromText(text) ??
-    (context?.aircraftId ? getAircraftById(context.aircraftId) : undefined) ??
-    (context?.previousQuestion ? findAircraftFromText(context.previousQuestion) : undefined)
-  );
+  const direct = findAircraftFromText(text) ?? (context?.aircraftId ? getAircraftById(context.aircraftId) : undefined);
+  if (direct) return direct;
+  for (const q of recentHistory(context)) {
+    const found = findAircraftFromText(q);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 function resolveWorkOrder(text: string, context?: AiQuestionContext) {
-  return findWorkOrderFromText(text) ?? (context?.previousQuestion ? findWorkOrderFromText(context.previousQuestion) : undefined);
+  const direct = findWorkOrderFromText(text);
+  if (direct) return direct;
+  for (const q of recentHistory(context)) {
+    const found = findWorkOrderFromText(q);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 const TRUST_FOOTER = AI_DEMO_DATA_FOOTER;
@@ -472,6 +493,27 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
 
   switch (top.intent) {
     case "WORK_ORDER_PRIORITY": {
+      if (ac) {
+        const woList = workOrdersForAircraft(ac.id);
+        const openWo = woList.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED");
+        if (openWo.length === 0) {
+          return {
+            id: nextId(),
+            question,
+            headline: `${acReg} — no open work orders`,
+            narrative: [`FACT: ${acReg} has no open work orders in the current dataset.`, TRUST_FOOTER],
+            understood: understood(top.intent, scope, entities),
+          };
+        }
+        return {
+          id: nextId(),
+          question,
+          headline: `${acReg} — work orders`,
+          narrative: ["FACT: Open work orders for this aircraft:", ...openWo.map((w) => `${w.workOrderNumber}: ${w.title} — ${w.status.replace(/_/g, " ")}`), TRUST_FOOTER],
+          buttons: openWo.map((w) => ({ label: `View ${w.workOrderNumber}`, href: `/maintenance/work-orders/${w.id}` })),
+          understood: understood(top.intent, scope, entities),
+        };
+      }
       const actions = getNextMaintenanceActions();
       if (actions.length === 0) {
         return {
@@ -491,6 +533,7 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
           ...actions.map((a, i) => `${i + 1}. ${a}`),
           TRUST_FOOTER,
         ],
+        buttons: [{ label: "View Maintenance Program", href: "/maintenance-program" }],
         understood: understood(top.intent, scope, entities),
       };
     }
@@ -501,7 +544,16 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       if (items.length === 0) {
         return { id: nextId(), question, headline: "No overdue maintenance", narrative: ["FACT: No maintenance items are currently overdue" + (ac ? ` for ${acReg}.` : " fleet-wide."), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
       }
-      return { id: nextId(), question, headline: "Overdue maintenance", narrative: ["FACT: The following maintenance is overdue:", ...items, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return {
+        id: nextId(),
+        question,
+        headline: "Overdue maintenance",
+        narrative: ["FACT: The following maintenance is overdue:", ...items, TRUST_FOOTER],
+        buttons: ac
+          ? [{ label: "View Aircraft", href: `/aircraft/${ac.id}` }, { label: "View Maintenance Program", href: "/maintenance-program?filter=overdue" }]
+          : [{ label: "View Maintenance Program", href: "/maintenance-program?filter=overdue" }],
+        understood: understood(top.intent, scope, entities),
+      };
     }
     case "DUE_SOON_MAINTENANCE": {
       const items = ac
@@ -510,7 +562,16 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       if (items.length === 0) {
         return { id: nextId(), question, headline: "Nothing due soon", narrative: ["FACT: No maintenance items are approaching due" + (ac ? ` for ${acReg}.` : " fleet-wide."), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
       }
-      return { id: nextId(), question, headline: "Upcoming maintenance", narrative: ["FACT: The following maintenance is coming due:", ...items, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return {
+        id: nextId(),
+        question,
+        headline: "Upcoming maintenance",
+        narrative: ["FACT: The following maintenance is coming due:", ...items, TRUST_FOOTER],
+        buttons: ac
+          ? [{ label: "View Aircraft", href: `/aircraft/${ac.id}` }, { label: "View Maintenance Program", href: "/maintenance-program?filter=due_soon" }]
+          : [{ label: "View Maintenance Program", href: "/maintenance-program?filter=due_soon" }],
+        understood: understood(top.intent, scope, entities),
+      };
     }
     case "AIRCRAFT_HEALTH": {
       if (!ac) return null;
@@ -565,13 +626,39 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       };
     }
     case "INSPECTION_RII": {
-      if (!wo) return null;
+      if (!wo) {
+        if (!ac) return null;
+        const awaiting = workOrdersForAircraft(ac.id).filter((w) => w.status === "WAITING_INSPECTION");
+        if (awaiting.length === 0) {
+          return {
+            id: nextId(),
+            question,
+            headline: `${acReg} — no work order awaiting inspection`,
+            narrative: [`FACT: No work order for ${acReg} is currently awaiting inspection.`, TRUST_FOOTER],
+            understood: understood(top.intent, scope, entities),
+          };
+        }
+        return {
+          id: nextId(),
+          question,
+          headline: `${acReg} — awaiting inspection`,
+          narrative: [
+            `FACT: The following work order(s) for ${acReg} are awaiting inspection:`,
+            ...awaiting.map((w) => `${w.workOrderNumber}: ${getInspectionRequirement(w.id).status} — ${getInspectionRequirement(w.id).reason}`),
+            "SAFETY_REFUSAL: Lisa does not perform or substitute for the independent inspection itself.",
+            TRUST_FOOTER,
+          ],
+          buttons: awaiting.map((w) => ({ label: `View ${w.workOrderNumber}`, href: `/maintenance/work-orders/${w.id}` })),
+          understood: understood(top.intent, scope, entities),
+        };
+      }
       const req = getInspectionRequirement(wo.id);
       return {
         id: nextId(),
         question,
         headline: `${wo.workOrderNumber} — inspection status`,
         narrative: [`FACT: Inspection status is ${req.status}. ${req.reason}`, req.eligibleInspectors.length > 0 ? `FACT: Eligible inspectors: ${req.eligibleInspectors.map((i) => i.name).join(", ")}.` : "UNKNOWN: No eligible inspectors are currently identified.", "SAFETY_REFUSAL: Lisa does not perform or substitute for the independent inspection itself.", TRUST_FOOTER],
+        buttons: [{ label: `View ${wo.workOrderNumber}`, href: `/maintenance/work-orders/${wo.id}` }],
         understood: understood(top.intent, scope, entities),
       };
     }
@@ -589,7 +676,14 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       if (items.length === 0) {
         return { id: nextId(), question, headline: "No deferred items", narrative: ["FACT: No deferred/MEL items are currently open" + (ac ? ` for ${acReg}.` : " fleet-wide."), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
       }
-      return { id: nextId(), question, headline: "Deferred items", narrative: ["FACT: The following deferred items are open:", ...items.slice(0, 10).map((d) => `${d.registration}: ${d.melReference ?? d.category} — ${d.operationalStatus}`), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return {
+        id: nextId(),
+        question,
+        headline: "Deferred items",
+        narrative: ["FACT: The following deferred items are open:", ...items.slice(0, 10).map((d) => `${d.registration}: ${d.melReference ?? d.category} — ${d.operationalStatus}`), TRUST_FOOTER],
+        buttons: [{ label: "View Deferred / MEL", href: "/maintenance/deferred" }],
+        understood: understood(top.intent, scope, entities),
+      };
     }
     case "EVIDENCE": {
       if (wo) {
@@ -621,7 +715,14 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       if (!ac) return null;
       const due = getMaintenanceDueForAircraft(ac.id);
       if (due.length === 0) return { id: nextId(), question, headline: `${acReg} — no program data`, narrative: [`UNKNOWN: No maintenance program requirements resolved for ${acReg}.`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
-      return { id: nextId(), question, headline: `${acReg} — maintenance program status`, narrative: ["FACT: Program requirement status:", ...due.slice(0, 10).map((d) => `${d.description} (${d.basis}) — ${d.dueStatus}, ${d.remaining}`), TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      return {
+        id: nextId(),
+        question,
+        headline: `${acReg} — maintenance program status`,
+        narrative: ["FACT: Program requirement status:", ...due.slice(0, 10).map((d) => `${d.description} (${d.basis}) — ${d.dueStatus}, ${d.remaining}`), TRUST_FOOTER],
+        buttons: [{ label: "View Aircraft", href: `/aircraft/${ac.id}` }, { label: "View Maintenance Program", href: "/maintenance-program" }],
+        understood: understood(top.intent, scope, entities),
+      };
     }
     case "COMPLIANCE": {
       const c = getComplianceAnalytics();
@@ -685,6 +786,9 @@ const AIRWORTHINESS_GUARD_PATTERNS = [
   // didn't cover because they require the exact "to service" wording.
   /\b(can|could|should|may) we release (this|the|that) aircraft\b/i,
   /\brelease (this|the|that) aircraft\b/i,
+  // Passive phrasing: "Can this aircraft be released?"
+  /\b(this|the|that) aircraft (be|get) released\b/i,
+  /\baircraft be released\b/i,
 ];
 
 function answerAirworthinessGuard(question: string): AiResponse | null {

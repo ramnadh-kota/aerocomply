@@ -70,12 +70,12 @@ const INTENT_DEFINITIONS: IntentDefinition[] = [
   {
     intent: "DUE_SOON_MAINTENANCE",
     phrases: ["due soon", "coming due", "coming up", "next maintenance", "prepare for"],
-    terms: ["upcoming", "approaching", "scheduled"],
+    terms: ["upcoming", "approaching", "scheduled", "pending"],
   },
   {
     intent: "AIRCRAFT_HEALTH",
-    phrases: ["aircraft health", "aircraft status", "fleet health", "operational status", "how is", "at risk"],
-    terms: ["condition", "risk"],
+    phrases: ["aircraft health", "aircraft status", "fleet health", "operational status", "how is", "at risk", "why is"],
+    terms: ["condition", "risk", "flagged"],
   },
   {
     intent: "AOG_RECOVERY",
@@ -125,7 +125,7 @@ const INTENT_DEFINITIONS: IntentDefinition[] = [
   },
   {
     intent: "MAINTENANCE_PROGRAM",
-    phrases: ["maintenance program", "maintenance requirement", "calendar interval", "maintenance interval"],
+    phrases: ["maintenance program", "maintenance requirement", "calendar interval", "maintenance interval", "maintenance status"],
     terms: ["interval"],
   },
   {

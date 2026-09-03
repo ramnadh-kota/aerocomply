@@ -134,8 +134,8 @@ export default function MaintenanceControlCenterPage() {
     { label: "Deferred Items Overdue", value: getDeferredRiskSummary().overdue, href: "/maintenance/deferred", linkLabel: "View Deferred / MEL →" },
     // M17 — maintenance due engine KPIs, reusing getFleetMaintenanceDueSummary
     // (the same function the /maintenance-program page and Lisa read).
-    { label: "Overdue Maintenance", value: maintenanceDueSummary.overdue, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },
-    { label: "Maintenance Due Soon", value: maintenanceDueSummary.dueSoon + maintenanceDueSummary.due, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },
+    { label: "Overdue Maintenance", value: maintenanceDueSummary.overdue, href: "/maintenance-program?filter=overdue", linkLabel: "Open Maintenance Program →" },
+    { label: "Maintenance Due Soon", value: maintenanceDueSummary.dueSoon + maintenanceDueSummary.due, href: "/maintenance-program?filter=due_soon", linkLabel: "Open Maintenance Program →" },
     { label: "Maintenance Due Status Unknown", value: maintenanceDueSummary.unknown, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },
     // M28 — evidence blockers, reusing getEvidenceBlockedWorkOrders (the
     // same function Lisa and the Automation Queue read).
