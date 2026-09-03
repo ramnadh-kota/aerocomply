@@ -24,6 +24,8 @@ import { assessments } from "../assessments";
 import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart, partLifecycleStage, partTraceabilityAnswers } from "../partTraceability";
+import { maintenanceRequirements } from "../maintenanceProgram";
+import type { MaintenanceIntervalType } from "../types";
 import { getWorkOrderCostSummary, getAircraftCostSummary, getFleetFinancialSummary, workOrderIdsWithCostData, highestCostPartCost, highestVendorSpend, vendorCosts } from "../finance";
 import { vendors, partRequests, purchaseOrders, partsWithoutVendorAvailability, scoreVendorOptionsForPart, cartItems, cartSummary, cartItemLineTotal, getVendorById } from "../procurement";
 import { auditEvents, combinedAuditHistory } from "../audit";
@@ -71,8 +73,8 @@ import {
   getDeferredItemsForAircraft,
   getCannibalizationCandidatesForAircraft,
   getAogRecoveryAnalysis,
-  getMaintenanceForecastForAircraft,
-  getFleetMaintenanceForecast,
+  getMaintenanceDueForAircraft,
+  getFleetMaintenanceDue,
   getTechnicianAuthorizationForWorkOrder,
   explainExecutionState,
   getFleetUtilization,
@@ -548,33 +550,68 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   // forecasting foundation. Honest by construction: this dataset has no
   // seeded FH/FC threshold on any task, so this always reports UNKNOWN
   // today rather than fabricating a due date.
-  if (q.includes("due soon") && !resolveAircraft(question, context)) {
-    const fleet = getFleetMaintenanceForecast().flatMap((f) => f.items.filter((i) => i.dueStatus === "DUE_SOON" || i.dueStatus === "DUE" || i.dueStatus === "OVERDUE").map((i) => ({ registration: f.registration, ...i })));
+  // "What maintenance is overdue?" / "which aircraft have overdue
+  // maintenance?" — M17 fleet-wide overdue-only view.
+  if (q.includes("overdue") && q.includes("maintenance") && !resolveAircraft(question, context)) {
+    const fleet = getFleetMaintenanceDue().flatMap((f) => f.items.filter((i) => i.dueStatus === "OVERDUE").map((i) => ({ registration: f.registration, ...i })));
     return {
       id: nextId(),
       question,
-      headline: `${fleet.length} maintenance item(s) due soon or overdue fleet-wide`,
-      narrative: [fleet.length > 0 ? "FACT: computed only for tasks with a real, computable interval (see /maintenance-program) — most tasks remain UNKNOWN." : "FACT: no computable maintenance item is currently due soon or overdue.", TRUST_FOOTER],
-      table: { title: "Due Soon / Due / Overdue", columns: ["Aircraft", "Task", "Status", "Reason"], rows: fleet.map((f) => [f.registration, f.taskDescription, f.dueStatus, f.reason]) },
+      headline: `${fleet.length} maintenance requirement(s) overdue fleet-wide`,
+      narrative: [fleet.length > 0 ? `FACT: ${fleet.length} requirement(s) overdue across ${new Set(fleet.map((f) => f.registration)).size} aircraft.` : "FACT: no maintenance requirement is currently computed as overdue.", TRUST_FOOTER],
+      table: { title: "Overdue Maintenance", columns: ["Aircraft", "Requirement", "Basis", "Overdue By", "Source"], rows: fleet.map((f) => [f.registration, f.description, f.basis, f.remaining, f.governingSource]) },
       buttons: [{ label: "Open Maintenance Program", href: "/maintenance-program" }],
     };
   }
 
-  if (q.includes("coming due") || q.includes("what source defines this interval") || (q.includes("due") && q.includes("maintenance") && resolveAircraft(question, context))) {
-    const a = resolveAircraft(question, context);
-    if (!a) return insufficient(question, ["a recognizable aircraft registration, e.g. VT-ABC"]);
-    const forecast = getMaintenanceForecastForAircraft(a.id);
+  // "What's due soon?" fleet-wide (DUE_SOON/DUE, excludes OVERDUE, which
+  // the branch above answers specifically).
+  if (q.includes("due soon") && !resolveAircraft(question, context)) {
+    const fleet = getFleetMaintenanceDue().flatMap((f) => f.items.filter((i) => i.dueStatus === "DUE_SOON" || i.dueStatus === "DUE").map((i) => ({ registration: f.registration, ...i })));
     return {
       id: nextId(),
       question,
-      headline: `${currentRegistration(a)} — maintenance forecast`,
+      headline: `${fleet.length} maintenance requirement(s) due soon fleet-wide`,
+      narrative: [fleet.length > 0 ? "FACT: computed only for requirements with a real accomplishment record and usable utilization data (see /maintenance-program) — most remain UNKNOWN." : "FACT: no requirement is currently due soon.", TRUST_FOOTER],
+      table: { title: "Due Soon / Due", columns: ["Aircraft", "Requirement", "Basis", "Remaining", "Status"], rows: fleet.map((f) => [f.registration, f.description, f.basis, f.remaining, f.dueStatus]) },
+      buttons: [{ label: "Open Maintenance Program", href: "/maintenance-program" }],
+    };
+  }
+
+  // "Which maintenance is based on flight hours?" / "...cycles?"
+  if (q.includes("maintenance") && q.includes("based on") && (q.includes("flight hour") || q.includes("cycle"))) {
+    const basis: MaintenanceIntervalType = q.includes("cycle") ? "FC" : "FH";
+    const matches = maintenanceRequirements.filter((r) => r.intervalType === basis);
+    return {
+      id: nextId(),
+      question,
+      headline: `${matches.length} requirement(s) based on ${basis}`,
+      narrative: [matches.length > 0 ? `FACT: ${matches.map((r) => r.description).join("; ")}.` : `FACT: no requirement in the current maintenance program uses a ${basis} basis.`, TRUST_FOOTER],
+      buttons: [{ label: "Open Maintenance Program", href: "/maintenance-program" }],
+    };
+  }
+
+  // "Is N412MX current on scheduled maintenance?" / "what maintenance is
+  // coming due for VT-ABC?" / "why is this maintenance status unknown?"
+  // — the ONE per-aircraft due view, reused by every caller.
+  if (q.includes("coming due") || q.includes("what source defines this interval") || q.includes("current on scheduled maintenance") || (q.includes("why") && q.includes("unknown") && q.includes("maintenance")) || (q.includes("due") && q.includes("maintenance") && resolveAircraft(question, context))) {
+    const a = resolveAircraft(question, context);
+    if (!a) return insufficient(question, ["a recognizable aircraft registration, e.g. VT-ABC"]);
+    const due = getMaintenanceDueForAircraft(a.id);
+    const worst = [...due].sort((x, y) => (x.dueStatus === "OVERDUE" ? -1 : y.dueStatus === "OVERDUE" ? 1 : 0))[0];
+    return {
+      id: nextId(),
+      question,
+      headline: `${currentRegistration(a)} — maintenance due status`,
       narrative: [
-        forecast.length > 0 ? `FACT: ${forecast.length} maintenance task(s) linked to open work on this aircraft.` : "FACT: no maintenance task is currently linked to open work on this aircraft.",
-        forecast.some((f) => f.dueStatus !== "UNKNOWN") ? "FACT: at least one task has a computable demo interval (see below) — most tasks in this dataset still have none, and remain UNKNOWN." : "UNKNOWN: no computable maintenance-interval threshold exists for any task linked to this aircraft's open work.",
+        due.length > 0 ? `FACT: ${due.length} maintenance requirement(s) apply to this aircraft.` : "FACT: no maintenance requirement in the current program applies to this aircraft.",
+        due.some((f) => f.dueStatus !== "UNKNOWN") ? "FACT: at least one requirement has a computed due status (see below)." : "UNKNOWN: every applicable requirement's due status is UNKNOWN — see the reason per row.",
+        worst && worst.dueStatus === "OVERDUE" ? `FACT: ${worst.description} is OVERDUE — ${worst.remaining}.` : "",
+        "This is a maintenance-due status, not an airworthiness or release determination — see individual work order safety gates for release readiness.",
         TRUST_FOOTER,
-      ],
-      table: { title: "Maintenance Forecast", columns: ["Task", "Due Status", "Reason"], rows: forecast.map((f) => [f.taskDescription, f.dueStatus, f.reason]) },
-      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
+      ].filter(Boolean),
+      table: { title: "Maintenance Due", columns: ["Requirement", "Basis", "Last Accomplished", "Next Due", "Remaining", "Status", "Note"], rows: due.map((f) => [f.description, f.basis, f.lastAccomplished, f.nextDue, f.remaining, f.dueStatus, f.dataQualityNote ?? ""]) },
+      buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }, { label: "Open Maintenance Program", href: "/maintenance-program" }],
     };
   }
 

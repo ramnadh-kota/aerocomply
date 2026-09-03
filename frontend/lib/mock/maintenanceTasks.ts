@@ -38,7 +38,7 @@ export const maintenanceTasks: MaintenanceTask[] = [
     // M15 — demo interval, see lib/mock/maintenanceProgram.ts. Calendar
     // interval CAN be forecast honestly from WO-1045's plannedStartDate
     // (the closest real "last relevant date" this dataset has) vs
-    // MOCK_TODAY — see getMaintenanceForecastForAircraft.
+    // MOCK_TODAY — see getMaintenanceDueForAircraft (M17).
     calendarThresholdDays: 30,
     governingRequirementId: "mreq-1045",
   },

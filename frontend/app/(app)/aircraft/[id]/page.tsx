@@ -23,7 +23,7 @@ import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import { projectsForAircraft } from "@/lib/mock/maintenanceProjects";
 import { workOrdersForAircraft } from "@/lib/mock/workOrders";
 import { defectsForAircraft } from "@/lib/mock/defects";
-import { getDeferredItemsForAircraft, getAircraftUtilization } from "@/lib/mock/ai/analytics";
+import { getDeferredItemsForAircraft, getAircraftUtilization, getMaintenanceDueForAircraft } from "@/lib/mock/ai/analytics";
 import { getTechnicianById } from "@/lib/mock/technicians";
 import { getInspectorReviewById } from "@/lib/mock/inspectorReviews";
 import { Timeline } from "@/components/timeline/Timeline";
@@ -58,6 +58,8 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
   const aircraftDefects = defectsForAircraft(aircraft.id);
   const aircraftDeferredItems = getDeferredItemsForAircraft(aircraft.id);
   const utilization = getAircraftUtilization(aircraft.id);
+  const DUE_PRIORITY: Record<string, number> = { OVERDUE: 0, DUE: 1, DUE_SOON: 2, UNKNOWN: 3, CURRENT: 4 };
+  const maintenanceDue = [...getMaintenanceDueForAircraft(aircraft.id)].sort((a, b) => DUE_PRIORITY[a.dueStatus] - DUE_PRIORITY[b.dueStatus]);
 
   const engineColumns: Column<EngineInstallation>[] = [
     { key: "position", header: "Position", render: (i) => i.position },
@@ -195,6 +197,35 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
                   label={utilization.dataQuality.replace(/_/g, " ")}
                 />
               </div>
+            </section>
+          )}
+
+          {maintenanceDue.filter((d) => d.dueStatus !== "CURRENT").length > 0 && (
+            <section className="ac-section">
+              <h2 className="ac-h2" style={{ marginBottom: 10 }}>Maintenance Due</h2>
+              <div className="ac-card" style={{ padding: 0 }}>
+                <table className="ac-table">
+                  <thead><tr><th>Requirement</th><th>Basis</th><th>Remaining</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {maintenanceDue.filter((d) => d.dueStatus !== "CURRENT").map((d) => (
+                      <tr key={d.requirementId}>
+                        <td className="ac-text-sm">{d.description}</td>
+                        <td>{d.basis}</td>
+                        <td className="ac-text-sm">{d.remaining}</td>
+                        <td>
+                          <StatusBadge
+                            status={d.dueStatus === "OVERDUE" ? "NON_COMPLIANT" : d.dueStatus === "DUE" ? "REVIEW_REQUIRED" : d.dueStatus === "DUE_SOON" ? "PENDING" : "INSUFFICIENT_DATA"}
+                            label={d.dueStatus.replace(/_/g, " ")}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="ac-text-sm ac-text-muted" style={{ marginTop: 6 }}>
+                <Link href="/maintenance-program" className="ac-mono">Full maintenance program →</Link>
+              </p>
             </section>
           )}
 

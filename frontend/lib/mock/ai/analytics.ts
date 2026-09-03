@@ -17,7 +17,9 @@ import { vendorPartAvailabilityForPart, scoreVendorOptionsForPart, cartItems, pa
 import { getMaintenanceTaskById } from "../maintenanceTasks";
 import { deferredItems } from "../deferredItems";
 import { cannibalizationRequests } from "../cannibalization";
-import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SignatureRecord, AutomationQueueItem } from "../types";
+import { maintenanceRequirements, getMaintenanceProgramById } from "../maintenanceProgram";
+import { latestAccomplishment } from "../maintenanceAccomplishments";
+import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SignatureRecord, AutomationQueueItem, MaintenanceRequirement, MaintenanceIntervalType } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -1763,54 +1765,156 @@ export function getAutomationQueue(): AutomationQueueItem[] {
   return items;
 }
 
-// M14.4 — Utilization-driven maintenance forecasting foundation. Uses
-// Aircraft.flightHours/flightCycles (M12.9) and MaintenanceTask.fhThreshold/
-// fcThreshold/calendarThresholdDays (above) when both a current value AND a
-// threshold exist; otherwise honestly UNKNOWN. This dataset currently has
-// no seeded threshold on any task, so this always returns UNKNOWN today —
-// that is a correct reflection of source data, not a bug; it becomes
-// meaningful the moment real threshold data is added.
+// --- M17 Maintenance Due Engine ---
+// Supersedes the M14.4/M15 per-work-order forecast with the canonical,
+// requirement-driven due engine: evaluates every MaintenanceRequirement
+// applicable to an aircraft (lib/mock/maintenanceProgram.ts) against its
+// real accomplishment history (lib/mock/maintenanceAccomplishments.ts) and
+// M16 utilization data quality. This is the ONE due-status calculation in
+// the codebase — Lisa, the maintenance-program page, the aircraft detail
+// page, Control Center, and Executive all call this, never a second
+// forecast calculation. A WorkOrder's status/plannedStartDate is NEVER
+// read here as proof of accomplishment.
 export type MaintenanceDueStatus = "CURRENT" | "DUE_SOON" | "DUE" | "OVERDUE" | "UNKNOWN";
 
-export interface MaintenanceForecastItem {
-  workOrderId: string;
-  taskDescription: string;
+export interface MaintenanceDueItem {
+  requirementId: string;
+  description: string;
+  ataChapter: string;
+  basis: MaintenanceIntervalType;
+  lastAccomplished: string; // human-readable, or "Insufficient source data."
+  nextDue: string; // human-readable, or "Insufficient source data."
+  remaining: string; // human-readable, or "Insufficient source data."
   dueStatus: MaintenanceDueStatus;
-  reason: string;
+  dataQualityNote: string | null; // e.g. stale-utilization caveat
+  governingSource: string; // program name + requirement source citation
 }
 
-export function getMaintenanceForecastForAircraft(aircraftId: string): MaintenanceForecastItem[] {
+const DUE_SOON_DAYS = 7;
+const DUE_SOON_FRACTION = 0.1; // within 10% of the interval remaining
+
+interface BasisResult {
+  status: MaintenanceDueStatus;
+  lastAccomplished: string;
+  nextDue: string;
+  remaining: string;
+  note: string;
+}
+
+function evaluateCalendarBasis(r: MaintenanceRequirement, aircraftId: string): BasisResult | null {
+  if (r.calendarIntervalDays == null) return null;
+  const accm = latestAccomplishment(r.id, aircraftId);
+  if (!accm) {
+    return { status: "UNKNOWN", lastAccomplished: "Insufficient source data.", nextDue: "Insufficient source data.", remaining: "Insufficient source data.", note: "No accomplishment record on file for this requirement on this aircraft — cannot establish a last-accomplished date." };
+  }
+  const nextDueDate = new Date(accm.accomplishedDate);
+  nextDueDate.setDate(nextDueDate.getDate() + r.calendarIntervalDays);
+  const nextDueStr = nextDueDate.toISOString().slice(0, 10);
+  const daysRemaining = daysBetween(nextDueStr, MOCK_TODAY);
+  const status: MaintenanceDueStatus = daysRemaining < 0 ? "OVERDUE" : daysRemaining === 0 ? "DUE" : daysRemaining <= DUE_SOON_DAYS ? "DUE_SOON" : "CURRENT";
+  return {
+    status,
+    lastAccomplished: accm.accomplishedDate,
+    nextDue: nextDueStr,
+    remaining: daysRemaining >= 0 ? `${daysRemaining} day(s)` : `${Math.abs(daysRemaining)} day(s) overdue`,
+    note: `Calendar interval: ${r.calendarIntervalDays} days from last accomplishment.`,
+  };
+}
+
+function evaluateUtilizationBasis(r: MaintenanceRequirement, aircraftId: string, unit: "FH" | "FC"): BasisResult | null {
+  const interval = unit === "FH" ? r.fhInterval : r.fcInterval;
+  if (interval == null) return null;
+  const accm = latestAccomplishment(r.id, aircraftId);
+  const accomplishedValue = accm ? (unit === "FH" ? accm.accomplishedFH : accm.accomplishedFC) : null;
+  if (!accm || accomplishedValue == null) {
+    return { status: "UNKNOWN", lastAccomplished: "Insufficient source data.", nextDue: "Insufficient source data.", remaining: "Insufficient source data.", note: `No last-accomplished ${unit} value is recorded for this requirement on this aircraft — an interval alone is not sufficient to forecast against.` };
+  }
+  const util = getAircraftUtilization(aircraftId);
+  const currentValue = unit === "FH" ? util?.flightHours : util?.flightCycles;
+  if (util == null || currentValue == null) {
+    return { status: "UNKNOWN", lastAccomplished: `${accomplishedValue} ${unit}`, nextDue: "Insufficient source data.", remaining: "Insufficient source data.", note: `Aircraft has no recorded current ${unit} to compare against.` };
+  }
+  if (util.dataQuality === "NO_DATA") {
+    return { status: "UNKNOWN", lastAccomplished: `${accomplishedValue} ${unit}`, nextDue: "Insufficient source data.", remaining: "Insufficient source data.", note: `Aircraft has no recorded ${unit} data.` };
+  }
+  if (util.dataQuality === "UNKNOWN_PROVENANCE") {
+    // Phase 4: do not present the resulting due state as authoritative.
+    return { status: "UNKNOWN", lastAccomplished: `${accomplishedValue} ${unit}`, nextDue: "Insufficient source data.", remaining: "Insufficient source data.", note: `Current ${unit} value exists but has unknown provenance (no recorded source/as-of date) — a due status computed from it cannot be presented as authoritative.` };
+  }
+  const nextDueValue = accomplishedValue + interval;
+  const remaining = nextDueValue - currentValue;
+  const status: MaintenanceDueStatus = remaining < 0 ? "OVERDUE" : remaining <= interval * DUE_SOON_FRACTION ? "DUE_SOON" : "CURRENT";
+  const note = util.dataQuality === "STALE"
+    ? `CAUTION: utilization data is ${util.daysSinceUpdate} day(s) old — this due status is computed but based on stale data.`
+    : `${unit} interval: ${interval} from last accomplishment (${accomplishedValue} ${unit}).`;
+  return { status, lastAccomplished: `${accomplishedValue} ${unit}`, nextDue: `${nextDueValue} ${unit}`, remaining: remaining >= 0 ? `${remaining} ${unit}` : `${Math.abs(remaining)} ${unit} overdue`, note };
+}
+
+const STATUS_SEVERITY: Record<MaintenanceDueStatus, number> = { OVERDUE: 0, DUE: 1, DUE_SOON: 2, CURRENT: 3, UNKNOWN: 4 };
+
+/** Evaluate every basis a requirement defines (a combined type like
+ * FH_OR_CALENDAR evaluates both and takes the more urgent real result;
+ * UNKNOWN only when EVERY defined basis is UNKNOWN). */
+function evaluateRequirementForAircraft(r: MaintenanceRequirement, aircraftId: string): BasisResult {
+  const results: BasisResult[] = [];
+  const calendarResult = evaluateCalendarBasis(r, aircraftId);
+  const fhResult = evaluateUtilizationBasis(r, aircraftId, "FH");
+  const fcResult = evaluateUtilizationBasis(r, aircraftId, "FC");
+  if (calendarResult) results.push(calendarResult);
+  if (fhResult) results.push(fhResult);
+  if (fcResult) results.push(fcResult);
+  if (results.length === 0) return { status: "UNKNOWN", lastAccomplished: "Insufficient source data.", nextDue: "Insufficient source data.", remaining: "Insufficient source data.", note: "This requirement defines no interval basis." };
+  const known = results.filter((x) => x.status !== "UNKNOWN");
+  if (known.length === 0) return { ...results[0], note: results.map((x) => x.note).join(" ") };
+  return known.sort((a, b) => STATUS_SEVERITY[a.status] - STATUS_SEVERITY[b.status])[0];
+}
+
+export function getMaintenanceDueForAircraft(aircraftId: string): MaintenanceDueItem[] {
   const a = getAircraftById(aircraftId);
   if (!a) return [];
-  const wos = workOrdersForAircraft(aircraftId).filter((w) => w.maintenanceTaskId);
-  return wos.map((w) => {
-    const task = getMaintenanceTaskById(w.maintenanceTaskId!);
-    const hasThreshold = task && (task.fhThreshold != null || task.fcThreshold != null || task.calendarThresholdDays != null);
+  return maintenanceRequirements
+    .filter((r) => r.applicableAircraftIds.includes(aircraftId))
+    .map((r) => {
+      const result = evaluateRequirementForAircraft(r, aircraftId);
+      const program = getMaintenanceProgramById(r.programId);
+      return {
+        requirementId: r.id,
+        description: r.description,
+        ataChapter: r.ataChapter,
+        basis: r.intervalType,
+        lastAccomplished: result.lastAccomplished,
+        nextDue: result.nextDue,
+        remaining: result.remaining,
+        dueStatus: result.status,
+        dataQualityNote: result.note,
+        governingSource: program ? `${program.name} (${program.revision}) — ${program.source}` : "Insufficient source data.",
+      };
+    });
+}
 
-    let dueStatus: MaintenanceDueStatus = "UNKNOWN";
-    let reason = "Insufficient source data — no maintenance-interval threshold is recorded for this task.";
+/** Fleet-wide view of getMaintenanceDueForAircraft — same function, no
+ * second calculation, just applied across every aircraft. */
+export function getFleetMaintenanceDue(): { aircraftId: string; registration: string; items: MaintenanceDueItem[] }[] {
+  return aircraft.map((a) => ({ aircraftId: a.id, registration: currentRegistration(a), items: getMaintenanceDueForAircraft(a.id) }));
+}
 
-    if (task?.calendarThresholdDays != null) {
-      // M15/M16 — the one genuinely computable case in this dataset: a
-      // calendar interval measured against the work order's own
-      // plannedStartDate (the closest real "reference date" that exists),
-      // compared to MOCK_TODAY. FH/FC intervals below stay UNKNOWN because
-      // no last-accomplished FH/FC value is recorded anywhere — an
-      // interval alone is not sufficient to forecast against.
-      const daysSince = daysBetween(MOCK_TODAY, w.plannedStartDate);
-      const daysRemaining = task.calendarThresholdDays - daysSince;
-      if (daysRemaining < 0) { dueStatus = "OVERDUE"; reason = `Reference date ${w.plannedStartDate} + ${task.calendarThresholdDays}-day demo interval is ${Math.abs(daysRemaining)} day(s) in the past.`; }
-      else if (daysRemaining === 0) { dueStatus = "DUE"; reason = `Due today per ${task.calendarThresholdDays}-day demo interval from ${w.plannedStartDate}.`; }
-      else if (daysRemaining <= 7) { dueStatus = "DUE_SOON"; reason = `Due in ${daysRemaining} day(s) per ${task.calendarThresholdDays}-day demo interval from ${w.plannedStartDate}.`; }
-      else { dueStatus = "CURRENT"; reason = `${daysRemaining} day(s) remaining per ${task.calendarThresholdDays}-day demo interval from ${w.plannedStartDate}.`; }
-      reason += " Interval source: DEMO DATA (lib/mock/maintenanceProgram.ts) — not a real approved maintenance program.";
-    } else if (!hasThreshold) {
-      reason = "Insufficient source data — no maintenance-interval threshold is recorded for this task.";
-    } else {
-      reason = "Insufficient source data — an FH/FC interval is on file, but no last-accomplished FH/FC value is recorded anywhere in this dataset to forecast against.";
-    }
-    return { workOrderId: w.id, taskDescription: task?.description ?? w.title, dueStatus, reason };
-  });
+export interface FleetMaintenanceDueSummary {
+  current: number;
+  dueSoon: number;
+  due: number;
+  overdue: number;
+  unknown: number;
+}
+
+export function getFleetMaintenanceDueSummary(): FleetMaintenanceDueSummary {
+  const all = getFleetMaintenanceDue().flatMap((f) => f.items);
+  return {
+    current: all.filter((i) => i.dueStatus === "CURRENT").length,
+    dueSoon: all.filter((i) => i.dueStatus === "DUE_SOON").length,
+    due: all.filter((i) => i.dueStatus === "DUE").length,
+    overdue: all.filter((i) => i.dueStatus === "OVERDUE").length,
+    unknown: all.filter((i) => i.dueStatus === "UNKNOWN").length,
+  };
 }
 
 // M14.11 — inspection/release foundation clarity. Does not change how
@@ -1830,12 +1934,6 @@ export function explainExecutionState(state: ExecutionState): string {
     case "RELEASED": return "RELEASED — technician completion and (where required) inspection are both on record.";
     default: return "Insufficient source data.";
   }
-}
-
-/** Fleet-wide view of getMaintenanceForecastForAircraft — same function,
- * no second calculation, just applied across every aircraft. */
-export function getFleetMaintenanceForecast(): { aircraftId: string; registration: string; items: MaintenanceForecastItem[] }[] {
-  return aircraft.map((a) => ({ aircraftId: a.id, registration: currentRegistration(a), items: getMaintenanceForecastForAircraft(a.id) }));
 }
 
 // --- M16 Aircraft Utilization Intelligence ---

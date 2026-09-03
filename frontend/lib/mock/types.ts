@@ -697,6 +697,29 @@ export interface MaintenanceRequirement {
   fcInterval: number | null;
   calendarIntervalDays: number | null;
   taskReference: string | null; // free-text task-card citation, e.g. demo "TC-24-00-00"
+  // M17 — explicit applicability. An empty array is the honest UNKNOWN
+  // case ("applicability not yet determined for any aircraft"), never
+  // silently treated as "applies to none" vs "applies to everyone" —
+  // the due engine simply produces no due item for a requirement with no
+  // applicable aircraft, and the UI/Lisa say why.
+  applicableAircraftIds: string[];
+}
+
+// M17 — a real accomplishment record: proof a requirement was actually
+// performed on a specific aircraft, as opposed to merely scheduled/planned
+// (a WorkOrder's plannedStartDate is NOT proof of accomplishment — see
+// lib/mock/maintenanceAccomplishments.ts). The due engine reads ONLY these
+// records (plus Aircraft.flightHours/flightCycles, M16) to compute a due
+// status; it never infers accomplishment from a work order's status alone.
+export interface MaintenanceAccomplishment {
+  id: string;
+  requirementId: string;
+  aircraftId: string;
+  accomplishedDate: string;
+  accomplishedFH: number | null; // aircraft FH at the time of accomplishment, when recorded
+  accomplishedFC: number | null;
+  workOrderId: string | null;
+  source: string; // e.g. "DEMO_SEED"
 }
 
 export interface MaintenanceTask {

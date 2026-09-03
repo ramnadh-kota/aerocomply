@@ -17,6 +17,7 @@ import {
   getAutomationQueue,
   getQuarantinedParts,
   getOpenDeferredItems,
+  getFleetMaintenanceDueSummary,
   type ControlCenterPriority,
   type ExecutionActionType,
 } from "@/lib/mock/ai/analytics";
@@ -56,6 +57,7 @@ export default function MaintenanceControlCenterPage() {
   const discrepancies = getDiscrepancyGroups().filter((g) => g.openCount > 0);
   const procurementHandoff = getProcurementActionsForShortages();
   const releaseQueue = getReleaseQueue();
+  const maintenanceDueSummary = getFleetMaintenanceDueSummary();
 
   const recentActions = [...auditLog]
     .filter((e) => e.action.startsWith("maintenance."))
@@ -125,6 +127,11 @@ export default function MaintenanceControlCenterPage() {
     { label: "Automation Queue", value: getAutomationQueue().length, href: "/automation", linkLabel: "Open Automation Queue →" },
     { label: "Quarantined Parts", value: getQuarantinedParts().length, href: "/maintenance/parts", linkLabel: "View Parts →" },
     { label: "Open Deferred Items", value: getOpenDeferredItems().length, href: "/maintenance/defects", linkLabel: "View Defects →" },
+    // M17 — maintenance due engine KPIs, reusing getFleetMaintenanceDueSummary
+    // (the same function the /maintenance-program page and Lisa read).
+    { label: "Overdue Maintenance", value: maintenanceDueSummary.overdue, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },
+    { label: "Maintenance Due Soon", value: maintenanceDueSummary.dueSoon + maintenanceDueSummary.due, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },
+    { label: "Maintenance Due Status Unknown", value: maintenanceDueSummary.unknown, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },
   ];
 
   return (
