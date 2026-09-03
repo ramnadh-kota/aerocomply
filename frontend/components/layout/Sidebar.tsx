@@ -56,6 +56,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/maintenance/control-center", label: "Maintenance Control Center", glyph: "◈" },
       { href: "/automation", label: "Automation Queue", glyph: "⚙" },
+      { href: "/maintenance-program", label: "Maintenance Program", glyph: "▦" },
       { href: "/maintenance/control-tower", label: "Control Tower", glyph: "◉" },
       { href: "/maintenance/discrepancies", label: "Discrepancy Intelligence", glyph: "⚡" },
       { href: "/maintenance/operations", label: "Operations", glyph: "◪" },

@@ -19,6 +19,12 @@ export const maintenanceTasks: MaintenanceTask[] = [
     requiredSkill: "Engine Runup",
     inspectionRequired: true,
     evidenceStatus: "SOURCE_AVAILABLE",
+    // M15 — demo interval, see lib/mock/maintenanceProgram.ts. No
+    // last-accomplished FH value exists anywhere in this dataset, so the
+    // forecast for this task stays honestly UNKNOWN despite having an
+    // interval on file — an interval alone is not enough to forecast.
+    fhThreshold: 500,
+    governingRequirementId: "mreq-1042",
   },
   {
     id: "mtask-1045",
@@ -29,6 +35,12 @@ export const maintenanceTasks: MaintenanceTask[] = [
     requiredSkill: "Structures",
     inspectionRequired: true,
     evidenceStatus: "SOURCE_AVAILABLE",
+    // M15 — demo interval, see lib/mock/maintenanceProgram.ts. Calendar
+    // interval CAN be forecast honestly from WO-1045's plannedStartDate
+    // (the closest real "last relevant date" this dataset has) vs
+    // MOCK_TODAY — see getMaintenanceForecastForAircraft.
+    calendarThresholdDays: 30,
+    governingRequirementId: "mreq-1045",
   },
   {
     id: "mtask-1046",

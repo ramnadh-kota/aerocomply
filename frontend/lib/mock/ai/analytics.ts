@@ -1786,15 +1786,28 @@ export function getMaintenanceForecastForAircraft(aircraftId: string): Maintenan
   return wos.map((w) => {
     const task = getMaintenanceTaskById(w.maintenanceTaskId!);
     const hasThreshold = task && (task.fhThreshold != null || task.fcThreshold != null || task.calendarThresholdDays != null);
-    const hasUtilization = a.flightHours != null || a.flightCycles != null;
+
     let dueStatus: MaintenanceDueStatus = "UNKNOWN";
     let reason = "Insufficient source data — no maintenance-interval threshold is recorded for this task.";
-    if (!hasThreshold) {
+
+    if (task?.calendarThresholdDays != null) {
+      // M15/M16 — the one genuinely computable case in this dataset: a
+      // calendar interval measured against the work order's own
+      // plannedStartDate (the closest real "reference date" that exists),
+      // compared to MOCK_TODAY. FH/FC intervals below stay UNKNOWN because
+      // no last-accomplished FH/FC value is recorded anywhere — an
+      // interval alone is not sufficient to forecast against.
+      const daysSince = daysBetween(MOCK_TODAY, w.plannedStartDate);
+      const daysRemaining = task.calendarThresholdDays - daysSince;
+      if (daysRemaining < 0) { dueStatus = "OVERDUE"; reason = `Reference date ${w.plannedStartDate} + ${task.calendarThresholdDays}-day demo interval is ${Math.abs(daysRemaining)} day(s) in the past.`; }
+      else if (daysRemaining === 0) { dueStatus = "DUE"; reason = `Due today per ${task.calendarThresholdDays}-day demo interval from ${w.plannedStartDate}.`; }
+      else if (daysRemaining <= 7) { dueStatus = "DUE_SOON"; reason = `Due in ${daysRemaining} day(s) per ${task.calendarThresholdDays}-day demo interval from ${w.plannedStartDate}.`; }
+      else { dueStatus = "CURRENT"; reason = `${daysRemaining} day(s) remaining per ${task.calendarThresholdDays}-day demo interval from ${w.plannedStartDate}.`; }
+      reason += " Interval source: DEMO DATA (lib/mock/maintenanceProgram.ts) — not a real approved maintenance program.";
+    } else if (!hasThreshold) {
       reason = "Insufficient source data — no maintenance-interval threshold is recorded for this task.";
-    } else if (!hasUtilization) {
-      reason = "Insufficient source data — no current flight hours/cycles recorded for this aircraft.";
     } else {
-      reason = "Threshold and utilization both on file, but no forecasting calculation is implemented yet.";
+      reason = "Insufficient source data — an FH/FC interval is on file, but no last-accomplished FH/FC value is recorded anywhere in this dataset to forecast against.";
     }
     return { workOrderId: w.id, taskDescription: task?.description ?? w.title, dueStatus, reason };
   });
@@ -1817,6 +1830,12 @@ export function explainExecutionState(state: ExecutionState): string {
     case "RELEASED": return "RELEASED — technician completion and (where required) inspection are both on record.";
     default: return "Insufficient source data.";
   }
+}
+
+/** Fleet-wide view of getMaintenanceForecastForAircraft — same function,
+ * no second calculation, just applied across every aircraft. */
+export function getFleetMaintenanceForecast(): { aircraftId: string; registration: string; items: MaintenanceForecastItem[] }[] {
+  return aircraft.map((a) => ({ aircraftId: a.id, registration: currentRegistration(a), items: getMaintenanceForecastForAircraft(a.id) }));
 }
 
 export function getMaintenanceTaskChain(workOrderId: string): MaintenanceTaskChainStep[] {

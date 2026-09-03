@@ -72,6 +72,7 @@ import {
   getCannibalizationCandidatesForAircraft,
   getAogRecoveryAnalysis,
   getMaintenanceForecastForAircraft,
+  getFleetMaintenanceForecast,
   getTechnicianAuthorizationForWorkOrder,
   explainExecutionState,
   getAutomationQueue,
@@ -513,7 +514,19 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   // forecasting foundation. Honest by construction: this dataset has no
   // seeded FH/FC threshold on any task, so this always reports UNKNOWN
   // today rather than fabricating a due date.
-  if (q.includes("coming due") || (q.includes("due") && q.includes("maintenance") && resolveAircraft(question, context))) {
+  if (q.includes("due soon") && !resolveAircraft(question, context)) {
+    const fleet = getFleetMaintenanceForecast().flatMap((f) => f.items.filter((i) => i.dueStatus === "DUE_SOON" || i.dueStatus === "DUE" || i.dueStatus === "OVERDUE").map((i) => ({ registration: f.registration, ...i })));
+    return {
+      id: nextId(),
+      question,
+      headline: `${fleet.length} maintenance item(s) due soon or overdue fleet-wide`,
+      narrative: [fleet.length > 0 ? "FACT: computed only for tasks with a real, computable interval (see /maintenance-program) — most tasks remain UNKNOWN." : "FACT: no computable maintenance item is currently due soon or overdue.", TRUST_FOOTER],
+      table: { title: "Due Soon / Due / Overdue", columns: ["Aircraft", "Task", "Status", "Reason"], rows: fleet.map((f) => [f.registration, f.taskDescription, f.dueStatus, f.reason]) },
+      buttons: [{ label: "Open Maintenance Program", href: "/maintenance-program" }],
+    };
+  }
+
+  if (q.includes("coming due") || q.includes("what source defines this interval") || (q.includes("due") && q.includes("maintenance") && resolveAircraft(question, context))) {
     const a = resolveAircraft(question, context);
     if (!a) return insufficient(question, ["a recognizable aircraft registration, e.g. VT-ABC"]);
     const forecast = getMaintenanceForecastForAircraft(a.id);
@@ -523,7 +536,7 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       headline: `${currentRegistration(a)} — maintenance forecast`,
       narrative: [
         forecast.length > 0 ? `FACT: ${forecast.length} maintenance task(s) linked to open work on this aircraft.` : "FACT: no maintenance task is currently linked to open work on this aircraft.",
-        "UNKNOWN: no maintenance-interval threshold (FH/FC/calendar) exists in this dataset for any task, so due status cannot be calculated — this is a forecasting foundation, not a working forecast yet.",
+        forecast.some((f) => f.dueStatus !== "UNKNOWN") ? "FACT: at least one task has a computable demo interval (see below) — most tasks in this dataset still have none, and remain UNKNOWN." : "UNKNOWN: no computable maintenance-interval threshold exists for any task linked to this aircraft's open work.",
         TRUST_FOOTER,
       ],
       table: { title: "Maintenance Forecast", columns: ["Task", "Due Status", "Reason"], rows: forecast.map((f) => [f.taskDescription, f.dueStatus, f.reason]) },

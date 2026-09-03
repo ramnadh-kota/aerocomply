@@ -656,6 +656,41 @@ export type MaintenanceTaskReferenceType = "AMM" | "SB" | "AD" | "MPD" | "OTHER"
 // "Insufficient source data.", never as a fabricated AMM/IPC procedure.
 export type MaintenanceTaskEvidenceStatus = "SOURCE_AVAILABLE" | "SOURCE_UNKNOWN";
 
+// M15 — Maintenance Program foundation. This is the AUTHORITY layer that
+// defines WHY a maintenance interval exists; MaintenanceTask.fhThreshold/
+// fcThreshold/calendarThresholdDays (M14.4, below) remain the APPLIED
+// values a task carries. A task may optionally point at the
+// MaintenanceRequirement that justifies its threshold via
+// `governingRequirementId` — when present, that is the authoritative
+// source; when absent, the task's own threshold fields (if any) are used
+// with no cited program. Every seeded program/requirement in
+// lib/mock/maintenanceProgram.ts is explicitly marked DEMO_SEED and is NOT
+// real aircraft maintenance-program data — see that file's header comment.
+export type MaintenanceProgramStatus = "ACTIVE" | "SUPERSEDED" | "DRAFT";
+
+export interface MaintenanceProgram {
+  id: string;
+  name: string;
+  revision: string;
+  effectiveDate: string;
+  source: string; // e.g. "DEMO DATA — prototype program, not an approved maintenance program"
+  status: MaintenanceProgramStatus;
+}
+
+export type MaintenanceIntervalType = "FH" | "FC" | "CALENDAR" | "FH_OR_CALENDAR" | "FC_OR_CALENDAR" | "FH_AND_FC";
+
+export interface MaintenanceRequirement {
+  id: string;
+  programId: string;
+  description: string;
+  ataChapter: string;
+  intervalType: MaintenanceIntervalType;
+  fhInterval: number | null;
+  fcInterval: number | null;
+  calendarIntervalDays: number | null;
+  taskReference: string | null; // free-text task-card citation, e.g. demo "TC-24-00-00"
+}
+
 export interface MaintenanceTask {
   id: string;
   description: string;
@@ -672,6 +707,10 @@ export interface MaintenanceTask {
   fhThreshold?: number | null;
   fcThreshold?: number | null;
   calendarThresholdDays?: number | null;
+  // M15 — optional pointer to the MaintenanceRequirement/program that
+  // authoritatively justifies this task's interval. Absent = no program
+  // citation exists for this task (the honest default for most tasks).
+  governingRequirementId?: string | null;
 }
 
 // Execution/release state — deliberately separate from WorkOrderStatus.
