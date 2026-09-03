@@ -74,8 +74,8 @@ const INTENT_DEFINITIONS: IntentDefinition[] = [
   },
   {
     intent: "AIRCRAFT_HEALTH",
-    phrases: ["aircraft health", "aircraft status", "fleet health", "operational status", "how is", "at risk", "why is"],
-    terms: ["condition", "risk", "flagged"],
+    phrases: ["aircraft health", "aircraft status", "fleet health", "operational status", "how is", "at risk", "why is", "what's wrong", "what is wrong", "anything wrong", "what's stopping", "what is stopping"],
+    terms: ["condition", "risk", "flagged", "problem", "problems", "wrong"],
   },
   {
     intent: "AOG_RECOVERY",

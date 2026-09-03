@@ -20,7 +20,7 @@ import { getInspectorReviewForWorkOrder } from "../inspectorReviews";
 import { getChecklistByWorkOrderId } from "../checklists";
 import { evidenceForAssessment } from "../evidence";
 import { overdueMaintenanceEvents, maintenanceEventsForAircraft, upcomingMaintenanceEvents } from "../maintenance";
-import { assessments } from "../assessments";
+import { assessments, assessmentsForAircraft } from "../assessments";
 import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart, partLifecycleStage, partTraceabilityAnswers } from "../partTraceability";
@@ -732,6 +732,24 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       };
     }
     case "COMPLIANCE": {
+      if (ac) {
+        const acAssessments = assessmentsForAircraft(ac.id);
+        const nonCompliant = acAssessments.filter((a) => a.finalStatus === "NON_COMPLIANT").length;
+        const reviewRequired = acAssessments.filter((a) => a.finalStatus === "REVIEW_REQUIRED").length;
+        const compliant = acAssessments.filter((a) => a.finalStatus === "COMPLIANT").length;
+        const insufficientData = acAssessments.filter((a) => a.finalStatus === "INSUFFICIENT_DATA").length;
+        if (acAssessments.length === 0) {
+          return { id: nextId(), question, headline: `${acReg} — no assessments on file`, narrative: [`UNKNOWN: No regulatory assessments are recorded for ${acReg} in the current dataset.`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+        }
+        return {
+          id: nextId(),
+          question,
+          headline: `${acReg} — compliance summary`,
+          narrative: [`FACT: ${compliant} compliant, ${nonCompliant} non-compliant, ${reviewRequired} review-required, ${insufficientData} insufficient-data, out of ${acAssessments.length} assessment(s) for ${acReg}.`, TRUST_FOOTER],
+          buttons: [{ label: "View Aircraft", href: `/aircraft/${ac.id}` }],
+          understood: understood(top.intent, scope, entities),
+        };
+      }
       const c = getComplianceAnalytics();
       return { id: nextId(), question, headline: "Compliance summary", narrative: [`FACT: ${c.compliant} compliant, ${c.nonCompliant} non-compliant, ${c.reviewRequired} review-required, ${c.insufficientData} insufficient-data, out of ${c.totalAssessments} assessments.`, TRUST_FOOTER], kpis: c.kpis, understood: understood(top.intent, scope, entities) };
     }
