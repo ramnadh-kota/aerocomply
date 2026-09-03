@@ -301,6 +301,32 @@ export default function WorkOrderPlanningDetailPage() {
       </div>
 
       <section className="ac-section">
+        <div className="ac-card" style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center" }}>
+          <div>
+            <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Execution</p>
+            <StatusBadge
+              status={executionState === "READY_FOR_RELEASE" ? "COMPLIANT" : executionState === "BLOCKED" ? "NON_COMPLIANT" : "REVIEW_REQUIRED"}
+              label={executionState.replace(/_/g, " ")}
+            />
+          </div>
+          <div>
+            <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Evidence Gate</p>
+            <StatusBadge
+              status={evidenceStatus?.state === "PASS" ? "COMPLIANT" : evidenceStatus?.state === "FAIL" ? "NON_COMPLIANT" : evidenceStatus?.state === "UNKNOWN" ? "INSUFFICIENT_DATA" : "COMPLIANT"}
+              label={evidenceStatus?.state ?? "NOT_REQUIRED"}
+            />
+          </div>
+          <div>
+            <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Release Readiness</p>
+            <StatusBadge
+              status={releaseReadiness.status === "READY" ? "COMPLIANT" : releaseReadiness.status === "BLOCKED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
+              label={releaseReadiness.status}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="ac-section">
         <div className="ac-card" style={{ borderColor: risk.status === "NON_COMPLIANT" ? "var(--ac-status-non_compliant)" : undefined }}>
           <p className="ac-eyebrow" style={{ marginBottom: 6 }}>Planning Status: {row.planningStatus.replace(/_/g, " ")} · Risk: {row.risk}</p>
           <ul style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 13 }}>
@@ -398,7 +424,7 @@ export default function WorkOrderPlanningDetailPage() {
               )}
 
               <p className="ac-eyebrow" style={{ margin: "16px 0 6px" }}>Eligible Technicians</p>
-              <div className="ac-card" style={{ padding: 0 }}>
+              <div className="ac-card" style={{ padding: 0, overflowX: "auto" }}>
                 <table className="ac-table">
                   <thead><tr><th>Technician</th><th>Certification Match</th><th>Availability</th><th>Workload</th><th>Reasons</th><th></th></tr></thead>
                   <tbody>
@@ -459,7 +485,7 @@ export default function WorkOrderPlanningDetailPage() {
         </div>
 
         {evidenceRecords.length > 0 ? (
-          <div className="ac-card" style={{ padding: 0, marginBottom: 12 }}>
+          <div className="ac-card" style={{ padding: 0, marginBottom: 12, overflowX: "auto" }}>
             <table className="ac-table">
               <thead><tr><th>Type</th><th>Preview</th><th>Uploaded By</th><th>Captured</th><th>Note</th><th>Status</th><th></th></tr></thead>
               <tbody>
