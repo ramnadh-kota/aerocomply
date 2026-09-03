@@ -77,9 +77,13 @@ import {
   getDeferredClosureReadiness,
   getCannibalizationCandidatesForAircraft,
   getAogRecoveryAnalysis,
+  getAircraftRecoveryPlan,
+  getReleaseReadinessForWorkOrder,
+  getInspectionRequirement,
   getMaintenanceDueForAircraft,
   getFleetMaintenanceDue,
   getTechnicianAuthorizationForWorkOrder,
+  getTechnicianAuthorizationMatrix,
   explainExecutionState,
   getFleetUtilization,
   getUtilizationDataQuality,
@@ -486,7 +490,7 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   // M14.1. Reuses getAogRecoveryAnalysis (lib/mock/ai/analytics.ts), the
   // ONE AOG recovery calculation, also rendered by the recovery detail page
   // — this can never disagree with what a human sees there.
-  if ((q.includes("recover") || (q.includes("aog") && (q.includes("block") || q.includes("next")))) && resolveAircraft(question, context)) {
+  if (!q.includes("recovery chain") && (q.includes("recover") || (q.includes("aog") && (q.includes("block") || q.includes("next")))) && resolveAircraft(question, context)) {
     const a = resolveAircraft(question, context)!;
     const analysis = getAogRecoveryAnalysis(a.id);
     if (!analysis) return insufficient(question, ["aircraft data"]);
@@ -698,6 +702,29 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
+  // "Who is authorized for WO-1054?" / "is anyone authorized to perform
+  // this work order?" — M22. Formalized AUTHORIZED/NOT_AUTHORIZED/UNKNOWN,
+  // distinct from the M12.4 recommendation ranking and from the M14.9 hard-
+  // block classification (which this reuses, not duplicates).
+  if (q.includes("authoriz") && q.includes("perform") && findWorkOrderFromText(question)) {
+    const wo = findWorkOrderFromText(question)!;
+    const matrix = getTechnicianAuthorizationMatrix(wo.id);
+    const authorized = matrix.filter((m) => m.status === "AUTHORIZED");
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — ${authorized.length} authorized technician(s)`,
+      narrative: [
+        authorized.length > 0 ? `FACT: ${authorized.map((m) => m.name).join(", ")} — authorized based on available evidence.` : "FACT: no technician currently reaches AUTHORIZED status from available evidence.",
+        "UNKNOWN: no technician in this dataset has a recorded aircraft-type qualification, so aircraft-type authorization itself cannot be confirmed for anyone — this reflects a genuine data gap, never treated as automatic authorization.",
+        "SAFETY_REFUSAL: this is a data-derived authorization signal, not a legal determination of who may perform this work — that determination is the responsibility of authorized maintenance personnel.",
+        TRUST_FOOTER,
+      ],
+      table: { title: "Technician Authorization", columns: ["Technician", "Status", "Reasons"], rows: matrix.map((m) => [m.name, m.status, m.reasons.join(" ")]) },
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
   // "Who is authorized to work on WO-XXXX?" / "who is blocked" — M14.9.
   // Reuses getTechnicianAuthorizationForWorkOrder, itself a wrapper over the
   // ONE existing technician ranking — never a second engine.
@@ -754,6 +781,57 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative: [fleet.length > 0 ? `FACT: ${fleet.map((d) => `${d.registration} (due ${d.dueAt})`).join(", ")}.` : `FACT: no deferred item is currently ${wantOverdue ? "overdue" : "due soon"}.`, TRUST_FOOTER],
       table: { title: wantOverdue ? "Overdue Deferred Items" : "Deferred Items Due Soon", columns: ["Aircraft", "Category", "Due", "Basis"], rows: fleet.map((d) => [d.registration, d.category, d.dueAt ?? "UNKNOWN", d.deferralBasis]) },
       buttons: [{ label: "Open Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "Does WO-1054 require independent inspection?" — M25.
+  if (q.includes("independent inspection") && (q.includes("require") || q.includes("does")) && findWorkOrderFromText(question)) {
+    const wo = findWorkOrderFromText(question)!;
+    const insp = getInspectionRequirement(wo.id);
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — inspection: ${insp.status}`,
+      narrative: [`FACT: ${insp.reason}`, insp.status === "READY" ? `RECOMMENDATION: assign ${insp.eligibleInspectors[0]?.name} or another eligible inspector.` : "", TRUST_FOOTER].filter(Boolean),
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "What is preventing release?" / "is WO-1054 ready for release?" — M26.
+  // THE canonical release-readiness answer.
+  if ((q.includes("preventing release") || q.includes("ready for release") || (q.includes("release") && q.includes("blocked"))) && findWorkOrderFromText(question)) {
+    const wo = findWorkOrderFromText(question)!;
+    const rr = getReleaseReadinessForWorkOrder(wo.id);
+    return {
+      id: nextId(),
+      question,
+      headline: `${wo.workOrderNumber} — release readiness: ${rr.status}`,
+      narrative: [
+        rr.status === "READY" ? "FACT: known operational release gates are satisfied." : `FACT: ${rr.blockers.length} blocker(s) identified.`,
+        ...rr.blockers.map((b) => `${b.category === "UNKNOWN" ? "UNKNOWN" : "FACT"}: [${b.category}] ${b.explanation} — Required action: ${b.requiredAction}`),
+        "SAFETY_REFUSAL: this reports whether this application's known operational gates are satisfied — it is not an airworthiness or dispatch determination.",
+        TRUST_FOOTER,
+      ],
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Show me the complete recovery chain for N412MX." — M27.
+  if (q.includes("recovery chain") && resolveAircraft(question, context)) {
+    const a = resolveAircraft(question, context)!;
+    const plan = getAircraftRecoveryPlan(a.id);
+    if (!plan) return insufficient(question, ["aircraft data"]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${plan.registration} — recovery chain`,
+      narrative: [
+        `FACT: AOG=${plan.isAog}, ${plan.criticalWorkOrders.length} critical work order(s).`,
+        ...plan.workOrderDetails.map((d) => `FACT: ${d.workOrderNumber} — release ${d.releaseReadiness.status}, ${d.authorizedTechnicianCount} authorized technician(s), inspection ${d.inspection}.`),
+        "SAFETY_REFUSAL: no step in this chain implies an airworthiness or release decision — every step requires human review.",
+        TRUST_FOOTER,
+      ],
+      buttons: [{ label: "Open Recovery View", href: `/maintenance/aog-recovery/${a.id}` }],
     };
   }
 

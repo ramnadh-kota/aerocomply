@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge, workOrderStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
-import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView, explainExecutionState } from "@/lib/mock/ai/analytics";
+import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView, explainExecutionState, getReleaseReadinessForWorkOrder } from "@/lib/mock/ai/analytics";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { technicians } from "@/lib/mock/technicians";
 import { workOrderRepository } from "@/lib/domain/repositories";
@@ -53,6 +53,7 @@ export default function WorkOrderPlanningDetailPage() {
   const safetyGates = getSafetyGatesForWorkOrder(workOrderId);
   const taskChain = getMaintenanceTaskChain(workOrderId);
   const taskExecution = getMaintenanceTaskExecutionView(workOrderId);
+  const releaseReadiness = getReleaseReadinessForWorkOrder(workOrderId);
 
   const assign = (technicianId: string) => {
     const wasAssigned = row.assignedTechnicianId !== null;
@@ -335,6 +336,26 @@ export default function WorkOrderPlanningDetailPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Release Readiness</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+          Whether this application&apos;s known operational gates are satisfied — not an airworthiness or dispatch determination.
+        </p>
+        <div className="ac-card" style={{ borderColor: releaseReadiness.status === "BLOCKED" ? "var(--ac-status-non_compliant)" : undefined }}>
+          <StatusBadge
+            status={releaseReadiness.status === "READY" ? "COMPLIANT" : releaseReadiness.status === "BLOCKED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
+            label={releaseReadiness.status}
+          />
+          {releaseReadiness.blockers.length > 0 && (
+            <ul style={{ margin: "10px 0 0", paddingLeft: 18, fontSize: 13 }}>
+              {releaseReadiness.blockers.map((b, i) => (
+                <li key={i}><strong>[{b.category}]</strong> {b.explanation} — <em>{b.requiredAction}</em> (source: {b.source})</li>
+              ))}
+            </ul>
+          )}
         </div>
       </section>
 

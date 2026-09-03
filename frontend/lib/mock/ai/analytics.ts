@@ -897,6 +897,52 @@ export function getWorkOrdersAwaitingAssignment(): WorkOrderPlanningRow[] {
   return getWorkOrderPlanning().filter((r) => r.planningStatus === "TECHNICIAN_BLOCKED" || r.planningStatus === "BOTH_BLOCKED");
 }
 
+// --- M22 Technician Authorization Matrix ---
+// A formalized AUTHORIZED/NOT_AUTHORIZED/UNKNOWN read over the SAME
+// getTechnicianAuthorizationForWorkOrder (M14.9) hard-block classification
+// above — never a second ranking or authorization engine, and never
+// replacing the existing recommendation ranking
+// (getTechnicianAssignmentRecommendation). This is a separate evaluation
+// LAYER, per the M22 spec's explicit instruction to keep RECOMMENDATION
+// and AUTHORIZATION distinct concepts.
+//
+// Aircraft-type qualification is a real, named criterion in the M22 spec
+// — and Technician.aircraftTypeQualifications (M12.9) is null for every
+// technician in this dataset (no source ever populated it). That fact is
+// surfaced as its own UNKNOWN reason on every result, never silently
+// dropped, and never allowed to make a technician AUTHORIZED on its own.
+export type TechnicianAuthorizationStatus = "AUTHORIZED" | "NOT_AUTHORIZED" | "UNKNOWN";
+
+export interface TechnicianAuthorizationResult {
+  technicianId: string;
+  name: string;
+  status: TechnicianAuthorizationStatus;
+  reasons: string[];
+}
+
+export function getTechnicianAuthorization(technicianId: string, workOrderId: string): TechnicianAuthorizationResult | null {
+  const matrix = getTechnicianAuthorizationForWorkOrder(workOrderId);
+  const row = matrix.find((m) => m.technicianId === technicianId);
+  if (!row) return null;
+  const t = getTechnicianById(technicianId);
+  const reasons: string[] = [...row.reasons];
+  reasons.push(t?.aircraftTypeQualifications == null ? "UNKNOWN: no aircraft-type qualification record exists for this technician in this dataset." : `Aircraft-type qualifications on file: ${t.aircraftTypeQualifications.join(", ") || "none recorded"}.`);
+  let status: TechnicianAuthorizationStatus;
+  if (row.hardBlocked) { status = "NOT_AUTHORIZED"; reasons.push(...row.blockReasons); }
+  else status = row.certificationMatch !== "Insufficient source data." && row.availability === "On shift now" ? "AUTHORIZED" : "UNKNOWN";
+  if (status === "UNKNOWN" && !reasons.some((r) => r.startsWith("UNKNOWN"))) reasons.push("UNKNOWN: insufficient positive evidence (certification match + current shift) to authorize, and no disqualifying evidence to block.");
+  return { technicianId, name: row.name, status, reasons };
+}
+
+export function getTechnicianAuthorizationMatrix(workOrderId: string): TechnicianAuthorizationResult[] {
+  const matrix = getTechnicianAuthorizationForWorkOrder(workOrderId);
+  return matrix.map((m) => getTechnicianAuthorization(m.technicianId, workOrderId)!);
+}
+
+export function getAuthorizedTechniciansForWorkOrder(workOrderId: string): TechnicianAuthorizationResult[] {
+  return getTechnicianAuthorizationMatrix(workOrderId).filter((r) => r.status === "AUTHORIZED");
+}
+
 /** Deterministic, source-backed "what should maintenance do next" list —
  * shared by the Planning UI and Lisa so they can never disagree. */
 export function getNextMaintenanceActions(): string[] {
@@ -1342,6 +1388,40 @@ export function getEligibleInspectorsForWorkOrder(workOrderId: string): Technici
   });
 }
 
+// --- M25 RII / Independent Inspection (formalized) ---
+// Wraps isInspectionRequired/getEligibleInspectorsForWorkOrder/
+// getExecutionState above — never a second inspection calculation. The
+// existing INSPECTION_GATE (getSafetyGatesForWorkOrder, below) reads the
+// exact same three functions, so this and that gate can never disagree.
+export type InspectionRequirementStatus = "NOT_REQUIRED" | "REQUIRED" | "READY" | "BLOCKED" | "COMPLETED" | "UNKNOWN";
+
+export interface InspectionRequirementResult {
+  status: InspectionRequirementStatus;
+  eligibleInspectors: TechnicianEligibility[];
+  excludedTechnicianId: string | null;
+  reason: string;
+}
+
+export function getInspectionRequirement(workOrderId: string): InspectionRequirementResult {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return { status: "UNKNOWN", eligibleInspectors: [], excludedTechnicianId: null, reason: "Work order not found." };
+  if (!isInspectionRequired(w)) return { status: "NOT_REQUIRED", eligibleInspectors: [], excludedTechnicianId: null, reason: "No inspection is indicated as required for this work order." };
+  const execState = getExecutionState(w);
+  if (execState === "RELEASED" || execState === "INSPECTION_COMPLETED") {
+    return { status: "COMPLETED", eligibleInspectors: [], excludedTechnicianId: w.assignedTechnicianId, reason: "Inspection has already occurred and been recorded." };
+  }
+  const eligible = getEligibleInspectorsForWorkOrder(workOrderId);
+  if (eligible.length === 0) {
+    return { status: "BLOCKED", eligibleInspectors: [], excludedTechnicianId: w.assignedTechnicianId, reason: w.assignedTechnicianId ? "No eligible independent inspector (other than the assigned technician) is currently identified." : "No technician is currently assigned, so independent-inspector eligibility cannot be fully evaluated." };
+  }
+  return { status: "READY", eligibleInspectors: eligible, excludedTechnicianId: w.assignedTechnicianId, reason: `${eligible.length} eligible independent inspector(s) identified — the assigned technician is excluded.` };
+}
+
+/** Alias matching the M25 spec's named entry point — same calculation as
+ * getInspectionRequirement, just the requested function name for callers
+ * that want the "readiness" framing specifically. */
+export const getInspectionReadiness = getInspectionRequirement;
+
 export function getSafetyGatesForWorkOrder(workOrderId: string): SafetyGate[] {
   const w = workOrders.find((x) => x.id === workOrderId);
   if (!w) return [];
@@ -1416,6 +1496,71 @@ export function getReleaseQueue(): { workOrderId: string; workOrderNumber: strin
       const a = getAircraftById(w.aircraftId);
       return { workOrderId: w.id, workOrderNumber: w.workOrderNumber, aircraftRegistration: a ? currentRegistration(a) : w.aircraftId, executionState: state };
     });
+}
+
+// --- M26 Release Readiness Engine ---
+// THE canonical release-readiness calculation — every blocker category is
+// read from an existing, single-source function (safety gates, M25
+// inspection, M18 deferred items, M0 regulatory assessments, M20 audit).
+// This is explicitly NOT an airworthiness engine: it reports whether this
+// application's own known operational gates are satisfied, and never
+// states or implies an aircraft is airworthy or dispatchable.
+export type ReleaseReadinessStatus = "READY" | "BLOCKED" | "UNKNOWN";
+
+export interface ReleaseBlocker {
+  category: "MATERIAL" | "QUALIFICATION" | "INSPECTION" | "EVIDENCE" | "DEFERRED" | "REGULATORY" | "AUDIT" | "UNKNOWN";
+  source: string;
+  explanation: string;
+  requiredAction: string;
+}
+
+export interface ReleaseReadinessResult {
+  status: ReleaseReadinessStatus;
+  blockers: ReleaseBlocker[];
+}
+
+export function getReleaseReadinessForWorkOrder(workOrderId: string): ReleaseReadinessResult {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return { status: "UNKNOWN", blockers: [{ category: "UNKNOWN", source: workOrderId, explanation: "Work order not found.", requiredAction: "Verify the work order id." }] };
+
+  const blockers: ReleaseBlocker[] = [];
+  const gates = getSafetyGatesForWorkOrder(w.id);
+  for (const g of gates) {
+    if (g.state === "FAIL") {
+      const category: ReleaseBlocker["category"] = g.type === "MATERIAL_GATE" ? "MATERIAL" : g.type === "QUALIFICATION_GATE" ? "QUALIFICATION" : g.type === "INSPECTION_GATE" ? "INSPECTION" : "UNKNOWN";
+      blockers.push({ category, source: `Safety Gate: ${g.type}`, explanation: g.reason, requiredAction: category === "MATERIAL" ? "Resolve the material shortage (Material Readiness / Procurement)." : category === "QUALIFICATION" ? "Assign a technician." : "Assign an eligible independent inspector." });
+    } else if (g.state === "UNKNOWN") {
+      blockers.push({ category: g.type === "EVIDENCE_GATE" ? "EVIDENCE" : "UNKNOWN", source: `Safety Gate: ${g.type}`, explanation: g.reason, requiredAction: "Resolve the missing source data before this gate can be evaluated as PASS or FAIL." });
+    }
+  }
+
+  const deferred = deferredItems.filter((d) => d.aircraftId === w.aircraftId && d.status === "OPEN" && getDeferredItemStatus(d) === "OVERDUE");
+  for (const d of deferred) {
+    blockers.push({ category: "DEFERRED", source: `Deferred Item ${d.id}`, explanation: `Overdue deferred item on this aircraft (due ${d.dueAt}).`, requiredAction: "Review and resolve the overdue deferred item." });
+  }
+
+  const nonCompliant = assessmentsForAircraft(w.aircraftId).filter((a) => a.finalStatus === "NON_COMPLIANT" || a.finalStatus === "REVIEW_REQUIRED");
+  for (const a of nonCompliant) {
+    blockers.push({ category: "REGULATORY", source: `Assessment ${a.id}`, explanation: `Assessment is ${a.finalStatus.replace(/_/g, " ")}.`, requiredAction: "Resolve the regulatory assessment (Compliance)." });
+  }
+
+  if (blockers.length === 0) {
+    const execState = getExecutionState(w);
+    if (execState !== "RELEASED") {
+      blockers.push({ category: "UNKNOWN", source: `Work Order ${w.workOrderNumber}`, explanation: `No specific blocker identified, but execution state is ${execState.replace(/_/g, " ")}, not RELEASED.`, requiredAction: "Review the work order's execution state on the Planning detail page." });
+    }
+  }
+
+  const hasUnknown = blockers.some((b) => b.category === "UNKNOWN" || b.category === "EVIDENCE");
+  const status: ReleaseReadinessStatus = blockers.length === 0 ? "READY" : hasUnknown && blockers.every((b) => b.category === "UNKNOWN" || b.category === "EVIDENCE") ? "UNKNOWN" : "BLOCKED";
+  return { status, blockers };
+}
+
+export function getAircraftReleaseReadiness(aircraftId: string): { workOrderId: string; workOrderNumber: string; result: ReleaseReadinessResult }[] {
+  return workOrdersForAircraft(aircraftId)
+    .filter((w) => w.status !== "COMPLETED" || getExecutionState(w) !== "RELEASED")
+    .filter((w) => w.status !== "CANCELLED")
+    .map((w) => ({ workOrderId: w.id, workOrderNumber: w.workOrderNumber, result: getReleaseReadinessForWorkOrder(w.id) }));
 }
 
 /** Derived signature-record view over the existing TechnicianSignOff /
@@ -1671,6 +1816,37 @@ export function getAogRecoveryAnalysis(aircraftId: string): AogRecoveryAnalysis 
     recoveryOptions,
     dataCompleteness,
   };
+}
+
+// --- M27 Aircraft Recovery Orchestration ---
+// Extends getAogRecoveryAnalysis (above, unchanged) with release-readiness
+// (M26) and technician-authorization (M22) context for each critical work
+// order — never a second AOG determination or a second release/
+// authorization calculation, all three engines are called as-is and
+// merged here for a single recovery view.
+export interface RecoveryWorkOrderView {
+  workOrderId: string;
+  workOrderNumber: string;
+  releaseReadiness: ReleaseReadinessResult;
+  authorizedTechnicianCount: number;
+  inspection: InspectionRequirementStatus;
+}
+
+export interface AircraftRecoveryPlan extends AogRecoveryAnalysis {
+  workOrderDetails: RecoveryWorkOrderView[];
+}
+
+export function getAircraftRecoveryPlan(aircraftId: string): AircraftRecoveryPlan | null {
+  const base = getAogRecoveryAnalysis(aircraftId);
+  if (!base) return null;
+  const workOrderDetails: RecoveryWorkOrderView[] = base.criticalWorkOrders.map((w) => ({
+    workOrderId: w.workOrderId,
+    workOrderNumber: w.workOrderNumber,
+    releaseReadiness: getReleaseReadinessForWorkOrder(w.workOrderId),
+    authorizedTechnicianCount: getAuthorizedTechniciansForWorkOrder(w.workOrderId).length,
+    inspection: getInspectionRequirement(w.workOrderId).status,
+  }));
+  return { ...base, workOrderDetails };
 }
 
 // --- M14.2 Automation Queue ---
