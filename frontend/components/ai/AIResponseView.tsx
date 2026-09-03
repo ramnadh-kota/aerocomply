@@ -7,6 +7,7 @@ import type { AiResponse } from "@/lib/mock/ai/engine";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { recordGeneratedReport } from "@/lib/mock/reports";
 import { AI_NAME } from "@/lib/brand";
+import { StatusBadge } from "@/components/status/StatusBadge";
 
 function Bar({ label, percent }: { label: string; percent: number }) {
   return (
@@ -27,6 +28,42 @@ const RISK_COLOR: Record<string, string> = {
   MEDIUM: "var(--ac-status-review)",
   HIGH: "var(--ac-status-non-compliant)",
 };
+
+// M-Lisa-UX — classification parsing over the EXISTING narrative[] string
+// array. The engine (lib/mock/ai/engine.ts) has consistently prefixed lines
+// with FACT:/INFERENCE:/RECOMMENDATION:/UNKNOWN:/SAFETY_REFUSAL: for many
+// milestones now — this is a presentation-only enhancement that reads that
+// existing convention and renders it as a visually distinct, labeled block
+// instead of a flat paragraph. It does NOT change AiResponse's shape or
+// touch any of the ~2,400 lines of engine.ts branches: a line with no
+// recognized prefix still renders exactly as plain text, so nothing
+// regresses for older/unlabeled branches.
+type NarrativeKind = "FACT" | "INFERENCE" | "RECOMMENDATION" | "UNKNOWN" | "SAFETY_REFUSAL" | "PLAIN";
+
+// Reuses the EXISTING StatusBadge status vocabulary (components/status/StatusBadge.tsx)
+// rather than inventing new badge styling.
+const KIND_BADGE_STATUS: Record<NarrativeKind, Parameters<typeof StatusBadge>[0]["status"] | null> = {
+  FACT: "COMPLIANT",
+  INFERENCE: "REVIEW_REQUIRED",
+  RECOMMENDATION: "REVIEW_REQUIRED",
+  UNKNOWN: "INSUFFICIENT_DATA",
+  SAFETY_REFUSAL: "NON_COMPLIANT",
+  PLAIN: null,
+};
+const KIND_LABEL: Record<NarrativeKind, string> = {
+  FACT: "FACT",
+  INFERENCE: "INFERENCE",
+  RECOMMENDATION: "RECOMMENDATION",
+  UNKNOWN: "UNKNOWN",
+  SAFETY_REFUSAL: "SAFETY REFUSAL",
+  PLAIN: "",
+};
+
+function classifyNarrativeLine(line: string): { kind: NarrativeKind; text: string } {
+  const match = line.match(/^(FACT|INFERENCE|RECOMMENDATION|UNKNOWN|SAFETY_REFUSAL):\s*(.*)$/s);
+  if (!match) return { kind: "PLAIN", text: line };
+  return { kind: match[1] as NarrativeKind, text: match[2] };
+}
 
 export function AIResponseView({ response }: { response: AiResponse }) {
   const router = useRouter();
@@ -57,11 +94,25 @@ export function AIResponseView({ response }: { response: AiResponse }) {
       </p>
       <p style={{ margin: "0 0 8px", fontWeight: 700, fontSize: 15 }}>{response.headline}</p>
 
-      {response.narrative.map((line, idx) => (
-        <p key={idx} className="ac-text-sm ac-text-secondary" style={{ margin: "0 0 6px" }}>
-          {line}
-        </p>
-      ))}
+      <div style={{ margin: "0 0 10px" }}>
+        {response.narrative.map((line, idx) => {
+          const { kind, text } = classifyNarrativeLine(line);
+          const badgeStatus = KIND_BADGE_STATUS[kind];
+          if (kind === "PLAIN") {
+            return (
+              <p key={idx} className="ac-text-sm ac-text-secondary" style={{ margin: "0 0 6px" }}>
+                {text}
+              </p>
+            );
+          }
+          return (
+            <div key={idx} className="ac-flex ac-gap-2" style={{ alignItems: "baseline", margin: "0 0 6px" }}>
+              {badgeStatus && <StatusBadge status={badgeStatus} label={KIND_LABEL[kind]} />}
+              <span className="ac-text-sm ac-text-secondary">{text}</span>
+            </div>
+          );
+        })}
+      </div>
 
       {response.kpis && response.kpis.length > 0 && (
         <div className="ac-grid-3" style={{ marginTop: 12, marginBottom: 4 }}>

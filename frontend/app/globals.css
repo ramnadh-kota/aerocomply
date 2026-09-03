@@ -692,6 +692,16 @@ button.ac-menu-toggle {
   .ac-kpi-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* Lisa UX redesign — split copilot layout (question/suggestions column +
+   persistent answer column). A dedicated class instead of an inline
+   gridTemplateColumns override, so the existing responsive breakpoint
+   actually applies: an inline style would win over any media-query rule
+   from an external stylesheet and silently break mobile/tablet. */
+.ac-lisa-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+@media (max-width: 1024px) {
+  .ac-lisa-grid { grid-template-columns: 1fr; }
+}
+
 .ac-divider {
   height: 1px;
   background: var(--ac-border-subtle);

@@ -353,9 +353,19 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
 export const SUGGESTED_QUESTIONS = CATEGORIZED_QUESTIONS.flatMap((c) => c.questions);
 
 let counter = 0;
+// Lisa UX redesign — nextId includes a per-module-load random prefix, not
+// just the incrementing counter. The counter alone caused a real,
+// reproducible dev-only bug: Next.js Fast Refresh reloads this module
+// (resetting `counter` to 0) while the AIConsole component's React state
+// survives the reload, so a second question asked right after a hot-reload
+// could get the same "ai-resp-1" id as an earlier turn still in state —
+// React then warns about duplicate list keys and can drop/duplicate a
+// turn. This never happens in a real (non-HMR) session, since the module
+// only loads once, but it's cheap to make robust either way.
+const sessionPrefix = Math.random().toString(36).slice(2, 8);
 function nextId(): string {
   counter += 1;
-  return `ai-resp-${counter}`;
+  return `ai-resp-${sessionPrefix}-${counter}`;
 }
 
 function findProjectFromText(text: string) {
