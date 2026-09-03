@@ -131,7 +131,7 @@ export default function MaintenanceControlCenterPage() {
     { label: "Open Deferred Items", value: getOpenDeferredItems().length, href: "/maintenance/defects", linkLabel: "View Defects →" },
     // M18 — deferred-item operational status, reusing getDeferredRiskSummary
     // (the same function /aircraft and Lisa read).
-    { label: "Deferred Items Overdue", value: getDeferredRiskSummary().overdue, href: "/maintenance/defects", linkLabel: "View Defects →" },
+    { label: "Deferred Items Overdue", value: getDeferredRiskSummary().overdue, href: "/maintenance/deferred", linkLabel: "View Deferred / MEL →" },
     // M17 — maintenance due engine KPIs, reusing getFleetMaintenanceDueSummary
     // (the same function the /maintenance-program page and Lisa read).
     { label: "Overdue Maintenance", value: maintenanceDueSummary.overdue, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },

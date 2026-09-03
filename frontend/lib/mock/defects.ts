@@ -23,6 +23,10 @@ export function defectsForAircraft(aircraftId: string): Defect[] {
   return defects.filter((d) => d.aircraftId === aircraftId);
 }
 
+export function getDefectById(id: string): Defect | undefined {
+  return defects.find((d) => d.id === id);
+}
+
 export function openDefects(): Defect[] {
   return defects.filter((d) => d.status === "OPEN");
 }
