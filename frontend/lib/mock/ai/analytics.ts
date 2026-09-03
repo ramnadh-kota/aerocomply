@@ -1516,14 +1516,26 @@ function evaluateExecutionEvidenceGate(w: WorkOrder, task: MaintenanceTask | und
   if (requirement === "OPTIONAL") {
     return { state: "NOT_REQUIRED", reason: nonRejected.length > 0 ? `Evidence is optional for this task — ${nonRejected.length} item(s) submitted.` : "Evidence is optional for this task — none submitted." };
   }
-  // requirement === "REQUIRED"
+  // requirement === "REQUIRED" — the gate requires ACCEPTED evidence, not
+  // merely SUBMITTED. A technician's own upload cannot satisfy the gate by
+  // itself; a reviewer must accept it. (Previously any non-rejected record —
+  // including one still awaiting review — passed this gate, which let a
+  // task look release-ready before anyone had actually reviewed the
+  // evidence. Fixed here, the one canonical gate every consumer reads —
+  // Task Card completion, getEvidenceBlockedWorkOrders, Control Center,
+  // Automation Queue, and Lisa's evidence answers all pick this up
+  // automatically with no second gate to keep in sync.)
   if (records.length === 0) {
     return { state: "FAIL", reason: "Required execution evidence has not been submitted for this task." };
+  }
+  const accepted = records.filter((r) => r.status === "ACCEPTED");
+  if (accepted.length > 0) {
+    return { state: "PASS", reason: `${accepted.length} required evidence item(s) accepted by a reviewer${accepted.length !== records.length ? ` (${records.length - accepted.length} other submitted item(s) not counted)` : ""}.` };
   }
   if (nonRejected.length === 0) {
     return { state: "FAIL", reason: `All ${records.length} submitted evidence item(s) were rejected — resubmission required. Latest reason: ${records[records.length - 1].reviewNote ?? "Insufficient source data."}` };
   }
-  return { state: "PASS", reason: `${nonRejected.length} required evidence item(s) submitted${nonRejected.length !== records.length ? ` (${records.length - nonRejected.length} rejected item(s) excluded)` : ""}.` };
+  return { state: "FAIL", reason: `${nonRejected.length} evidence item(s) submitted but not yet accepted by a reviewer — awaiting review.` };
 }
 
 /** Open work orders currently blocked by missing/rejected required
