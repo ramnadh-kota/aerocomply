@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge, workOrderStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
-import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView, explainExecutionState, getReleaseReadinessForWorkOrder, getExecutionEvidenceStatus } from "@/lib/mock/ai/analytics";
+import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView, explainExecutionState, getReleaseReadinessForWorkOrder, getExecutionEvidenceStatus, getTechnicianAuthorizationMatrix } from "@/lib/mock/ai/analytics";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { technicians } from "@/lib/mock/technicians";
 import { workOrderRepository } from "@/lib/domain/repositories";
@@ -77,6 +77,7 @@ export default function WorkOrderPlanningDetailPage() {
   const evidenceRecords = evidenceRecordsForWorkOrder(workOrderId);
   const evidenceStatus = getExecutionEvidenceStatus(workOrderId);
   const evidenceBlocksCompletion = evidenceStatus?.state === "FAIL";
+  const authorizationMatrix = getTechnicianAuthorizationMatrix(workOrderId);
 
   const onEvidenceFileChange = (file: File | null) => {
     setEvidenceError(null);
@@ -443,6 +444,37 @@ export default function WorkOrderPlanningDetailPage() {
               </div>
             </>
           )}
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <h2 className="ac-h2" style={{ marginBottom: 4 }}>Technician Authorization</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+          A high certification match or availability ranking above is a recommendation, not authorization — this table is
+          the formal authorization determination and always takes precedence. A hard authorization block is never
+          overridden by a strong recommendation.
+        </p>
+        <div className="ac-card" style={{ padding: 0, overflowX: "auto" }}>
+          <table className="ac-table">
+            <thead><tr><th>Technician</th><th>Status</th><th>Reasons</th></tr></thead>
+            <tbody>
+              {authorizationMatrix.map((m) => (
+                <tr key={m.technicianId}>
+                  <td className="ac-text-sm">{m.name}</td>
+                  <td>
+                    <StatusBadge
+                      status={m.status === "AUTHORIZED" ? "COMPLIANT" : m.status === "NOT_AUTHORIZED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
+                      label={m.status.replace(/_/g, " ")}
+                    />
+                  </td>
+                  <td className="ac-text-sm ac-text-muted">{m.reasons.join(" ")}</td>
+                </tr>
+              ))}
+              {authorizationMatrix.length === 0 && (
+                <tr><td colSpan={3} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>No technician authorization data available for this work order.</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 
