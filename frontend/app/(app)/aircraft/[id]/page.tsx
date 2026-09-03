@@ -23,7 +23,7 @@ import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import { projectsForAircraft } from "@/lib/mock/maintenanceProjects";
 import { workOrdersForAircraft } from "@/lib/mock/workOrders";
 import { defectsForAircraft } from "@/lib/mock/defects";
-import { getDeferredItemsForAircraft, getAircraftUtilization, getMaintenanceDueForAircraft } from "@/lib/mock/ai/analytics";
+import { getDeferredItemsForAircraft, getAircraftUtilization, getMaintenanceDueForAircraft, getDeferredItemStatus } from "@/lib/mock/ai/analytics";
 import { getTechnicianById } from "@/lib/mock/technicians";
 import { getInspectorReviewById } from "@/lib/mock/inspectorReviews";
 import { Timeline } from "@/components/timeline/Timeline";
@@ -234,16 +234,25 @@ export default function AircraftDetailPage({ params }: { params: { id: string } 
               <h2 className="ac-h2" style={{ marginBottom: 10 }}>Deferred Items (MEL)</h2>
               <div className="ac-card" style={{ padding: 0 }}>
                 <table className="ac-table">
-                  <thead><tr><th>Category</th><th>MEL Reference</th><th>Due</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Category</th><th>Basis</th><th>Due</th><th>Status</th><th>Limitations</th></tr></thead>
                   <tbody>
-                    {aircraftDeferredItems.map((d) => (
-                      <tr key={d.id}>
-                        <td>{d.category}</td>
-                        <td className="ac-text-sm">{d.melReference ?? "Insufficient source data."}</td>
-                        <td className="ac-text-sm">{d.dueAt ?? "UNKNOWN"}</td>
-                        <td><StatusBadge status={d.status === "OPEN" ? "REVIEW_REQUIRED" : "COMPLIANT"} label={d.status} /></td>
-                      </tr>
-                    ))}
+                    {aircraftDeferredItems.map((d) => {
+                      const opStatus = getDeferredItemStatus(d);
+                      return (
+                        <tr key={d.id}>
+                          <td>{d.category}</td>
+                          <td className="ac-text-sm">{d.deferralBasis}</td>
+                          <td className="ac-text-sm">{d.dueAt ?? "UNKNOWN"}</td>
+                          <td>
+                            <StatusBadge
+                              status={opStatus === "OVERDUE" ? "NON_COMPLIANT" : opStatus === "DUE_SOON" ? "PENDING" : opStatus === "CLOSED" ? "COMPLIANT" : opStatus === "UNKNOWN" ? "INSUFFICIENT_DATA" : "REVIEW_REQUIRED"}
+                              label={opStatus}
+                            />
+                          </td>
+                          <td className="ac-text-sm">{d.operationalLimitations ?? "Insufficient source data."}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

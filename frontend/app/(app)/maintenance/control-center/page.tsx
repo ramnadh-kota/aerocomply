@@ -17,6 +17,7 @@ import {
   getAutomationQueue,
   getQuarantinedParts,
   getOpenDeferredItems,
+  getDeferredRiskSummary,
   getFleetMaintenanceDueSummary,
   type ControlCenterPriority,
   type ExecutionActionType,
@@ -127,6 +128,9 @@ export default function MaintenanceControlCenterPage() {
     { label: "Automation Queue", value: getAutomationQueue().length, href: "/automation", linkLabel: "Open Automation Queue →" },
     { label: "Quarantined Parts", value: getQuarantinedParts().length, href: "/maintenance/parts", linkLabel: "View Parts →" },
     { label: "Open Deferred Items", value: getOpenDeferredItems().length, href: "/maintenance/defects", linkLabel: "View Defects →" },
+    // M18 — deferred-item operational status, reusing getDeferredRiskSummary
+    // (the same function /aircraft and Lisa read).
+    { label: "Deferred Items Overdue", value: getDeferredRiskSummary().overdue, href: "/maintenance/defects", linkLabel: "View Defects →" },
     // M17 — maintenance due engine KPIs, reusing getFleetMaintenanceDueSummary
     // (the same function the /maintenance-program page and Lisa read).
     { label: "Overdue Maintenance", value: maintenanceDueSummary.overdue, href: "/maintenance-program", linkLabel: "Open Maintenance Program →" },

@@ -71,6 +71,8 @@ import {
   getEligibleInspectorsForWorkOrder,
   getQuarantinedParts,
   getDeferredItemsForAircraft,
+  getFleetDeferredItems,
+  getDeferredItemStatus,
   getCannibalizationCandidatesForAircraft,
   getAogRecoveryAnalysis,
   getMaintenanceDueForAircraft,
@@ -326,6 +328,9 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Who can independently inspect WO-1042?",
       "Which parts are quarantined?",
       "What is the deferred status of VT-ABC?",
+      "Which aircraft have deferred items?",
+      "Which deferred items are due soon?",
+      "Which deferred items are overdue?",
       "Is there a cannibalization candidate for N412MX?",
       "Is this aircraft airworthy?",
     ],
@@ -734,9 +739,40 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
-  // "What is the MEL/deferred status of VT-ABC?" — M13 MEL foundation.
-  // Deliberately never invents a countdown/deadline.
-  if ((q.includes("mel") || q.includes("deferred")) && resolveAircraft(question, context)) {
+  // "Which deferred items are due soon?" / "...overdue?" fleet-wide — M18.
+  // Placed ahead of the per-aircraft branch below so fleet-wide phrasing
+  // (no aircraft named) is answered first.
+  if (q.includes("deferred") && (q.includes("due soon") || q.includes("overdue")) && !resolveAircraft(question, context)) {
+    const wantOverdue = q.includes("overdue");
+    const fleet = getFleetDeferredItems().filter((d) => d.operationalStatus === (wantOverdue ? "OVERDUE" : "DUE_SOON"));
+    return {
+      id: nextId(),
+      question,
+      headline: `${fleet.length} deferred item(s) ${wantOverdue ? "overdue" : "due soon"}`,
+      narrative: [fleet.length > 0 ? `FACT: ${fleet.map((d) => `${d.registration} (due ${d.dueAt})`).join(", ")}.` : `FACT: no deferred item is currently ${wantOverdue ? "overdue" : "due soon"}.`, TRUST_FOOTER],
+      table: { title: wantOverdue ? "Overdue Deferred Items" : "Deferred Items Due Soon", columns: ["Aircraft", "Category", "Due", "Basis"], rows: fleet.map((d) => [d.registration, d.category, d.dueAt ?? "UNKNOWN", d.deferralBasis]) },
+      buttons: [{ label: "Open Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "Which aircraft have deferred items?" fleet-wide.
+  if (q.includes("which aircraft") && q.includes("deferred")) {
+    const fleet = getFleetDeferredItems().filter((d) => d.status === "OPEN");
+    const byAircraft = new Set(fleet.map((d) => d.registration));
+    return {
+      id: nextId(),
+      question,
+      headline: `${byAircraft.size} aircraft with open deferred item(s)`,
+      narrative: [byAircraft.size > 0 ? `FACT: ${Array.from(byAircraft).join(", ")}.` : "FACT: no aircraft currently has an open deferred item.", TRUST_FOOTER],
+      table: { title: "Deferred Items", columns: ["Aircraft", "Category", "Status", "Due"], rows: fleet.map((d) => [d.registration, d.category, d.operationalStatus, d.dueAt ?? "UNKNOWN"]) },
+      buttons: [{ label: "Open Control Center", href: "/maintenance/control-center" }],
+    };
+  }
+
+  // "What is the MEL/deferred status of VT-ABC?" / "what operational
+  // limitations exist?" / "why is this deferred item UNKNOWN?" — M13/M18.
+  // Deliberately never invents a countdown/deadline/limitation text.
+  if ((q.includes("mel") || q.includes("deferred") || q.includes("operational limitation")) && resolveAircraft(question, context)) {
     const a = resolveAircraft(question, context)!;
     const items = getDeferredItemsForAircraft(a.id);
     return {
@@ -747,10 +783,12 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
         items.length > 0
           ? `FACT: ${items.length} deferred item(s) recorded.`
           : "FACT: no deferred item is currently recorded for this aircraft.",
-        ...items.filter((i) => i.dueAt === null).map(() => "UNKNOWN: no authoritative MEL reference or due date exists in this dataset for at least one deferred item — never presented as an invented deadline."),
+        ...items.filter((i) => i.dueAt === null && i.status === "OPEN").map((i) => `UNKNOWN: deferred item ${i.id} has no authoritative MEL reference or due date on file — never presented as an invented deadline.`),
+        ...items.filter((i) => i.operationalLimitations == null && i.status === "OPEN").map((i) => `UNKNOWN: no operational limitation/placard text is on file for deferred item ${i.id}.`),
+        "This system does not determine airworthiness or dispatch legality from a deferred item — that determination requires authorized personnel using the applicable approved MEL/CDL.",
         TRUST_FOOTER,
       ],
-      table: { title: "Deferred Items", columns: ["Category", "MEL Reference", "Due", "Status"], rows: items.map((i) => [i.category, i.melReference ?? "Insufficient source data.", i.dueAt ?? "UNKNOWN", i.status]) },
+      table: { title: "Deferred Items", columns: ["Category", "Basis", "Due", "Status", "Limitations"], rows: items.map((i) => [i.category, i.deferralBasis, i.dueAt ?? "UNKNOWN", getDeferredItemStatus(i), i.operationalLimitations ?? "Insufficient source data."]) },
       buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
     };
   }

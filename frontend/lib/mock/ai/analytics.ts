@@ -19,7 +19,7 @@ import { deferredItems } from "../deferredItems";
 import { cannibalizationRequests } from "../cannibalization";
 import { maintenanceRequirements, getMaintenanceProgramById } from "../maintenanceProgram";
 import { latestAccomplishment } from "../maintenanceAccomplishments";
-import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SignatureRecord, AutomationQueueItem, MaintenanceRequirement, MaintenanceIntervalType } from "../types";
+import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SignatureRecord, AutomationQueueItem, MaintenanceRequirement, MaintenanceIntervalType, DeferredItem } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -1481,6 +1481,81 @@ export function getDeferredItemsForAircraft(aircraftId: string) {
 
 export function getOpenDeferredItems() {
   return deferredItems.filter((d) => d.status === "OPEN");
+}
+
+// --- M18 Deferred / MEL Operations ---
+// One derived operational-status layer on top of the M13 DeferredItem
+// record — status/dueAt on the record stay the stored facts; ACTIVE/
+// DUE_SOON/OVERDUE/UNKNOWN below is computed fresh each call, the same
+// >7-day-remaining threshold the M17 due engine uses, so the two concepts
+// (maintenance due vs. deferred-item due) read consistently.
+export type DeferredItemOperationalStatus = "ACTIVE" | "DUE_SOON" | "OVERDUE" | "CLOSED" | "UNKNOWN";
+
+export function getDeferredItemStatus(item: DeferredItem): DeferredItemOperationalStatus {
+  if (item.status === "CLOSED") return "CLOSED";
+  if (item.dueAt == null) return "UNKNOWN";
+  const daysRemaining = daysBetween(item.dueAt, MOCK_TODAY);
+  if (daysRemaining < 0) return "OVERDUE";
+  if (daysRemaining <= DUE_SOON_DAYS) return "DUE_SOON";
+  return "ACTIVE";
+}
+
+export function getFleetDeferredItems(): (DeferredItem & { registration: string; operationalStatus: DeferredItemOperationalStatus })[] {
+  return deferredItems.map((d) => {
+    const a = getAircraftById(d.aircraftId);
+    return { ...d, registration: a ? currentRegistration(a) : d.aircraftId, operationalStatus: getDeferredItemStatus(d) };
+  });
+}
+
+export interface DeferredRiskSummary {
+  active: number;
+  dueSoon: number;
+  overdue: number;
+  closed: number;
+  unknown: number;
+  total: number;
+}
+
+export function getDeferredRiskSummary(): DeferredRiskSummary {
+  const fleet = getFleetDeferredItems();
+  return {
+    active: fleet.filter((d) => d.operationalStatus === "ACTIVE").length,
+    dueSoon: fleet.filter((d) => d.operationalStatus === "DUE_SOON").length,
+    overdue: fleet.filter((d) => d.operationalStatus === "OVERDUE").length,
+    closed: fleet.filter((d) => d.operationalStatus === "CLOSED").length,
+    unknown: fleet.filter((d) => d.operationalStatus === "UNKNOWN").length,
+    total: fleet.length,
+  };
+}
+
+// --- M19 (light) Deferred Closure Readiness ---
+// A deferred item may only be considered ready to close when real evidence
+// exists — never simply because someone clicks "close". This mirrors the
+// same READY/BLOCKED/UNKNOWN vocabulary the M17 due engine and M12.9
+// safety gates use.
+export type DeferredClosureReadiness = "READY" | "BLOCKED" | "UNKNOWN";
+
+export interface DeferredClosureEvaluation {
+  readiness: DeferredClosureReadiness;
+  blockers: string[];
+}
+
+export function getDeferredClosureReadiness(itemId: string): DeferredClosureEvaluation {
+  const item = deferredItems.find((d) => d.id === itemId);
+  if (!item) return { readiness: "UNKNOWN", blockers: ["Deferred item not found."] };
+  if (item.status === "CLOSED") return { readiness: "READY", blockers: [] };
+  const blockers: string[] = [];
+  if (item.evidenceReferences.length === 0) blockers.push("No evidence reference is on file for this deferred item.");
+  if (item.workOrderId) {
+    const wo = workOrders.find((w) => w.id === item.workOrderId);
+    if (!wo) blockers.push("Linked work order not found.");
+    else if (wo.status !== "COMPLETED") blockers.push(`Linked work order ${wo.workOrderNumber} is not yet COMPLETED (currently ${wo.status.replace(/_/g, " ")}).`);
+  } else {
+    blockers.push("No corrective work order is linked to this deferred item.");
+  }
+  if (item.approvalRequired && item.approvalStatus !== "APPROVED") blockers.push(`Approval required but current status is ${item.approvalStatus.replace(/_/g, " ")}.`);
+  if (blockers.length === 0) return { readiness: "READY", blockers: [] };
+  return { readiness: "BLOCKED", blockers };
 }
 
 /** Cannibalization candidates targeting a named aircraft — reads

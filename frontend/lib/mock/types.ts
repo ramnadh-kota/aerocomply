@@ -785,6 +785,11 @@ export interface SafetyGate {
 // defect (see lib/mock/deferredItems.ts).
 export type DeferredItemCategory = "A" | "B" | "C" | "D" | "UNKNOWN";
 export type DeferredItemStatus = "OPEN" | "CLOSED";
+// M18 — the real MEL/CDL vocabulary a deferral's basis can cite. UNKNOWN
+// when the dataset doesn't record which (most records — see
+// lib/mock/deferredItems.ts).
+export type DeferredItemBasis = "MEL" | "CDL" | "OTHER" | "UNKNOWN";
+export type DeferredItemApprovalStatus = "PENDING" | "APPROVED" | "NOT_REQUIRED";
 
 export interface DeferredItem {
   id: string;
@@ -795,6 +800,19 @@ export interface DeferredItem {
   openedAt: string;
   dueAt: string | null; // null = UNKNOWN, never a guessed deadline
   status: DeferredItemStatus;
+  // M18 — deferred-item operations fields. All additive; every existing
+  // consumer of the fields above keeps working unchanged.
+  workOrderId: string | null; // linked corrective work order, when one exists
+  deferralBasis: DeferredItemBasis;
+  // Free-text operational limitation/placard text. NEVER auto-generated —
+  // either a real (here: explicitly DEMO-labeled) limitation is on file,
+  // or this is null and callers must render "Insufficient source data.",
+  // never infer a limitation from category/basis alone.
+  operationalLimitations: string | null;
+  requiredActions: string[]; // explicit, never inferred from defect text
+  evidenceReferences: string[]; // free-text citations; empty = none on file
+  approvalRequired: boolean;
+  approvalStatus: DeferredItemApprovalStatus;
 }
 
 // M13 — cannibalization foundation. A candidate only; Lisa/the system may
