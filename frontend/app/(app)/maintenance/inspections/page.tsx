@@ -15,7 +15,24 @@ import { defectsForWorkOrder } from "@/lib/mock/defects";
 import { findings, findingsForWorkOrder } from "@/lib/mock/findings";
 import { getAssessmentById } from "@/lib/mock/assessments";
 import { useMroState, type WorkOrderChecklistRecord } from "@/lib/mro-state/MroStateContext";
+import { getInspectionRequirement, type InspectionRequirementStatus } from "@/lib/mock/ai/analytics";
 import type { WorkOrder, InspectorReviewStatus } from "@/lib/mock/types";
+
+// M25 RII status is a DIFFERENT concept from the checklist inspector review
+// above (InspectorReviewStatus/inspectorReviewStatusBadge): RII is whether
+// an eligible INDEPENDENT inspector (not the assigned technician) is
+// available to clear release, while the checklist review is a quality
+// disposition of submitted work. Both are real, both matter, and they must
+// never be presented as the same status. Reuses getInspectionRequirement
+// exactly as-is — no second RII calculation.
+const RII_BADGE: Record<InspectionRequirementStatus, { status: Parameters<typeof StatusBadge>[0]["status"]; label: string }> = {
+  NOT_REQUIRED: { status: "COMPLIANT", label: "NOT REQUIRED" },
+  REQUIRED: { status: "PENDING", label: "REQUIRED" },
+  READY: { status: "COMPLIANT", label: "INSPECTOR AVAILABLE" },
+  BLOCKED: { status: "NON_COMPLIANT", label: "NO ELIGIBLE INSPECTOR" },
+  COMPLETED: { status: "COMPLIANT", label: "COMPLETED" },
+  UNKNOWN: { status: "INSUFFICIENT_DATA", label: "UNKNOWN" },
+};
 
 interface Row {
   workOrder: WorkOrder;
@@ -123,6 +140,14 @@ export default function InspectionQueuePage() {
     { key: "submitted", header: "Submitted At", render: (r) => (r.submittedAt ? new Date(r.submittedAt).toLocaleString() : "—"), sortValue: (r) => r.submittedAt ?? "" },
     { key: "priority", header: "Priority", render: (r) => <StatusBadge {...priorityBadge(r.workOrder.priority)} /> },
     { key: "status", header: "Inspection Status", render: (r) => <StatusBadge {...inspectorReviewStatusBadge(r.reviewStatus)} /> },
+    {
+      key: "rii",
+      header: "Independent Inspection (RII)",
+      render: (r) => {
+        const rii = getInspectionRequirement(r.workOrder.id);
+        return <StatusBadge {...RII_BADGE[rii.status]} />;
+      },
+    },
     { key: "defects", header: "Defects", render: (r) => defectsForWorkOrder(r.workOrder.id).length },
     {
       key: "compliance",
