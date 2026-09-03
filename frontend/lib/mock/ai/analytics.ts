@@ -19,7 +19,7 @@ import { deferredItems } from "../deferredItems";
 import { cannibalizationRequests } from "../cannibalization";
 import { maintenanceRequirements, getMaintenanceProgramById } from "../maintenanceProgram";
 import { latestAccomplishment } from "../maintenanceAccomplishments";
-import { evidenceRecordsForWorkOrder, evidenceRecordsForAircraft } from "../evidenceRecords";
+import { evidenceRecordsForWorkOrder, evidenceRecordsForAircraft, evidenceRecords } from "../evidenceRecords";
 import type { WorkOrder, Priority, Defect, Technician, ExecutionState, SafetyGate, SafetyGateState, SignatureRecord, AutomationQueueItem, MaintenanceRequirement, MaintenanceIntervalType, DeferredItem, MaintenanceTask } from "../types";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
@@ -1531,6 +1531,12 @@ function evaluateExecutionEvidenceGate(w: WorkOrder, task: MaintenanceTask | und
  * the Automation Queue, and Lisa's "evidence blockers" question. */
 export function getEvidenceBlockedWorkOrders(): WorkOrder[] {
   return workOrders.filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED" && getExecutionEvidenceStatus(w.id)?.state === "FAIL");
+}
+
+/** M28-Phase1 — evidence records awaiting reviewer action fleet-wide.
+ * Reuses the same EvidenceRecord store, never a second review queue. */
+export function getEvidencePendingReview() {
+  return evidenceRecords.filter((e) => e.status === "SUBMITTED");
 }
 
 export function getExecutionEvidenceStatus(workOrderId: string) {

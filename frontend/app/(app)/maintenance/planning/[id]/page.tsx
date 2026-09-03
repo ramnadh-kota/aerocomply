@@ -49,6 +49,12 @@ export default function WorkOrderPlanningDetailPage() {
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidencePreviewUrl, setEvidencePreviewUrl] = useState<string | null>(null);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  // M28-Phase1 — reviewer state: which record's reject-reason box is open,
+  // and its draft text. The representative reviewer identity mirrors the
+  // same no-real-login convention as REPRESENTATIVE_TECHNICIAN_ID.
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const REPRESENTATIVE_REVIEWER_ID = "tech-3";
 
   if (!row || !wo) {
     return (
@@ -152,6 +158,47 @@ export default function WorkOrderPlanningDetailPage() {
       newState: null,
       reason: `Evidence ${id} removed by uploader before review.`,
     });
+    setVersion((v) => v + 1);
+  };
+
+  // M28-Phase1 — reviewer accept/reject. Uses the existing reviewEvidenceRecord
+  // mutation (M28), which itself refuses a REJECTED status with no reason —
+  // this UI enforces the same rule so a reviewer can't bypass it by leaving
+  // the box empty.
+  const acceptEvidence = (id: string) => {
+    const reviewer = technicians.find((t) => t.id === REPRESENTATIVE_REVIEWER_ID);
+    const updated = reviewEvidenceRecord(id, REPRESENTATIVE_REVIEWER_ID, "ACCEPTED", null);
+    if (!updated) return;
+    addAuditEvent({
+      actor: reviewer?.name ?? "Unknown Reviewer",
+      actorRole: "Inspector",
+      action: "maintenance.evidence_reviewed",
+      objectType: "EvidenceRecord",
+      objectLabel: wo.workOrderNumber,
+      previousState: "SUBMITTED",
+      newState: "ACCEPTED",
+      reason: `Evidence ${id} accepted.`,
+    });
+    setVersion((v) => v + 1);
+  };
+
+  const submitRejection = (id: string) => {
+    if (!rejectReason.trim()) return;
+    const reviewer = technicians.find((t) => t.id === REPRESENTATIVE_REVIEWER_ID);
+    const updated = reviewEvidenceRecord(id, REPRESENTATIVE_REVIEWER_ID, "REJECTED", rejectReason.trim());
+    if (!updated) return;
+    addAuditEvent({
+      actor: reviewer?.name ?? "Unknown Reviewer",
+      actorRole: "Inspector",
+      action: "maintenance.evidence_rejected",
+      objectType: "EvidenceRecord",
+      objectLabel: wo.workOrderNumber,
+      previousState: "SUBMITTED",
+      newState: "REJECTED",
+      reason: `Evidence ${id} rejected: ${rejectReason.trim()}`,
+    });
+    setRejectingId(null);
+    setRejectReason("");
     setVersion((v) => v + 1);
   };
 
@@ -440,7 +487,32 @@ export default function WorkOrderPlanningDetailPage() {
                       </td>
                       <td>
                         {e.status === "SUBMITTED" && (
-                          <button className="ac-btn" style={{ padding: "2px 8px" }} onClick={() => removeEvidence(e.id)}>Remove</button>
+                          <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+                            <button className="ac-btn ac-btn-primary" style={{ padding: "2px 8px" }} onClick={() => acceptEvidence(e.id)}>Accept</button>
+                            <button className="ac-btn" style={{ padding: "2px 8px" }} onClick={() => { setRejectingId(rejectingId === e.id ? null : e.id); setRejectReason(""); }}>
+                              {rejectingId === e.id ? "Cancel" : "Reject"}
+                            </button>
+                            <button className="ac-btn" style={{ padding: "2px 8px" }} onClick={() => removeEvidence(e.id)}>Remove</button>
+                          </div>
+                        )}
+                        {rejectingId === e.id && (
+                          <div style={{ marginTop: 6 }}>
+                            <textarea
+                              className="ac-input"
+                              style={{ width: 220, fontSize: 12 }}
+                              placeholder="Reason for rejection (required)"
+                              value={rejectReason}
+                              onChange={(ev) => setRejectReason(ev.target.value)}
+                            />
+                            <button
+                              className="ac-btn ac-btn-primary"
+                              style={{ padding: "2px 8px", marginTop: 4, display: "block" }}
+                              disabled={!rejectReason.trim()}
+                              onClick={() => submitRejection(e.id)}
+                            >
+                              Submit Rejection
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>

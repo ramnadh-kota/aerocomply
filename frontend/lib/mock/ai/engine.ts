@@ -83,6 +83,7 @@ import {
   getInspectionRequirement,
   getExecutionEvidenceStatus,
   getEvidenceBlockedWorkOrders,
+  getEvidencePendingReview,
   getMaintenanceDueForAircraft,
   getFleetMaintenanceDue,
   getTechnicianAuthorizationForWorkOrder,
@@ -329,6 +330,7 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
       "Which aircraft have stale utilization data?",
       "Does WO-1054 have evidence?",
       "How many evidence blockers do we have?",
+      "Which evidence is pending review?",
     ],
   },
   {
@@ -828,6 +830,19 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative,
       table: records.length > 0 ? { title: "Evidence Records", columns: ["Type", "Uploaded By", "Captured", "Status"], rows: records.map((r) => [r.evidenceType, getTechnicianById(r.uploadedByTechnicianId)?.name ?? r.uploadedByTechnicianId, new Date(r.capturedAt).toLocaleString(), r.status]) } : undefined,
       buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+    };
+  }
+
+  // "Which evidence is pending review?" — M28-Phase1 reviewer queue.
+  if (q.includes("evidence") && q.includes("pending review")) {
+    const pending = getEvidencePendingReview();
+    return {
+      id: nextId(),
+      question,
+      headline: `${pending.length} evidence record(s) pending review`,
+      narrative: [pending.length > 0 ? `FACT: ${pending.map((e) => `${e.id} (${e.evidenceType}, WO ${workOrders.find((w) => w.id === e.workOrderId)?.workOrderNumber ?? e.workOrderId})`).join(", ")}.` : "FACT: no evidence is currently pending review.", TRUST_FOOTER],
+      table: pending.length > 0 ? { title: "Pending Review", columns: ["Evidence", "Type", "Work Order", "Uploaded By"], rows: pending.map((e) => [e.id, e.evidenceType, workOrders.find((w) => w.id === e.workOrderId)?.workOrderNumber ?? e.workOrderId, getTechnicianById(e.uploadedByTechnicianId)?.name ?? e.uploadedByTechnicianId]) } : undefined,
+      buttons: [{ label: "Open Planning Center", href: "/maintenance/planning" }],
     };
   }
 
