@@ -161,6 +161,46 @@ export interface AiResponse {
     entities: string[];
     dataAreas: string;
   };
+  /** Structured operational-response fields — populated only for
+   * substantive operational answers (AOG/release/TAT/priority/blockers
+   * questions and similar), never forced onto a simple lookup or
+   * greeting. These are purely a presentation-layer aggregation of facts
+   * already computed above by an analytics.ts/proactive.ts call in this
+   * same branch — nothing here is a second calculation. */
+  priority?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  /** Short factual bullets — the "what I found" summary. Distinct from
+   * `narrative` (which carries the FACT:/INFERENCE:/etc. classified prose)
+   * so the UI can render a compact bullet list alongside the full
+   * narrative rather than duplicating it. */
+  whatIFound?: string[];
+  whyItMatters?: string;
+  recommendedNextStep?: string;
+  dependencies?: string[];
+  /** Who is best positioned to act next, e.g. "Planning", "Technician",
+   * "Quality", "Procurement" — never a specific named person for a
+   * safety-restricted action. */
+  whoShouldAct?: string;
+  /** Navigable records related to this answer. Distinct from `buttons`
+   * (which may include non-navigational actions like generating a report)
+   * — reuse `buttons` for on-screen actions and use this only when the
+   * response wants a dedicated "Related Records" section; most branches
+   * can leave this unset and rely on `buttons` alone. */
+  relatedRecords?: AiButton[];
+  /** Lisa's confidence in the underlying data, distinct from `insufficientData`
+   * (which is an all-or-nothing "can't answer at all" flag): CONFIRMED — the
+   * fact is directly on file; PARTIAL_DATA — some but not all of the
+   * relevant data resolved; UNKNOWN — the data exists as a concept in this
+   * domain but no value could be computed; NOT_CONFIGURED — this dataset
+   * has no record of this concept at all (e.g. no pooling-partner entity). */
+  confidenceState?: "CONFIRMED" | "PARTIAL_DATA" | "UNKNOWN" | "NOT_CONFIGURED";
+  /** What kind of action this response represents, so the UI (and a real
+   * backend later) can gate what's allowed: INFORMATION — reporting facts;
+   * RECOMMENDATION — suggesting a next step a human should take;
+   * NAVIGATION — pointing at another screen; DRAFT — content requiring
+   * human review before use; USER_APPROVAL_REQUIRED — an action that would
+   * need explicit human sign-off; SAFETY_RESTRICTED — Lisa can only
+   * explain/inform, never perform or recommend bypassing a safety control. */
+  actionCategory?: "INFORMATION" | "RECOMMENDATION" | "NAVIGATION" | "DRAFT" | "USER_APPROVAL_REQUIRED" | "SAFETY_RESTRICTED";
 }
 
 export interface QuestionCategory {
@@ -540,6 +580,14 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
         ],
         buttons: [{ label: "View Maintenance Program", href: "/maintenance-program" }],
         understood: understood(top.intent, scope, entities),
+        priority: "HIGH",
+        whatIFound: actions.slice(0, 5),
+        whyItMatters: "Working in this order addresses the highest operational-risk and most severely blocking items first.",
+        recommendedNextStep: actions[0],
+        whoShouldAct: "Planning",
+        relatedRecords: [{ label: "View Maintenance Program", href: "/maintenance-program" }],
+        confidenceState: "CONFIRMED",
+        actionCategory: "RECOMMENDATION",
       };
     }
     case "OVERDUE_MAINTENANCE": {
@@ -560,6 +608,16 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
             understood: understood(top.intent, scope, entities),
           };
         }
+      }
+      // A bare demonstrative ("is THIS late?", "is IT overdue?") with no
+      // work order or aircraft resolved — from the question itself or from
+      // conversation history — has no referent to answer about. Silently
+      // guessing "fleet-wide" here would answer a different question than
+      // the one asked; fall through so the caller asks for clarification
+      // instead of reporting an unrelated fleet summary as if it were the
+      // answer to "is this late?".
+      if (!wo && !ac && /\b(this|it|that)\b/.test(question.toLowerCase())) {
+        return null;
       }
       const items = ac
         ? getMaintenanceDueForAircraft(ac.id).filter((i) => i.dueStatus === "OVERDUE").map((i) => `${acReg}: ${i.description} — ${i.remaining}`)
@@ -626,6 +684,17 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
         ],
         buttons: [{ label: "View Recovery Plan", href: `/maintenance/control-tower` }],
         understood: understood(top.intent, scope, entities),
+        priority: "CRITICAL",
+        whatIFound: [
+          `${acReg} is AOG — ${plan.aogReason ?? "reason not recorded"}.`,
+          plan.primaryBlocker ? `Primary blocker: ${plan.primaryBlocker.description}` : "No primary blocker recorded.",
+        ],
+        whyItMatters: "An AOG aircraft is grounded and generates no revenue until the blocking condition is resolved.",
+        recommendedNextStep: plan.recoveryOptions[0]?.action,
+        whoShouldAct: plan.recoveryOptions[0]?.responsibleRole ?? "Maintenance Manager",
+        relatedRecords: [{ label: "View Recovery Plan", href: "/maintenance/control-tower" }],
+        confidenceState: plan.primaryBlocker ? "CONFIRMED" : "PARTIAL_DATA",
+        actionCategory: "RECOMMENDATION",
       };
     }
     case "RELEASE_READINESS": {
@@ -652,6 +721,13 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
           ],
           buttons: [{ label: "View Release Readiness", href: "/maintenance/release-readiness" }],
           understood: understood(top.intent, scope, entities),
+          priority: blocked.length > 0 ? "HIGH" : "LOW",
+          whatIFound: blocked.map((b) => `${b.workOrderNumber} (${b.aircraftRegistration}): ${b.readiness.blockers.length} blocker(s).`),
+          whyItMatters: blocked.length > 0 ? "Each blocked work order cannot be released to service until its blockers are resolved." : undefined,
+          whoShouldAct: blocked.length > 0 ? "Planning / Quality" : undefined,
+          relatedRecords: [{ label: "View Release Readiness", href: "/maintenance/release-readiness" }],
+          confidenceState: "CONFIRMED",
+          actionCategory: "SAFETY_RESTRICTED",
         };
       }
       const readiness = getReleaseReadinessForWorkOrder(wo.id);
@@ -663,6 +739,10 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
           narrative: [`FACT: ${wo.workOrderNumber} has no outstanding release blockers in the current dataset.`, "SAFETY_REFUSAL: Lisa does not authorize release — this reports data completeness only. Final release authorization is a human, authorized-signatory decision.", TRUST_FOOTER],
           buttons: [{ label: "View Work Order", href: `/maintenance/planning/${wo.id}` }, { label: "View Release Readiness", href: "/maintenance/release-readiness" }],
           understood: understood(top.intent, scope, entities),
+          priority: "LOW",
+          whatIFound: [`${wo.workOrderNumber} has no outstanding release blockers in the current dataset.`],
+          confidenceState: "CONFIRMED",
+          actionCategory: "SAFETY_RESTRICTED",
         };
       }
       return {
@@ -677,6 +757,15 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
         ],
         buttons: [{ label: "View Work Order", href: `/maintenance/planning/${wo.id}` }, { label: "View Release Readiness", href: "/maintenance/release-readiness" }],
         understood: understood(top.intent, scope, entities),
+        priority: "HIGH",
+        whatIFound: readiness.blockers.map((b) => `[${b.category}] ${b.explanation}`),
+        whyItMatters: "This work order cannot proceed to release until every listed blocker is resolved.",
+        recommendedNextStep: readiness.blockers[0]?.requiredAction,
+        dependencies: readiness.blockers.map((b) => b.category),
+        whoShouldAct: "Planning / Quality",
+        relatedRecords: [{ label: "View Work Order", href: `/maintenance/planning/${wo.id}` }],
+        confidenceState: readiness.blockers.some((b) => b.category === "UNKNOWN") ? "PARTIAL_DATA" : "CONFIRMED",
+        actionCategory: "SAFETY_RESTRICTED",
       };
     }
     case "INSPECTION_RII": {
@@ -861,12 +950,21 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
           ].filter(Boolean),
           buttons: [{ label: "View Work Order", href: `/maintenance/planning/${wo.id}` }],
           understood: understood(top.intent, scope, entities),
+          priority: tat.status === "DELAYED" ? "HIGH" : tat.status === "AT_RISK" ? "MEDIUM" : "LOW",
+          whatIFound: [`${wo.workOrderNumber} turnaround status: ${tat.status.replace(/_/g, " ")} — ${tat.reason}`],
+          whyItMatters: tat.status === "DELAYED" || tat.status === "AT_RISK" ? "A delayed or at-risk turnaround time affects committed delivery dates and downstream fleet availability." : undefined,
+          recommendedNextStep: tat.status === "DELAYED" || tat.status === "AT_RISK" ? "Resolve the listed blocker(s) to bring this work order back on track." : undefined,
+          dependencies: tat.contributingBlockers.length > 0 ? tat.contributingBlockers : undefined,
+          whoShouldAct: tat.status === "DELAYED" || tat.status === "AT_RISK" ? "Planning" : undefined,
+          relatedRecords: [{ label: "View Work Order", href: `/maintenance/planning/${wo.id}` }],
+          confidenceState: "CONFIRMED",
+          actionCategory: tat.status === "DELAYED" || tat.status === "AT_RISK" ? "RECOMMENDATION" : "INFORMATION",
         };
       }
       const fleetTat = getFleetTatStatus().filter((r) => !ac || r.aircraftRegistration === acReg);
       const atRisk = fleetTat.filter((r) => r.assessment.status === "AT_RISK" || r.assessment.status === "DELAYED");
       if (atRisk.length === 0) {
-        return { id: nextId(), question, headline: "No turnaround-time risk detected", narrative: ["FACT: No open work order" + (ac ? ` for ${acReg}` : "") + " is currently classified AT RISK or DELAYED on turnaround time.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+        return { id: nextId(), question, headline: "No turnaround-time risk detected", narrative: ["FACT: No open work order" + (ac ? ` for ${acReg}` : "") + " is currently classified AT RISK or DELAYED on turnaround time.", TRUST_FOOTER], understood: understood(top.intent, scope, entities), priority: "LOW", confidenceState: "CONFIRMED", actionCategory: "INFORMATION" };
       }
       return {
         id: nextId(),
@@ -875,6 +973,13 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
         narrative: ["FACT: The following work orders are at turnaround-time risk:", ...atRisk.map((r) => `${r.workOrderNumber} (${r.aircraftRegistration}): ${r.assessment.status.replace(/_/g, " ")} — ${r.assessment.reason}`), TRUST_FOOTER],
         buttons: [{ label: "View Release Readiness", href: "/maintenance/release-readiness" }],
         understood: understood(top.intent, scope, entities),
+        priority: atRisk.some((r) => r.assessment.status === "DELAYED") ? "HIGH" : "MEDIUM",
+        whatIFound: atRisk.map((r) => `${r.workOrderNumber} (${r.aircraftRegistration}): ${r.assessment.status.replace(/_/g, " ")} — ${r.assessment.reason}`),
+        whyItMatters: "Delayed or at-risk turnaround times affect committed delivery dates and downstream fleet availability.",
+        whoShouldAct: "Planning",
+        relatedRecords: [{ label: "View Release Readiness", href: "/maintenance/release-readiness" }],
+        confidenceState: "CONFIRMED",
+        actionCategory: "RECOMMENDATION",
       };
     }
     default:
@@ -919,6 +1024,13 @@ const AIRWORTHINESS_GUARD_PATTERNS = [
   // Passive phrasing: "Can this aircraft be released?"
   /\b(this|the|that) aircraft (be|get) released\b/i,
   /\baircraft be released\b/i,
+  // Requests to skip/bypass/override a safety gate (inspection, RII,
+  // evidence, checklist, signoff) — same underlying ask as "can we release
+  // this aircraft?": approving a shortcut around a safety control. Lisa
+  // must refuse and explain rather than answer as if the gate were
+  // optional or fall through to a generic clarification prompt.
+  /\b(skip|bypass|override|waive|get around)\b[^.?!]{0,40}\b(inspection|rii|independent inspection|evidence|safety gate|checklist|sign[\s-]?off|signoff)\b/i,
+  /\b(inspection|rii|independent inspection|evidence|safety gate|checklist|sign[\s-]?off|signoff)\b[^.?!]{0,40}\b(skip|bypass|override|waive)\b/i,
 ];
 
 function answerAirworthinessGuard(question: string): AiResponse | null {
@@ -933,6 +1045,13 @@ function answerAirworthinessGuard(question: string): AiResponse | null {
       "Ask about a specific aircraft or work order's recorded execution state, safety gates, or open discrepancies, and I can summarize what the current data shows.",
       TRUST_FOOTER,
     ],
+    priority: "CRITICAL",
+    whatIFound: ["This question asks Lisa to make or imply an airworthiness, release, or legal-compliance determination."],
+    whyItMatters: "Airworthiness and release-to-service decisions carry direct flight-safety and regulatory consequences — they must be made by authorized maintenance personnel applying approved data, not inferred by this system.",
+    recommendedNextStep: "Ask about the recorded execution state, open safety gates, or open discrepancies for a specific aircraft or work order instead — Lisa can summarize those facts.",
+    whoShouldAct: "Authorized maintenance personnel (Quality / Airworthiness Release Signatory)",
+    confidenceState: "CONFIRMED",
+    actionCategory: "SAFETY_RESTRICTED",
   };
 }
 
@@ -973,6 +1092,18 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative,
       table: { title: "Safety Gates", columns: ["Gate", "State", "Reason"], rows: gates.map((g) => [g.type.replace(/_/g, " "), g.state, g.reason]) },
       buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+      priority: openGates.length > 0 ? "HIGH" : "LOW",
+      whatIFound: [
+        `${wo.workOrderNumber} execution state is ${execState.replace(/_/g, " ")}.`,
+        openGates.length > 0 ? `${openGates.length} safety gate(s) open: ${openGates.map((g) => g.type.replace(/_/g, " ")).join(", ")}.` : "No safety gate is currently open.",
+      ],
+      whyItMatters: openGates.length > 0 ? "An open safety gate blocks this work order from being ready for release." : "With no open safety gate, this work order's known operational gates are satisfied.",
+      recommendedNextStep: openGates.length > 0 ? `Resolve ${openGates[0].type.replace(/_/g, " ").toLowerCase()} — ${openGates[0].reason}` : undefined,
+      dependencies: openGates.length > 0 ? openGates.map((g) => g.type.replace(/_/g, " ")) : undefined,
+      whoShouldAct: openGates.length > 0 ? "Planning / Quality" : undefined,
+      relatedRecords: [{ label: `View ${wo.workOrderNumber}`, href: `/maintenance/planning/${wo.id}` }],
+      confidenceState: gates.some((g) => g.state === "UNKNOWN") ? "PARTIAL_DATA" : "CONFIRMED",
+      actionCategory: "SAFETY_RESTRICTED",
     };
   }
 
@@ -1014,6 +1145,19 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative,
       table: { title: "Recovery Options", columns: ["Action", "Responsible Role"], rows: analysis.recoveryOptions.map((o) => [o.action, o.responsibleRole]) },
       buttons: [{ label: "Open Recovery View", href: `/maintenance/aog-recovery/${a.id}` }, { label: "Open Control Tower", href: "/maintenance/control-tower" }],
+      priority: "CRITICAL",
+      whatIFound: [
+        `${analysis.registration} is AOG — ${analysis.aogReason ?? "reason not recorded"}.`,
+        `${analysis.criticalWorkOrders.length} critical/high-priority open work order(s): ${analysis.criticalWorkOrders.map((w) => w.workOrderNumber).join(", ") || "none"}.`,
+        analysis.primaryBlocker ? `Primary blocker: ${analysis.primaryBlocker.type} — ${analysis.primaryBlocker.description}.` : "No specific blocker identified from current source data.",
+      ],
+      whyItMatters: "An AOG aircraft is grounded and generates no revenue until the blocking condition is resolved — this is the highest-priority operational condition in the fleet.",
+      recommendedNextStep: analysis.recoveryOptions[0]?.action,
+      dependencies: analysis.primaryBlocker ? [analysis.primaryBlocker.description] : undefined,
+      whoShouldAct: analysis.recoveryOptions[0]?.responsibleRole ?? "Maintenance Manager",
+      relatedRecords: [{ label: "Open Recovery View", href: `/maintenance/aog-recovery/${a.id}` }],
+      confidenceState: analysis.dataCompleteness === "COMPLETE" ? "CONFIRMED" : "PARTIAL_DATA",
+      actionCategory: "RECOMMENDATION",
     };
   }
 
@@ -1156,6 +1300,13 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       ],
       recommendedActions: actions,
       buttons: [{ label: "Open Automation Queue", href: "/automation" }, { label: "Open Planning Center", href: "/maintenance/planning" }],
+      priority: actions.length > 0 ? "HIGH" : "LOW",
+      whatIFound: [`${queue.length} item(s) are currently in the automation queue awaiting human review.`, ...actions.slice(0, 5)],
+      recommendedNextStep: actions[0],
+      whoShouldAct: "Planning",
+      relatedRecords: [{ label: "Open Planning Center", href: "/maintenance/planning" }],
+      confidenceState: "CONFIRMED",
+      actionCategory: "RECOMMENDATION",
     };
   }
 
@@ -1359,6 +1510,15 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
         TRUST_FOOTER,
       ],
       buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${wo.id}` }],
+      priority: rr.status === "READY" ? "LOW" : "HIGH",
+      whatIFound: rr.status === "READY" ? ["Known operational release gates are satisfied."] : rr.blockers.map((b) => `[${b.category}] ${b.explanation}`),
+      whyItMatters: rr.status === "READY" ? undefined : "This work order cannot proceed to release until every listed blocker is resolved.",
+      recommendedNextStep: rr.blockers[0]?.requiredAction,
+      dependencies: rr.blockers.length > 0 ? rr.blockers.map((b) => b.category) : undefined,
+      whoShouldAct: rr.blockers.length > 0 ? "Planning / Quality" : undefined,
+      relatedRecords: [{ label: `View ${wo.workOrderNumber}`, href: `/maintenance/planning/${wo.id}` }],
+      confidenceState: rr.blockers.some((b) => b.category === "UNKNOWN") ? "PARTIAL_DATA" : "CONFIRMED",
+      actionCategory: "SAFETY_RESTRICTED",
     };
   }
 

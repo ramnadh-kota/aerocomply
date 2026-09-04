@@ -7,7 +7,33 @@ import type { AiResponse } from "@/lib/mock/ai/engine";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { recordGeneratedReport } from "@/lib/mock/reports";
 import { AI_NAME } from "@/lib/brand";
-import { StatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, priorityBadge } from "@/components/status/StatusBadge";
+
+// Structured operational fields (priority, whatIFound, actionCategory, etc.)
+// are populated only for a subset of substantive operational branches in
+// engine.ts — everything below renders conditionally and falls back to the
+// existing narrative/table/buttons rendering untouched when absent.
+const ACTION_CATEGORY_LABEL: Record<NonNullable<AiResponse["actionCategory"]>, string> = {
+  INFORMATION: "Information",
+  RECOMMENDATION: "Recommendation",
+  NAVIGATION: "Navigation",
+  DRAFT: "Draft — needs review",
+  USER_APPROVAL_REQUIRED: "Needs your approval",
+  SAFETY_RESTRICTED: "Safety restricted — Lisa cannot act",
+};
+
+const CONFIDENCE_BADGE: Record<NonNullable<AiResponse["confidenceState"]>, Parameters<typeof StatusBadge>[0]["status"]> = {
+  CONFIRMED: "COMPLIANT",
+  PARTIAL_DATA: "REVIEW_REQUIRED",
+  UNKNOWN: "INSUFFICIENT_DATA",
+  NOT_CONFIGURED: "UNKNOWN",
+};
+const CONFIDENCE_LABEL: Record<NonNullable<AiResponse["confidenceState"]>, string> = {
+  CONFIRMED: "Confirmed",
+  PARTIAL_DATA: "Partial data",
+  UNKNOWN: "Unknown",
+  NOT_CONFIGURED: "Not configured",
+};
 
 function Bar({ label, percent }: { label: string; percent: number }) {
   return (
@@ -118,7 +144,37 @@ export function AIResponseView({ response }: { response: AiResponse }) {
         </div>
       )}
 
-      <p style={{ margin: "0 0 8px", fontWeight: 700, fontSize: 15 }}>{response.headline}</p>
+      <div className="ac-flex ac-items-center ac-gap-2" style={{ margin: "0 0 8px", flexWrap: "wrap" }}>
+        <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{response.headline}</p>
+        {response.priority && (() => {
+          const pb = priorityBadge(response.priority);
+          return <StatusBadge status={pb.status} label={`${pb.label} PRIORITY`} />;
+        })()}
+        {response.actionCategory && (
+          <span className="ac-badge ac-badge-neutral">{ACTION_CATEGORY_LABEL[response.actionCategory]}</span>
+        )}
+        {response.confidenceState && (
+          <StatusBadge status={CONFIDENCE_BADGE[response.confidenceState]} label={CONFIDENCE_LABEL[response.confidenceState]} />
+        )}
+      </div>
+
+      {response.whatIFound && response.whatIFound.length > 0 && (
+        <div style={{ margin: "0 0 10px" }}>
+          <p className="ac-text-sm" style={{ fontWeight: 600, marginBottom: 4 }}>What I Found</p>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {response.whatIFound.map((f, idx) => (
+              <li key={idx} className="ac-text-sm ac-text-secondary">{f}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {response.whyItMatters && (
+        <div style={{ margin: "0 0 10px" }}>
+          <p className="ac-text-sm" style={{ fontWeight: 600, marginBottom: 4 }}>Why It Matters</p>
+          <p className="ac-text-sm ac-text-secondary" style={{ margin: 0 }}>{response.whyItMatters}</p>
+        </div>
+      )}
 
       <div style={{ margin: "0 0 10px" }}>
         {response.narrative.map((line, idx) => {
@@ -230,6 +286,44 @@ export function AIResponseView({ response }: { response: AiResponse }) {
               <li key={idx} className="ac-text-sm">{a}</li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {response.recommendedNextStep && (
+        <div style={{ marginTop: 12 }}>
+          <p className="ac-text-sm" style={{ fontWeight: 600, marginBottom: 4 }}>Recommended Next Step</p>
+          <p className="ac-text-sm ac-text-secondary" style={{ margin: 0 }}>{response.recommendedNextStep}</p>
+        </div>
+      )}
+
+      {response.dependencies && response.dependencies.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <p className="ac-text-sm" style={{ fontWeight: 600, marginBottom: 4 }}>Dependencies</p>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {response.dependencies.map((d, idx) => (
+              <li key={idx} className="ac-text-sm ac-text-secondary">{d}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {response.whoShouldAct && (
+        <div className="ac-flex ac-gap-2" style={{ marginTop: 12, alignItems: "baseline" }}>
+          <p className="ac-text-sm" style={{ fontWeight: 600, margin: 0 }}>Who Should Act</p>
+          <span className="ac-text-sm ac-text-secondary">{response.whoShouldAct}</span>
+        </div>
+      )}
+
+      {response.relatedRecords && response.relatedRecords.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <p className="ac-text-sm" style={{ fontWeight: 600, marginBottom: 6 }}>Related Records</p>
+          <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+            {response.relatedRecords.map((r) => (
+              <Link key={r.href} href={r.href} className="ac-btn">
+                {r.label}
+              </Link>
+            ))}
+          </div>
         </div>
       )}
 
