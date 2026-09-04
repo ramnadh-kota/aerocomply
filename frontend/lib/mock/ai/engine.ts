@@ -3232,8 +3232,28 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   // scoreVendorOptionsForPart() as /procurement/parts, so the AI's answer
   // and the comparison UI can never disagree.
   if (q.includes("vendor") && (q.includes("should we use") || q.includes("recommend") || q.includes("why") && q.includes("recommended"))) {
-    const part = parts.find((p) => q.includes(p.partNumber.toLowerCase()));
-    if (!part) return insufficient(question, ["a recognizable part number to compare vendors for"]);
+    let part = parts.find((p) => q.includes(p.partNumber.toLowerCase()));
+    // No part number given explicitly ("which vendor for the missing/
+    // required part?") — fall back to the shortage already blocking the
+    // work order or aircraft in question, using the SAME shortage data
+    // (getWorkOrderPlanningRow.shortParts) the Task Card already shows, so
+    // this never invents a part — it only resolves which one the user
+    // already implied by naming a work order/aircraft.
+    if (!part) {
+      const contextWo = findWorkOrderFromText(question) ?? (context?.previousQuestion ? findWorkOrderFromText(context.previousQuestion) : undefined);
+      const contextAc = resolveAircraft(question, context);
+      const candidateShortages = contextWo
+        ? getWorkOrderPlanningRow(contextWo.id)?.shortParts ?? []
+        : contextAc
+        ? workOrdersForAircraft(contextAc.id).flatMap((w) => getWorkOrderPlanningRow(w.id)?.shortParts ?? [])
+        : [];
+      const shortPart = candidateShortages[0];
+      part = shortPart ? parts.find((p) => p.partNumber === shortPart.partNumber) : undefined;
+      if (!part && (contextWo || contextAc)) {
+        return insufficient(question, [`a part shortage recorded against ${contextWo ? contextWo.workOrderNumber : currentRegistration(contextAc!)} to compare vendors for — no material blocker is currently on file`]);
+      }
+    }
+    if (!part) return insufficient(question, ["a recognizable part number, or a work order/aircraft with a recorded part shortage, to compare vendors for"]);
     const scored = scoreVendorOptionsForPart(part.id);
     if (scored.length === 0) return insufficient(question, [`vendor availability data for ${part.partNumber} — no vendor has a recorded line for this part`]);
     const top = scored[0];
