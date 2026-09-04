@@ -21,6 +21,8 @@ import { getChecklistByWorkOrderId } from "../checklists";
 import { evidenceForAssessment } from "../evidence";
 import { overdueMaintenanceEvents, maintenanceEventsForAircraft, upcomingMaintenanceEvents } from "../maintenance";
 import { assessments, assessmentsForAircraft } from "../assessments";
+import { regulatoryDocuments, getAuthorityById } from "../regulations";
+import { MOCK_TODAY as REG_MOCK_TODAY } from "../workOrders";
 import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
 import { certificatesForPart, traceabilityStatusForPart, partLifecycleStage, partTraceabilityAnswers } from "../partTraceability";
@@ -734,6 +736,32 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       };
     }
     case "COMPLIANCE": {
+      // "Any new/recent regulatory updates?" is a different question from
+      // "what is our compliance status?" — the former asks about the
+      // regulatory library itself (lib/mock/regulations.ts), not
+      // assessment outcomes. No live DGCA/FAA/EASA feed is connected here,
+      // so this is honest arithmetic over the seeded dataset's recorded
+      // publicationDate, not a claim of live regulatory sync.
+      const qLower = question.toLowerCase();
+      if (qLower.includes("new") || qLower.includes("recent") || qLower.includes("changed") || qLower.includes("change")) {
+        const RECENT_WINDOW_DAYS = 30;
+        const recent = regulatoryDocuments
+          .map((d) => ({ doc: d, daysSince: Math.round((new Date(REG_MOCK_TODAY).getTime() - new Date(d.publicationDate).getTime()) / 86400000), authority: getAuthorityById(d.regulatoryAuthorityId) }))
+          .filter((d) => d.daysSince >= 0 && d.daysSince <= RECENT_WINDOW_DAYS)
+          .sort((a, b) => a.daysSince - b.daysSince);
+        return {
+          id: nextId(),
+          question,
+          headline: recent.length > 0 ? `${recent.length} regulatory document(s) published in the last ${RECENT_WINDOW_DAYS} days` : "No recently published regulatory documents",
+          narrative: [
+            "UNKNOWN: No live DGCA/FAA/EASA regulatory feed is connected to this prototype — the regulatory library is a synchronized, hand-seeded demo dataset, not a live source.",
+            ...recent.map((r) => `FACT: ${r.doc.docNumber} (${r.authority?.code ?? "unknown authority"}, ${r.doc.docType}) — ${r.doc.title}, published ${r.daysSince === 0 ? "today" : `${r.daysSince}d ago`}.`),
+            TRUST_FOOTER,
+          ],
+          buttons: [{ label: "View Regulatory Library", href: "/regulations" }],
+          understood: understood(top.intent, scope, entities),
+        };
+      }
       if (ac) {
         const acAssessments = assessmentsForAircraft(ac.id);
         const nonCompliant = acAssessments.filter((a) => a.finalStatus === "NON_COMPLIANT").length;
