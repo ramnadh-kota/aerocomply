@@ -35,7 +35,11 @@ export function Topbar() {
   // Computed fresh per render from live mock data — no separate
   // notifications store, so this can never drift from what Lisa reports
   // elsewhere (dashboard Daily Brief, AI console "Lisa noticed…" strip).
-  const alerts = useMemo(() => getProactiveAlerts(), []);
+  // roleId passed through for relevance-only reordering (see
+  // getProactiveAlerts() comment in lib/mock/ai/proactive.ts) — never hides
+  // an alert, just nudges categories this simulated role acts on most
+  // toward the top within the same severity band.
+  const alerts = useMemo(() => getProactiveAlerts(roleId), [roleId]);
   const topAlerts = alerts.slice(0, 8);
 
   function changeRole(nextRoleId: string) {

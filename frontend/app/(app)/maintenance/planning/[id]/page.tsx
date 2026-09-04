@@ -495,13 +495,17 @@ export default function WorkOrderPlanningDetailPage() {
           <Link href={`/aircraft/${wo.aircraftId}`} className="ac-btn">View Aircraft</Link>
         </div>
         {row.status === "IN_PROGRESS" && evidenceBlocksCompletion && (
-          <p className="ac-text-sm" style={{ color: "var(--ac-status-non_compliant)", marginTop: 8 }}>
-            Cannot complete task — {evidenceStatus?.reason}
-          </p>
+          <div className="ac-card" style={{ borderColor: "var(--ac-status-non_compliant)", marginTop: 10 }}>
+            <p className="ac-text-sm" style={{ color: "var(--ac-status-non_compliant)", margin: "0 0 8px", fontWeight: 600 }}>
+              Cannot complete task — required execution evidence is not yet accepted.
+            </p>
+            <p className="ac-text-sm" style={{ margin: "0 0 10px" }}>{evidenceStatus?.reason}</p>
+            <a href="#evidence-section" className="ac-btn ac-btn-primary">Go to Evidence — Submit/Review</a>
+          </div>
         )}
       </section>
 
-      <section className="ac-section">
+      <section className="ac-section" id="evidence-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Evidence</h2>
         <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
           Prototype storage only — images are held as in-browser object references for this session and are not persisted to

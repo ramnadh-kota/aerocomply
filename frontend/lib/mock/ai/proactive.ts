@@ -50,6 +50,23 @@ export interface ProactiveAlert {
 
 const SEVERITY_RANK: Record<AlertSeverity, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
+// Role-relevance ordering ONLY — mirrors the "prototype simulation, not a
+// security boundary" framing already documented on lib/mock/roles.ts and
+// lib/role-sim/RoleSimContext.tsx. This never removes or hides an alert a
+// role "shouldn't" see (there is no real access control in this prototype);
+// it only nudges alert categories a given role is most likely to act on
+// toward the top of the list, as a secondary sort key after severity.
+const ROLE_ALERT_CATEGORY_PRIORITY: Record<string, AlertCategory[]> = {
+  "role-technician": ["EVIDENCE", "AUTHORIZATION", "RII", "TAT"],
+  "role-maintenance-planner": ["TAT", "PART", "AUTHORIZATION", "RELEASE"],
+  "role-maintenance-manager": ["AOG", "TAT", "RELEASE", "AUTHORIZATION"],
+  "role-inspector": ["RII", "EVIDENCE", "AUTHORIZATION"],
+  "role-compliance-manager": ["REGULATORY", "EVIDENCE", "RII"],
+  "role-reliability-engineer": ["AOG", "TAT", "PART"],
+  "role-auditor": ["REGULATORY", "AUTHORIZATION", "EVIDENCE"],
+  "role-executive": ["AOG", "TAT", "RELEASE", "REGULATORY"],
+};
+
 function daysBetween(a: string, b: string): number {
   return Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
 }
@@ -66,8 +83,14 @@ const REGULATORY_EFFECTIVE_SOON_WINDOW_DAYS = 14;
  * list of proactive alerts. Every alert is directly traceable to a real
  * condition returned by an existing engine — nothing here is randomly
  * generated or fabricated.
+ *
+ * @param roleId Optional simulated role id (from useRoleSim()/lib/mock/roles.ts)
+ * used ONLY to reorder alerts whose category is most relevant to that role
+ * toward the top, within the same severity band. Relevance-only — see
+ * ROLE_ALERT_CATEGORY_PRIORITY above. No alert is ever hidden or added based
+ * on role; the full fleet-wide alert set is always returned.
  */
-export function getProactiveAlerts(): ProactiveAlert[] {
+export function getProactiveAlerts(roleId?: string): ProactiveAlert[] {
   const alerts: ProactiveAlert[] = [];
 
   // --- AOG (Control Tower fleet AOG rows → getAogRecoveryAnalysis) ---
@@ -261,7 +284,17 @@ export function getProactiveAlerts(): ProactiveAlert[] {
   // sort by severity, most severe first.
   const seen = new Set<string>();
   const deduped = alerts.filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));
-  deduped.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  const categoryPriority = roleId ? ROLE_ALERT_CATEGORY_PRIORITY[roleId] : undefined;
+  const categoryRank = (category: AlertCategory): number => {
+    if (!categoryPriority) return 0;
+    const idx = categoryPriority.indexOf(category);
+    return idx === -1 ? categoryPriority.length : idx;
+  };
+  deduped.sort((a, b) => {
+    const severityDelta = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+    if (severityDelta !== 0) return severityDelta;
+    return categoryRank(a.category) - categoryRank(b.category);
+  });
   return deduped;
 }
 
@@ -284,8 +317,8 @@ export interface DailyBrief {
  * Reuses getProactiveAlerts() for priorities so the brief and the
  * notification panel can never disagree about what's urgent.
  */
-export function getDailyBrief(topN = 5): DailyBrief {
-  const alerts = getProactiveAlerts();
+export function getDailyBrief(topN = 5, roleId?: string): DailyBrief {
+  const alerts = getProactiveAlerts(roleId);
   const fleet = getControlTowerFleet();
   const aogCount = fleet.filter((r) => r.operationalStatus === "AOG").length;
   const maintenanceDueCount = fleet.filter((r) => r.operationalStatus === "UNDER_MAINTENANCE").length;

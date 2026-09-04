@@ -127,6 +127,15 @@ export interface AiQuestionContext {
    * middle turn never repeats "N412MX" itself. Optional; when absent,
    * resolution falls back to previousQuestion alone. */
   recentQuestions?: string[];
+  /** Optional simulated role id (from useRoleSim()/lib/mock/roles.ts), e.g.
+   * "role-technician". Relevance-only, mirroring the "prototype, not a
+   * security boundary" framing in lib/mock/roles.ts: this never changes
+   * WHICH facts Lisa can see or answer, and no branch below reads it to
+   * gate a response. It exists so a caller (AIConsole) can tailor which
+   * suggested questions it shows via getSuggestedQuestionsForRole() —
+   * kept on this context type so the "current role" travels with the rest
+   * of the calling page's context rather than needing a second prop. */
+  role?: string;
 }
 
 export interface AiButton {
@@ -421,6 +430,38 @@ export const CATEGORIZED_QUESTIONS: QuestionCategory[] = [
 ];
 
 export const SUGGESTED_QUESTIONS = CATEGORIZED_QUESTIONS.flatMap((c) => c.questions);
+
+// Role-relevance ordering ONLY for the "Suggested Questions" panel — mirrors
+// the same non-enforcing framing as lib/mock/roles.ts and
+// ROLE_ALERT_CATEGORY_PRIORITY in proactive.ts. This never invents a new
+// question or removes a category any role could ask; it only reorders the
+// existing CATEGORIZED_QUESTIONS categories (defined above, and already
+// answerable by this engine) so the categories a given role is most likely
+// to need come first. Keyed by the role ids in lib/role-sim/RoleSimContext.
+const ROLE_QUESTION_CATEGORY_PRIORITY: Record<string, string[]> = {
+  "role-technician": ["Maintenance Execution", "Safety & Release", "Operational Copilot", "Maintenance"],
+  "role-maintenance-planner": ["Maintenance Planning", "Material Readiness", "Maintenance Control Tower", "Maintenance"],
+  "role-maintenance-manager": ["Maintenance Control Center", "Maintenance Control Tower", "AOG Recovery", "Fleet"],
+  "role-inspector": ["Safety & Release", "Inspection", "Maintenance Traceability", "Compliance"],
+  "role-compliance-manager": ["Compliance", "Safety & Release", "Fleet"],
+  "role-reliability-engineer": ["Prescriptive", "Fleet", "Maintenance"],
+  "role-auditor": ["Maintenance Traceability", "Compliance", "Safety & Release"],
+  "role-executive": ["Fleet", "Finance", "Compliance", "Maintenance Control Tower"],
+};
+
+/** Returns CATEGORIZED_QUESTIONS reordered so the categories most relevant
+ * to `roleId` appear first — every category is still present, nothing is
+ * hidden. Falls back to the original order when the role is unknown/absent
+ * (org-admin, read-only, or no role-sim context). */
+export function getSuggestedQuestionsForRole(roleId?: string): QuestionCategory[] {
+  const priority = roleId ? ROLE_QUESTION_CATEGORY_PRIORITY[roleId] : undefined;
+  if (!priority) return CATEGORIZED_QUESTIONS;
+  const rank = (category: string): number => {
+    const idx = priority.indexOf(category);
+    return idx === -1 ? priority.length : idx;
+  };
+  return [...CATEGORIZED_QUESTIONS].sort((a, b) => rank(a.category) - rank(b.category));
+}
 
 let counter = 0;
 // Lisa UX redesign — nextId includes a per-module-load random prefix, not

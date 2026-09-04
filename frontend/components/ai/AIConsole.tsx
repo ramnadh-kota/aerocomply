@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
-import { answerQuestion, CATEGORIZED_QUESTIONS, type AiResponse } from "@/lib/mock/ai/engine";
+import { answerQuestion, getSuggestedQuestionsForRole, type AiResponse } from "@/lib/mock/ai/engine";
 import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics } from "@/lib/mock/ai/analytics";
 import { getProactiveAlerts } from "@/lib/mock/ai/proactive";
 import { AIResponseView } from "@/components/ai/AIResponseView";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { useRoleSim } from "@/lib/role-sim/RoleSimContext";
 import { AI_NAME, AI_DESCRIPTION, COMPANY_NAME } from "@/lib/brand";
 
 interface Turn {
@@ -40,17 +41,24 @@ export function AIConsole({
   const [draft, setDraft] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const { addAuditEvent, auditLog } = useMroState();
+  // "View as Role" prototype simulation (see lib/role-sim/RoleSimContext) —
+  // used here for relevance/framing only (suggested-question ordering,
+  // proactive-alert ordering), never to gate which facts Lisa can answer.
+  const { roleId } = useRoleSim();
   const askedInitial = useRef(false);
   // Reuses the SAME proactive engine as the Topbar notification panel and
-  // the dashboard's Daily Brief — never a second alert calculation.
-  const proactiveAlerts = useMemo(() => getProactiveAlerts().slice(0, 3), []);
+  // the dashboard's Daily Brief — never a second alert calculation. Role is
+  // passed through only to reorder by relevance; the full alert set is
+  // still what's fetched (see getProactiveAlerts() role-relevance comment).
+  const proactiveAlerts = useMemo(() => getProactiveAlerts(roleId).slice(0, 3), [roleId]);
+  const suggestedQuestionCategories = useMemo(() => getSuggestedQuestionsForRole(roleId), [roleId]);
 
   function ask(question: string) {
     const trimmed = question.trim();
     if (!trimmed) return;
     const previousQuestion = turns.length > 0 ? turns[turns.length - 1].question : undefined;
     const recentQuestions = turns.slice(-5).map((t) => t.question);
-    const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId, auditLog, previousQuestion, recentQuestions });
+    const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId, auditLog, previousQuestion, recentQuestions, role: roleId });
     const turn: Turn = { id: response.id, question: trimmed, response, askedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
     setTurns((prev) => [...prev, turn]);
     setActiveId(turn.id);
@@ -170,7 +178,7 @@ export function AIConsole({
           <div className="ac-card" style={{ padding: 12 }}>
             <p className="ac-eyebrow" style={{ marginBottom: 8 }}>Suggested Questions</p>
             <div style={{ maxHeight: 420, overflowY: "auto" }}>
-              {CATEGORIZED_QUESTIONS.map((cat) => (
+              {suggestedQuestionCategories.map((cat) => (
                 <div key={cat.category} style={{ marginBottom: 10 }}>
                   <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 4px", fontWeight: 600 }}>{cat.category}</p>
                   <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
