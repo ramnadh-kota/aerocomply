@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
-import { getAogRecoveryAnalysis } from "@/lib/mock/ai/analytics";
+import { getAircraftRecoveryPlan } from "@/lib/mock/ai/analytics";
 import { workOrderRepository } from "@/lib/domain/repositories";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getCurrentUser } from "@/lib/domain/currentUser";
@@ -27,7 +27,7 @@ export default function AogRecoveryPage() {
   const current = getCurrentUser();
   void version;
 
-  const analysis = getAogRecoveryAnalysis(aircraftId);
+  const analysis = getAircraftRecoveryPlan(aircraftId);
 
   if (!analysis) {
     return (
@@ -88,6 +88,45 @@ export default function AogRecoveryPage() {
               <p className="ac-eyebrow" style={{ marginBottom: 6 }}>Data Completeness: {analysis.dataCompleteness}</p>
             </div>
           </section>
+
+          {analysis.workOrderDetails.length > 0 && (
+            <section className="ac-section">
+              <h2 className="ac-h2" style={{ marginBottom: 10 }}>Recovery Path — Work Order Readiness</h2>
+              <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+                Release readiness, technician authorization, and independent-inspection status for each critical work order —
+                the same canonical engines used on the Task Card and Release Readiness dashboard, read together here to show
+                what stands between this aircraft and recovery.
+              </p>
+              <div className="ac-card" style={{ padding: 0, overflowX: "auto" }}>
+                <table className="ac-table">
+                  <thead><tr><th>Work Order</th><th>Release Readiness</th><th>Authorized Technicians</th><th>Inspection (RII)</th></tr></thead>
+                  <tbody>
+                    {analysis.workOrderDetails.map((d) => (
+                      <tr key={d.workOrderId}>
+                        <td><Link href={`/maintenance/planning/${d.workOrderId}`} className="ac-mono">{d.workOrderNumber}</Link></td>
+                        <td>
+                          <StatusBadge
+                            status={d.releaseReadiness.status === "READY" ? "COMPLIANT" : d.releaseReadiness.status === "BLOCKED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
+                            label={d.releaseReadiness.status}
+                          />
+                          {d.releaseReadiness.blockers.length > 0 && (
+                            <span className="ac-text-sm ac-text-muted"> — {d.releaseReadiness.blockers.length} blocker{d.releaseReadiness.blockers.length === 1 ? "" : "s"}</span>
+                          )}
+                        </td>
+                        <td className="ac-text-sm">{d.authorizedTechnicianCount === 0 ? <span style={{ color: "var(--ac-status-non-compliant)" }}>None authorized</span> : d.authorizedTechnicianCount}</td>
+                        <td>
+                          <StatusBadge
+                            status={d.inspection === "NOT_REQUIRED" || d.inspection === "READY" || d.inspection === "COMPLETED" ? "COMPLIANT" : d.inspection === "BLOCKED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
+                            label={d.inspection.replace(/_/g, " ")}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <div className="ac-grid-2 ac-section">
             <section>
