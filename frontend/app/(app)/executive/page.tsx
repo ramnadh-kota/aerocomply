@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { Timeline } from "@/components/timeline/Timeline";
-import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics, getTechnicianWorkload, getPartsAtRisk, getAircraftAnalytics, requirementLabel, getControlTowerSummary, getMaintenanceControlCenterSummary, getReleaseQueue, getAutomationQueue, getQuarantinedParts, getFleetMaintenanceDueSummary } from "@/lib/mock/ai/analytics";
+import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics, getTechnicianWorkload, getPartsAtRisk, getAircraftAnalytics, requirementLabel, getControlTowerSummary, getMaintenanceControlCenterSummary, getReleaseQueue, getAutomationQueue, getQuarantinedParts, getFleetMaintenanceDueSummary, getFleetTatStatus, getEvidenceBlockedWorkOrders, getEvidencePendingReview, getMaterialReadinessSummary } from "@/lib/mock/ai/analytics";
+import { getDailyBrief, getProactiveAlerts } from "@/lib/mock/ai/proactive";
 import { upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getRequirementById } from "@/lib/mock/regulations";
@@ -10,7 +11,7 @@ import { workOrders, workOrdersForAircraft, isOverdue } from "@/lib/mock/workOrd
 import { defects, defectsForAircraft } from "@/lib/mock/defects";
 import { assessmentsForAircraft } from "@/lib/mock/assessments";
 import { auditEvents } from "@/lib/mock/audit";
-import { PLATFORM_AI_NAME } from "@/lib/brand";
+import { PLATFORM_AI_NAME, AI_NAME } from "@/lib/brand";
 
 const SUGGESTED_QUESTIONS = [
   "What is putting the fleet at risk?",
@@ -39,6 +40,24 @@ export default function ExecutiveControlCenterPage() {
   const regulatoryDeadlines = upcomingMaintenanceEvents(8).filter((e) => e.relatedRequirementId);
   const rankedAircraft = [...fleet.aircraftAtRisk].sort((a, b) => (a.risk === b.risk ? 0 : a.risk === "HIGH" ? -1 : 1));
   const recentAudit = auditEvents.slice(0, 8);
+
+  // M-executive-enhance — command-dashboard KPIs. Every number reuses an
+  // existing engine (getFleetTatStatus, getEvidenceBlockedWorkOrders/
+  // getEvidencePendingReview, getMaterialReadinessSummary, and the
+  // proactive layer's getProactiveAlerts/getDailyBrief) — never a second
+  // calculation of TAT, evidence, material, or vendor risk.
+  const tatStatuses = getFleetTatStatus();
+  const tatAtRisk = tatStatuses.filter((t) => t.assessment.status === "AT_RISK").length;
+  const tatDelayed = tatStatuses.filter((t) => t.assessment.status === "DELAYED").length;
+  const evidenceBlocked = getEvidenceBlockedWorkOrders();
+  const evidencePendingReview = getEvidencePendingReview();
+  const materialReadiness = getMaterialReadinessSummary();
+  const proactiveAlerts = getProactiveAlerts();
+  const vendorRiskAlerts = proactiveAlerts.filter((a) => a.category === "VENDOR");
+  const criticalHighWorkOrders = workOrders.filter(
+    (w) => (w.priority === "CRITICAL" || w.priority === "HIGH") && w.status !== "COMPLETED" && w.status !== "CANCELLED"
+  );
+  const dailyBrief = getDailyBrief(5);
 
   const bottlenecks = [
     { stage: "Waiting on Parts", count: maintenance.waitingParts, href: "/maintenance/parts" },
@@ -129,6 +148,64 @@ export default function ExecutiveControlCenterPage() {
             <p className="ac-kpi-label">Aircraft at Risk</p>
             <p className="ac-kpi-value">{fleet.aircraftAtRisk.length}</p>
           </Link>
+          <Link href="/maintenance/control-tower" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">TAT Risk (At Risk / Delayed)</p>
+            <p className="ac-kpi-value">{tatAtRisk} / {tatDelayed}</p>
+          </Link>
+          <Link href="/maintenance/planning" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Release Readiness Queue</p>
+            <p className="ac-kpi-value">{getReleaseQueue().length}</p>
+          </Link>
+          <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Critical/High Work Orders</p>
+            <p className="ac-kpi-value">{criticalHighWorkOrders.length}</p>
+          </Link>
+          <Link href="/maintenance/material-readiness" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Material Risk</p>
+            <p className="ac-kpi-value">{materialReadiness.materialShortages}</p>
+          </Link>
+          <Link href="/procurement/vendors" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Vendor Risk Alerts</p>
+            <p className="ac-kpi-value">{vendorRiskAlerts.length}</p>
+          </Link>
+          <Link href="/compliance" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Compliance (Non-Compliant / Review)</p>
+            <p className="ac-kpi-value">{compliance.nonCompliant} / {compliance.reviewRequired}</p>
+          </Link>
+          <Link href="/regulations" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Recent Regulatory Updates</p>
+            <p className="ac-kpi-value">{dailyBrief.compliance.recentRegulatoryCount}</p>
+          </Link>
+          <Link href="/evidence" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Evidence Backlog (Blocked / Pending Review)</p>
+            <p className="ac-kpi-value">{evidenceBlocked.length} / {evidencePendingReview.length}</p>
+          </Link>
+        </div>
+      </section>
+
+      <section className="ac-section">
+        <div className="ac-card" style={{ borderStyle: "dashed" }}>
+          <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+            <p className="ac-eyebrow" style={{ margin: 0 }}>{AI_NAME} Recommends</p>
+            <span className="ac-text-sm ac-text-muted">As of {dailyBrief.generatedAt}</span>
+          </div>
+          {dailyBrief.topPriorities.length === 0 ? (
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No urgent action indicated by current data.</p>
+          ) : (
+            <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+              {dailyBrief.topPriorities.map((a) => (
+                <li key={a.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--ac-border-subtle)" }}>
+                  <Link href={a.href} className="ac-flex ac-items-center ac-gap-2" style={{ fontSize: 13 }}>
+                    <StatusBadge status={a.severity === "CRITICAL" || a.severity === "HIGH" ? "NON_COMPLIANT" : "REVIEW_REQUIRED"} label={a.severity} />
+                    <span style={{ fontWeight: 600 }}>{a.title}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="ac-text-sm" style={{ margin: "8px 0 0", fontWeight: 600 }}>
+            AI-assisted analysis — non-authoritative. Verify against source records before operational decisions.
+          </p>
         </div>
       </section>
 
