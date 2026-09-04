@@ -543,6 +543,24 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       };
     }
     case "OVERDUE_MAINTENANCE": {
+      // A work-order-scoped "is WO-1054 late?" is a question about that
+      // specific work order's own due date, not the fleet's maintenance-due
+      // program items — answer it with the canonical TAT engine (which
+      // already reads the work order's real due date) rather than falling
+      // through to an unrelated fleet-wide maintenance-due list.
+      if (wo && !ac) {
+        const tat = getWorkOrderTatStatus(wo.id);
+        if (tat) {
+          return {
+            id: nextId(),
+            question,
+            headline: `${wo.workOrderNumber} — ${tat.status === "DELAYED" ? "late" : tat.status.replace(/_/g, " ").toLowerCase()}`,
+            narrative: [`FACT: ${tat.reason}`, TRUST_FOOTER],
+            buttons: [{ label: "View Work Order", href: `/maintenance/planning/${wo.id}` }],
+            understood: understood(top.intent, scope, entities),
+          };
+        }
+      }
       const items = ac
         ? getMaintenanceDueForAircraft(ac.id).filter((i) => i.dueStatus === "OVERDUE").map((i) => `${acReg}: ${i.description} — ${i.remaining}`)
         : getFleetMaintenanceDue().flatMap((row) => row.items.filter((i) => i.dueStatus === "OVERDUE").map((i) => `${row.registration}: ${i.description} — ${i.remaining}`));
