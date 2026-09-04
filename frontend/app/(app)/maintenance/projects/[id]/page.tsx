@@ -90,7 +90,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
 
       {scheduleRisk && (
         <section className="ac-section">
-          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "rgba(154,107,255,0.06)" }}>
+          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "var(--ac-status-insufficient-bg)" }}>
             <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>AI Maintenance Insight — Prototype</p>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
               {project.title} is currently {Math.max(1, 100 - project.progressPercent > 30 ? 8 : 4)}% behind the planned schedule.

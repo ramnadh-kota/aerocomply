@@ -24,7 +24,7 @@ export default function RequirementDetailPage({ params }: { params: { id: string
     <div>
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Regulations", href: "/regulations" }, { label: requirement.requirementNumber }]} />
 
-      <div className="ac-card" style={{ marginBottom: "var(--ac-space-4)", borderColor: "var(--ac-status-review)", background: "rgba(232,163,61,0.06)" }}>
+      <div className="ac-card" style={{ marginBottom: "var(--ac-space-4)", borderColor: "var(--ac-status-review)", background: "var(--ac-status-review-bg)" }}>
         <p className="ac-text-sm" style={{ margin: 0 }}>
           ⚠ Fictional demo record. Not a real, current, or legally binding requirement.
         </p>

@@ -133,7 +133,7 @@ export default function ExecutiveControlCenterPage() {
       </section>
 
       <section className="ac-section">
-        <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "rgba(154,107,255,0.06)" }}>
+        <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "var(--ac-status-insufficient-bg)" }}>
           <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>Executive Risk Summary — Prototype</p>
           <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13 }}>
             {riskSummaryPoints.map((p, idx) => <li key={idx}>{p}</li>)}

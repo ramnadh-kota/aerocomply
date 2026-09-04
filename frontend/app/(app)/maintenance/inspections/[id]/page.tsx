@@ -201,7 +201,7 @@ export default function InspectionDetailPage({ params }: { params: { id: string 
       {requiredTools.length > 0 && (
         <section className="ac-section">
           <h2 className="ac-h2" style={{ marginBottom: 10 }}>Tool &amp; Calibration Status</h2>
-          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "rgba(154,107,255,0.06)" }}>
+          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "var(--ac-status-insufficient-bg)" }}>
             <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13 }}>
               {requiredTools.map((tool) => (
                 <li key={tool} className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 4 }}>

@@ -116,7 +116,7 @@ export default function TechnicianWorkbenchPage({ params }: { params: { id: stri
 
       {(overdue.length > 0 || priorityTasks.some((t) => t.status === "WAITING_PARTS")) && (
         <section className="ac-section">
-          <div className="ac-card" style={{ borderColor: "var(--ac-status-review)", background: "rgba(232,163,61,0.06)" }}>
+          <div className="ac-card" style={{ borderColor: "var(--ac-status-review)", background: "var(--ac-status-review-bg)" }}>
             <p className="ac-eyebrow" style={{ color: "var(--ac-status-review)", marginBottom: 6 }}>Compliance Warnings — Prototype</p>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
               {overdue.map((t) => <li key={t.id}>{t.workOrderNumber} is overdue (due {t.dueDate}).</li>)}

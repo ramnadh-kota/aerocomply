@@ -78,7 +78,7 @@ export function InspectorReviewPanel({ workOrderId, inspectorId, blockPassReason
           </p>
 
           {sameActor && (
-            <div className="ac-card" style={{ marginBottom: 10, borderColor: "var(--ac-status-non-compliant)", background: "rgba(229,72,77,0.06)" }}>
+            <div className="ac-card" style={{ marginBottom: 10, borderColor: "var(--ac-status-non-compliant)", background: "var(--ac-status-non-compliant-bg)" }}>
               <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-non-compliant)" }}>
                 Separation-of-duties warning: the technician sign-off and the assigned inspector are the same person. Route this to a different inspector before recording a decision.
               </p>
@@ -86,7 +86,7 @@ export function InspectorReviewPanel({ workOrderId, inspectorId, blockPassReason
           )}
 
           {passBlocked && (
-            <div className="ac-card" style={{ marginBottom: 10, borderColor: "var(--ac-status-non-compliant)", background: "rgba(229,72,77,0.06)" }}>
+            <div className="ac-card" style={{ marginBottom: 10, borderColor: "var(--ac-status-non-compliant)", background: "var(--ac-status-non-compliant-bg)" }}>
               <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-non-compliant)" }}>
                 Pass is blocked:
               </p>

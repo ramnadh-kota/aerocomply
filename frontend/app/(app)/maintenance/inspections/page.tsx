@@ -235,7 +235,7 @@ export default function InspectionQueuePage() {
 
       {triaged.length > 0 && (
         <section className="ac-section">
-          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "rgba(154,107,255,0.06)" }}>
+          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "var(--ac-status-insufficient-bg)" }}>
             <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>
               Prototype Triage Ranking — not a certified safety decision
             </p>

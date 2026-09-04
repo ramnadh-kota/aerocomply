@@ -98,7 +98,7 @@ export default function WorkOrderDetailPage({ params }: { params: { id: string }
       )}
 
       {nextAction && (
-        <div className="ac-card ac-section" style={{ borderColor: "var(--ac-status-review)", background: "rgba(232,163,61,0.06)" }}>
+        <div className="ac-card ac-section" style={{ borderColor: "var(--ac-status-review)", background: "var(--ac-status-review-bg)" }}>
           <p className="ac-eyebrow" style={{ color: "var(--ac-status-review)", marginBottom: 4 }}>Next Action</p>
           <p className="ac-text-sm" style={{ margin: 0, fontWeight: 600 }}>{nextAction}</p>
         </div>

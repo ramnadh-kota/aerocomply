@@ -163,7 +163,7 @@ export default function DashboardPage() {
           <h2 className="ac-h2">AI &amp; Operations Intelligence</h2>
           <span className="ac-text-sm ac-text-muted">AI Prototype · Non-authoritative</span>
         </div>
-        <div className="ac-grid-4" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--ac-space-4)" }}>
+        <div className="ac-grid-4">
           <div className="ac-card">
             <p className="ac-kpi-label">Fleet Risk</p>
             <p className="ac-kpi-value">{fleetAnalytics.aircraftAtRisk.length} / {fleetAnalytics.fleetSize}</p>
@@ -245,7 +245,7 @@ export default function DashboardPage() {
 
       {awaitingReviewWOs.length > 0 && (
         <section className="ac-section">
-          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "rgba(154,107,255,0.06)" }}>
+          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "var(--ac-status-insufficient-bg)" }}>
             <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>AI Maintenance Insight — Prototype</p>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
               {projects[0]?.title ?? "The active check"} is currently 8% behind the planned schedule.

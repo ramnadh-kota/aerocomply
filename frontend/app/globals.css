@@ -114,6 +114,10 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  /* Safety net: no interior element should ever be able to force the whole
+     page to scroll sideways — a scrollable container (e.g. .ac-topbar,
+     DataTable's wrapper) should absorb overflow instead. */
+  overflow-x: hidden;
 }
 
 a {
@@ -313,6 +317,16 @@ button.ac-menu-toggle {
   .ac-topbar {
     padding: 0 var(--ac-space-4);
     gap: var(--ac-space-2);
+    /* The topbar packs several controls (search, role/org selectors, quick
+       actions, avatar) that don't have room to wrap on narrow viewports.
+       Let the bar itself scroll horizontally rather than forcing the whole
+       page to — matches the pattern used for tables (DataTable's wrapper). */
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .ac-topbar > * {
+    flex-shrink: 0;
   }
 }
 
@@ -691,10 +705,17 @@ button.ac-menu-toggle {
 .ac-w-full { width: 100%; }
 .ac-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ac-space-6); }
 .ac-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--ac-space-4); }
+.ac-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--ac-space-4); }
 
 @media (max-width: 1024px) {
   .ac-grid-2, .ac-grid-3 { grid-template-columns: 1fr; }
+  .ac-grid-4 { grid-template-columns: 1fr 1fr; }
   .ac-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .ac-grid-4 { grid-template-columns: 1fr; }
+  .ac-kpi-grid { grid-template-columns: 1fr; }
 }
 
 /* Lisa UX redesign — split copilot layout (question/suggestions column +

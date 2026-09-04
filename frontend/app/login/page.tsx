@@ -34,12 +34,10 @@ export default function LoginPage() {
       <Logo height={48} />
       <form
         onSubmit={handleSubmit}
+        className="ac-card"
         style={{
           width: 360,
           padding: 32,
-          borderRadius: 12,
-          background: "#131c2e",
-          border: "1px solid #23324a",
         }}
       >
         <h2 style={{ marginTop: 0 }}>Sign in</h2>
@@ -67,7 +65,7 @@ export default function LoginPage() {
         </label>
 
         {error && (
-          <p role="alert" style={{ color: "#ff6b6b", fontSize: 13, marginBottom: 12 }}>
+          <p role="alert" style={{ color: "var(--ac-status-non-compliant)", fontSize: 13, marginBottom: 12 }}>
             {error}
           </p>
         )}
@@ -83,19 +81,19 @@ export default function LoginPage() {
 const inputStyle: CSSProperties = {
   width: "100%",
   padding: "10px 12px",
-  borderRadius: 8,
-  border: "1px solid #2c3e5a",
-  background: "#0b1220",
-  color: "#e6ebf2",
+  borderRadius: "var(--ac-radius-md)",
+  border: "1px solid var(--ac-border)",
+  background: "var(--ac-bg)",
+  color: "var(--ac-text-primary)",
   boxSizing: "border-box",
 };
 
 const buttonStyle: CSSProperties = {
   width: "100%",
   padding: "10px 12px",
-  borderRadius: 8,
+  borderRadius: "var(--ac-radius-md)",
   border: "none",
-  background: "#2f6fed",
+  background: "var(--ac-accent)",
   color: "white",
   fontWeight: 600,
   cursor: "pointer",

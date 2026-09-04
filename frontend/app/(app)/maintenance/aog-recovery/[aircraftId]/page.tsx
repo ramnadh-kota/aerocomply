@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
-import { getAircraftRecoveryPlan, getWorkOrderTatStatus, type TatStatus } from "@/lib/mock/ai/analytics";
+import { getAircraftRecoveryPlan, getWorkOrderTatStatus, type TatStatus, type AogBlocker, type AogBlockerType } from "@/lib/mock/ai/analytics";
 import { workOrderRepository } from "@/lib/domain/repositories";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getCurrentUser } from "@/lib/domain/currentUser";
@@ -26,6 +26,46 @@ const TAT_BADGE: Record<TatStatus, { status: Parameters<typeof StatusBadge>[0]["
   UNKNOWN: { status: "INSUFFICIENT_DATA", label: "UNKNOWN" },
 };
 
+// Owner/next-action lookups below are a transparent derivation, not
+// fabricated data: they mirror — verbatim — the responsibleRole/action text
+// getAogRecoveryAnalysis already assigns per AogBlockerType when it builds
+// recoveryOptions (lib/mock/ai/analytics.ts). No new business logic, just a
+// per-blocker-row view of the same mapping so the RECOVERY PLAN table below
+// can show an owner/next-action next to each individual blocker rather than
+// only the de-duplicated action list.
+const OWNER_BY_BLOCKER_TYPE: Record<AogBlockerType, string> = {
+  MATERIAL: "Procurement",
+  PROCUREMENT: "Procurement",
+  TECHNICIAN: "Maintenance Manager",
+  INSPECTION: "Maintenance Manager",
+  EVIDENCE: "Maintenance Manager",
+  DEFERRED: "Maintenance Manager",
+  REGULATORY: "Compliance",
+  SAFETY: "Maintenance Manager",
+  EXECUTION: "Maintenance Manager",
+  UNKNOWN: "Maintenance Manager",
+};
+
+const NEXT_ACTION_BY_BLOCKER_TYPE: Record<AogBlockerType, string> = {
+  MATERIAL: "Investigate approved vendor sourcing (Procurement)",
+  PROCUREMENT: "Investigate approved vendor sourcing (Procurement)",
+  TECHNICIAN: "Assign a qualified technician",
+  INSPECTION: "Assign an independent inspector",
+  EVIDENCE: "Resolve missing evidence/reference before proceeding",
+  DEFERRED: "Review deferred item / MEL restriction",
+  REGULATORY: "Resolve non-compliant/review-required assessment (Compliance)",
+  SAFETY: "Escalate blocker to maintenance manager",
+  EXECUTION: "Escalate blocker to maintenance manager",
+  UNKNOWN: "Escalate blocker to maintenance manager",
+};
+
+type StepStatus = "DONE" | "BLOCKED" | "PENDING";
+const STEP_BADGE: Record<StepStatus, { status: Parameters<typeof StatusBadge>[0]["status"]; label: string }> = {
+  DONE: { status: "COMPLIANT", label: "DONE" },
+  BLOCKED: { status: "NON_COMPLIANT", label: "BLOCKED" },
+  PENDING: { status: "INSUFFICIENT_DATA", label: "PENDING" },
+};
+
 export default function AogRecoveryPage() {
   const params = useParams<{ aircraftId: string }>();
   const aircraftId = params.aircraftId;
@@ -44,6 +84,38 @@ export default function AogRecoveryPage() {
       </div>
     );
   }
+
+  const allBlockers: AogBlocker[] = analysis.primaryBlocker ? [analysis.primaryBlocker, ...analysis.secondaryBlockers] : analysis.secondaryBlockers;
+  const hasBlockerType = (types: AogBlockerType[]) => allBlockers.some((b) => types.includes(b.type));
+  const primaryWoDetail = analysis.workOrderDetails[0] ?? null;
+
+  // Step chain — a visual read of the same real fields shown above (blocker
+  // types from getAogRecoveryAnalysis, plus the primary critical work
+  // order's release-readiness/inspection status from getAircraftRecoveryPlan).
+  // No scripted/fake statuses: a step is BLOCKED only when a blocker of that
+  // type is actually present, DONE only when the underlying field says so,
+  // and PENDING when the source data doesn't confirm either way.
+  const materialBlocked = hasBlockerType(["MATERIAL", "PROCUREMENT"]);
+  const technicianBlocked = hasBlockerType(["TECHNICIAN"]);
+  const evidenceBlocked = hasBlockerType(["EVIDENCE"]) || (primaryWoDetail?.releaseReadiness.blockers.some((b) => b.category === "EVIDENCE") ?? false);
+  const inspectionStatus: StepStatus =
+    hasBlockerType(["INSPECTION"]) || primaryWoDetail?.inspection === "BLOCKED"
+      ? "BLOCKED"
+      : primaryWoDetail && ["NOT_REQUIRED", "READY", "COMPLETED"].includes(primaryWoDetail.inspection)
+      ? "DONE"
+      : "PENDING";
+  const releaseStatus: StepStatus =
+    primaryWoDetail?.releaseReadiness.status === "READY" ? "DONE" : primaryWoDetail?.releaseReadiness.status === "BLOCKED" ? "BLOCKED" : "PENDING";
+
+  const stepChain: { label: string; status: StepStatus }[] = [
+    { label: "Work Order", status: analysis.criticalWorkOrders.length > 0 ? "DONE" : "PENDING" },
+    { label: "Missing Part", status: materialBlocked ? "BLOCKED" : "DONE" },
+    { label: "Vendor / Procurement", status: materialBlocked ? "BLOCKED" : "DONE" },
+    { label: "Installation", status: technicianBlocked ? "BLOCKED" : "DONE" },
+    { label: "Evidence", status: evidenceBlocked ? "BLOCKED" : "DONE" },
+    { label: "Inspection / RII", status: inspectionStatus },
+    { label: "Release", status: releaseStatus },
+  ];
 
   const escalatePrimary = () => {
     const wo = analysis.criticalWorkOrders[0];
@@ -76,6 +148,35 @@ export default function AogRecoveryPage() {
         </div>
         <StatusBadge status={analysis.isAog ? "NON_COMPLIANT" : "COMPLIANT"} label={analysis.isAog ? "AOG" : "NOT AOG"} />
       </div>
+
+      {analysis.isAog && (
+        <section className="ac-section">
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Recovery Path — Critical Chain</h2>
+          <div className="ac-card">
+            <div className="ac-flex ac-items-center" style={{ flexWrap: "wrap", gap: 0 }}>
+              {stepChain.map((s, i) => (
+                <div key={s.label} className="ac-flex ac-items-center" style={{ gap: 0 }}>
+                  <div
+                    style={{
+                      border: `1px solid ${s.status === "BLOCKED" ? "var(--ac-status-non-compliant)" : s.status === "DONE" ? "var(--ac-status-compliant)" : "var(--ac-border)"}`,
+                      borderRadius: 8,
+                      padding: "8px 12px",
+                      minWidth: 120,
+                      textAlign: "center",
+                    }}
+                  >
+                    <p className="ac-text-sm" style={{ margin: "0 0 4px", fontWeight: 600 }}>{s.label}</p>
+                    <StatusBadge {...STEP_BADGE[s.status]} />
+                  </div>
+                  {i < stepChain.length - 1 && (
+                    <span className="ac-text-muted" style={{ padding: "0 6px", fontSize: 16 }} aria-hidden>→</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {!analysis.isAog ? (
         <div className="ac-card"><p className="ac-text-sm" style={{ margin: 0 }}>This aircraft is not currently derived as AOG.</p></div>
@@ -148,6 +249,35 @@ export default function AogRecoveryPage() {
             </section>
           )}
 
+          {allBlockers.length > 0 && (
+            <section className="ac-section">
+              <h2 className="ac-h2" style={{ marginBottom: 10 }}>Recovery Plan</h2>
+              <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+                Every row below is a real blocker from the analysis above. Owner and next action are a direct read of the
+                same responsible-role/action mapping getAogRecoveryAnalysis already uses to build the Recovery Options list
+                — shown here per blocker instead of de-duplicated by category.
+              </p>
+              <div className="ac-card" style={{ padding: 0, overflowX: "auto" }}>
+                <table className="ac-table">
+                  <thead><tr><th>Blocker</th><th>Owner</th><th>Dependency</th><th>Next Action</th></tr></thead>
+                  <tbody>
+                    {allBlockers.map((b, i) => (
+                      <tr key={i}>
+                        <td>
+                          <StatusBadge status="NON_COMPLIANT" label={b.type} />
+                          <p className="ac-text-sm" style={{ margin: "4px 0 0" }}>{b.description}</p>
+                        </td>
+                        <td className="ac-text-sm">{OWNER_BY_BLOCKER_TYPE[b.type]}</td>
+                        <td className="ac-text-sm">{b.source}</td>
+                        <td className="ac-text-sm">{NEXT_ACTION_BY_BLOCKER_TYPE[b.type]}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
           <div className="ac-grid-2 ac-section">
             <section>
               <h2 className="ac-h2" style={{ marginBottom: 10 }}>Primary Blocker</h2>
@@ -201,6 +331,9 @@ export default function AogRecoveryPage() {
                   Escalate {analysis.criticalWorkOrders[0].workOrderNumber} to Maintenance Manager
                 </button>
               )}
+              <p style={{ marginTop: 10 }}>
+                <Link href="/maintenance/release-readiness" className="ac-text-sm">View fleet-wide Release Readiness →</Link>
+              </p>
             </section>
           </div>
         </>

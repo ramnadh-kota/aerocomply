@@ -263,7 +263,7 @@ export default function AircraftHealthPage({ params }: { params: { id: string } 
       <section className="ac-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Aircraft Risk Overview</h2>
         <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>Prototype analytics — non-authoritative.</p>
-        <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "rgba(154,107,255,0.06)" }}>
+        <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "var(--ac-status-insufficient-bg)" }}>
           <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 8 }}>
             <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", margin: 0 }}>Overall Risk / Health</p>
             <StatusBadge status={healthTone} label={analytics.complianceRisk} />
