@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
-import { getReleaseQueue, getReleaseReadinessForWorkOrder, type ReleaseReadinessStatus, type ReleaseBlocker } from "@/lib/mock/ai/analytics";
+import { getReleaseQueue, getReleaseReadinessForWorkOrder, getWorkOrderTatStatus, type ReleaseReadinessStatus, type ReleaseBlocker, type TatStatus } from "@/lib/mock/ai/analytics";
 
 // M0.7 — dedicated fleet-wide Release Readiness dashboard. Reuses the M26
 // canonical engine exactly as-is (getReleaseReadinessForWorkOrder) over the
@@ -32,13 +32,20 @@ const CATEGORY_LABEL: Record<ReleaseBlocker["category"], string> = {
   UNKNOWN: "Unknown",
 };
 
+const TAT_BADGE: Record<TatStatus, { status: Parameters<typeof StatusBadge>[0]["status"]; label: string }> = {
+  ON_TRACK: { status: "COMPLIANT", label: "ON TRACK" },
+  AT_RISK: { status: "PENDING", label: "TAT AT RISK" },
+  DELAYED: { status: "NON_COMPLIANT", label: "DELAYED" },
+  UNKNOWN: { status: "INSUFFICIENT_DATA", label: "UNKNOWN" },
+};
+
 type Filter = "ALL" | ReleaseReadinessStatus;
 
 export default function ReleaseReadinessPage() {
   const [filter, setFilter] = useState<Filter>("ALL");
 
   const rows = useMemo(() => {
-    return getReleaseQueue().map((q) => ({ ...q, readiness: getReleaseReadinessForWorkOrder(q.workOrderId) }));
+    return getReleaseQueue().map((q) => ({ ...q, readiness: getReleaseReadinessForWorkOrder(q.workOrderId), tat: getWorkOrderTatStatus(q.workOrderId) }));
   }, []);
 
   const counts = useMemo(
@@ -94,8 +101,15 @@ export default function ReleaseReadinessPage() {
                     <span className="ac-text-sm ac-text-muted">{r.aircraftRegistration}</span>
                     <span className="ac-text-sm ac-text-muted">· {r.executionState.replace(/_/g, " ")}</span>
                   </div>
-                  <StatusBadge status={badge.status} label={badge.label} />
+                  <div className="ac-flex ac-items-center ac-gap-2">
+                    {r.tat && <StatusBadge {...TAT_BADGE[r.tat.status]} />}
+                    <StatusBadge status={badge.status} label={badge.label} />
+                  </div>
                 </div>
+
+                {r.tat && r.tat.status !== "ON_TRACK" && (
+                  <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 8px" }}>{r.tat.reason}</p>
+                )}
 
                 {r.readiness.blockers.length > 0 ? (
                   <div>

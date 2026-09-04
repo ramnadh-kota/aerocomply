@@ -93,6 +93,8 @@ import {
   getFleetUtilization,
   getUtilizationDataQuality,
   getAutomationQueue,
+  getWorkOrderTatStatus,
+  getFleetTatStatus,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -771,6 +773,38 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       const analytics = getProjectAnalytics(project.id);
       if (!analytics) return { id: nextId(), question, headline: `${project.projectNumber} — no data`, narrative: [`UNKNOWN: No analytics available for ${project.projectNumber}.`, TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
       return { id: nextId(), question, headline: `${project.projectNumber} — status`, narrative: [`FACT: ${project.title} is ${analytics.health.replace("_", " ").toLowerCase()}.`, TRUST_FOOTER], kpis: analytics.kpis, understood: understood(top.intent, scope, [project.projectNumber]) };
+    }
+    case "TAT_STATUS": {
+      if (wo) {
+        const tat = getWorkOrderTatStatus(wo.id);
+        if (!tat) return null;
+        return {
+          id: nextId(),
+          question,
+          headline: `${wo.workOrderNumber} — turnaround status: ${tat.status.replace(/_/g, " ")}`,
+          narrative: [
+            `FACT: ${tat.reason}`,
+            ...(tat.contributingBlockers.length > 0 ? tat.contributingBlockers.map((b) => `FACT: ${b}`) : []),
+            tat.status === "DELAYED" || tat.status === "AT_RISK" ? "RECOMMENDATION: Resolve the listed blocker(s) to bring this work order back on track." : "",
+            TRUST_FOOTER,
+          ].filter(Boolean),
+          buttons: [{ label: "View Work Order", href: `/maintenance/planning/${wo.id}` }],
+          understood: understood(top.intent, scope, entities),
+        };
+      }
+      const fleetTat = getFleetTatStatus().filter((r) => !ac || r.aircraftRegistration === acReg);
+      const atRisk = fleetTat.filter((r) => r.assessment.status === "AT_RISK" || r.assessment.status === "DELAYED");
+      if (atRisk.length === 0) {
+        return { id: nextId(), question, headline: "No turnaround-time risk detected", narrative: ["FACT: No open work order" + (ac ? ` for ${acReg}` : "") + " is currently classified AT RISK or DELAYED on turnaround time.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+      }
+      return {
+        id: nextId(),
+        question,
+        headline: `${atRisk.length} work order(s) at TAT risk`,
+        narrative: ["FACT: The following work orders are at turnaround-time risk:", ...atRisk.map((r) => `${r.workOrderNumber} (${r.aircraftRegistration}): ${r.assessment.status.replace(/_/g, " ")} — ${r.assessment.reason}`), TRUST_FOOTER],
+        buttons: [{ label: "View Release Readiness", href: "/maintenance/release-readiness" }],
+        understood: understood(top.intent, scope, entities),
+      };
     }
     default:
       return null;

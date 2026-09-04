@@ -36,7 +36,8 @@ export type LisaIntent =
   | "COMPLIANCE"
   | "AUDIT"
   | "AUTOMATION"
-  | "PROJECT";
+  | "PROJECT"
+  | "TAT_STATUS";
 
 export interface IntentMatch {
   intent: LisaIntent;
@@ -148,6 +149,11 @@ const INTENT_DEFINITIONS: IntentDefinition[] = [
     phrases: ["remaining work", "resource utilization", "project status", "project risk"],
     terms: ["project", "progress"],
   },
+  {
+    intent: "TAT_STATUS",
+    phrases: ["turnaround time", "tat risk", "tat status", "miss tat", "missing tat", "what's delaying", "what is delaying", "taking so long", "taking this long", "at risk of missing"],
+    terms: ["tat", "turnaround", "delaying"],
+  },
 ];
 
 export function normalizeQuestion(question: string): string {
@@ -209,6 +215,7 @@ export const INTENT_LABEL: Record<LisaIntent, string> = {
   AUDIT: "Audit History",
   AUTOMATION: "Automation Queue",
   PROJECT: "Project Status",
+  TAT_STATUS: "Turnaround Time (TAT)",
 };
 
 export const INTENT_DATA_AREAS: Record<LisaIntent, string> = {
@@ -230,4 +237,5 @@ export const INTENT_DATA_AREAS: Record<LisaIntent, string> = {
   AUDIT: "Audit Trail",
   AUTOMATION: "Automation Queue",
   PROJECT: "Project Analytics",
+  TAT_STATUS: "Work Order Due Dates · Release Readiness",
 };

@@ -1636,6 +1636,102 @@ export function getReleaseReadinessForWorkOrder(workOrderId: string): ReleaseRea
   return { status, blockers };
 }
 
+// --- M0.8 TAT (turnaround time) status ---
+// THE canonical TAT classification — deliberately NOT a predictive model.
+// It reads only real fields that already exist elsewhere (the work order's
+// due date vs MOCK_TODAY via the same daysOverdue calculation
+// getWorkOrderPlanningRow already performs, plus the same release-readiness
+// blockers the Task Card and Release Readiness dashboard already show) and
+// classifies the work order's turnaround risk from them. It never invents
+// a duration estimate, a "confidence" score, or a predicted completion
+// time — there is no historical-duration dataset in this prototype to
+// support one, and a fabricated number would be worse than none. Where a
+// work order has no due date, or its release status can't be determined,
+// this returns UNKNOWN rather than guessing.
+export type TatStatus = "ON_TRACK" | "AT_RISK" | "DELAYED" | "UNKNOWN";
+
+export interface TatAssessment {
+  status: TatStatus;
+  dueDate: string;
+  daysOverdue: number | null;
+  daysRemaining: number | null;
+  reason: string;
+  contributingBlockers: string[];
+}
+
+// Due within this many days with open release blockers counts as AT_RISK —
+// matches the DUE_SOON_DAYS window the M17 maintenance-due engine already
+// uses elsewhere in this file, so "at risk" means the same thing across
+// the app rather than a second threshold invented just for TAT.
+const TAT_AT_RISK_WINDOW_DAYS = 3;
+
+export function getWorkOrderTatStatus(workOrderId: string): TatAssessment | null {
+  const w = workOrders.find((x) => x.id === workOrderId);
+  if (!w) return null;
+
+  if (w.status === "COMPLETED" || w.status === "CANCELLED") {
+    return { status: "ON_TRACK", dueDate: w.dueDate, daysOverdue: null, daysRemaining: null, reason: `Work order is ${w.status.toLowerCase()} — turnaround has concluded.`, contributingBlockers: [] };
+  }
+  if (!w.dueDate) {
+    return { status: "UNKNOWN", dueDate: w.dueDate, daysOverdue: null, daysRemaining: null, reason: "No due date is recorded for this work order.", contributingBlockers: [] };
+  }
+
+  const overdueBy = isOverdue(w) ? daysBetween(MOCK_TODAY, w.dueDate) : null;
+  const daysRemaining = overdueBy === null ? daysBetween(w.dueDate, MOCK_TODAY) : null;
+  const readiness = getReleaseReadinessForWorkOrder(workOrderId);
+  const blockerSummaries = readiness.blockers.map((b) => `${b.category}: ${b.explanation}`);
+
+  if (overdueBy !== null) {
+    return {
+      status: "DELAYED",
+      dueDate: w.dueDate,
+      daysOverdue: overdueBy,
+      daysRemaining: null,
+      reason: `Due date has passed by ${overdueBy} day(s).`,
+      contributingBlockers: blockerSummaries,
+    };
+  }
+
+  if (readiness.status === "BLOCKED" && daysRemaining !== null && daysRemaining <= TAT_AT_RISK_WINDOW_DAYS) {
+    return {
+      status: "AT_RISK",
+      dueDate: w.dueDate,
+      daysOverdue: null,
+      daysRemaining,
+      reason: `Due in ${daysRemaining} day(s) with ${readiness.blockers.length} open release blocker(s) unresolved.`,
+      contributingBlockers: blockerSummaries,
+    };
+  }
+
+  if (readiness.status === "UNKNOWN") {
+    return { status: "UNKNOWN", dueDate: w.dueDate, daysOverdue: null, daysRemaining, reason: "Release readiness could not be fully evaluated from current source data.", contributingBlockers: blockerSummaries };
+  }
+
+  return {
+    status: "ON_TRACK",
+    dueDate: w.dueDate,
+    daysOverdue: null,
+    daysRemaining,
+    reason: daysRemaining !== null ? `Due in ${daysRemaining} day(s); no release blocker currently outstanding.` : "No release blocker currently outstanding.",
+    contributingBlockers: blockerSummaries,
+  };
+}
+
+/** Fleet-wide TAT view — every open work order with a due date, classified
+ * by getWorkOrderTatStatus above (the one canonical TAT engine). Reused by
+ * the Release Readiness dashboard's TAT column and by Lisa's TAT answers. */
+export function getFleetTatStatus(): { workOrderId: string; workOrderNumber: string; aircraftRegistration: string; assessment: TatAssessment }[] {
+  return workOrders
+    .filter((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED")
+    .map((w) => {
+      const assessment = getWorkOrderTatStatus(w.id);
+      if (!assessment) return null;
+      const a = getAircraftById(w.aircraftId);
+      return { workOrderId: w.id, workOrderNumber: w.workOrderNumber, aircraftRegistration: a ? currentRegistration(a) : w.aircraftId, assessment };
+    })
+    .filter((r): r is { workOrderId: string; workOrderNumber: string; aircraftRegistration: string; assessment: TatAssessment } => r !== null);
+}
+
 export function getAircraftReleaseReadiness(aircraftId: string): { workOrderId: string; workOrderNumber: string; result: ReleaseReadinessResult }[] {
   return workOrdersForAircraft(aircraftId)
     .filter((w) => w.status !== "COMPLETED" || getExecutionState(w) !== "RELEASED")
