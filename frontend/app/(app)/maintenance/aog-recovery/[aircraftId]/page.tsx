@@ -218,7 +218,19 @@ export default function AogRecoveryPage() {
                           {tat ? (
                             <>
                               <StatusBadge {...TAT_BADGE[tat.status]} />
+                              <p className="ac-text-sm ac-mono ac-text-muted" style={{ margin: "4px 0 0" }}>
+                                {tat.dueDate ? `Due ${tat.dueDate}` : "No due date recorded"}
+                                {tat.daysOverdue !== null && ` · ${tat.daysOverdue}d overdue`}
+                                {tat.daysRemaining !== null && ` · ${tat.daysRemaining}d remaining`}
+                              </p>
                               <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>{tat.reason}</p>
+                              {tat.contributingBlockers.length > 0 && (
+                                <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
+                                  {tat.contributingBlockers.map((b, i) => (
+                                    <li key={i} className="ac-text-sm ac-text-muted">{b}</li>
+                                  ))}
+                                </ul>
+                              )}
                             </>
                           ) : (
                             <StatusBadge status="INSUFFICIENT_DATA" label="UNKNOWN" />

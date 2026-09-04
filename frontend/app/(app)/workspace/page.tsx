@@ -286,17 +286,31 @@ export default function WorkspacePage() {
           <h2 className="ac-h2" style={{ marginBottom: 10 }}>TAT Risk Work Orders</h2>
           <div className="ac-card" style={{ padding: 0, overflowX: "auto" }}>
             <table className="ac-table">
-              <thead><tr><th>WO</th><th>Aircraft</th><th>TAT Status</th><th>Reason</th></tr></thead>
+              <thead><tr><th>WO</th><th>Aircraft</th><th>TAT Status</th><th>Due Date</th><th>Reason / Blockers</th></tr></thead>
               <tbody>
                 {tatRows.map((r) => (
                   <tr key={r.workOrderId}>
                     <td><Link href={`/maintenance/work-orders/${r.workOrderId}`} className="ac-mono">{r.workOrderNumber}</Link></td>
                     <td>{r.aircraftRegistration}</td>
                     <td><StatusBadge status={r.assessment.status === "DELAYED" ? "NON_COMPLIANT" : "REVIEW_REQUIRED"} label={r.assessment.status.replace(/_/g, " ")} /></td>
-                    <td className="ac-text-sm">{r.assessment.reason}</td>
+                    <td className="ac-text-sm ac-mono">
+                      {r.assessment.dueDate || "—"}
+                      {r.assessment.daysOverdue !== null && <span className="ac-text-muted"> ({r.assessment.daysOverdue}d overdue)</span>}
+                      {r.assessment.daysRemaining !== null && <span className="ac-text-muted"> ({r.assessment.daysRemaining}d remaining)</span>}
+                    </td>
+                    <td className="ac-text-sm">
+                      {r.assessment.reason}
+                      {r.assessment.contributingBlockers.length > 0 && (
+                        <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
+                          {r.assessment.contributingBlockers.map((b, i) => (
+                            <li key={i} className="ac-text-muted">{b}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
                   </tr>
                 ))}
-                {tatRows.length === 0 && <tr><td colSpan={4} className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>No open work order is currently AT_RISK or DELAYED on turnaround time.</td></tr>}
+                {tatRows.length === 0 && <tr><td colSpan={5} className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>No open work order is currently AT_RISK or DELAYED on turnaround time.</td></tr>}
               </tbody>
             </table>
           </div>

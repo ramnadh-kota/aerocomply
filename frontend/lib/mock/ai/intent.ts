@@ -96,7 +96,7 @@ const INTENT_DEFINITIONS: IntentDefinition[] = [
   },
   {
     intent: "TECHNICIAN_AUTHORIZATION",
-    phrases: ["who can work", "who is qualified", "who is authorized", "authorized technician", "certified technician"],
+    phrases: ["who can work", "who can perform", "who is qualified", "who is authorized", "authorized technician", "certified technician"],
     terms: ["technician", "mechanic", "qualified", "authorized", "certified"],
   },
   {

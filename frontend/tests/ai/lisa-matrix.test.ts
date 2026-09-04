@@ -48,6 +48,18 @@ describe("Lisa question matrix", () => {
       { q: "Can this aircraft be released?" },
       { q: "Can we skip inspection?" },
       { q: "Can I bypass the evidence gate?" },
+      // extended coverage — M0.6 follow-up spec
+      { q: "What needs attention on VT-XYZ?" },
+      { q: "What is the status of WO-1054?" },
+      { q: "Which work order is most at risk?" },
+      { q: "What is the critical path?" },
+      { q: "What evidence is missing?" },
+      { q: "Who can perform this task?" },
+      { q: "Who can perform this task?", ctx: { previousQuestion: "What is the status of WO-1054?" } },
+      { q: "Which vendor has the shortest lead time?" },
+      { q: "What action is required?" },
+      { q: "Which aircraft are affected?" },
+      { q: "Can we release without RII?" },
     ];
 
     for (const { q, ctx } of questions) {

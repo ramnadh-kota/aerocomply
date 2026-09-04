@@ -1106,6 +1106,10 @@ const AIRWORTHINESS_GUARD_PATTERNS = [
   // optional or fall through to a generic clarification prompt.
   /\b(skip|bypass|override|waive|get around)\b[^.?!]{0,40}\b(inspection|rii|independent inspection|evidence|safety gate|checklist|sign[\s-]?off|signoff)\b/i,
   /\b(inspection|rii|independent inspection|evidence|safety gate|checklist|sign[\s-]?off|signoff)\b[^.?!]{0,40}\b(skip|bypass|override|waive)\b/i,
+  // "Can we release without RII/inspection/evidence/sign-off?" — same ask as
+  // "can we skip inspection?" phrased as a release question with an omitted
+  // safety gate, rather than a skip/bypass verb.
+  /\brelease\b[^.?!]{0,40}\bwithout\b[^.?!]{0,20}\b(rii|inspection|independent inspection|evidence|sign[\s-]?off|signoff)\b/i,
 ];
 
 function answerAirworthinessGuard(question: string): AiResponse | null {
@@ -2388,18 +2392,25 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
   // Lisa can never disagree.
 
   // "What needs attention right now?" / "give me the maintenance control report"
+  // "What needs attention on VT-XYZ?" — an aircraft named in the question
+  // scopes the queue to that aircraft, same as every other scoped branch in
+  // this file, instead of silently answering fleet-wide.
   if (q.includes("needs attention") || q.includes("need attention") || (q.includes("maintenance control") && q.includes("report"))) {
-    const queue = getMaintenanceControlCenter();
+    const attnAc = resolveAircraft(question, context);
+    const attnAcReg = attnAc ? currentRegistration(attnAc) : null;
+    const queue = attnAcReg ? getMaintenanceControlCenter().filter((i) => i.aircraftRegistration === attnAcReg) : getMaintenanceControlCenter();
     const summary = getMaintenanceControlCenterSummary();
     const top = queue.slice(0, 5);
     return {
       id: nextId(),
       question,
-      headline: `${queue.length} item(s) need attention`,
-      narrative: [
-        `${summary.aogAircraft} AOG aircraft, ${summary.criticalWorkOrders} critical work order(s), ${summary.materialShortages} material issue(s), ${summary.criticalDiscrepancies} critical discrepancy(ies).`,
-        TRUST_FOOTER,
-      ],
+      headline: attnAcReg ? `${attnAcReg} — ${queue.length} item(s) need attention` : `${queue.length} item(s) need attention`,
+      narrative: attnAcReg
+        ? [queue.length > 0 ? `FACT: ${queue.length} item(s) need attention for ${attnAcReg}.` : `FACT: no item currently needs attention for ${attnAcReg}.`, TRUST_FOOTER]
+        : [
+            `${summary.aogAircraft} AOG aircraft, ${summary.criticalWorkOrders} critical work order(s), ${summary.materialShortages} material issue(s), ${summary.criticalDiscrepancies} critical discrepancy(ies).`,
+            TRUST_FOOTER,
+          ],
       table: { title: "Top Priority Items", columns: ["Priority", "Source", "Issue"], rows: top.map((i) => [i.priority, i.source, i.issue]) },
       buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
     };
@@ -2759,6 +2770,25 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
       narrative: [outstanding.length > 0 ? `${outstanding.length} maintenance event(s) not yet completed.` : "No outstanding maintenance events.", TRUST_FOOTER],
       table: { title: "Maintenance Events", columns: ["Date", "Type", "Status", "Description"], rows: outstanding.map((e) => [e.date, e.eventType, e.status.replace(/_/g, " "), e.description]) },
       buttons: [{ label: "View Aircraft", href: `/aircraft/${a.id}` }],
+    };
+  }
+
+  // "Which work order is most at risk?" — singles out the single highest-risk
+  // work order, mirroring the "which aircraft is most at risk?" branch above.
+  // Reuses the same risk field getWorkOrderPlanning() already computes for
+  // the Planning view (RiskLevel + riskReasons) — no separate calculation.
+  if (q.includes("work order") && q.includes("most") && q.includes("risk")) {
+    const planning = getWorkOrderPlanning();
+    const ranked = [...planning].sort((a, b) => (a.risk === b.risk ? 0 : a.risk === "HIGH" ? -1 : b.risk === "HIGH" ? 1 : a.risk === "MEDIUM" ? -1 : 1));
+    const top = ranked[0];
+    if (!top) return insufficient(question, ["work order planning data"]);
+    return {
+      id: nextId(),
+      question,
+      headline: `${top.workOrderNumber} — highest risk (${top.risk})`,
+      narrative: [...top.riskReasons, TRUST_FOOTER],
+      table: { title: "Work Order Risk Ranking", columns: ["Work Order", "Aircraft", "Risk"], rows: ranked.slice(0, 8).map((r) => [r.workOrderNumber, r.aircraftRegistration, r.risk]) },
+      buttons: [{ label: "Open Planning View", href: `/maintenance/planning/${top.workOrderId}` }, { label: "Open Control Tower", href: "/maintenance/control-tower" }],
     };
   }
 
