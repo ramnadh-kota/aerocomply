@@ -89,6 +89,16 @@ export function WelcomeTour({ forceOpen, onClose }: WelcomeTourProps = {}) {
     }
   }, [forceOpen]);
 
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") close();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   function close() {
     setOpen(false);
     setStep(0);

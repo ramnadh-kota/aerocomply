@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/status/StatusBadge";
 import { useRoleSim } from "@/lib/role-sim/RoleSimContext";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
 import { getProactiveAlerts, type AlertCategory, type AlertSeverity, type ProactiveAlert } from "@/lib/mock/ai/proactive";
+import { useAlertState } from "@/lib/mock/ai/alertState";
 
 // Same severity→badge mapping as Topbar.tsx (components/layout/Topbar.tsx) —
 // never a second color mapping for alert severity.
@@ -52,13 +53,20 @@ export default function NotificationsPage() {
   // still always shows the FULL fleet-wide alert set, unlike the Topbar's
   // top-8 dropdown.
   const allAlerts = useMemo(() => getProactiveAlerts(roleId), [roleId]);
+  // Acknowledge/resolve is local, demo-only state — see the note on
+  // lib/mock/ai/alertState.ts. It is never synced to a backend; it just
+  // lets this browser remember which alert ids have been handled, matched
+  // by id even though the alert list itself is recomputed every render.
+  const { statusFor, acknowledge, resolve, reopen } = useAlertState();
 
   const [categoryFilter, setCategoryFilter] = useState<AlertCategory | "ALL">("ALL");
   const [severityFilter, setSeverityFilter] = useState<AlertSeverity | "ALL">("ALL");
+  const [hideResolved, setHideResolved] = useState(false);
 
   const filtered = allAlerts.filter((a) => {
     if (categoryFilter !== "ALL" && a.category !== categoryFilter) return false;
     if (severityFilter !== "ALL" && a.severity !== severityFilter) return false;
+    if (hideResolved && statusFor(a.id) === "RESOLVED") return false;
     return true;
   });
 
@@ -113,7 +121,15 @@ export default function NotificationsPage() {
               Clear filters
             </button>
           )}
+          <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm" style={{ marginLeft: "auto" }}>
+            <input type="checkbox" checked={hideResolved} onChange={(e) => setHideResolved(e.target.checked)} />
+            Hide resolved
+          </label>
         </div>
+        <p className="ac-text-sm ac-text-muted" style={{ margin: "8px 0 0" }}>
+          Acknowledge/resolve is local to this browser only (saved in localStorage) — it is not synced to a backend or
+          any other device.
+        </p>
       </div>
 
       {grouped.length === 0 ? (
@@ -130,21 +146,59 @@ export default function NotificationsPage() {
               <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
                 {alerts.map((a, idx) => {
                   const badge = SEVERITY_BADGE[a.severity];
+                  const alertStatus = statusFor(a.id);
+                  const handled = alertStatus !== "OPEN";
                   return (
-                    <li key={a.id} style={{ borderTop: idx > 0 ? "1px solid var(--ac-border)" : undefined }}>
-                      <Link
-                        href={a.href}
-                        className="ac-flex ac-justify-between ac-items-start ac-gap-3"
-                        style={{ padding: "12px 16px", textDecoration: "none", color: "inherit" }}
-                      >
-                        <span>
-                          <span className="ac-text-sm" style={{ fontWeight: 600, display: "block" }}>{a.title}</span>
+                    <li
+                      key={a.id}
+                      style={{
+                        borderTop: idx > 0 ? "1px solid var(--ac-border)" : undefined,
+                        opacity: handled ? 0.55 : 1,
+                        padding: "12px 16px",
+                      }}
+                    >
+                      <div className="ac-flex ac-justify-between ac-items-start ac-gap-3">
+                        <Link href={a.href} style={{ textDecoration: "none", color: "inherit", flex: 1 }}>
+                          <span className="ac-text-sm" style={{ fontWeight: 600, display: "block", textDecoration: alertStatus === "RESOLVED" ? "line-through" : undefined }}>
+                            {a.title}
+                          </span>
                           <span className="ac-text-sm ac-text-muted">{a.message}</span>
-                        </span>
+                        </Link>
                         <span style={{ flexShrink: 0 }}>
                           <StatusBadge status={badge.status} label={badge.label} />
                         </span>
-                      </Link>
+                      </div>
+                      <div className="ac-flex ac-items-center ac-gap-2" style={{ marginTop: 8 }}>
+                        {alertStatus === "OPEN" && (
+                          <>
+                            <button className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => acknowledge(a.id)}>
+                              Acknowledge
+                            </button>
+                            <button className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => resolve(a.id)}>
+                              Resolve
+                            </button>
+                          </>
+                        )}
+                        {alertStatus === "ACKNOWLEDGED" && (
+                          <>
+                            <span className="ac-text-sm ac-text-muted">Acknowledged (local only)</span>
+                            <button className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => resolve(a.id)}>
+                              Resolve
+                            </button>
+                            <button className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => reopen(a.id)}>
+                              Reopen
+                            </button>
+                          </>
+                        )}
+                        {alertStatus === "RESOLVED" && (
+                          <>
+                            <span className="ac-text-sm ac-text-muted">Resolved (local only)</span>
+                            <button className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => reopen(a.id)}>
+                              Reopen
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </li>
                   );
                 })}

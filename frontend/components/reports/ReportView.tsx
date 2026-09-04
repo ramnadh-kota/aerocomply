@@ -4,24 +4,38 @@ import Link from "next/link";
 import type { ReportData } from "@/lib/mock/reports";
 import { PLATFORM_NAME } from "@/lib/brand";
 
+// All report data ultimately renders into a standalone HTML blob (see
+// buildStandaloneHtml below). It's mock data today, but escape it anyway so
+// this doesn't become a stored/reflected XSS vector if a real backend ever
+// starts feeding user-authored strings (report titles, KPI labels, table
+// cells, etc.) into this path.
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function renderSectionHtml(s: ReportData["sections"][number]): string {
-  let html = `<h2>${s.heading}</h2>`;
+  let html = `<h2>${escapeHtml(s.heading)}</h2>`;
   if (s.kpis?.length) {
-    html += `<div class="kpis">${s.kpis.map((k) => `<div class="kpi"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div></div>`).join("")}</div>`;
+    html += `<div class="kpis">${s.kpis.map((k) => `<div class="kpi"><div class="kpi-label">${escapeHtml(k.label)}</div><div class="kpi-value">${escapeHtml(k.value)}</div></div>`).join("")}</div>`;
   }
-  if (s.body.length) html += s.body.map((b) => `<p>${b}</p>`).join("");
+  if (s.body.length) html += s.body.map((b) => `<p>${escapeHtml(b)}</p>`).join("");
   if (s.bars?.length) {
-    html += s.bars.map((b) => `<div class="bar-row"><span>${b.label}</span><div class="bar-track"><div class="bar-fill" style="width:${b.percent}%"></div></div><span>${b.percent}%</span></div>`).join("");
+    html += s.bars.map((b) => `<div class="bar-row"><span>${escapeHtml(b.label)}</span><div class="bar-track"><div class="bar-fill" style="width:${Number(b.percent)}%"></div></div><span>${Number(b.percent)}%</span></div>`).join("");
   }
   if (s.distribution?.length) {
-    html += `<p>${s.distribution.map((d) => `${d.label.replace(/_/g, " ")}: ${d.count}`).join(" · ")}</p>`;
+    html += `<p>${s.distribution.map((d) => `${escapeHtml(d.label.replace(/_/g, " "))}: ${Number(d.count)}`).join(" · ")}</p>`;
   }
   if (s.table?.rows.length) {
-    html += `<table><thead><tr>${s.table.columns.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${s.table.rows
-      .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+    html += `<table><thead><tr>${s.table.columns.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>${s.table.rows
+      .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`)
       .join("")}</tbody></table>`;
   }
-  if (s.chain?.length) html += `<p class="chain">${s.chain.join(" → ")}</p>`;
+  if (s.chain?.length) html += `<p class="chain">${s.chain.map(escapeHtml).join(" → ")}</p>`;
   return html;
 }
 
@@ -44,12 +58,12 @@ function buildStandaloneHtml(report: ReportData): string {
     .chain { font-family:monospace; }
     .footer { margin-top:32px; font-size:11px; color:#6b7c9c; border-top:1px solid #2a3141; padding-top:12px; }
   `;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${report.title}</title><style>${style}</style></head><body>
-    <h1>${PLATFORM_NAME} — ${report.title}</h1>
-    <p class="meta">Type: ${report.type.replace(/_/g, " ")} · Scope: ${report.scope} · Generated: ${report.generatedDate} · From: ${report.generatedFrom}</p>
-    <p class="meta">Source modules: ${report.sourceModules.join(", ")}</p>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(report.title)}</title><style>${style}</style></head><body>
+    <h1>${escapeHtml(PLATFORM_NAME)} — ${escapeHtml(report.title)}</h1>
+    <p class="meta">Type: ${escapeHtml(report.type.replace(/_/g, " "))} · Scope: ${escapeHtml(report.scope)} · Generated: ${escapeHtml(report.generatedDate)} · From: ${escapeHtml(report.generatedFrom)}</p>
+    <p class="meta">Source modules: ${escapeHtml(report.sourceModules.join(", "))}</p>
     ${report.sections.map(renderSectionHtml).join("")}
-    <p class="footer">This is a prototype report generated from ${PLATFORM_NAME} demo data. AI-generated sections are non-authoritative and require human review. Not backend-persisted.</p>
+    <p class="footer">This is a prototype report generated from ${escapeHtml(PLATFORM_NAME)} demo data. AI-generated sections are non-authoritative and require human review. Not backend-persisted.</p>
   </body></html>`;
 }
 

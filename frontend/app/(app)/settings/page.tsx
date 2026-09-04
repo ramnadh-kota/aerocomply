@@ -19,10 +19,14 @@ import { COMPANY_NAME, AI_NAME, AI_DESCRIPTION, AI_DEMO_DATA_FOOTER } from "@/li
 //      the canonical TAT/maintenance-due thresholds in analytics.ts) as
 //      read-only "current configuration".
 //   2. Presents inert preference controls (AI toggle, notification
-//      toggles) clearly labeled as non-persisted preview UI, and
-//      integrations as NOT CONFIGURED — never implying a live backend
-//      connection that does not exist (see lib/apiClient.ts, a stub with
-//      no wired settings/integration endpoints).
+//      toggles) clearly labeled as non-persisted preview UI.
+//   3. Distinguishes integration statuses precisely: authentication has a
+//      real, tested backend (backend/app/core/security.py,
+//      backend/app/services/auth_service.py) that is simply not running in
+//      this environment (no Postgres, no backend/.env), versus domain data
+//      (aircraft/work orders/evidence/regulatory/procurement) and storage,
+//      which have zero backend code at all — never implying a live
+//      connection that does not exist (see lib/apiClient.ts).
 
 const TABS = [
   "General",
@@ -45,12 +49,65 @@ const NOTIFICATION_TOGGLES = [
   { key: "procurement", label: "Procurement Alerts", description: "Parts shortages blocking work order material readiness." },
 ] as const;
 
-const INTEGRATION_GROUPS: { group: string; items: string[] }[] = [
-  { group: "Regulatory Data Providers", items: ["FAA Dynamic Regulatory System", "EASA ADs & SIBs Feed", "UK CAA Mandate Feed", "DGCA CAR Notices Feed", "CASA AD Feed"] },
-  { group: "Storage", items: ["Document / Evidence Storage (S3-compatible)"] },
-  { group: "Authentication", items: ["SSO / SAML Identity Provider"] },
-  { group: "Email", items: ["Outbound Email (SMTP / API)"] },
-  { group: "Messaging", items: ["Slack / Teams Alerts"] },
+type IntegrationStatus = "not_configured" | "backend_not_running";
+
+const INTEGRATION_GROUPS: {
+  group: string;
+  items: { name: string; status: IntegrationStatus; note?: string }[];
+}[] = [
+  {
+    group: "Authentication / Identity",
+    items: [
+      {
+        name: "Email + Password (JWT / Argon2)",
+        status: "backend_not_running" as const,
+        note: "Real implementation exists in backend/app/core/security.py and backend/app/services/auth_service.py (JWT issuance, Argon2 hashing, unit-tested). Not connected right now — no Postgres is running and backend/.env is not present in this environment (only .env.example).",
+      },
+      {
+        name: "SSO / SAML Identity Provider",
+        status: "not_configured" as const,
+        note: "No SSO/SAML code exists in the backend.",
+      },
+    ],
+  },
+  {
+    group: "Domain Data",
+    items: (
+      [
+        "FAA Dynamic Regulatory System",
+        "EASA ADs & SIBs Feed",
+        "UK CAA Mandate Feed",
+        "DGCA CAR Notices Feed",
+        "CASA AD Feed",
+        "Aircraft / Fleet Data",
+        "Work Orders",
+        "Evidence Records",
+        "Procurement",
+      ] as const
+    ).map((name) => ({
+      name,
+      status: "not_configured" as const,
+      note: "No backend endpoints exist for this domain yet — only auth/org/user/audit are implemented.",
+    })),
+  },
+  {
+    group: "Storage",
+    items: [
+      {
+        name: "Document / Evidence Storage (S3-compatible)",
+        status: "not_configured" as const,
+        note: "No object-storage client code exists in the backend.",
+      },
+    ],
+  },
+  {
+    group: "Email",
+    items: [{ name: "Outbound Email (SMTP / API)", status: "not_configured" as const }],
+  },
+  {
+    group: "Messaging",
+    items: [{ name: "Slack / Teams Alerts", status: "not_configured" as const }],
+  },
 ];
 
 export default function SettingsPage() {
@@ -105,6 +162,15 @@ export default function SettingsPage() {
               <Row label="Date Format" value="YYYY-MM-DD" note="DEMO DATA — matches the format used throughout mock data." />
               <Row label="Currency" value="INR (₹)" note="DEMO DATA — matches lib/mock/finance.ts figures." />
             </div>
+          </div>
+          <h2 className="ac-eyebrow" style={{ margin: "20px 0 10px" }}>System Status</h2>
+          <div className="ac-card">
+            <p className="ac-text-sm" style={{ margin: 0 }}>
+              This demo environment runs entirely on client-side mock data. A real backend exists in this repository
+              (FastAPI, JWT auth, PostgreSQL data model, RBAC permissions) but requires infrastructure (PostgreSQL,
+              environment configuration) to run, and currently only covers authentication, organizations, and audit —
+              it does not yet have endpoints for aircraft, maintenance, evidence, procurement, or regulatory data.
+            </p>
           </div>
         </section>
       )}
@@ -190,6 +256,7 @@ export default function SettingsPage() {
                     value={reasoningMode}
                     onChange={(e) => setReasoningMode(e.target.value as typeof reasoningMode)}
                     style={{ maxWidth: 220 }}
+                    aria-label="Reasoning Mode"
                   >
                     <option value="concise">Concise</option>
                     <option value="balanced">Balanced</option>
@@ -247,9 +314,19 @@ export default function SettingsPage() {
         <section className="ac-section">
           <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>Security</h2>
           <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 12 }}>
-            This prototype has no real authentication or server-side permission enforcement (see{" "}
-            <span className="ac-mono">lib/mock/roles.ts</span>) — the summary below reflects the mock RBAC model only.
+            The role/user counts and role simulator below (<span className="ac-mono">lib/mock/roles.ts</span>,{" "}
+            <span className="ac-mono">lib/role-sim</span>) are a presentation-only simulation in this frontend — they
+            change what the UI shows, but nothing they do is enforced by a backend.
           </p>
+          <div className="ac-card" style={{ marginBottom: 16, background: "var(--ac-surface-2)" }}>
+            <p className="ac-text-sm" style={{ margin: 0 }}>
+              A real RBAC permission model exists in <span className="ac-mono">backend/app/core/permissions.py</span> with
+              seven roles — SUPER_ADMIN, ORG_ADMIN, COMPLIANCE_MANAGER, CAMO_MANAGER, QUALITY_MANAGER,
+              MAINTENANCE_ENGINEER, VIEWER — and a working <span className="ac-mono">require_permission</span> dependency,
+              covered by unit tests. It is not yet applied as route-level enforcement on any endpoint, and this frontend
+              does not call it.
+            </p>
+          </div>
           <div className="ac-kpi-grid" style={{ marginBottom: 16 }}>
             <div className="ac-kpi-card">
               <p className="ac-kpi-label">Roles Defined</p>
@@ -282,20 +359,30 @@ export default function SettingsPage() {
         <section className="ac-section">
           <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>Integrations</h2>
           <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 12 }}>
-            No external integration is wired to a live backend in this prototype (<span className="ac-mono">lib/apiClient.ts</span>{" "}
-            has no connected settings/integration endpoints). Every item below is NOT CONFIGURED.
+            No integration is connected in this running environment. Statuses below distinguish two different
+            realities: authentication has a real, tested backend implementation that simply isn&apos;t running here
+            (no Postgres, no <span className="ac-mono">backend/.env</span>); every domain-data and infrastructure
+            integration below that has no NOT CONFIGURED status has zero backend code behind it at all.
           </p>
           {INTEGRATION_GROUPS.map((g) => (
             <div key={g.group} className="ac-card" style={{ marginBottom: 12 }}>
               <p className="ac-text-sm" style={{ fontWeight: 600, marginBottom: 8 }}>{g.group}</p>
               {g.items.map((item, idx) => (
                 <div
-                  key={item}
-                  className="ac-flex"
-                  style={{ justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderTop: idx > 0 ? "1px solid var(--ac-border)" : undefined }}
+                  key={item.name}
+                  style={{ padding: "6px 0", borderTop: idx > 0 ? "1px solid var(--ac-border)" : undefined }}
                 >
-                  <span className="ac-text-sm">{item}</span>
-                  <StatusBadge status="UNKNOWN" label="Not Configured" />
+                  <div className="ac-flex" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <span className="ac-text-sm">{item.name}</span>
+                    {item.status === "backend_not_running" ? (
+                      <StatusBadge status="REVIEW_REQUIRED" label="Backend Implemented — Not Running" />
+                    ) : (
+                      <StatusBadge status="UNKNOWN" label="Not Configured" />
+                    )}
+                  </div>
+                  {item.note && (
+                    <p className="ac-text-sm ac-text-muted" style={{ margin: "2px 0 0" }}>{item.note}</p>
+                  )}
                 </div>
               ))}
             </div>

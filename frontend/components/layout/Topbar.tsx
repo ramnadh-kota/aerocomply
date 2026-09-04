@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GlobalSearch } from "@/components/search/GlobalSearch";
@@ -13,6 +13,7 @@ import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
 import { HelpPanel } from "@/components/onboarding/HelpPanel";
 import { getProactiveAlerts, type AlertSeverity } from "@/lib/mock/ai/proactive";
+import { useAlertState } from "@/lib/mock/ai/alertState";
 
 // Same five-color status vocabulary as StatusBadge (components/status/
 // StatusBadge.tsx) — never a second color mapping. Severity maps to the
@@ -41,6 +42,19 @@ export function Topbar() {
   // toward the top within the same severity band.
   const alerts = useMemo(() => getProactiveAlerts(roleId), [roleId]);
   const topAlerts = alerts.slice(0, 8);
+  // Acknowledge/resolve is local, demo-only state (see lib/mock/ai/alertState.ts)
+  // — the badge count only reflects alerts not yet marked resolved.
+  const { statusFor, acknowledge, resolve } = useAlertState();
+  const unresolvedCount = alerts.filter((a) => statusFor(a.id) !== "RESOLVED").length;
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setNotifOpen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [notifOpen]);
 
   function changeRole(nextRoleId: string) {
     const nextRole = getRoleById(nextRoleId);
@@ -126,7 +140,7 @@ export function Topbar() {
             style={{ padding: "8px 10px", position: "relative" }}
           >
             <span aria-hidden="true">🔔</span>
-            {alerts.length > 0 && (
+            {unresolvedCount > 0 && (
               <span
                 aria-hidden="true"
                 style={{
@@ -147,14 +161,14 @@ export function Topbar() {
                   lineHeight: 1,
                 }}
               >
-                {alerts.length > 99 ? "99+" : alerts.length}
+                {unresolvedCount > 99 ? "99+" : unresolvedCount}
               </span>
             )}
           </button>
           {notifOpen && (
             <div className="ac-card" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", width: 340, maxHeight: 420, overflowY: "auto", zIndex: 50 }}>
               <p className="ac-eyebrow" style={{ marginBottom: 8 }}>
-                {PLATFORM_AI_NAME}&apos;s Alerts ({alerts.length})
+                {PLATFORM_AI_NAME}&apos;s Alerts ({unresolvedCount} open)
               </p>
               {topAlerts.length === 0 ? (
                 <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No open alerts from current fleet data.</p>
@@ -162,22 +176,46 @@ export function Topbar() {
                 <div className="ac-flex ac-flex-col ac-gap-2">
                   {topAlerts.map((a) => {
                     const badge = SEVERITY_BADGE[a.severity];
+                    const alertStatus = statusFor(a.id);
+                    const handled = alertStatus !== "OPEN";
                     return (
-                      <button
+                      <div
                         key={a.id}
-                        onClick={() => goToAlert(a.href)}
                         className="ac-card"
-                        style={{ textAlign: "left", cursor: "pointer", width: "100%", padding: "8px 10px" }}
+                        style={{ padding: "8px 10px", opacity: handled ? 0.55 : 1 }}
                       >
-                        <div className="ac-flex ac-justify-between ac-items-center" style={{ gap: 8 }}>
-                          <span className="ac-text-sm" style={{ fontWeight: 600 }}>{a.title}</span>
-                          <span className={`ac-badge ac-badge-${badge.status.toLowerCase()}`} style={{ flexShrink: 0 }}>
-                            <span className="ac-badge-dot" aria-hidden="true" />
-                            {badge.label}
-                          </span>
+                        <button
+                          onClick={() => goToAlert(a.href)}
+                          style={{ textAlign: "left", cursor: "pointer", width: "100%", background: "none", border: "none", padding: 0 }}
+                        >
+                          <div className="ac-flex ac-justify-between ac-items-center" style={{ gap: 8 }}>
+                            <span className="ac-text-sm" style={{ fontWeight: 600, textDecoration: alertStatus === "RESOLVED" ? "line-through" : undefined }}>
+                              {a.title}
+                            </span>
+                            <span className={`ac-badge ac-badge-${badge.status.toLowerCase()}`} style={{ flexShrink: 0 }}>
+                              <span className="ac-badge-dot" aria-hidden="true" />
+                              {badge.label}
+                            </span>
+                          </div>
+                          <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>{a.message}</p>
+                        </button>
+                        <div className="ac-flex ac-items-center ac-gap-2" style={{ marginTop: 6 }}>
+                          {handled ? (
+                            <span className="ac-text-sm ac-text-muted">
+                              {alertStatus === "ACKNOWLEDGED" ? "Acknowledged" : "Resolved"} (local only)
+                            </span>
+                          ) : (
+                            <>
+                              <button className="ac-btn" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => acknowledge(a.id)}>
+                                Acknowledge
+                              </button>
+                              <button className="ac-btn" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => resolve(a.id)}>
+                                Resolve
+                              </button>
+                            </>
+                          )}
                         </div>
-                        <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>{a.message}</p>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>

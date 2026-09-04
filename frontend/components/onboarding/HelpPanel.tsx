@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { WelcomeTour } from "./WelcomeTour";
 import { AI_NAME } from "@/lib/brand";
 
@@ -54,6 +54,15 @@ const GLOSSARY: GlossaryEntry[] = [
 export function HelpPanel() {
   const [open, setOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   return (
     <div style={{ position: "relative" }}>
