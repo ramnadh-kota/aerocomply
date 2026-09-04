@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
-import { getAircraftRecoveryPlan } from "@/lib/mock/ai/analytics";
+import { getAircraftRecoveryPlan, getWorkOrderTatStatus, type TatStatus } from "@/lib/mock/ai/analytics";
 import { workOrderRepository } from "@/lib/domain/repositories";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getCurrentUser } from "@/lib/domain/currentUser";
@@ -18,6 +18,13 @@ import { ActionHistory } from "@/components/audit/ActionHistory";
 // This page never auto-executes anything — every recovery option listed is a
 // link to an existing workflow (Material Readiness, Planning) or requires the
 // explicit button click below, which is itself audited.
+
+const TAT_BADGE: Record<TatStatus, { status: Parameters<typeof StatusBadge>[0]["status"]; label: string }> = {
+  ON_TRACK: { status: "COMPLIANT", label: "ON TRACK" },
+  AT_RISK: { status: "PENDING", label: "TAT AT RISK" },
+  DELAYED: { status: "NON_COMPLIANT", label: "DELAYED" },
+  UNKNOWN: { status: "INSUFFICIENT_DATA", label: "UNKNOWN" },
+};
 
 export default function AogRecoveryPage() {
   const params = useParams<{ aircraftId: string }>();
@@ -99,11 +106,23 @@ export default function AogRecoveryPage() {
               </p>
               <div className="ac-card" style={{ padding: 0, overflowX: "auto" }}>
                 <table className="ac-table">
-                  <thead><tr><th>Work Order</th><th>Release Readiness</th><th>Authorized Technicians</th><th>Inspection (RII)</th></tr></thead>
+                  <thead><tr><th>Work Order</th><th>TAT</th><th>Release Readiness</th><th>Authorized Technicians</th><th>Inspection (RII)</th></tr></thead>
                   <tbody>
-                    {analysis.workOrderDetails.map((d) => (
+                    {analysis.workOrderDetails.map((d) => {
+                      const tat = getWorkOrderTatStatus(d.workOrderId);
+                      return (
                       <tr key={d.workOrderId}>
                         <td><Link href={`/maintenance/planning/${d.workOrderId}`} className="ac-mono">{d.workOrderNumber}</Link></td>
+                        <td>
+                          {tat ? (
+                            <>
+                              <StatusBadge {...TAT_BADGE[tat.status]} />
+                              <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>{tat.reason}</p>
+                            </>
+                          ) : (
+                            <StatusBadge status="INSUFFICIENT_DATA" label="UNKNOWN" />
+                          )}
+                        </td>
                         <td>
                           <StatusBadge
                             status={d.releaseReadiness.status === "READY" ? "COMPLIANT" : d.releaseReadiness.status === "BLOCKED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
@@ -121,7 +140,8 @@ export default function AogRecoveryPage() {
                           />
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
