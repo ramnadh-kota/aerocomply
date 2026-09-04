@@ -79,22 +79,24 @@ export default function VendorDetailPage({ params }: { params: { id: string } })
           {availability.length === 0 ? (
             <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data. No parts availability recorded for this vendor.</p>
           ) : (
-            <table className="ac-table">
-              <thead><tr><th>Part</th><th>Availability</th><th>Qty Available</th><th>Lead Time</th><th>Unit Price</th><th>Certification</th><th>AOG</th></tr></thead>
-              <tbody>
-                {availability.map((a) => (
-                  <tr key={a.id}>
-                    <td>{a.partId ? <Link href={`/maintenance/parts/${a.partId}`} className="ac-mono">{a.partNumber}</Link> : <span className="ac-mono">{a.partNumber}</span>}</td>
-                    <td>{a.availabilityStatus.replace(/_/g, " ")}</td>
-                    <td>{na(a.quantityAvailable)}</td>
-                    <td>{a.leadTimeDays !== null ? `${a.leadTimeDays} day(s)` : "Insufficient source data."}</td>
-                    <td>{a.unitPrice !== null ? `${a.currency ?? ""} ${a.unitPrice}` : "Insufficient source data."}</td>
-                    <td>{a.certificationStatus.replace(/_/g, " ")}</td>
-                    <td>{a.aogAvailability === null ? "Insufficient source data." : a.aogAvailability ? "Yes" : "No"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={{ overflowX: "auto" }}>
+              <table className="ac-table">
+                <thead><tr><th>Part</th><th>Availability</th><th>Qty Available</th><th>Lead Time</th><th>Unit Price</th><th>Certification</th><th>AOG</th></tr></thead>
+                <tbody>
+                  {availability.map((a) => (
+                    <tr key={a.id}>
+                      <td>{a.partId ? <Link href={`/maintenance/parts/${a.partId}`} className="ac-mono">{a.partNumber}</Link> : <span className="ac-mono">{a.partNumber}</span>}</td>
+                      <td>{a.availabilityStatus.replace(/_/g, " ")}</td>
+                      <td>{na(a.quantityAvailable)}</td>
+                      <td>{a.leadTimeDays !== null ? `${a.leadTimeDays} day(s)` : "Insufficient source data."}</td>
+                      <td>{a.unitPrice !== null ? `${a.currency ?? ""} ${a.unitPrice}` : "Insufficient source data."}</td>
+                      <td>{a.certificationStatus.replace(/_/g, " ")}</td>
+                      <td>{a.aogAvailability === null ? "Insufficient source data." : a.aogAvailability ? "Yes" : "No"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </section>

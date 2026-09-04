@@ -64,14 +64,16 @@ export default function ProcurementControlTowerPage() {
           <h2 className="ac-h2" style={{ marginBottom: 10 }}>Parts at Risk</h2>
           <div className="ac-card" style={{ padding: 0 }}>
             {partsAtRisk.length === 0 ? <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data.</p> : (
-              <table className="ac-table">
-                <thead><tr><th>Part</th><th>Status</th></tr></thead>
-                <tbody>
-                  {partsAtRisk.map((p) => (
-                    <tr key={p.partNumber}><td><Link href="/maintenance/parts" className="ac-mono">{p.partNumber}</Link></td><td>{p.status.replace(/_/g, " ")}</td></tr>
-                  ))}
-                </tbody>
-              </table>
+              <div style={{ overflowX: "auto" }}>
+                <table className="ac-table">
+                  <thead><tr><th>Part</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {partsAtRisk.map((p) => (
+                      <tr key={p.partNumber}><td><Link href="/maintenance/parts" className="ac-mono">{p.partNumber}</Link></td><td>{p.status.replace(/_/g, " ")}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </section>
@@ -79,15 +81,17 @@ export default function ProcurementControlTowerPage() {
           <h2 className="ac-h2" style={{ marginBottom: 10 }}>Vendor Spend</h2>
           <div className="ac-card" style={{ padding: 0 }}>
             {vendorSpendMap.size === 0 ? <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data.</p> : (
-              <table className="ac-table">
-                <thead><tr><th>Vendor</th><th>Spend</th></tr></thead>
-                <tbody>
-                  {Array.from(vendorSpendMap.entries()).sort((a, b) => b[1] - a[1]).map(([name, amount]) => {
-                    const v = vendors.find((vv) => vv.name === name);
-                    return <tr key={name}><td>{v ? <Link href={`/procurement/vendors/${v.id}`} className="ac-mono">{name}</Link> : name}</td><td>USD {amount.toLocaleString()}</td></tr>;
-                  })}
-                </tbody>
-              </table>
+              <div style={{ overflowX: "auto" }}>
+                <table className="ac-table">
+                  <thead><tr><th>Vendor</th><th>Spend</th></tr></thead>
+                  <tbody>
+                    {Array.from(vendorSpendMap.entries()).sort((a, b) => b[1] - a[1]).map(([name, amount]) => {
+                      const v = vendors.find((vv) => vv.name === name);
+                      return <tr key={name}><td>{v ? <Link href={`/procurement/vendors/${v.id}`} className="ac-mono">{name}</Link> : name}</td><td>USD {amount.toLocaleString()}</td></tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </section>
@@ -96,25 +100,27 @@ export default function ProcurementControlTowerPage() {
       <section className="ac-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Open Requests</h2>
         <div className="ac-card" style={{ padding: 0 }}>
-          <table className="ac-table">
-            <thead><tr><th>Request</th><th>Aircraft</th><th>Part</th><th>Priority</th><th>Vendor</th><th>Status</th></tr></thead>
-            <tbody>
-              {partRequests.map((r) => {
-                const ac = getAircraftById(r.aircraftId);
-                const vendor = r.preferredVendorId ? vendors.find((v) => v.id === r.preferredVendorId) : undefined;
-                return (
-                  <tr key={r.id}>
-                    <td className="ac-mono">{r.id}</td>
-                    <td>{ac ? <Link href={`/aircraft/${ac.id}`}>{currentRegistration(ac)}</Link> : "Insufficient source data."}</td>
-                    <td className="ac-mono">{r.partNumber}</td>
-                    <td><StatusBadge status={r.priority === "AOG" ? "NON_COMPLIANT" : r.priority === "HIGH" ? "REVIEW_REQUIRED" : "COMPLIANT"} label={r.priority} /></td>
-                    <td>{vendor ? <Link href={`/procurement/vendors/${vendor.id}`}>{vendor.name}</Link> : "Insufficient source data."}</td>
-                    <td>{r.status.replace(/_/g, " ")}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div style={{ overflowX: "auto" }}>
+            <table className="ac-table">
+              <thead><tr><th>Request</th><th>Aircraft</th><th>Part</th><th>Priority</th><th>Vendor</th><th>Status</th></tr></thead>
+              <tbody>
+                {partRequests.map((r) => {
+                  const ac = getAircraftById(r.aircraftId);
+                  const vendor = r.preferredVendorId ? vendors.find((v) => v.id === r.preferredVendorId) : undefined;
+                  return (
+                    <tr key={r.id}>
+                      <td className="ac-mono">{r.id}</td>
+                      <td>{ac ? <Link href={`/aircraft/${ac.id}`}>{currentRegistration(ac)}</Link> : "Insufficient source data."}</td>
+                      <td className="ac-mono">{r.partNumber}</td>
+                      <td><StatusBadge status={r.priority === "AOG" ? "NON_COMPLIANT" : r.priority === "HIGH" ? "REVIEW_REQUIRED" : "COMPLIANT"} label={r.priority} /></td>
+                      <td>{vendor ? <Link href={`/procurement/vendors/${vendor.id}`}>{vendor.name}</Link> : "Insufficient source data."}</td>
+                      <td>{r.status.replace(/_/g, " ")}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 

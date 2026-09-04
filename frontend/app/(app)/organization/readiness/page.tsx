@@ -156,26 +156,28 @@ export default function PilotReadinessPage() {
       </section>
 
       <div className="ac-card" style={{ padding: 0 }}>
-        <table className="ac-table">
-          <thead><tr><th>Category</th><th>Status</th><th>Detail</th><th>Why?</th></tr></thead>
-          <tbody>
-            {categories.map((cat) => (
-              <tr key={cat.category}>
-                <td><Link href={cat.href}>{cat.category}</Link></td>
-                <td><StatusBadge {...ratingBadge(cat.rating)} /></td>
-                <td className="ac-text-sm ac-text-muted">{cat.detail}</td>
-                <td>
-                  <details>
-                    <summary className="ac-text-sm" style={{ cursor: "pointer" }}>Why?</summary>
-                    <ul className="ac-text-sm ac-text-muted" style={{ margin: "6px 0 0", paddingLeft: 16 }}>
-                      {cat.why.map((w, i) => <li key={i}>{w}</li>)}
-                    </ul>
-                  </details>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={{ overflowX: "auto" }}>
+          <table className="ac-table">
+            <thead><tr><th>Category</th><th>Status</th><th>Detail</th><th>Why?</th></tr></thead>
+            <tbody>
+              {categories.map((cat) => (
+                <tr key={cat.category}>
+                  <td><Link href={cat.href}>{cat.category}</Link></td>
+                  <td><StatusBadge {...ratingBadge(cat.rating)} /></td>
+                  <td className="ac-text-sm ac-text-muted">{cat.detail}</td>
+                  <td>
+                    <details>
+                      <summary className="ac-text-sm" style={{ cursor: "pointer" }}>Why?</summary>
+                      <ul className="ac-text-sm ac-text-muted" style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+                        {cat.why.map((w, i) => <li key={i}>{w}</li>)}
+                      </ul>
+                    </details>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

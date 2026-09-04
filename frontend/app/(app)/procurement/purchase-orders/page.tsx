@@ -36,23 +36,25 @@ export default function PurchaseOrdersPage() {
         {purchaseOrders.length === 0 ? (
           <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>Insufficient source data. No purchase order has been generated yet — approve a procurement request first.</p>
         ) : (
-          <table className="ac-table">
-            <thead><tr><th>PO Number</th><th>Vendor</th><th>Total</th><th>Required By</th><th>Status</th></tr></thead>
-            <tbody>
-              {purchaseOrders.map((po) => {
-                const vendor = procurementRepository.getVendorById(po.vendorId);
-                return (
-                  <tr key={po.id}>
-                    <td><Link href={`/procurement/purchase-orders/${po.id}`} className="ac-mono">{po.poNumber}</Link></td>
-                    <td>{vendor?.name ?? "Insufficient source data."}</td>
-                    <td>{po.currency} {po.total.toLocaleString()}</td>
-                    <td>{po.requiredBy ?? "Insufficient source data."}</td>
-                    <td><StatusBadge {...poStatusBadge(po.status)} /></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div style={{ overflowX: "auto" }}>
+            <table className="ac-table">
+              <thead><tr><th>PO Number</th><th>Vendor</th><th>Total</th><th>Required By</th><th>Status</th></tr></thead>
+              <tbody>
+                {purchaseOrders.map((po) => {
+                  const vendor = procurementRepository.getVendorById(po.vendorId);
+                  return (
+                    <tr key={po.id}>
+                      <td><Link href={`/procurement/purchase-orders/${po.id}`} className="ac-mono">{po.poNumber}</Link></td>
+                      <td>{vendor?.name ?? "Insufficient source data."}</td>
+                      <td>{po.currency} {po.total.toLocaleString()}</td>
+                      <td>{po.requiredBy ?? "Insufficient source data."}</td>
+                      <td><StatusBadge {...poStatusBadge(po.status)} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

@@ -21,7 +21,7 @@ import { getChecklistByWorkOrderId } from "../checklists";
 import { evidenceForAssessment } from "../evidence";
 import { overdueMaintenanceEvents, maintenanceEventsForAircraft, upcomingMaintenanceEvents } from "../maintenance";
 import { assessments, assessmentsForAircraft } from "../assessments";
-import { regulatoryDocuments, getAuthorityById } from "../regulations";
+import { regulatoryDocuments, regulatoryRequirements, getAuthorityById, getDocumentById } from "../regulations";
 import { MOCK_TODAY as REG_MOCK_TODAY } from "../workOrders";
 import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
@@ -934,6 +934,40 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
           buttons: [{ label: "View Regulatory Library", href: "/regulations" }],
           understood: understood(top.intent, scope, entities),
         };
+      }
+      // "Does AD-2026-001 affect VT-ABC?" — a narrow, honest answer built only
+      // from the real requirement<->aircraft linkage already in the mock data
+      // (ApplicabilityAssessment.subjectId), not an inferred/guessed link.
+      if (ac && qLower.includes("affect")) {
+        const normalize = (s: string) => s.toLowerCase().replace(/[\s-]+/g, "");
+        const qNormalized = normalize(question);
+        const mentionedRequirement = regulatoryRequirements.find((r) => qNormalized.includes(normalize(r.requirementNumber)));
+        if (mentionedRequirement) {
+          const doc = getDocumentById(mentionedRequirement.regulatoryDocumentId);
+          const relevant = assessmentsForAircraft(ac.id).filter((a) => a.regulatoryRequirementId === mentionedRequirement.id);
+          if (relevant.length === 0) {
+            return {
+              id: nextId(),
+              question,
+              headline: `${acReg} — no assessment on file for ${mentionedRequirement.requirementNumber}`,
+              narrative: [`UNKNOWN: No applicability assessment links ${mentionedRequirement.requirementNumber}${doc ? ` (${doc.title})` : ""} to ${acReg} in the current dataset — this is not the same as confirming it doesn't apply.`, TRUST_FOOTER],
+              buttons: [{ label: "View Requirement", href: `/regulations/${mentionedRequirement.id}` }],
+              understood: understood(top.intent, scope, entities),
+            };
+          }
+          const latest = relevant.sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt))[0];
+          return {
+            id: nextId(),
+            question,
+            headline: `${acReg} — ${mentionedRequirement.requirementNumber}: ${latest.systemResult.replace(/_/g, " ")}`,
+            narrative: [
+              `FACT: Latest assessment (${latest.evaluatedAt.slice(0, 10)}) evaluated ${mentionedRequirement.requirementNumber}${doc ? ` (${doc.title})` : ""} against ${acReg} as ${latest.systemResult.replace(/_/g, " ")}; final status ${latest.finalStatus.replace(/_/g, " ")}.`,
+              TRUST_FOOTER,
+            ],
+            buttons: [{ label: "View Assessment", href: `/assessments/${latest.id}` }, { label: "View Requirement", href: `/regulations/${mentionedRequirement.id}` }],
+            understood: understood(top.intent, scope, entities),
+          };
+        }
       }
       if (ac) {
         const acAssessments = assessmentsForAircraft(ac.id);

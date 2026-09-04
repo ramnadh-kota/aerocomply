@@ -30,32 +30,34 @@ export default function OrganizationPage() {
         <Link href="/organization/readiness" className="ac-btn">Pilot Readiness</Link>
       </div>
       <div className="ac-card" style={{ padding: 0 }}>
-        <table className="ac-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Aircraft</th>
-              <th>Open Work Orders</th>
-              <th>Aircraft at Risk</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rollup.map(({ org, orgAircraft, openWorkOrders, atRisk }) => (
-              <tr key={org.id}>
-                <td>{org.name}</td>
-                <td><StatusBadge status="ACTIVE" label={org.orgType} /></td>
-                <td className="ac-text-sm">
-                  {orgAircraft.length === 0 ? "Insufficient source data." : orgAircraft.map((a, idx) => (
-                    <span key={a.id}>{idx > 0 && ", "}<Link href={`/aircraft/${a.id}`} className="ac-mono">{currentRegistration(a)}</Link></span>
-                  ))}
-                </td>
-                <td>{openWorkOrders}</td>
-                <td>{atRisk > 0 ? <StatusBadge status="NON_COMPLIANT" label={String(atRisk)} /> : <StatusBadge status="COMPLIANT" label="0" />}</td>
+        <div style={{ overflowX: "auto" }}>
+          <table className="ac-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Aircraft</th>
+                <th>Open Work Orders</th>
+                <th>Aircraft at Risk</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rollup.map(({ org, orgAircraft, openWorkOrders, atRisk }) => (
+                <tr key={org.id}>
+                  <td>{org.name}</td>
+                  <td><StatusBadge status="ACTIVE" label={org.orgType} /></td>
+                  <td className="ac-text-sm">
+                    {orgAircraft.length === 0 ? "Insufficient source data." : orgAircraft.map((a, idx) => (
+                      <span key={a.id}>{idx > 0 && ", "}<Link href={`/aircraft/${a.id}`} className="ac-mono">{currentRegistration(a)}</Link></span>
+                    ))}
+                  </td>
+                  <td>{openWorkOrders}</td>
+                  <td>{atRisk > 0 ? <StatusBadge status="NON_COMPLIANT" label={String(atRisk)} /> : <StatusBadge status="COMPLIANT" label="0" />}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

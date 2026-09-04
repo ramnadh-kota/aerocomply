@@ -112,24 +112,26 @@ export default function RoleDetailPage({ params }: { params: { id: string } }) {
       <section className="ac-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Permission Matrix</h2>
         <div className="ac-card" style={{ padding: 0 }}>
-          <table className="ac-table">
-            <thead>
-              <tr>
-                <th>Module</th>
-                <th>Access Level</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {role.permissions.map((p) => (
-                <tr key={p.module}>
-                  <td style={{ fontWeight: 600 }}>{p.module}</td>
-                  <td><StatusBadge {...LEVEL_BADGE[p.level]} /></td>
-                  <td className="ac-text-sm ac-text-muted">{p.notes ?? "—"}</td>
+          <div style={{ overflowX: "auto" }}>
+            <table className="ac-table">
+              <thead>
+                <tr>
+                  <th>Module</th>
+                  <th>Access Level</th>
+                  <th>Notes</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {role.permissions.map((p) => (
+                  <tr key={p.module}>
+                    <td style={{ fontWeight: 600 }}>{p.module}</td>
+                    <td><StatusBadge {...LEVEL_BADGE[p.level]} /></td>
+                    <td className="ac-text-sm ac-text-muted">{p.notes ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
         <p className="ac-text-sm ac-text-muted" style={{ marginTop: 8 }}>
           Prototype only — this matrix is for UI demonstration; no permission here is actually enforced by the
@@ -158,31 +160,33 @@ export default function RoleDetailPage({ params }: { params: { id: string } }) {
       <section className="ac-section">
         <h2 className="ac-h2" style={{ marginBottom: 10 }}>Assigned Users</h2>
         <div className="ac-card" style={{ padding: 0 }}>
-          <table className="ac-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Department</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {assignedUsers.length === 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table className="ac-table">
+              <thead>
                 <tr>
-                  <td colSpan={3} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>
-                    No users assigned to this role.
-                  </td>
+                  <th>Name</th>
+                  <th>Department</th>
+                  <th>Status</th>
                 </tr>
-              )}
-              {assignedUsers.map((u) => (
-                <tr key={u.id}>
-                  <td><Link href={`/organization/users/${u.id}`}>{u.name}</Link></td>
-                  <td>{u.department}</td>
-                  <td><StatusBadge status={u.status === "ACTIVE" ? "ACTIVE" : "STORED"} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {assignedUsers.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>
+                      No users assigned to this role.
+                    </td>
+                  </tr>
+                )}
+                {assignedUsers.map((u) => (
+                  <tr key={u.id}>
+                    <td><Link href={`/organization/users/${u.id}`}>{u.name}</Link></td>
+                    <td>{u.department}</td>
+                    <td><StatusBadge status={u.status === "ACTIVE" ? "ACTIVE" : "STORED"} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </div>

@@ -48,3 +48,8 @@ export function upcomingMaintenanceEvents(limit = 5): MaintenanceEvent[] {
 export function awaitingActionMaintenanceEvents(): MaintenanceEvent[] {
   return maintenanceEvents.filter((m) => m.status === "AWAITING_EVIDENCE" || m.status === "AWAITING_REVIEW");
 }
+
+/** Maintenance tasks/events actually linked to a regulatory requirement via relatedRequirementId. */
+export function maintenanceEventsForRequirement(requirementId: string): MaintenanceEvent[] {
+  return maintenanceEvents.filter((m) => m.relatedRequirementId === requirementId).sort((a, b) => a.date.localeCompare(b.date));
+}
