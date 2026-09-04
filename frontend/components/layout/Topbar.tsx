@@ -187,6 +187,14 @@ export function Topbar() {
                   +{alerts.length - topAlerts.length} more — ask {PLATFORM_AI_NAME} for the full list.
                 </p>
               )}
+              <Link
+                href="/notifications"
+                className="ac-text-sm"
+                style={{ display: "block", textAlign: "center", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ac-border)" }}
+                onClick={() => setNotifOpen(false)}
+              >
+                View all notifications →
+              </Link>
             </div>
           )}
         </div>

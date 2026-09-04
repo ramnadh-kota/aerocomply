@@ -22,6 +22,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Overview",
     items: [
       { href: "/dashboard", label: "Dashboard", glyph: "◧" },
+      { href: "/notifications", label: "Notifications", glyph: "🔔" },
       { href: "/pilot", label: "Pilot Workflow", glyph: "▶" },
       { href: "/executive", label: "Executive", glyph: "◆" },
       { href: "/finance", label: "MRO Finance", glyph: "$" },
@@ -37,6 +38,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Fleet",
     items: [
+      { href: "/fleet/health", label: "Fleet Health", glyph: "♥" },
       { href: "/aircraft", label: "Aircraft", glyph: "✈" },
       { href: "/engines", label: "Engines", glyph: "◎" },
       { href: "/components", label: "Components", glyph: "▤" },
