@@ -97,6 +97,7 @@ import {
   getAutomationQueue,
   getWorkOrderTatStatus,
   getFleetTatStatus,
+  getReleaseQueue,
   type KpiCard,
   type RiskItem,
 } from "./analytics";
@@ -610,7 +611,31 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
       };
     }
     case "RELEASE_READINESS": {
-      if (!wo) return null;
+      if (!wo) {
+        // Fleet-wide "what are the release blockers?" — same queue and
+        // engine the Release Readiness dashboard uses, just summarized.
+        const queue = getReleaseQueue().map((q) => ({ ...q, readiness: getReleaseReadinessForWorkOrder(q.workOrderId) }));
+        const blocked = queue.filter((q) => q.readiness.status === "BLOCKED");
+        if (queue.length === 0) {
+          return { id: nextId(), question, headline: "No work orders currently in the release queue", narrative: ["FACT: No work order is currently awaiting release.", TRUST_FOOTER], understood: understood(top.intent, scope, entities) };
+        }
+        if (blocked.length === 0) {
+          return { id: nextId(), question, headline: "No release blockers in the current queue", narrative: [`FACT: ${queue.length} work order(s) in the release queue; none are currently BLOCKED.`, TRUST_FOOTER], buttons: [{ label: "View Release Readiness", href: "/maintenance/release-readiness" }], understood: understood(top.intent, scope, entities) };
+        }
+        return {
+          id: nextId(),
+          question,
+          headline: `${blocked.length} work order(s) currently release-blocked`,
+          narrative: [
+            "FACT: The following work orders are BLOCKED from release:",
+            ...blocked.map((b) => `${b.workOrderNumber} (${b.aircraftRegistration}): ${b.readiness.blockers.length} blocker(s) — ${b.readiness.blockers[0]?.category ?? "UNKNOWN"}: ${b.readiness.blockers[0]?.explanation ?? ""}`),
+            "SAFETY_REFUSAL: Lisa does not authorize or perform release — resolving these blockers and signing off remains a human, authorized-signatory decision.",
+            TRUST_FOOTER,
+          ],
+          buttons: [{ label: "View Release Readiness", href: "/maintenance/release-readiness" }],
+          understood: understood(top.intent, scope, entities),
+        };
+      }
       const readiness = getReleaseReadinessForWorkOrder(wo.id);
       if (readiness.status === "READY") {
         return {
