@@ -1663,7 +1663,7 @@ export interface TatAssessment {
 // matches the DUE_SOON_DAYS window the M17 maintenance-due engine already
 // uses elsewhere in this file, so "at risk" means the same thing across
 // the app rather than a second threshold invented just for TAT.
-const TAT_AT_RISK_WINDOW_DAYS = 3;
+export const TAT_AT_RISK_WINDOW_DAYS = 3;
 
 export function getWorkOrderTatStatus(workOrderId: string): TatAssessment | null {
   const w = workOrders.find((x) => x.id === workOrderId);
@@ -2236,7 +2236,7 @@ export interface MaintenanceDueItem {
   governingSource: string; // program name + requirement source citation
 }
 
-const DUE_SOON_DAYS = 7;
+export const DUE_SOON_DAYS = 7;
 const DUE_SOON_FRACTION = 0.1; // within 10% of the interval remaining
 
 interface BasisResult {

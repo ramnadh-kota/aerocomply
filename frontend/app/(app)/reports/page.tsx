@@ -39,7 +39,12 @@ export default function ReportsPage() {
         </div>
       </div>
       <div className="ac-card" style={{ padding: 0 }}>
-        <DataTable columns={columns} rows={reportHistory} getRowHref={(r) => `/reports/${r.id}`} />
+        <DataTable
+          columns={columns}
+          rows={reportHistory}
+          getRowHref={(r) => `/reports/${r.id}`}
+          emptyMessage="No reports generated yet this session. Reports are produced client-side from current demo data — generate one from a module's report action to see it listed here."
+        />
       </div>
     </div>
   );

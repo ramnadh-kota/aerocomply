@@ -50,7 +50,11 @@ export default function DefectsPage() {
         </div>
       </div>
       <div className="ac-card" style={{ padding: 0 }}>
-        <DataTable columns={columns} rows={defects} />
+        <DataTable
+          columns={columns}
+          rows={defects}
+          emptyMessage="No defects currently tracked. Defects are logged against an aircraft from a discrepancy or inspection finding — once logged here, they can generate a work order and, if serious enough, drive the aircraft's AOG status."
+        />
       </div>
     </div>
   );

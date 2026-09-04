@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { GlobalSearch } from "@/components/search/GlobalSearch";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { organizations } from "@/lib/mock/organizations";
@@ -10,6 +11,18 @@ import { getRoleById } from "@/lib/mock/roles";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
+import { HelpPanel } from "@/components/onboarding/HelpPanel";
+import { getProactiveAlerts, type AlertSeverity } from "@/lib/mock/ai/proactive";
+
+// Same five-color status vocabulary as StatusBadge (components/status/
+// StatusBadge.tsx) — never a second color mapping. Severity maps to the
+// closest existing badge kind rather than inventing a new tone.
+const SEVERITY_BADGE: Record<AlertSeverity, { status: "NON_COMPLIANT" | "REVIEW_REQUIRED" | "INSUFFICIENT_DATA" | "COMPLIANT"; label: string }> = {
+  CRITICAL: { status: "NON_COMPLIANT", label: "Critical" },
+  HIGH: { status: "REVIEW_REQUIRED", label: "High" },
+  MEDIUM: { status: "INSUFFICIENT_DATA", label: "Medium" },
+  LOW: { status: "COMPLIANT", label: "Low" },
+};
 
 export function Topbar() {
   const [orgId, setOrgId] = useState(organizations[0].id);
@@ -18,6 +31,12 @@ export function Topbar() {
   const { addAuditEvent } = useMroState();
   const { toggle: toggleSidebar } = useSidebarDrawer();
   const activeRole = getRoleById(roleId);
+  const router = useRouter();
+  // Computed fresh per render from live mock data — no separate
+  // notifications store, so this can never drift from what Lisa reports
+  // elsewhere (dashboard Daily Brief, AI console "Lisa noticed…" strip).
+  const alerts = useMemo(() => getProactiveAlerts(), []);
+  const topAlerts = alerts.slice(0, 8);
 
   function changeRole(nextRoleId: string) {
     const nextRole = getRoleById(nextRoleId);
@@ -31,6 +50,11 @@ export function Topbar() {
       previousState: activeRole?.name ?? null,
       newState: nextRole?.name ?? nextRoleId,
     });
+  }
+
+  function goToAlert(href: string) {
+    setNotifOpen(false);
+    router.push(href);
   }
 
   return (
@@ -86,6 +110,8 @@ export function Topbar() {
 
         <ThemeToggle />
 
+        <HelpPanel />
+
         <div style={{ position: "relative" }}>
           <button
             className="ac-btn"
@@ -93,18 +119,70 @@ export function Topbar() {
             aria-haspopup="true"
             aria-expanded={notifOpen}
             onClick={() => setNotifOpen((v) => !v)}
-            style={{ padding: "8px 10px" }}
+            style={{ padding: "8px 10px", position: "relative" }}
           >
             <span aria-hidden="true">🔔</span>
+            {alerts.length > 0 && (
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  right: 2,
+                  minWidth: 16,
+                  height: 16,
+                  padding: "0 3px",
+                  borderRadius: 8,
+                  background: "var(--ac-status-non-compliant)",
+                  color: "#fff",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  lineHeight: 1,
+                }}
+              >
+                {alerts.length > 99 ? "99+" : alerts.length}
+              </span>
+            )}
           </button>
           {notifOpen && (
-            <div className="ac-card" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", width: 280, zIndex: 50 }}>
+            <div className="ac-card" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", width: 340, maxHeight: 420, overflowY: "auto", zIndex: 50 }}>
               <p className="ac-eyebrow" style={{ marginBottom: 8 }}>
-                Notifications (mock)
+                {PLATFORM_AI_NAME}&apos;s Alerts ({alerts.length})
               </p>
-              <p className="ac-text-sm">3 assessments require engineering review.</p>
-              <hr className="ac-divider" />
-              <p className="ac-text-sm">New evidence added to AD-2026-001 / VT-ABC.</p>
+              {topAlerts.length === 0 ? (
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No open alerts from current fleet data.</p>
+              ) : (
+                <div className="ac-flex ac-flex-col ac-gap-2">
+                  {topAlerts.map((a) => {
+                    const badge = SEVERITY_BADGE[a.severity];
+                    return (
+                      <button
+                        key={a.id}
+                        onClick={() => goToAlert(a.href)}
+                        className="ac-card"
+                        style={{ textAlign: "left", cursor: "pointer", width: "100%", padding: "8px 10px" }}
+                      >
+                        <div className="ac-flex ac-justify-between ac-items-center" style={{ gap: 8 }}>
+                          <span className="ac-text-sm" style={{ fontWeight: 600 }}>{a.title}</span>
+                          <span className={`ac-badge ac-badge-${badge.status.toLowerCase()}`} style={{ flexShrink: 0 }}>
+                            <span className="ac-badge-dot" aria-hidden="true" />
+                            {badge.label}
+                          </span>
+                        </div>
+                        <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>{a.message}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {alerts.length > topAlerts.length && (
+                <p className="ac-text-sm ac-text-muted" style={{ margin: "8px 0 0" }}>
+                  +{alerts.length - topAlerts.length} more — ask {PLATFORM_AI_NAME} for the full list.
+                </p>
+              )}
             </div>
           )}
         </div>

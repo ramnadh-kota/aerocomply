@@ -62,7 +62,12 @@ export default function EvidenceListPage() {
         </div>
       </div>
       <div className="ac-card" style={{ padding: 0 }}>
-        <DataTable columns={columns} rows={evidence} getRowHref={(e) => `/evidence/${e.id}`} />
+        <DataTable
+          columns={columns}
+          rows={evidence}
+          getRowHref={(e) => `/evidence/${e.id}`}
+          emptyMessage="No evidence records yet. Evidence is attached from a specific regulatory assessment (Assessments → open an assessment → attach evidence) — it does not get uploaded here directly."
+        />
       </div>
     </div>
   );

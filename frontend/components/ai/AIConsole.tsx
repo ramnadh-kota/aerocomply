@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { answerQuestion, CATEGORIZED_QUESTIONS, type AiResponse } from "@/lib/mock/ai/engine";
 import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics } from "@/lib/mock/ai/analytics";
+import { getProactiveAlerts } from "@/lib/mock/ai/proactive";
 import { AIResponseView } from "@/components/ai/AIResponseView";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { AI_NAME, AI_DESCRIPTION, COMPANY_NAME } from "@/lib/brand";
@@ -40,6 +41,9 @@ export function AIConsole({
   const [activeId, setActiveId] = useState<string | null>(null);
   const { addAuditEvent, auditLog } = useMroState();
   const askedInitial = useRef(false);
+  // Reuses the SAME proactive engine as the Topbar notification panel and
+  // the dashboard's Daily Brief — never a second alert calculation.
+  const proactiveAlerts = useMemo(() => getProactiveAlerts().slice(0, 3), []);
 
   function ask(question: string) {
     const trimmed = question.trim();
@@ -117,6 +121,26 @@ export function AIConsole({
               Ask {AI_NAME}
             </button>
           </div>
+
+          {proactiveAlerts.length > 0 && (
+            <div className="ac-card" style={{ padding: 12 }}>
+              <p className="ac-eyebrow" style={{ marginBottom: 8 }}>{AI_NAME} noticed…</p>
+              <div className="ac-flex ac-flex-col ac-gap-2">
+                {proactiveAlerts.map((a) => (
+                  <div key={a.id} className="ac-flex ac-justify-between ac-items-center" style={{ gap: 8 }}>
+                    <span className="ac-text-sm" style={{ flex: 1 }}>{a.message}</span>
+                    <button
+                      className="ac-btn"
+                      style={{ fontSize: 12, padding: "4px 8px", flexShrink: 0 }}
+                      onClick={() => setDraft(`Tell me about: ${a.title}`)}
+                    >
+                      Ask about this
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {hasContext && (
             <div className="ac-card" style={{ padding: 12 }}>
