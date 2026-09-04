@@ -85,8 +85,8 @@ const INTENT_DEFINITIONS: IntentDefinition[] = [
   },
   {
     intent: "RELEASE_READINESS",
-    phrases: ["release ready", "ready for release", "why can't we release", "why cant we release", "blocking release", "return to service"],
-    terms: ["release", "rts"],
+    phrases: ["release ready", "ready for release", "why can't we release", "why cant we release", "blocking release", "return to service", "what's blocking", "what is blocking"],
+    terms: ["release", "rts", "blocking", "blocked"],
     negativeTerms: ["release the part", "vendor"],
   },
   {
