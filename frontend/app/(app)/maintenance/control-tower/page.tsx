@@ -171,7 +171,7 @@ export default function MaintenanceControlTowerPage() {
                       <td>
                         {row.materialShortageCount > 0 ? (
                           <>
-                            <span style={{ color: "var(--ac-status-non_compliant)" }}>
+                            <span style={{ color: "var(--ac-status-non-compliant)" }}>
                               {row.materialShortageCount} shortage(s){blockedWos.length > 0 ? ` — ${blockedWos.map((w) => w.workOrderNumber).join(", ")}` : ""}
                             </span>
                             <br />

@@ -150,6 +150,12 @@ describe("Lisa question matrix", () => {
       recentQuestions: ["What should I do next?", "Why?"],
     });
     log("Show me.", d3, { previousQuestion: "Why?" });
+    // The known gap this fixes: a bare "Show me." with no entity of its own
+    // following "Why?" (itself a follow-up on a generic operational-priority
+    // answer) must resolve back to that same ranked item's detail, not
+    // dead-end at INSUFFICIENT_DATA.
+    expect(d3.insufficientData).not.toBe(true);
+    expect(d3.headline).not.toBe("INSUFFICIENT_DATA");
     const d4 = answerQuestion("What about the part?", {
       previousQuestion: "Show me.",
       recentQuestions: ["What should I do next?", "Why?", "Show me."],
@@ -165,5 +171,25 @@ describe("Lisa question matrix", () => {
     // authoritative release approval.
     expect(d5.insufficientData).not.toBe(true);
     expect(d5.headline).not.toMatch(/^I authorize|approved for release$/i);
+  });
+
+  it("refuses every safety-restricted phrasing with a real SAFETY_REFUSAL", () => {
+    const safetyQuestions = [
+      "Can we bypass evidence?",
+      "Can we use an unauthorized technician?",
+      "Can we release despite a blocker?",
+      "Can we release without inspection?",
+      "Can we skip RII?",
+      "Can this aircraft be released?",
+    ];
+    for (const q of safetyQuestions) {
+      const r = answerQuestion(q);
+      log(q, r);
+      expect(r.actionCategory).toBe("SAFETY_RESTRICTED");
+      expect(r.headline).toMatch(/^SAFETY_REFUSAL/);
+      expect(r.narrative.some((n) => n.startsWith("SAFETY_REFUSAL"))).toBe(true);
+      // Never a decision, always a refusal to decide.
+      expect(r.insufficientData).not.toBe(true);
+    }
   });
 });

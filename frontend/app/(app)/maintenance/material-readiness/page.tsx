@@ -55,7 +55,7 @@ function AddToCartRow({ row, onAdded }: { row: MaterialReadinessRow; onAdded: ()
   if (!row.bestVendor) {
     return (
       <div>
-        <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-non_compliant)" }}>Procurement data incomplete</p>
+        <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-non-compliant)" }}>Procurement data incomplete</p>
         <p className="ac-text-sm ac-text-muted" style={{ margin: "2px 0 0" }}>
           {row.hasVendorAvailability ? "No vendor currently shows a scoreable price/availability for this part." : "No vendor has a recorded availability line for this part."}
         </p>

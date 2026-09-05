@@ -109,13 +109,13 @@ export function WorkOrderPlanningTable() {
                     <td>{PLANNING_STATUS_LABEL[r.planningStatus]}</td>
                     <td>
                       {r.shortParts.length > 0 ? (
-                        <span style={{ color: "var(--ac-status-non_compliant)" }}>{r.shortParts.map((sp) => sp.partNumber).join(", ")} unavailable</span>
+                        <span style={{ color: "var(--ac-status-non-compliant)" }}>{r.shortParts.map((sp) => sp.partNumber).join(", ")} unavailable</span>
                       ) : (
                         "Ready"
                       )}
                     </td>
                     <td>{r.assignedTechnicianName ?? <span className="ac-text-muted">Unassigned</span>}</td>
-                    <td>{r.daysOverdue !== null ? <span style={{ color: "var(--ac-status-non_compliant)" }}>{r.daysOverdue}d overdue</span> : `Due ${r.dueDate}`}</td>
+                    <td>{r.daysOverdue !== null ? <span style={{ color: "var(--ac-status-non-compliant)" }}>{r.daysOverdue}d overdue</span> : `Due ${r.dueDate}`}</td>
                     <td><StatusBadge status={risk.status} label={risk.label} /></td>
                     <td className="ac-text-sm">{r.recommendedAction}</td>
                   </tr>

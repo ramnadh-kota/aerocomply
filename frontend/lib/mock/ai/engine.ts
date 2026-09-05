@@ -608,6 +608,42 @@ function operationalPriorityIndex(question: string, context?: AiQuestionContext)
   return Math.max(0, count - 1);
 }
 
+// A bare "Show me." / "Show me more." / "Details." carries no entity or
+// topic of its own — it only means "expand on whatever you just told me".
+// The most common shape of this in practice is a chain like
+// "What should I do next?" -> (P0 item #1) -> "Why?" -> "Show me." — where
+// "Why?" doesn't itself repeat the operational-priority phrasing, so a
+// naive contiguous-streak check (as operationalPriorityIndex does for
+// "next one"/"which one") would break on the intervening "Why?" turn and
+// miss the priority-answer context entirely. This resolves through the
+// SAME context.previousQuestion/recentQuestions mechanism as every other
+// follow-up branch (see recentHistory above): it scans history for the
+// most recent turn that was itself an operational-priority question, then
+// re-derives that turn's own ranked index (not the NEXT one — "show me"
+// re-displays, it does not advance the ranking).
+const BARE_SHOW_ME_PATTERNS: RegExp[] = [/^show me\.?$/, /^show me more\.?$/, /^show more\.?$/, /^details\.?$/, /^more details\.?$/, /^tell me more\.?$/];
+
+function isBareShowMeFollowup(question: string): boolean {
+  const t = question.toLowerCase().trim();
+  return BARE_SHOW_ME_PATTERNS.some((p) => p.test(t));
+}
+
+/** Returns the ranked-item index the most recent operational-priority turn
+ * in history was reporting, or null when no such turn exists in history at
+ * all (nothing to inherit — the caller should fall back to a clarification
+ * prompt rather than guess). */
+function lastOperationalPriorityIndex(context?: AiQuestionContext): number | null {
+  const history = recentHistory(context); // newest-first, current turn excluded
+  const anchorPos = history.findIndex((q) => isOperationalPriorityInitial(q) || isOperationalPriorityFollowup(q));
+  if (anchorPos === -1) return null;
+  let count = 0;
+  for (let i = anchorPos; i < history.length; i++) {
+    if (isOperationalPriorityInitial(history[i]) || isOperationalPriorityFollowup(history[i])) count++;
+    else break;
+  }
+  return Math.max(0, count - 1);
+}
+
 const OPERATIONAL_PRIORITY_CATEGORY_WHY: Record<string, string> = {
   AOG: "An AOG aircraft is grounded and generates no revenue until the blocking condition is resolved — this is the highest-priority operational condition in the fleet.",
   TAT: "A delayed or at-risk work order threatens the aircraft's committed turnaround time.",
@@ -1269,6 +1305,14 @@ const AIRWORTHINESS_GUARD_PATTERNS = [
   // "can we skip inspection?" phrased as a release question with an omitted
   // safety gate, rather than a skip/bypass verb.
   /\brelease\b[^.?!]{0,40}\bwithout\b[^.?!]{0,20}\b(rii|inspection|independent inspection|evidence|sign[\s-]?off|signoff)\b/i,
+  // "Can we release despite a blocker?" — same underlying ask as "release
+  // without RII/inspection/evidence" above, phrased with "despite" instead
+  // of "without": approving release while a known blocker is left open.
+  /\brelease\b[^.?!]{0,40}\bdespite\b[^.?!]{0,40}\bblocker\b/i,
+  // "Can we use an unauthorized technician?" — same underlying ask as
+  // skip/bypass an authorization control: assigning work to someone not
+  // authorized for it per the authorization matrix.
+  /\bunauthorized\b[^.?!]{0,40}\btechnician\b/i,
 ];
 
 function answerAirworthinessGuard(question: string): AiResponse | null {
@@ -3392,6 +3436,29 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
         TRUST_FOOTER,
       ],
       buttons: [{ label: "View Work Order", href: `/maintenance/work-orders/${wo.id}` }],
+    };
+  }
+
+  // Bare "Show me." / "Show me more." / "Details." with no entity or topic
+  // of its own — re-display the fuller detail of whatever the immediately
+  // preceding answer was about, rather than falling through to
+  // INSUFFICIENT_DATA. Currently the only conversational thread this can
+  // safely re-anchor to is the generic operational-priority ranking (see
+  // lastOperationalPriorityIndex above); if no such turn exists anywhere in
+  // history, there is nothing to inherit, so this asks for clarification
+  // instead of guessing.
+  if (isBareShowMeFollowup(question) && !resolveWorkOrder(question, context) && !resolveAircraft(question, context)) {
+    const idx = lastOperationalPriorityIndex(context);
+    if (idx !== null) return operationalPriorityResponse(question, idx, context);
+    return {
+      id: nextId(),
+      question,
+      headline: "CLARIFICATION_NEEDED",
+      narrative: [
+        "I don't have a preceding answer to show more detail on.",
+        "Ask about a specific project, aircraft, work order, or one of the suggested questions, and I can go deeper on that.",
+        TRUST_FOOTER,
+      ],
     };
   }
 

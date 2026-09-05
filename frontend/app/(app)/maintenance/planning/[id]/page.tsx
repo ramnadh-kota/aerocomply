@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge, workOrderStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
-import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView, explainExecutionState, getReleaseReadinessForWorkOrder, getExecutionEvidenceStatus, getTechnicianAuthorizationMatrix } from "@/lib/mock/ai/analytics";
+import { getWorkOrderPlanningRow, getTechnicianAssignmentRecommendation, getTechnicianEligibilityForWorkOrder, requirementLabel, getExecutionState, getSafetyGatesForWorkOrder, getMaintenanceTaskChain, getMaintenanceTaskExecutionView, explainExecutionState, getReleaseReadinessForWorkOrder, getExecutionEvidenceStatus, getTechnicianAuthorizationMatrix, getInspectionRequirement, getTechnicianAuthorization, getWorkOrderTatStatus } from "@/lib/mock/ai/analytics";
 import { defectsForAircraft } from "@/lib/mock/defects";
 import { technicians } from "@/lib/mock/technicians";
 import { workOrderRepository } from "@/lib/domain/repositories";
@@ -78,6 +78,13 @@ export default function WorkOrderPlanningDetailPage() {
   const evidenceStatus = getExecutionEvidenceStatus(workOrderId);
   const evidenceBlocksCompletion = evidenceStatus?.state === "FAIL";
   const authorizationMatrix = getTechnicianAuthorizationMatrix(workOrderId);
+  // M0.5 completion-gate clarity — reads of the same canonical engines used
+  // elsewhere on this page (inspection matrix, TAT dashboard), scoped here
+  // to this work order's assigned technician so the Completion Gates panel
+  // below can show one unambiguous verdict without recomputing any gate.
+  const inspectionRequirement = getInspectionRequirement(workOrderId);
+  const assignedAuthorization = row.assignedTechnicianId ? getTechnicianAuthorization(row.assignedTechnicianId, workOrderId) : null;
+  const tatAssessment = getWorkOrderTatStatus(workOrderId);
 
   const onEvidenceFileChange = (file: File | null) => {
     setEvidenceError(null);
@@ -292,7 +299,7 @@ export default function WorkOrderPlanningDetailPage() {
           <h1 className="ac-h1">{row.workOrderNumber} — {row.title}</h1>
           <p className="ac-subtitle">
             Aircraft <Link href={`/aircraft/${row.aircraftId}`}>{row.aircraftRegistration}</Link> · Due {row.dueDate}
-            {row.daysOverdue !== null && <span style={{ color: "var(--ac-status-non_compliant)" }}> · {row.daysOverdue}d overdue</span>}
+            {row.daysOverdue !== null && <span style={{ color: "var(--ac-status-non-compliant)" }}> · {row.daysOverdue}d overdue</span>}
           </p>
         </div>
         <div className="ac-flex ac-gap-2">
@@ -328,7 +335,7 @@ export default function WorkOrderPlanningDetailPage() {
       </section>
 
       <section className="ac-section">
-        <div className="ac-card" style={{ borderColor: risk.status === "NON_COMPLIANT" ? "var(--ac-status-non_compliant)" : undefined }}>
+        <div className="ac-card" style={{ borderColor: risk.status === "NON_COMPLIANT" ? "var(--ac-status-non-compliant)" : undefined }}>
           <p className="ac-eyebrow" style={{ marginBottom: 6 }}>Planning Status: {row.planningStatus.replace(/_/g, " ")} · Risk: {row.risk}</p>
           <ul style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 13 }}>
             {row.riskReasons.map((r) => <li key={r}>→ {r}</li>)}
@@ -479,6 +486,92 @@ export default function WorkOrderPlanningDetailPage() {
       </section>
 
       <section className="ac-section">
+        {row.status === "IN_PROGRESS" && (
+          <div
+            className="ac-card"
+            style={{ marginBottom: 12, borderColor: evidenceBlocksCompletion ? "var(--ac-status-non-compliant)" : "var(--ac-status-compliant)" }}
+          >
+            <p className="ac-eyebrow" style={{ marginBottom: 10 }}>Completion Gates</p>
+            <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap", gap: 16, marginBottom: 12 }}>
+              <div>
+                <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Execution</p>
+                <StatusBadge status={statusBadge.status} label={statusBadge.label} />
+              </div>
+              <div>
+                <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Evidence Gate</p>
+                <StatusBadge
+                  status={evidenceStatus?.state === "PASS" ? "COMPLIANT" : evidenceStatus?.state === "FAIL" ? "NON_COMPLIANT" : evidenceStatus?.state === "UNKNOWN" ? "INSUFFICIENT_DATA" : "COMPLIANT"}
+                  label={evidenceStatus?.state ?? "NOT_REQUIRED"}
+                />
+              </div>
+              <div>
+                <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Inspection</p>
+                <StatusBadge
+                  status={
+                    inspectionRequirement.status === "NOT_REQUIRED" || inspectionRequirement.status === "COMPLETED"
+                      ? "COMPLIANT"
+                      : inspectionRequirement.status === "UNKNOWN"
+                      ? "INSUFFICIENT_DATA"
+                      : "PENDING"
+                  }
+                  label={
+                    inspectionRequirement.status === "NOT_REQUIRED"
+                      ? "Not Required"
+                      : inspectionRequirement.status === "COMPLETED"
+                      ? "Complete"
+                      : inspectionRequirement.status === "UNKNOWN"
+                      ? "Unknown"
+                      : "Pending"
+                  }
+                />
+              </div>
+              <div>
+                <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Authorization</p>
+                <StatusBadge
+                  status={assignedAuthorization?.status === "AUTHORIZED" ? "COMPLIANT" : assignedAuthorization?.status === "NOT_AUTHORIZED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
+                  label={assignedAuthorization ? assignedAuthorization.status.replace(/_/g, " ") : "Unknown — No Technician Assigned"}
+                />
+              </div>
+              <div>
+                <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Release Readiness</p>
+                <StatusBadge
+                  status={releaseReadiness.status === "READY" ? "COMPLIANT" : releaseReadiness.status === "BLOCKED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
+                  label={releaseReadiness.status}
+                />
+              </div>
+              {tatAssessment && (
+                <div>
+                  <p className="ac-eyebrow" style={{ marginBottom: 4 }}>TAT</p>
+                  <StatusBadge
+                    status={
+                      tatAssessment.status === "ON_TRACK"
+                        ? "COMPLIANT"
+                        : tatAssessment.status === "AT_RISK"
+                        ? "REVIEW_REQUIRED"
+                        : tatAssessment.status === "DELAYED"
+                        ? "NON_COMPLIANT"
+                        : "INSUFFICIENT_DATA"
+                    }
+                    label={tatAssessment.status.replace(/_/g, " ")}
+                  />
+                </div>
+              )}
+            </div>
+            {/* The verdict below is not a second gate calculation — it renders the
+                exact same evidenceBlocksCompletion boolean that already disables
+                the Complete button, in words. Only the Evidence Gate currently
+                blocks the technician's own Complete action; Inspection/
+                Authorization/Release Readiness/TAT are shown above for visibility
+                but govern release, not this button — see "Maintenance Task &
+                Release" section below for that distinction. */}
+            <p
+              className="ac-text-sm"
+              style={{ margin: 0, fontWeight: 700, color: evidenceBlocksCompletion ? "var(--ac-status-non-compliant)" : "var(--ac-status-compliant)" }}
+            >
+              {evidenceBlocksCompletion ? `BLOCKED — ${evidenceStatus?.reason ?? "Required execution evidence is not yet accepted."}` : "CAN COMPLETE"}
+            </p>
+          </div>
+        )}
         <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
           {row.planningStatus === "READY" && (
             <button className="ac-btn ac-btn-primary" onClick={start}>Start Work</button>
@@ -495,8 +588,8 @@ export default function WorkOrderPlanningDetailPage() {
           <Link href={`/aircraft/${wo.aircraftId}`} className="ac-btn">View Aircraft</Link>
         </div>
         {row.status === "IN_PROGRESS" && evidenceBlocksCompletion && (
-          <div className="ac-card" style={{ borderColor: "var(--ac-status-non_compliant)", marginTop: 10 }}>
-            <p className="ac-text-sm" style={{ color: "var(--ac-status-non_compliant)", margin: "0 0 8px", fontWeight: 600 }}>
+          <div className="ac-card" style={{ borderColor: "var(--ac-status-non-compliant)", marginTop: 10 }}>
+            <p className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)", margin: "0 0 8px", fontWeight: 600 }}>
               Cannot complete task — required execution evidence is not yet accepted.
             </p>
             <p className="ac-text-sm" style={{ margin: "0 0 10px" }}>{evidenceStatus?.reason}</p>
@@ -600,7 +693,7 @@ export default function WorkOrderPlanningDetailPage() {
               onChange={(e) => onEvidenceFileChange(e.target.files?.[0] ?? null)}
             />
           </div>
-          {evidenceError && <p className="ac-text-sm" style={{ color: "var(--ac-status-non_compliant)", marginBottom: 8 }}>{evidenceError}</p>}
+          {evidenceError && <p className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)", marginBottom: 8 }}>{evidenceError}</p>}
           {evidencePreviewUrl && (
             <div style={{ marginBottom: 8 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -677,7 +770,7 @@ export default function WorkOrderPlanningDetailPage() {
         <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
           Whether this application&apos;s known operational gates are satisfied — not an airworthiness or dispatch determination.
         </p>
-        <div className="ac-card" style={{ borderColor: releaseReadiness.status === "BLOCKED" ? "var(--ac-status-non_compliant)" : undefined }}>
+        <div className="ac-card" style={{ borderColor: releaseReadiness.status === "BLOCKED" ? "var(--ac-status-non-compliant)" : undefined }}>
           <StatusBadge
             status={releaseReadiness.status === "READY" ? "COMPLIANT" : releaseReadiness.status === "BLOCKED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
             label={releaseReadiness.status}

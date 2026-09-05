@@ -12,9 +12,9 @@ import { StatusBadge, workOrderStatusBadge, priorityBadge, projectStatusBadge } 
 import { inspectorReviews } from "@/lib/mock/inspectorReviews";
 import { findings } from "@/lib/mock/findings";
 import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics } from "@/lib/mock/ai/analytics";
-import { getDailyBrief } from "@/lib/mock/ai/proactive";
+import { DailyBriefCard } from "@/components/dashboard/DailyBriefCard";
 import { ViewingAsBadge } from "@/components/layout/ViewingAsBadge";
-import { PLATFORM_AI_NAME, AI_NAME } from "@/lib/brand";
+import { PLATFORM_AI_NAME } from "@/lib/brand";
 
 const KPIS = [
   { label: "Total Aircraft", value: "128", href: "/aircraft" },
@@ -56,7 +56,6 @@ export default function DashboardPage() {
   const maintAnalytics = getMaintenanceAnalytics();
   const complianceAnalytics = getComplianceAnalytics();
   const inspectionAnalytics = getInspectionAnalytics();
-  const dailyBrief = getDailyBrief(4);
 
   return (
     <div>
@@ -65,40 +64,11 @@ export default function DashboardPage() {
           <h1 className="ac-h1">Compliance Intelligence</h1>
           <p className="ac-subtitle">Fleet regulatory applicability and assessment overview</p>
         </div>
+        <ViewingAsBadge />
       </div>
 
       <section className="ac-section">
-        <div className="ac-card" style={{ borderColor: "var(--ac-accent)" }}>
-          <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-            <p className="ac-eyebrow" style={{ margin: 0 }}>{AI_NAME}&apos;s Daily Brief — Good Morning</p>
-            <span className="ac-text-sm ac-text-muted">As of {dailyBrief.generatedAt}</span>
-          </div>
-          <p className="ac-text-sm ac-text-secondary" style={{ margin: "0 0 10px" }}>
-            Fleet: {dailyBrief.fleet.aircraftCount} aircraft · {dailyBrief.fleet.aogCount} AOG · {dailyBrief.fleet.maintenanceDueCount} under maintenance · {dailyBrief.fleet.tatAtRiskCount} TAT at risk
-          </p>
-          {dailyBrief.topPriorities.length > 0 && (
-            <>
-              <p className="ac-text-sm" style={{ margin: "0 0 6px", fontWeight: 600 }}>Top priorities</p>
-              <ul style={{ margin: "0 0 10px", padding: 0, listStyle: "none" }}>
-                {dailyBrief.topPriorities.map((a) => (
-                  <li key={a.id} style={{ padding: "6px 0", borderBottom: "1px solid var(--ac-border-subtle)" }}>
-                    <Link href={a.href} className="ac-flex ac-items-center ac-gap-2" style={{ fontSize: 13 }}>
-                      <span aria-hidden="true" style={{ color: "var(--ac-status-review)" }}>⚠</span>
-                      <span style={{ fontWeight: 600 }}>{a.title}</span>
-                      <span className="ac-text-muted">— {a.message}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-            Procurement: {dailyBrief.procurement.criticalPartsCount} critical part(s) out of stock · Compliance: {dailyBrief.compliance.recentRegulatoryCount} recent regulatory record(s)
-          </p>
-          <div className="ac-flex ac-gap-2" style={{ marginTop: 10 }}>
-            <Link href="/ai" className="ac-btn ac-btn-primary">Ask {AI_NAME}</Link>
-          </div>
-        </div>
+        <DailyBriefCard />
       </section>
 
       <section className="ac-section">
