@@ -60,7 +60,26 @@ interface IntentDefinition {
 const INTENT_DEFINITIONS: IntentDefinition[] = [
   {
     intent: "WORK_ORDER_PRIORITY",
-    phrases: ["work order", "work orders", "need attention", "needs attention", "what should i", "what needs my attention", "do first", "focus on", "operational problem", "biggest problem"],
+    phrases: [
+      "work order",
+      "work orders",
+      "need attention",
+      "needs attention",
+      "what should i",
+      "what needs my attention",
+      "do first",
+      "focus on",
+      "operational problem",
+      "biggest problem",
+      "do next",
+      "complete first",
+      "what is urgent",
+      "what's urgent",
+      "blocking us",
+      "next one",
+      "which one",
+      "what about it",
+    ],
     terms: ["job", "jobs", "task", "tasks", "backlog", "priority", "critical", "urgent", "important", "immediate", "prioritize", "prioritise", "smartly", "smart", "handle", "deal with", "today"],
   },
   {

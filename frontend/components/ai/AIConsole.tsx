@@ -3,12 +3,13 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { answerQuestion, getSuggestedQuestionsForRole, type AiResponse } from "@/lib/mock/ai/engine";
-import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics } from "@/lib/mock/ai/analytics";
-import { getProactiveAlerts } from "@/lib/mock/ai/proactive";
+import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getReleaseQueue } from "@/lib/mock/ai/analytics";
+import { getProactiveAlerts, getDailyBrief, type ProactiveAlert } from "@/lib/mock/ai/proactive";
 import { AIResponseView } from "@/components/ai/AIResponseView";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { useRoleSim } from "@/lib/role-sim/RoleSimContext";
 import { AI_NAME, AI_DESCRIPTION, COMPANY_NAME } from "@/lib/brand";
+import { StatusBadge, priorityBadge } from "@/components/status/StatusBadge";
 
 interface Turn {
   id: string;
@@ -52,6 +53,19 @@ export function AIConsole({
   // still what's fetched (see getProactiveAlerts() role-relevance comment).
   const proactiveAlerts = useMemo(() => getProactiveAlerts(roleId).slice(0, 3), [roleId]);
   const suggestedQuestionCategories = useMemo(() => getSuggestedQuestionsForRole(roleId), [roleId]);
+
+  // "Today's Operational Picture" KPI strip + "Lisa's Priorities" list — both
+  // read the SAME canonical engines as the dashboard's Daily Brief and the
+  // Topbar notification panel (see getDailyBrief()/getProactiveAlerts() in
+  // lib/mock/ai/proactive.ts), never a second/invented aggregate. If a
+  // richer priority-ranking engine (getOperationalPriorities()) lands later,
+  // only this one call site needs to change — the render below only assumes
+  // a {id, severity, title, message, href}-shaped array.
+  const allAlerts = useMemo(() => getProactiveAlerts(roleId), [roleId]);
+  const dailyBrief = useMemo(() => getDailyBrief(5, roleId), [roleId]);
+  const releaseBlockedCount = useMemo(() => getReleaseQueue().length, []);
+  const criticalCount = allAlerts.filter((a) => a.severity === "CRITICAL").length;
+  const priorities: ProactiveAlert[] = dailyBrief.topPriorities;
 
   function ask(question: string) {
     const trimmed = question.trim();
@@ -98,9 +112,81 @@ export function AIConsole({
   return (
     <div>
       <div className="ac-card" style={{ marginBottom: 12 }}>
-        <p className="ac-eyebrow" style={{ marginBottom: 2 }}>{AI_NAME} — MRO Operational Copilot</p>
-        <p className="ac-text-sm ac-text-secondary" style={{ margin: 0, fontWeight: 600 }}>{AI_DESCRIPTION}</p>
+        <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <p className="ac-eyebrow" style={{ marginBottom: 2 }}>{AI_NAME} — MRO Operational Copilot</p>
+            <p className="ac-text-sm ac-text-secondary" style={{ margin: 0, fontWeight: 600 }}>{AI_DESCRIPTION}</p>
+          </div>
+          <span className="ac-flex ac-items-center ac-gap-2" style={{ whiteSpace: "nowrap" }}>
+            <span
+              aria-hidden="true"
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: "var(--ac-status-compliant)",
+                display: "inline-block",
+                boxShadow: "0 0 0 3px color-mix(in srgb, var(--ac-status-compliant) 25%, transparent)",
+              }}
+            />
+            <span className="ac-text-sm" style={{ fontWeight: 600 }}>Operational Intelligence Active</span>
+          </span>
+        </div>
       </div>
+
+      <div className="ac-section" style={{ marginBottom: 16 }}>
+        <p className="ac-eyebrow" style={{ marginBottom: 8 }}>Today&rsquo;s Operational Picture</p>
+        <div className="ac-kpi-grid">
+          <Link href="/notifications" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Critical</p>
+            <p className="ac-kpi-value">{criticalCount}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>alerts requiring attention</p>
+          </Link>
+          <Link href="/maintenance/control-center" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">AOG</p>
+            <p className="ac-kpi-value">{dailyBrief.fleet.aogCount}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>aircraft grounded</p>
+          </Link>
+          <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">TAT Risk</p>
+            <p className="ac-kpi-value">{dailyBrief.fleet.tatAtRiskCount}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>work orders at risk / delayed</p>
+          </Link>
+          <Link href="/maintenance/release-readiness" className="ac-kpi-card" style={{ display: "block" }}>
+            <p className="ac-kpi-label">Release Blocked</p>
+            <p className="ac-kpi-value">{releaseBlockedCount}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>work orders awaiting release</p>
+          </Link>
+        </div>
+      </div>
+
+      {priorities.length > 0 && (
+        <div className="ac-card" style={{ marginBottom: 16 }}>
+          <p className="ac-eyebrow" style={{ marginBottom: 8 }}>{AI_NAME}&rsquo;s Priorities</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {priorities.map((p) => {
+              const pb = priorityBadge(p.severity);
+              return (
+                <Link
+                  key={p.id}
+                  href={p.href}
+                  className="ac-flex ac-items-center ac-gap-2"
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    border: "1px solid var(--ac-border-subtle)",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <StatusBadge status={pb.status} label={p.severity} />
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{p.title}</span>
+                  <span className="ac-text-sm ac-text-muted">— {p.message}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="ac-lisa-grid">
         {/* LEFT — question / search / suggestions. Never hides the answer. */}

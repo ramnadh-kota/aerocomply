@@ -298,6 +298,61 @@ export function getProactiveAlerts(roleId?: string): ProactiveAlert[] {
   return deduped;
 }
 
+// --- Generic "what should I do next?" operational priority ranking ---
+//
+// This is a thin re-projection of getProactiveAlerts() — the SAME
+// deduplicated, severity-ranked alert list already shown in the
+// notification panel and Daily Brief — into the P0..P3 tiering vocabulary
+// Lisa's engine.ts uses for a no-entity operational-priority question.
+// It performs ZERO new calculation: severity (CRITICAL/HIGH/MEDIUM/LOW) is
+// already computed per-category by getProactiveAlerts from real engine
+// output (AOG status, TAT delay, release-queue membership, RII/evidence/
+// authorization blockers, part shortages, regulatory windows), and the
+// alerts are already ordered most-severe-first — this function only
+// relabels that existing ordering with the P0-P3 names product wants and
+// carries through enough per-item detail for engine.ts to build a
+// structured AiResponse without inventing anything.
+export type OperationalPriorityTier = "P0" | "P1" | "P2" | "P3";
+
+const TIER_BY_SEVERITY: Record<AlertSeverity, OperationalPriorityTier> = {
+  CRITICAL: "P0",
+  HIGH: "P1",
+  MEDIUM: "P2",
+  LOW: "P3",
+};
+
+export interface OperationalPriorityItem {
+  tier: OperationalPriorityTier;
+  severity: AlertSeverity;
+  category: AlertCategory;
+  title: string;
+  /** Plain-language reason, sourced verbatim from the real alert message
+   * already produced by getProactiveAlerts — never invented here. */
+  reason: string;
+  relatedEntity: ProactiveAlert["relatedEntity"];
+  href: string;
+}
+
+/**
+ * Ranked, explainable operational priority list for a generic question with
+ * no named entity ("What should I do next?", "What needs attention?",
+ * "What is blocking us?"). Rank order is inherited unchanged from
+ * getProactiveAlerts (tier, i.e. real severity, is the primary key; the
+ * secondary tie-break there is real role-relevance / category — never an
+ * invented numeric score).
+ */
+export function getOperationalPriorities(roleId?: string): OperationalPriorityItem[] {
+  return getProactiveAlerts(roleId).map((a) => ({
+    tier: TIER_BY_SEVERITY[a.severity],
+    severity: a.severity,
+    category: a.category,
+    title: a.title,
+    reason: a.message,
+    relatedEntity: a.relatedEntity,
+    href: a.href,
+  }));
+}
+
 export interface DailyBrief {
   generatedAt: string;
   fleet: {

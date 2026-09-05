@@ -36,6 +36,7 @@ import { auditEvents, combinedAuditHistory, verifyAuditChain } from "../audit";
 import type { AuditEvent } from "../types";
 import { AI_DEMO_DATA_FOOTER } from "../../brand";
 import { resolveLisaIntent, INTENT_LABEL, INTENT_DATA_AREAS, type LisaIntent } from "./intent";
+import { getOperationalPriorities, type OperationalPriorityItem } from "./proactive";
 import {
   getProjectAnalytics,
   getAircraftAnalytics,
@@ -549,6 +550,164 @@ function resolveWorkOrder(text: string, context?: AiQuestionContext) {
 }
 
 const TRUST_FOOTER = AI_DEMO_DATA_FOOTER;
+
+// --- Generic ("no explicit entity") operational-priority questions ---
+// "What should I do next?", "Which one should I complete first?", "What
+// needs attention?", "What is urgent?" — these must never dead-end at
+// INSUFFICIENT_DATA just because no work order/aircraft was named. When no
+// entity is resolvable (see the `!wo && !ac` guard where this is consumed
+// below), Lisa inspects current fleet-wide operational state via
+// getOperationalPriorities() (proactive.ts, itself a re-projection of the
+// existing getProactiveAlerts() severity ranking — no new calculation) and
+// recommends the single highest-priority actionable item.
+const OPERATIONAL_PRIORITY_INITIAL_PATTERNS: RegExp[] = [
+  /what should i do next/,
+  /^what should i do\??$/,
+  /which (one|work order|task|item)s? should i (complete|do|work on|fix|handle)( this)? first/,
+  /what needs (my )?attention/,
+  /what is urgent/,
+  /what'?s urgent/,
+  /what is blocking us/,
+  /what'?s blocking us/,
+  /what should i prioriti[sz]e/,
+  /what should i focus on/,
+];
+
+// "Next one." / "Which one?" / "What about it?" only mean "advance the
+// operational-priority ranking" when the immediately preceding turn(s) were
+// already part of this same generic-priority exchange (see
+// operationalPriorityIndex below) — standing alone they're too ambiguous
+// to safely repurpose here, so they are never treated as an initial
+// trigger, only a follow-up one.
+const OPERATIONAL_PRIORITY_FOLLOWUP_PATTERNS: RegExp[] = [/^next one\.?$/, /^which one\??$/, /^what about it\??$/];
+
+function isOperationalPriorityInitial(question: string): boolean {
+  const t = question.toLowerCase().trim();
+  return OPERATIONAL_PRIORITY_INITIAL_PATTERNS.some((p) => p.test(t));
+}
+
+function isOperationalPriorityFollowup(question: string): boolean {
+  const t = question.toLowerCase().trim();
+  return OPERATIONAL_PRIORITY_FOLLOWUP_PATTERNS.some((p) => p.test(t));
+}
+
+/** Which ranked item (0-based) this turn should report. Counts contiguous
+ * trailing generic-priority turns (this question plus history, newest
+ * first) using the SAME context.previousQuestion/recentQuestions mechanism
+ * every other follow-up branch in this file already resolves through (see
+ * recentHistory above) — no new conversation state is introduced. A bare
+ * "next one"/"which one" with no such preceding chain simply resolves to
+ * index 0, same as a fresh question. */
+function operationalPriorityIndex(question: string, context?: AiQuestionContext): number {
+  const newestFirst = [question, ...recentHistory(context)];
+  let count = 0;
+  for (const q of newestFirst) {
+    if (isOperationalPriorityInitial(q) || isOperationalPriorityFollowup(q)) count++;
+    else break;
+  }
+  return Math.max(0, count - 1);
+}
+
+const OPERATIONAL_PRIORITY_CATEGORY_WHY: Record<string, string> = {
+  AOG: "An AOG aircraft is grounded and generates no revenue until the blocking condition is resolved — this is the highest-priority operational condition in the fleet.",
+  TAT: "A delayed or at-risk work order threatens the aircraft's committed turnaround time.",
+  EVIDENCE: "Required execution evidence must be on file before this work order's workflow gate can clear.",
+  RII: "An independent inspection is required before this work order can proceed toward release — the assigned technician cannot inspect their own work.",
+  AUTHORIZATION: "The technician currently assigned is not authorized for this work order per the authorization matrix — this must be corrected before execution can be trusted.",
+  PART: "A required part is unavailable, blocking this work order from proceeding.",
+  VENDOR: "With no vendor availability on file, the blocking part shortage cannot currently be resolved through the existing procurement workflow.",
+  REGULATORY: "A regulatory document was recently published or becomes effective soon and may require an updated compliance assessment.",
+  RELEASE: "This work order is sitting in the release queue awaiting final disposition.",
+};
+
+const OPERATIONAL_PRIORITY_CATEGORY_WHO: Record<string, string> = {
+  AOG: "Maintenance Manager",
+  TAT: "Planning",
+  EVIDENCE: "Technician / Quality",
+  RII: "Quality / Inspection",
+  AUTHORIZATION: "Planning",
+  PART: "Procurement",
+  VENDOR: "Procurement",
+  REGULATORY: "Compliance",
+  RELEASE: "Planning / Quality",
+};
+
+const OPERATIONAL_PRIORITY_TIER_LEVEL: Record<string, NonNullable<AiResponse["priority"]>> = {
+  P0: "CRITICAL",
+  P1: "HIGH",
+  P2: "MEDIUM",
+  P3: "LOW",
+};
+
+function operationalPriorityRelatedButton(item: OperationalPriorityItem): AiButton {
+  switch (item.relatedEntity.type) {
+    case "AIRCRAFT":
+      return { label: "View Aircraft", href: `/aircraft/${item.relatedEntity.id}` };
+    case "WORK_ORDER":
+      return { label: "View Work Order", href: item.href };
+    case "PART":
+      return { label: "View Material Readiness", href: item.href };
+    default:
+      return { label: "View Details", href: item.href };
+  }
+}
+
+/** Builds the structured AiResponse for a generic operational-priority
+ * question from the #`index` ranked item of getOperationalPriorities() —
+ * every field below is sourced from that real, already-computed item
+ * (title/reason/category/tier/relatedEntity/href); nothing here invents a
+ * fact or a numeric score. */
+function operationalPriorityResponse(question: string, index: number, context?: AiQuestionContext): AiResponse {
+  const ranked = getOperationalPriorities(context?.role);
+  if (ranked.length === 0) {
+    return {
+      id: nextId(),
+      question,
+      headline: "No prioritized operational items outstanding",
+      narrative: ["FACT: no AOG, TAT, evidence, RII, authorization, part, vendor, regulatory, or release item currently requires action.", TRUST_FOOTER],
+      priority: "LOW",
+      whatIFound: ["No open operational priority items in the current dataset."],
+      whyItMatters: "With nothing currently flagged, there is no urgent operational action outstanding.",
+      confidenceState: "CONFIRMED",
+      actionCategory: "INFORMATION",
+    };
+  }
+  if (index >= ranked.length) {
+    const last = ranked[ranked.length - 1];
+    return {
+      id: nextId(),
+      question,
+      headline: "No further prioritized items",
+      narrative: [`FACT: only ${ranked.length} prioritized operational item(s) currently exist — you've reached the end of the ranked list.`, TRUST_FOOTER],
+      priority: OPERATIONAL_PRIORITY_TIER_LEVEL[last.tier],
+      whatIFound: [`The lowest-ranked outstanding item is ${last.title} — ${last.reason}`],
+      confidenceState: "CONFIRMED",
+      actionCategory: "INFORMATION",
+    };
+  }
+  const item = ranked[index];
+  const ordinal = index === 0 ? "the #1 ranked" : `the #${index + 1} ranked`;
+  return {
+    id: nextId(),
+    question,
+    headline: `${item.tier} — ${item.title}`,
+    narrative: [
+      `FACT: ${item.title} — ${item.reason}`,
+      `RECOMMENDATION: this is ${ordinal} operational priority (tier ${item.tier} of P0-P3, ranked by real severity across AOG, TAT, evidence, RII, authorization, parts, vendor, regulatory, and release signals).`,
+      TRUST_FOOTER,
+    ],
+    buttons: [operationalPriorityRelatedButton(item)],
+    priority: OPERATIONAL_PRIORITY_TIER_LEVEL[item.tier],
+    whatIFound: [`${item.title} — ${item.reason}`],
+    whyItMatters: OPERATIONAL_PRIORITY_CATEGORY_WHY[item.category] ?? "This is currently the highest-ranked open operational condition in the dataset.",
+    recommendedNextStep: item.reason,
+    whoShouldAct: OPERATIONAL_PRIORITY_CATEGORY_WHO[item.category] ?? "Planning",
+    relatedRecords: [operationalPriorityRelatedButton(item)],
+    confidenceState: "CONFIRMED",
+    actionCategory: "RECOMMENDATION",
+    understood: { intent: INTENT_LABEL.WORK_ORDER_PRIORITY, scope: "Fleet", entities: [], dataAreas: INTENT_DATA_AREAS.WORK_ORDER_PRIORITY },
+  };
+}
 
 function understood(intent: LisaIntent, scope: string, entities: string[]) {
   return { intent: INTENT_LABEL[intent], scope, entities: entities.length ? entities : ["None"], dataAreas: INTENT_DATA_AREAS[intent] };
@@ -3236,6 +3395,22 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     };
   }
 
+  // Generic, no-explicit-entity operational-priority questions — "What
+  // should I do next?", "Which one should I complete first?", "What is
+  // urgent?", and the "Next one."/"Which one?" follow-ups that advance
+  // through the same ranking. Only claims this when no work order/aircraft
+  // is resolvable from the question or conversation history — a
+  // WO-scoped or aircraft-scoped phrasing of "what's next" keeps using the
+  // more specific M7.6 branch immediately below, unchanged.
+  if (
+    (isOperationalPriorityInitial(question) || isOperationalPriorityFollowup(question)) &&
+    !resolveWorkOrder(question, context) &&
+    !resolveAircraft(question, context)
+  ) {
+    const idx = operationalPriorityIndex(question, context);
+    return operationalPriorityResponse(question, idx, context);
+  }
+
   // M7.6 — Prescriptive AI 2.0: "what should happen next?" Extends this same
   // engine (no second AI system) with a fixed, source-grounded answer
   // format. Every field is derived from real work-order/part/defect state —
@@ -3251,7 +3426,17 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
     )
   ) {
     const wo = findWorkOrderFromText(question) ?? (context?.aircraftId ? workOrders.find((w) => w.aircraftId === context.aircraftId && w.status !== "COMPLETED" && w.status !== "CANCELLED") : undefined);
-    if (!wo) return insufficient(question, ["a recognizable work order number or an aircraft context with active work to base a recommendation on"]);
+    if (!wo) {
+      // No work order named in the question and no active-work aircraft
+      // context to scope to — this is really the same generic "what should
+      // I do next?" ask handled above, just reached via a different phrase
+      // ("next step", "what should happen next", etc.) or via a
+      // conversation history whose aircraft context has no open work order
+      // of its own. Recommend the fleet-wide highest-priority item instead
+      // of dead-ending on INSUFFICIENT_DATA.
+      const idx = operationalPriorityIndex(question, context);
+      return operationalPriorityResponse(question, idx, context);
+    }
 
     const openDefectsOnWo = defectsForWorkOrder(wo.id).filter((d) => d.status === "OPEN");
     const criticalDefects = openDefectsOnWo.filter((d) => d.severity === "CRITICAL" || d.severity === "HIGH");
