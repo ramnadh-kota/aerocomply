@@ -1,0 +1,661 @@
+// Mock report history + report content builder. Reports are generated
+// client-side from the same analytics builders the AI assistant uses
+// (lib/mock/ai/analytics.ts), so a number in a report always matches the
+// number an AI answer gave for the same scope. Nothing here is persisted to
+// a backend — "generated" reports are prototype records only.
+
+import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getInspectionAnalytics, getComplianceAnalytics, getMaintenanceAnalytics, getOperationsAnalytics, getTechnicianWorkload, getPartsAtRisk, requirementLabel } from "./ai/analytics";
+import { getProjectById, workPackagesForProject } from "./maintenanceProjects";
+import { getAircraftById, aircraft as allAircraft } from "./aircraft";
+import { workOrdersForProject, workOrdersForAircraft, MOCK_TODAY, workOrders as allWorkOrders } from "./workOrders";
+import { technicians } from "./technicians";
+import { partsForWorkOrder } from "./parts";
+import { defectsForAircraft } from "./defects";
+import { findingsForWorkOrder } from "./findings";
+import { getInspectorReviewForWorkOrder } from "./inspectorReviews";
+import { evidenceForAssessment } from "./evidence";
+import { assessmentsForAircraft } from "./assessments";
+import { auditEventsForObjectLabelContains } from "./audit";
+import {
+  getWorkOrderCostSummary,
+  getAircraftCostSummary,
+  getFleetFinancialSummary,
+  workOrderIdsWithCostData,
+  highestCostPartCost,
+  highestVendorSpend,
+  vendorCosts as allVendorCosts,
+} from "./finance";
+import { vendors as allVendors, partRequests as allPartRequests, purchaseOrders as allPurchaseOrders, vendorPartAvailability as allVendorPartAvailability, partsWithoutVendorAvailability } from "./procurement";
+import { parts as allParts } from "./parts";
+import { PLATFORM_NAME, PLATFORM_AI_NAME, AI_DEMO_DATA_FOOTER } from "../brand";
+
+export type ReportType = "PROJECT" | "AIRCRAFT" | "FLEET_RISK" | "INSPECTION_QUEUE" | "COMPLIANCE_WEEKLY" | "MAINTENANCE_OPERATIONS" | "AUDIT_DOSSIER" | "GENERAL_OPERATIONAL" | "FINANCIAL_INTELLIGENCE" | "PROCUREMENT_INTELLIGENCE";
+
+export interface ReportRecord {
+  id: string;
+  title: string;
+  type: ReportType;
+  generatedBy: string;
+  scope: string;
+  generatedDate: string;
+  status: "READY" | "GENERATING";
+}
+
+export const reportHistory: ReportRecord[] = [
+  { id: "project-proj-1", title: "Project PRJ-2026-001 Monthly Operations Report", type: "PROJECT", generatedBy: "Ananya Rao", scope: "VT-ABC — C-Check", generatedDate: "2026-03-16", status: "READY" },
+  { id: "aircraft-ac-3", title: "N412MX Compliance Exposure Report", type: "AIRCRAFT", generatedBy: "Elena Petrov", scope: "N412MX", generatedDate: "2026-03-15", status: "READY" },
+  { id: "fleet-risk", title: "Fleet Maintenance Risk Report", type: "FLEET_RISK", generatedBy: "Wei Zhang", scope: "Fleet-wide", generatedDate: "2026-03-14", status: "READY" },
+  { id: "inspection-queue", title: "Inspection Queue Summary", type: "INSPECTION_QUEUE", generatedBy: "Diego Alvarez", scope: "Open inspections", generatedDate: "2026-03-17", status: "READY" },
+  { id: "compliance-weekly", title: "Weekly Compliance Report", type: "COMPLIANCE_WEEKLY", generatedBy: "Priya Nair", scope: "Organization-wide", generatedDate: "2026-03-10", status: "READY" },
+  { id: "maintenance-operations", title: "Maintenance Operations Report", type: "MAINTENANCE_OPERATIONS", generatedBy: "Marcus Webb", scope: "Fleet-wide operations", generatedDate: "2026-03-17", status: "READY" },
+  { id: "general-operational", title: "General Operational Report", type: "GENERAL_OPERATIONAL", generatedBy: `${PLATFORM_AI_NAME} (Prototype)`, scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
+  { id: "financial-intelligence", title: "MRO Financial Intelligence Report", type: "FINANCIAL_INTELLIGENCE", generatedBy: `${PLATFORM_AI_NAME} (Prototype)`, scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
+  { id: "procurement-intelligence", title: "Procurement Intelligence Report", type: "PROCUREMENT_INTELLIGENCE", generatedBy: `${PLATFORM_AI_NAME} (Prototype)`, scope: "Fleet-wide", generatedDate: "2026-03-17", status: "READY" },
+];
+
+export function getReportRecord(id: string): ReportRecord | undefined {
+  return reportHistory.find((r) => r.id === id);
+}
+
+/**
+ * Records that a report was "generated" (e.g. from the AI Command Center)
+ * so it shows up in /reports history. This mutates the in-memory
+ * reportHistory array directly — it is a session-only prototype action, not
+ * a backend write, and resets on a full page reload.
+ */
+export function recordGeneratedReport(input: { id: string; title: string; generatedBy: string; scope: string; generatedDate: string; status: "READY" | "GENERATING" }): ReportRecord {
+  const parsed = parseReportId(input.id);
+  const type: ReportType = parsed?.type ?? getReportRecord(input.id)?.type ?? "COMPLIANCE_WEEKLY";
+  const record: ReportRecord = { ...input, type };
+  const existingIndex = reportHistory.findIndex((r) => r.id === input.id);
+  if (existingIndex >= 0) reportHistory[existingIndex] = record;
+  else reportHistory.unshift(record);
+  return record;
+}
+
+function parseReportId(id: string): { type: ReportType; scopeId: string } | null {
+  if (id.startsWith("project-")) return { type: "PROJECT", scopeId: id.slice("project-".length) };
+  if (id.startsWith("aircraft-")) return { type: "AIRCRAFT", scopeId: id.slice("aircraft-".length) };
+  if (id === "fleet-risk") return { type: "FLEET_RISK", scopeId: "" };
+  if (id === "inspection-queue") return { type: "INSPECTION_QUEUE", scopeId: "" };
+  if (id === "compliance-weekly") return { type: "COMPLIANCE_WEEKLY", scopeId: "" };
+  if (id === "maintenance-operations") return { type: "MAINTENANCE_OPERATIONS", scopeId: "" };
+  if (id === "general-operational") return { type: "GENERAL_OPERATIONAL", scopeId: "" };
+  if (id === "financial-intelligence") return { type: "FINANCIAL_INTELLIGENCE", scopeId: "" };
+  if (id === "procurement-intelligence") return { type: "PROCUREMENT_INTELLIGENCE", scopeId: "" };
+  return null;
+}
+
+export interface ReportSection {
+  heading: string;
+  body: string[];
+  kpis?: { label: string; value: string; tone?: string }[];
+  bars?: { label: string; percent: number }[];
+  distribution?: { label: string; count: number }[];
+  table?: { columns: string[]; rows: (string | number)[][] };
+  chain?: string[];
+}
+
+export interface ReportData {
+  id: string;
+  title: string;
+  type: ReportType;
+  scope: string;
+  generatedDate: string;
+  generatedFrom: string;
+  sourceModules: string[];
+  aiSummary: string[];
+  sections: ReportSection[];
+}
+
+export function buildReportData(id: string): ReportData | null {
+  const parsed = parseReportId(id);
+  if (!parsed) return null;
+  const record = getReportRecord(id);
+  const generatedDate = record?.generatedDate ?? MOCK_TODAY;
+  const generatedFrom = record?.generatedBy ?? PLATFORM_NAME;
+
+  if (parsed.type === "PROJECT") {
+    const project = getProjectById(parsed.scopeId);
+    const analytics = getProjectAnalytics(parsed.scopeId);
+    if (!project || !analytics) return null;
+    const wos = workOrdersForProject(project.id);
+    const wps = workPackagesForProject(project.id);
+
+    const sections: ReportSection[] = [
+      { heading: "Executive Summary", body: [`Overall health: ${analytics.health.replace(/_/g, " ")}.`, `Compliance exposure: ${analytics.complianceExposure}.`], kpis: analytics.kpis },
+      { heading: "Project Overview", body: [`${project.projectNumber} — ${project.title}`, `Type: ${project.projectType.replace(/_/g, " ")} · Priority: ${project.priority} · Manager: ${project.projectManager}`, `Planned: ${project.startDate} → ${project.targetCompletionDate}`] },
+      { heading: "Aircraft", body: [`${analytics.aircraftRegistration} (${project.aircraftId})`] },
+      { heading: "Work Package Progress", body: [], bars: wps.map((wp) => ({ label: wp.title, percent: wp.completionPercent })) },
+      { heading: "Work Order Status", body: [], distribution: analytics.workOrderStatusDistribution },
+      {
+        heading: "Technician Utilization",
+        body: [],
+        table: {
+          columns: ["Technician", "Assigned Work Orders"],
+          rows: technicians
+            .map((t) => [t.name, wos.filter((w) => w.assignedTechnicianId === t.id).length] as [string, number])
+            .filter(([, n]) => (n as number) > 0),
+        },
+      },
+      {
+        heading: "Parts Availability",
+        body: [],
+        table: { columns: ["Part", "Status", "Work Order"], rows: wos.flatMap((w) => partsForWorkOrder(w.id).map((p) => [p.partNumber, p.status.replace(/_/g, " "), w.workOrderNumber])) },
+      },
+      {
+        heading: "Defects",
+        body: [],
+        table: { columns: ["Defect", "Severity", "Status"], rows: defectsForAircraft(project.aircraftId).map((d) => [d.description, d.severity, d.status]) },
+      },
+      {
+        heading: "Inspection Status",
+        body: wos.filter((w) => w.inspectorReviewId).map((w) => {
+          const r = getInspectorReviewForWorkOrder(w.id);
+          return `${w.workOrderNumber}: ${r ? r.status.replace(/_/g, " ") : "no review"}`;
+        }),
+      },
+      { heading: "Compliance Exposure", body: [`Exposure level: ${analytics.complianceExposure}`], chain: ["Requirement", "Work Order", "Assessment", "Evidence"] },
+      {
+        heading: "Evidence",
+        body: [],
+        table: { columns: ["Work Order", "Findings"], rows: wos.map((w) => [w.workOrderNumber, findingsForWorkOrder(w.id).length]) },
+      },
+      {
+        heading: "Operational Findings",
+        body: wos.flatMap((w) => findingsForWorkOrder(w.id)).map((f) => `[${f.severity}] ${f.description}`),
+      },
+      { heading: "Risk Analysis", body: analytics.risks.map((r) => `[${r.level}] ${r.label} — ${r.detail}`) },
+      { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue", "On Shift"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders, t.onShift ? "Yes" : "No"]) } },
+      { heading: "Recommended Actions", body: analytics.recommendedActions },
+      {
+        heading: "Source Data / Traceability",
+        body: [
+          "Source modules: Maintenance Projects, Work Packages, Work Orders, Technicians, Parts, Defects, Findings, Inspections.",
+          ...auditEventsForObjectLabelContains(project.aircraftId.toUpperCase()).slice(0, 5).map((e) => `${e.timestamp}: ${e.action.replace(/_/g, " ")} — ${e.objectLabel}`),
+        ],
+      },
+      {
+        heading: "AI-Generated Summary",
+        body: [
+          `${project.projectNumber} is ${analytics.health.replace(/_/g, " ").toLowerCase()} with ${analytics.risks.length} identified risk item(s) and ${analytics.complianceExposure.toLowerCase()} compliance exposure.`,
+          AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions.",
+        ],
+      },
+    ];
+
+    return {
+      id,
+      title: `${project.projectNumber} Operations Report`,
+      type: parsed.type,
+      scope: `${project.title}`,
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Maintenance Projects", "Work Orders", "Technicians", "Parts", "Defects", "Inspections"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
+  }
+
+  if (parsed.type === "AIRCRAFT") {
+    const a = getAircraftById(parsed.scopeId);
+    const analytics = getAircraftAnalytics(parsed.scopeId);
+    if (!a || !analytics) return null;
+    const wos = workOrdersForAircraft(a.id);
+    const assessments = assessmentsForAircraft(a.id);
+    const sections: ReportSection[] = [
+      { heading: "Executive Summary", body: [`Compliance risk: ${analytics.complianceRisk}.`], kpis: analytics.kpis },
+      { heading: "Aircraft", body: [`${analytics.registration} (${a.id}) · Status: ${a.status}`] },
+      { heading: "Work Orders", body: [], table: { columns: ["Work Order", "Status", "Priority"], rows: wos.map((w) => [w.workOrderNumber, w.status.replace(/_/g, " "), w.priority]) } },
+      { heading: "Defects", body: [], table: { columns: ["Defect", "Severity", "Status"], rows: defectsForAircraft(a.id).map((d) => [d.description, d.severity, d.status]) } },
+      {
+        heading: "Compliance Exposure",
+        body: assessments.map((asmt) => `${requirementLabel(asmt.regulatoryRequirementId)}: ${asmt.finalStatus.replace(/_/g, " ")}`),
+        chain: ["Requirement", "Assessment", "Evidence"],
+      },
+      { heading: "Operational Findings", body: wos.flatMap((w) => findingsForWorkOrder(w.id)).map((f) => `[${f.severity}] ${f.description}`) },
+      { heading: "Evidence", body: assessments.flatMap((asmt) => evidenceForAssessment(asmt.id)).map((e) => e.sourceLabel) },
+      { heading: "Risk Analysis", body: analytics.reasons },
+      { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => wos.some((w) => w.assignedTechnicianId === t.technicianId)).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
+      { heading: "Recommended Actions", body: analytics.complianceRisk !== "LOW" ? ["Review open defects and non-compliant/review-required assessments before next dispatch."] : ["No immediate action required."] },
+      { heading: "Source Data / Traceability", body: ["Source modules: Aircraft, Work Orders, Defects, Assessments, Evidence.", ...auditEventsForObjectLabelContains(analytics.registration).slice(0, 5).map((e) => `${e.timestamp}: ${e.action.replace(/_/g, " ")}`)] },
+      { heading: "AI-Generated Summary", body: [`${analytics.registration} shows ${analytics.complianceRisk.toLowerCase()} compliance risk. ${analytics.reasons[0] ?? ""}`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+    ];
+    return {
+      id,
+      title: `${analytics.registration} Compliance Exposure Report`,
+      type: parsed.type,
+      scope: analytics.registration,
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Aircraft", "Work Orders", "Defects", "Assessments", "Evidence"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
+  }
+
+  if (parsed.type === "FLEET_RISK") {
+    const f = getFleetAnalytics();
+    const sections: ReportSection[] = [
+      { heading: "Executive Summary", body: [`${f.aircraftAtRisk.length} of ${f.fleetSize} aircraft show elevated risk.`], kpis: f.kpis },
+      { heading: "Aircraft At Risk", body: [], table: { columns: ["Aircraft", "Risk"], rows: f.aircraftAtRisk.map((a) => [a.registration, a.risk]) } },
+      { heading: "Operational Findings", body: f.aircraftAtRisk.length > 0 ? [`${f.openWorkOrders} open work order(s) fleet-wide; ${f.openDefects} open defect(s) fleet-wide.`] : ["No notable operational findings."] },
+      { heading: "Risk Analysis", body: f.aircraftAtRisk.map((a) => `${a.registration}: ${a.risk} risk`) },
+      { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
+      { heading: "Recommended Actions", body: f.aircraftAtRisk.length > 0 ? ["Prioritize review of HIGH-risk aircraft before next scheduled check."] : ["No fleet-wide action required."] },
+      { heading: "Source Data / Traceability", body: ["Source modules: Aircraft, Work Orders, Defects, Technicians (fleet-wide aggregation)."] },
+      { heading: "AI-Generated Summary", body: [`Fleet-wide, ${f.aircraftAtRisk.length} aircraft require attention out of ${f.fleetSize}.`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+    ];
+    return {
+      id,
+      title: "Fleet Maintenance Risk Report",
+      type: parsed.type,
+      scope: "Fleet-wide",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Aircraft", "Work Orders", "Defects", "Technicians"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
+  }
+
+  if (parsed.type === "INSPECTION_QUEUE") {
+    const insp = getInspectionAnalytics();
+    const sections: ReportSection[] = [
+      { heading: "Executive Summary", body: [`${insp.pending.length} inspection(s) currently pending review.`], kpis: insp.kpis },
+      { heading: "Inspection Queue", body: [], table: { columns: ["Work Order", "Priority"], rows: insp.pending.map((p) => [p.label, p.priority]) } },
+      { heading: "Operational Findings", body: insp.pending.flatMap((p) => findingsForWorkOrder(p.workOrderId)).map((f) => `[${f.severity}] ${f.description}`) },
+      { heading: "Risk Analysis", body: [`${insp.pending.length} pending, ${insp.approved} approved, ${insp.rejected} rejected, ${insp.returned} returned.`] },
+      { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
+      { heading: "Recommended Actions", body: insp.pending.length > 0 ? ["Review CRITICAL/HIGH priority work orders first."] : ["Queue is clear."] },
+      { heading: "Source Data / Traceability", body: ["Source modules: Work Orders, Inspector Reviews, Findings."] },
+      { heading: "AI-Generated Summary", body: [`${insp.pending.length} inspection(s) pending, ${insp.approved} approved, ${insp.rejected} rejected, ${insp.returned} returned this period.`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+    ];
+    return {
+      id,
+      title: "Inspection Queue Summary",
+      type: parsed.type,
+      scope: "Open inspections",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Work Orders", "Inspector Reviews", "Findings"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
+  }
+
+  if (parsed.type === "COMPLIANCE_WEEKLY") {
+  const c = getComplianceAnalytics();
+  const m = getMaintenanceAnalytics();
+  const sections: ReportSection[] = [
+    { heading: "Executive Summary", body: ["Organization-wide compliance snapshot."], kpis: c.kpis },
+    { heading: "Compliance Exposure", body: [`${c.nonCompliant} non-compliant, ${c.reviewRequired} review required, ${c.insufficientData} insufficient data, out of ${c.totalAssessments} assessments.`] },
+    { heading: "Operational Findings", body: [`${m.totalOpenWorkOrders} open work order(s), ${m.waitingParts} waiting on parts, ${m.waitingInspection} waiting on inspection organization-wide.`] },
+    { heading: "Maintenance Snapshot", body: [], kpis: m.kpis },
+    { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue"], rows: getTechnicianWorkload().filter((t) => t.openWorkOrders > 0).map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders]) } },
+    { heading: "Recommended Actions", body: c.nonCompliant + c.reviewRequired > 0 ? ["Prioritize assessments in Review Required / Non-Compliant status."] : ["No action required this week."] },
+    { heading: "Source Data / Traceability", body: ["Source modules: Assessments, Work Orders, Technicians (organization-wide aggregation)."] },
+    { heading: "AI-Generated Summary", body: [`${c.compliant}/${c.totalAssessments} assessments are compliant fleet-wide.`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+  ];
+  return {
+    id,
+    title: "Weekly Compliance Report",
+    type: "COMPLIANCE_WEEKLY",
+    scope: "Organization-wide",
+    generatedDate,
+    generatedFrom,
+    sourceModules: ["Assessments", "Work Orders", "Technicians"],
+    aiSummary: sections[sections.length - 1].body,
+    sections,
+  };
+  }
+
+  if (parsed.type === "GENERAL_OPERATIONAL") {
+    // M9.2/M9.3 — Visual General Operational Report. Reuses exactly the
+    // same analytics builders as every other report/AI surface (no new
+    // calculations) and the existing ReportSection kpis/bars/distribution/
+    // table primitives (no new report engine) to render as a KPI-card +
+    // chart dashboard rather than a page of paragraphs.
+    const fleet = getFleetAnalytics();
+    const maint = getMaintenanceAnalytics();
+    const compliance = getComplianceAnalytics();
+    const inspection = getInspectionAnalytics();
+    const workload = getTechnicianWorkload();
+    const partsAtRisk = getPartsAtRisk();
+    const activeWorkload = workload.filter((t) => t.openWorkOrders > 0);
+    const overloaded = workload.filter((t) => t.overdueWorkOrders > 0 || t.openWorkOrders >= 3).length;
+
+    const topRisks: string[] = [
+      ...fleet.aircraftAtRisk.slice(0, 3).map((a) => `${a.registration}: ${a.risk} compliance risk`),
+      ...maint.overdue.slice(0, 2).map((w) => `${w.label} overdue since ${w.dueDate}`),
+    ].slice(0, 5);
+    const topBottlenecks: string[] = [
+      maint.waitingParts > 0 ? `${maint.waitingParts} work order(s) waiting on parts` : "",
+      maint.waitingInspection > 0 ? `${maint.waitingInspection} work order(s) waiting on inspection` : "",
+      partsAtRisk.length > 0 ? `${partsAtRisk.length} part(s) not in stock` : "",
+      inspection.pending.length > 0 ? `${inspection.pending.length} inspection(s) pending review` : "",
+    ].filter(Boolean).slice(0, 5);
+    const recommendedActions = [
+      fleet.aircraftAtRisk.length > 0 ? "Prioritize the highest-risk aircraft for inspection/defect resolution." : "",
+      maint.overdue.length > 0 ? "Escalate overdue work orders." : "",
+      partsAtRisk.length > 0 ? "Expedite parts currently not in stock." : "",
+      compliance.nonCompliant + compliance.reviewRequired > 0 ? "Review non-compliant / review-required assessments." : "",
+    ].filter(Boolean);
+
+    const sections: ReportSection[] = [
+      {
+        heading: "Top KPIs",
+        body: [],
+        kpis: [
+          { label: "Aircraft Under Maintenance", value: String(fleet.aircraftAtRisk.length > 0 ? fleet.aircraftAtRisk.length : 0), tone: fleet.aircraftAtRisk.length > 0 ? "warning" : "good" },
+          { label: "Open Work Orders", value: String(maint.totalOpenWorkOrders) },
+          { label: "Overdue Work Orders", value: String(maint.overdue.length), tone: maint.overdue.length > 0 ? "bad" : "good" },
+          { label: "Waiting Parts", value: String(maint.waitingParts), tone: maint.waitingParts > 0 ? "warning" : "good" },
+          { label: "Waiting Inspection", value: String(maint.waitingInspection), tone: maint.waitingInspection > 0 ? "warning" : "good" },
+          { label: "Parts At Risk", value: String(partsAtRisk.length), tone: partsAtRisk.length > 0 ? "warning" : "good" },
+          { label: "Inspection Queue", value: String(inspection.pending.length) },
+          { label: "Evidence Gaps (Assessments)", value: String(compliance.insufficientData), tone: compliance.insufficientData > 0 ? "warning" : "good" },
+          { label: "AOG Aircraft", value: "Insufficient source data." },
+          { label: "Average TAT", value: "Insufficient source data." },
+        ],
+      },
+      {
+        heading: "Section 1 — Fleet Risk",
+        body: [`${fleet.aircraftAtRisk.length} of ${fleet.fleetSize} aircraft show elevated risk.`],
+        distribution: [
+          { label: "HIGH", count: fleet.aircraftAtRisk.filter((a) => a.risk === "HIGH").length },
+          { label: "MEDIUM", count: fleet.aircraftAtRisk.filter((a) => a.risk === "MEDIUM").length },
+          { label: "LOW / NONE", count: fleet.fleetSize - fleet.aircraftAtRisk.length },
+        ],
+        table: { columns: ["Aircraft", "Risk"], rows: fleet.aircraftAtRisk.map((a) => [a.registration, a.risk]) },
+      },
+      {
+        heading: "Section 2 — Maintenance Operations",
+        body: [`${maint.totalOpenWorkOrders} open work order(s); ${maint.overdue.length} overdue.`],
+        bars: [
+          { label: "Waiting Parts", percent: maint.totalOpenWorkOrders > 0 ? Math.round((maint.waitingParts / maint.totalOpenWorkOrders) * 100) : 0 },
+          { label: "Waiting Inspection", percent: maint.totalOpenWorkOrders > 0 ? Math.round((maint.waitingInspection / maint.totalOpenWorkOrders) * 100) : 0 },
+        ],
+        table: { columns: ["Work Order", "Due Date", "Priority"], rows: maint.overdue.map((w) => [w.label, w.dueDate, w.priority]) },
+      },
+      {
+        heading: "Section 3 — Technician Capacity",
+        body: [`${activeWorkload.length} technician(s) with open work; ${overloaded} at or above 3 open work orders or carrying an overdue item.`, "TAT trend: Insufficient source data — no historical TAT time-series is tracked in the current data model."],
+        table: { columns: ["Technician", "Open", "Overdue", "On Shift"], rows: activeWorkload.map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders, t.onShift ? "Yes" : "No"]) },
+      },
+      {
+        heading: "Section 4 — Parts",
+        body: [partsAtRisk.length > 0 ? `${partsAtRisk.length} part(s) currently not in stock.` : "No parts currently at risk.", "Supplier delay data: Insufficient source data."],
+        table: { columns: ["Part", "Description", "Status"], rows: partsAtRisk.map((p) => [p.partNumber, p.description, p.status.replace(/_/g, " ")]) },
+      },
+      {
+        heading: "Section 5 — Compliance",
+        body: [`${compliance.totalAssessments} assessment(s): ${compliance.compliant} compliant, ${compliance.nonCompliant} non-compliant, ${compliance.reviewRequired} review required, ${compliance.insufficientData} insufficient data.`],
+        distribution: [
+          { label: "COMPLIANT", count: compliance.compliant },
+          { label: "NON_COMPLIANT", count: compliance.nonCompliant },
+          { label: "REVIEW_REQUIRED", count: compliance.reviewRequired },
+          { label: "INSUFFICIENT_DATA", count: compliance.insufficientData },
+        ],
+      },
+      {
+        heading: "Section 6 — Executive Actions",
+        body: [
+          `Top risks: ${topRisks.length > 0 ? topRisks.join("; ") : "None identified."}`,
+          `Top bottlenecks: ${topBottlenecks.length > 0 ? topBottlenecks.join("; ") : "None identified."}`,
+        ],
+        chain: recommendedActions.length > 0 ? recommendedActions : ["No urgent action required from current source data."],
+      },
+      {
+        heading: "AI-Generated Summary",
+        body: [
+          `${fleet.aircraftAtRisk.length} aircraft at risk, ${maint.overdue.length} overdue work order(s), ${partsAtRisk.length} part(s) at risk, ${compliance.nonCompliant + compliance.reviewRequired} compliance item(s) needing review.`,
+          AI_DEMO_DATA_FOOTER,
+          "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions.",
+        ],
+      },
+    ];
+    return {
+      id,
+      title: "General Operational Report",
+      type: "GENERAL_OPERATIONAL",
+      scope: "Fleet-wide",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Aircraft", "Work Orders", "Defects", "Technicians", "Parts", "Assessments", "Inspections"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
+  }
+
+  if (parsed.type === "FINANCIAL_INTELLIGENCE") {
+    // M10.8 — Visual MRO Financial Intelligence Report. Reuses the same
+    // ReportSection kpis/table/distribution primitives as every other
+    // report type (no new report engine, no new chart library). All
+    // figures come from lib/mock/finance.ts's deterministic arithmetic —
+    // nothing here is estimated or invented.
+    const allWoIds = allWorkOrders.map((w) => w.id);
+    const fleet = getFleetFinancialSummary(allWoIds);
+    const costedSummaries = workOrderIdsWithCostData().map((woId) => getWorkOrderCostSummary(woId)!);
+    const aircraftCosts = allAircraft
+      .map((a) => getAircraftCostSummary(a.id, workOrdersForAircraft(a.id).map((w) => w.id)))
+      .filter((s): s is NonNullable<typeof s> => s !== null && s.coverage !== "INSUFFICIENT_DATA")
+      .sort((a, b) => b.totalCost - a.totalCost);
+    const topPart = highestCostPartCost();
+    const topVendor = highestVendorSpend();
+    const losingMoney = costedSummaries.filter((s) => s.grossMargin !== null && s.grossMargin < 0);
+    const vendorRollupMap = new Map<string, number>();
+    for (const v of allVendorCosts) vendorRollupMap.set(v.vendorName, (vendorRollupMap.get(v.vendorName) ?? 0) + v.amount);
+
+    const sections: ReportSection[] = [
+      {
+        heading: "Financial KPIs",
+        body: [`${fleet.workOrdersWithCostData} of ${fleet.totalWorkOrders} work orders have recorded cost data.`],
+        kpis: [
+          { label: "Total MRO Cost", value: `${fleet.totalCost.toLocaleString()} USD` },
+          { label: "Labor Cost", value: `${fleet.laborCost.toLocaleString()} USD` },
+          { label: "Parts Cost", value: `${fleet.partsCost.toLocaleString()} USD` },
+          { label: "Vendor Spend", value: `${fleet.vendorCost.toLocaleString()} USD` },
+          { label: "Customer Charges", value: fleet.workOrdersWithCharge > 0 ? `${fleet.customerCharge.toLocaleString()} USD` : "Insufficient source data." },
+          { label: "Gross Margin", value: fleet.grossMargin !== null ? `${fleet.grossMargin.toLocaleString()} USD` : "Insufficient source data.", tone: fleet.grossMargin !== null && fleet.grossMargin < 0 ? "bad" : "good" },
+        ],
+      },
+      {
+        heading: "Cost by Aircraft",
+        body: aircraftCosts.length === 0 ? ["Insufficient source data."] : [],
+        bars: aircraftCosts.length > 0 ? aircraftCosts.map((a) => ({ label: a.registration, percent: Math.round((a.totalCost / aircraftCosts[0].totalCost) * 100) })) : undefined,
+        table: { columns: ["Aircraft", "Total Cost", "Work Orders Costed"], rows: aircraftCosts.map((a) => [a.registration, a.totalCost, `${a.workOrdersWithCostData}/${a.totalWorkOrders}`]) },
+      },
+      {
+        heading: "Cost by Work Order",
+        body: [],
+        table: { columns: ["Work Order", "Aircraft", "Labor", "Parts", "Vendor", "Total Cost", "Customer Charge", "Margin %"], rows: costedSummaries.map((s) => [s.workOrderNumber, s.registration, s.laborCost, s.partsCost, s.vendorCost, s.totalCost, s.customerCharge ?? "Insufficient source data.", s.marginPercent !== null ? `${s.marginPercent}%` : "Insufficient source data."]) },
+      },
+      {
+        heading: "Labor vs Parts vs Vendor",
+        body: fleet.totalCost === 0 ? ["Insufficient source data."] : [],
+        distribution: fleet.totalCost > 0 ? [
+          { label: "LABOR", count: fleet.laborCost },
+          { label: "PARTS", count: fleet.partsCost },
+          { label: "VENDOR", count: fleet.vendorCost },
+        ] : undefined,
+      },
+      {
+        heading: "Vendor Spend",
+        body: allVendorCosts.length === 0 ? ["Vendor expenditure data not yet available."] : [],
+        table: allVendorCosts.length > 0 ? { columns: ["Vendor", "Total Spend"], rows: Array.from(vendorRollupMap.entries()) } : undefined,
+      },
+      {
+        heading: "Estimated vs Actual",
+        body: ["Insufficient source data. No estimated-cost field exists anywhere in the current work order domain model, so cost variance cannot be determined for any work order."],
+      },
+      {
+        heading: "Margin Analysis",
+        body: [
+          losingMoney.length > 0 ? `${losingMoney.length} work order(s) show a negative gross margin.` : "No work orders with both cost and customer-charge data show a negative margin.",
+          topPart ? `Highest single part cost: ${topPart.partId} — ${topPart.amount.toLocaleString()} USD.` : "Highest single part cost: Insufficient source data.",
+          topVendor ? `Highest single vendor line item: ${topVendor.vendorName} — ${topVendor.amount.toLocaleString()} USD.` : "Highest single vendor line item: Insufficient source data.",
+        ],
+      },
+      {
+        heading: "Cost Risks",
+        body: [
+          fleet.totalWorkOrders - fleet.workOrdersWithCostData > 0 ? `${fleet.totalWorkOrders - fleet.workOrdersWithCostData} work order(s) have no cost data recorded at all — financial exposure on these is unknown, not zero.` : "",
+          fleet.workOrdersWithCostData - fleet.workOrdersWithCharge > 0 ? `${fleet.workOrdersWithCostData - fleet.workOrdersWithCharge} costed work order(s) have no customer charge on file — margin cannot be determined for these.` : "",
+          "Cost variance cannot be determined because no estimated-cost field exists in the domain model.",
+        ].filter(Boolean),
+      },
+      {
+        heading: "Executive Actions",
+        body: [
+          losingMoney.length > 0 ? `Review pricing/scope on ${losingMoney.map((s) => s.workOrderNumber).join(", ")} — recorded charge is below recorded cost.` : "",
+          aircraftCosts.length > 0 ? `${aircraftCosts[0].registration} carries the highest recorded maintenance cost — review for recurring cost drivers.` : "",
+          fleet.workOrdersWithCostData < fleet.totalWorkOrders ? "Extend cost recording to the remaining uncosted work orders for a complete financial picture." : "",
+        ].filter(Boolean),
+      },
+      {
+        heading: "AI-Generated Summary",
+        body: [
+          `${fleet.workOrdersWithCostData} of ${fleet.totalWorkOrders} work orders costed; total recorded cost ${fleet.totalCost.toLocaleString()} USD; gross margin ${fleet.grossMargin !== null ? `${fleet.grossMargin.toLocaleString()} USD` : "Insufficient source data."}.`,
+          AI_DEMO_DATA_FOOTER,
+          "AI-assisted analysis — non-authoritative. Verify against source records before operational/commercial decisions.",
+        ],
+      },
+    ];
+    return {
+      id,
+      title: "MRO Financial Intelligence Report",
+      type: "FINANCIAL_INTELLIGENCE",
+      scope: "Fleet-wide",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Work Orders", "Aircraft", "Parts", "Technicians", "Finance (demo cost records)"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
+  }
+
+  if (parsed.type === "PROCUREMENT_INTELLIGENCE") {
+    // M11.7 — Visual Procurement Intelligence Report. Reuses the same
+    // ReportSection primitives as every other report type — no new
+    // visualization system. All figures come from lib/mock/procurement.ts
+    // and lib/mock/finance.ts; nothing here is estimated.
+    const pending = allPartRequests.filter((r) => r.status === "SUBMITTED" || r.status === "UNDER_REVIEW");
+    const aog = allPartRequests.filter((r) => r.priority === "AOG" && !["RECEIVED", "CLOSED", "REJECTED"].includes(r.status));
+    const approvedNoPo = allPartRequests.filter((r) => r.status === "APPROVED" && !allPurchaseOrders.some((po) => po.requestIds.includes(r.id)));
+    const vendorSpendMap = new Map<string, number>();
+    for (const v of allVendorCosts) vendorSpendMap.set(v.vendorName, (vendorSpendMap.get(v.vendorName) ?? 0) + v.amount);
+    const certGaps = allVendorPartAvailability.filter((a) => a.certificationStatus !== "VERIFIED");
+    const noVendorData = partsWithoutVendorAvailability(allParts.map((p) => p.id));
+    const poByStatus = new Map<string, number>();
+    for (const po of allPurchaseOrders) poByStatus.set(po.status, (poByStatus.get(po.status) ?? 0) + 1);
+
+    const sections: ReportSection[] = [
+      {
+        heading: "Procurement KPIs",
+        body: [],
+        kpis: [
+          { label: "Pending Requests", value: String(pending.length), tone: pending.length > 0 ? "warning" : "good" },
+          { label: "AOG Requests", value: String(aog.length), tone: aog.length > 0 ? "bad" : "good" },
+          { label: "Approved, No PO", value: String(approvedNoPo.length), tone: approvedNoPo.length > 0 ? "warning" : "good" },
+          { label: "Certification Gaps", value: `${certGaps.length} of ${allVendorPartAvailability.length}`, tone: certGaps.length > 0 ? "warning" : "good" },
+          { label: "Parts w/o Vendor Data", value: `${noVendorData.length} of ${allParts.length}` },
+          { label: "Purchase Orders", value: String(allPurchaseOrders.length) },
+        ],
+      },
+      {
+        heading: "Pending Requests",
+        body: pending.length === 0 ? ["No requests are currently pending approval."] : [],
+        table: pending.length > 0 ? { columns: ["Request", "Part", "Priority", "Aircraft"], rows: pending.map((r) => [r.id, r.partNumber, r.priority, r.aircraftId]) } : undefined,
+      },
+      {
+        heading: "AOG Requests",
+        body: aog.length === 0 ? ["No open AOG-priority requests."] : [],
+        table: aog.length > 0 ? { columns: ["Request", "Part", "Aircraft", "Status"], rows: aog.map((r) => [r.id, r.partNumber, r.aircraftId, r.status.replace(/_/g, " ")]) } : undefined,
+      },
+      {
+        heading: "Vendor Comparison",
+        body: [],
+        table: { columns: ["Vendor", "Approval", "Quality", "Delivery Score"], rows: allVendors.map((v) => [v.name, v.approvalStatus.replace(/_/g, " "), v.qualityStatus.replace(/_/g, " "), v.deliveryScore ?? "Insufficient source data."]) },
+      },
+      {
+        heading: "Vendor Spend",
+        body: vendorSpendMap.size === 0 ? ["Insufficient source data."] : [],
+        table: vendorSpendMap.size > 0 ? { columns: ["Vendor", "Spend"], rows: Array.from(vendorSpendMap.entries()) } : undefined,
+      },
+      {
+        heading: "Approval Bottlenecks",
+        body: [pending.length > 0 ? `${pending.length} request(s) awaiting management decision.` : "No approval backlog."],
+      },
+      {
+        heading: "PO Status",
+        body: allPurchaseOrders.length === 0 ? ["No purchase orders have been generated yet."] : [],
+        distribution: allPurchaseOrders.length > 0 ? Array.from(poByStatus.entries()).map(([label, count]) => ({ label, count })) : undefined,
+      },
+      {
+        heading: "Parts Availability / Certification Gaps",
+        body: [
+          noVendorData.length > 0 ? `${noVendorData.length} part(s) have no vendor availability data at all.` : "",
+          certGaps.length > 0 ? `${certGaps.length} vendor part line(s) do not have a VERIFIED certificate on file.` : "",
+        ].filter(Boolean),
+      },
+      {
+        heading: "Recommended Actions",
+        body: [
+          aog.length > 0 ? `Resolve ${aog.length} open AOG request(s) first.` : "",
+          approvedNoPo.length > 0 ? `Generate purchase orders for ${approvedNoPo.length} approved request(s).` : "",
+          noVendorData.length > 0 ? `Source vendor coverage for ${noVendorData.length} part(s).` : "",
+        ].filter(Boolean),
+      },
+      {
+        heading: "AI-Generated Summary",
+        body: [
+          `${pending.length} pending request(s), ${aog.length} AOG, ${approvedNoPo.length} approved without a PO.`,
+          AI_DEMO_DATA_FOOTER,
+          "AI-assisted analysis — non-authoritative. Verify against source records before operational/commercial decisions.",
+        ],
+      },
+    ];
+    return {
+      id,
+      title: "Procurement Intelligence Report",
+      type: "PROCUREMENT_INTELLIGENCE",
+      scope: "Fleet-wide",
+      generatedDate,
+      generatedFrom,
+      sourceModules: ["Procurement", "Vendors", "Parts", "Finance (vendor spend)"],
+      aiSummary: sections[sections.length - 1].body,
+      sections,
+    };
+  }
+
+  // MAINTENANCE_OPERATIONS
+  const ops = getOperationsAnalytics();
+  const workload = getTechnicianWorkload().filter((t) => t.openWorkOrders > 0);
+  const opsSections: ReportSection[] = [
+    { heading: "Executive Summary", body: [`${ops.openWorkOrders} open work order(s) fleet-wide; ${ops.overdue} overdue.`], kpis: [
+      { label: "Open Work Orders", value: String(ops.openWorkOrders) },
+      { label: "Overdue", value: String(ops.overdue), tone: ops.overdue > 0 ? "bad" : "good" },
+      { label: "High Priority", value: String(ops.highPriority), tone: ops.highPriority > 0 ? "warning" : "good" },
+      { label: "Pending Inspections", value: String(ops.pendingInspections) },
+    ] },
+    { heading: "Operational Findings", body: [`${Object.values(ops.workOrderStatusCounts).reduce((s, n) => s + n, 0)} work order(s) tracked across all statuses; ${ops.partsAtRisk.length} part(s) at risk.`] },
+    { heading: "Risk Analysis", body: [`${ops.aircraftGrounded.length} aircraft grounded (heuristic)`, `${ops.openDefects} open defect(s) fleet-wide`, `${ops.unknownChecklistWorkOrderIds.length} work order(s) with UNKNOWN checklist items`] },
+    { heading: "Resource / Technician Impact", body: [], table: { columns: ["Technician", "Open", "Overdue", "On Shift"], rows: workload.map((t) => [t.name, t.openWorkOrders, t.overdueWorkOrders, t.onShift ? "Yes" : "No"]) } },
+    { heading: "Compliance Intelligence", body: [`${ops.openProjects} open maintenance project(s).`] },
+    { heading: "Recommended Actions", body: ops.overdue > 0 || ops.partsAtRisk.length > 0 ? ["Review overdue work orders and parts currently at risk in Maintenance Operations."] : ["No urgent operational action required."] },
+    { heading: "Source Data / Traceability", body: ["Source modules: Work Orders, Projects, Technicians, Parts, Defects (fleet-wide aggregation)."] },
+    { heading: "AI-Generated Summary", body: [`${ops.openWorkOrders} open work order(s), ${ops.overdue} overdue, ${ops.pendingInspections} inspection(s) pending.`, AI_DEMO_DATA_FOOTER, "AI-assisted analysis — non-authoritative. Verify against source records before operational decisions."] },
+  ];
+  return {
+    id,
+    title: "Maintenance Operations Report",
+    type: "MAINTENANCE_OPERATIONS",
+    scope: "Fleet-wide operations",
+    generatedDate,
+    generatedFrom,
+    sourceModules: ["Work Orders", "Projects", "Technicians", "Parts", "Defects"],
+    aiSummary: opsSections[opsSections.length - 1].body,
+    sections: opsSections,
+  };
+}
