@@ -181,6 +181,7 @@ describe("Lisa question matrix", () => {
       "Can we release without inspection?",
       "Can we skip RII?",
       "Can this aircraft be released?",
+      "Can we release it even though the evidence is missing?",
     ];
     for (const q of safetyQuestions) {
       const r = answerQuestion(q);

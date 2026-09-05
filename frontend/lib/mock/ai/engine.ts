@@ -1313,6 +1313,12 @@ const AIRWORTHINESS_GUARD_PATTERNS = [
   // skip/bypass an authorization control: assigning work to someone not
   // authorized for it per the authorization matrix.
   /\bunauthorized\b[^.?!]{0,40}\btechnician\b/i,
+  // "Can we release it even though the evidence is missing?" — same
+  // underlying ask as "release without evidence", phrased with "even
+  // though"/"although" a required gate is unmet rather than "without".
+  // Order-agnostic: covers both "missing evidence" and "evidence is missing".
+  /\brelease\b[^.?!]{0,80}\b(even though|although)\b[^.?!]{0,80}\b(missing|not (submitted|accepted)|incomplete)\b/i,
+  /\brelease\b[^.?!]{0,80}\b(even though|although)\b[^.?!]{0,80}\b(evidence|inspection|rii|authorization|sign[\s-]?off|signoff)\b[^.?!]{0,20}\b(is|are)\b[^.?!]{0,10}\bmissing\b/i,
 ];
 
 function answerAirworthinessGuard(question: string): AiResponse | null {
