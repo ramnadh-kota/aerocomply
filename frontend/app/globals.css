@@ -333,6 +333,95 @@ table {
   font-family: system-ui, sans-serif;
 }
 
+/* Real-photo hero background (AircraftContextLayer's PhotoContextLayer),
+   for the two aircraft types with a verified, licensed source photo. Same
+   layering discipline as the SVG layer above (fixed, z-index: 0, strictly
+   behind .ac-shell, aria-hidden, pointer-events: none, dark-theme only) —
+   but the photo is the PRIMARY visual here, not a faint accent, so it is
+   sized much larger and the SVG layer's low-opacity treatment does not
+   apply. Contrast is handled by a gradient overlay, never a flat opacity
+   cut on the image itself, so the photo stays crisp. */
+:root:not([data-theme="dark"]) .ac-aircraft-context-layer--photo {
+  display: none;
+}
+
+.ac-aircraft-context-layer--photo {
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.ac-aircraft-context-photo-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.ac-aircraft-context-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 35%;
+  opacity: 0.5;
+}
+
+/* Darker at the edges/bottom where UI content sits, clearer toward the
+   upper-left where the aircraft's nose/cockpit reads most recognizably —
+   keeps the photo genuinely photographic rather than another faint wash. */
+.ac-aircraft-context-photo-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, var(--ac-bg) 0%, rgba(5, 11, 20, 0.35) 28%, rgba(5, 11, 20, 0.55) 62%, var(--ac-bg) 100%),
+    linear-gradient(90deg, rgba(5, 11, 20, 0.45) 0%, rgba(5, 11, 20, 0.05) 38%, rgba(5, 11, 20, 0.35) 100%);
+}
+
+.ac-aircraft-context-grid--photo {
+  opacity: 0.045;
+  mask-image: radial-gradient(ellipse 60% 60% at 50% 35%, #000 0%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 35%, #000 0%, transparent 70%);
+}
+
+/* Approximate region marker over a photo background — positioned by
+   percentage anchors (see PHOTO_REGION_ANCHORS in AircraftContextLayer.tsx),
+   not exact component coordinates. Documented as an approximation there. */
+.ac-context-photo-marker {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  border: 2px solid var(--ac-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ac-context-photo-marker--fault {
+  border-color: var(--ac-status-non-compliant);
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.18);
+}
+
+.ac-context-photo-marker-glyph {
+  color: var(--ac-status-non-compliant);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: system-ui, sans-serif;
+}
+
+@media (max-width: 1024px) {
+  .ac-aircraft-context-photo {
+    opacity: 0.4;
+  }
+}
+
+@media (max-width: 640px) {
+  .ac-aircraft-context-layer--photo {
+    display: none;
+  }
+}
+
 .ac-sidebar {
   width: 240px;
   flex-shrink: 0;

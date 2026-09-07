@@ -179,6 +179,13 @@ export default function SettingsPage() {
               connection.
             </p>
           </div>
+          <h2 className="ac-eyebrow" style={{ margin: "20px 0 10px" }}>Image Credits</h2>
+          <div className="ac-card">
+            <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-text-secondary)" }}>
+              Aircraft background photography: Boeing 737-800 photo by Acroterion / Wikimedia Commons (CC BY-SA 4.0).
+              Airbus A320-200 photo via Wikimedia Commons (public domain / CC0, no attribution required).
+            </p>
+          </div>
           <div className="ac-card" style={{ marginTop: 12 }}>
             <Row
               label="Data Mode"

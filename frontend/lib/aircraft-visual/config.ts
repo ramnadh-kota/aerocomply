@@ -163,3 +163,51 @@ const ATA_CHAPTER_TO_REGION: Record<string, AircraftRegion> = {
 export function ataChapterToRegion(ataChapter: string): AircraftRegion | null {
   return ATA_CHAPTER_TO_REGION[ataChapter] ?? null;
 }
+
+/**
+ * Real, licensed aircraft photography, keyed by exact aircraftTypeId — not
+ * by category. A photo is type-specific (a 737 photo must never render for
+ * an A320, or vice versa), so this is deliberately a narrower, stricter key
+ * than the category system above. Only populated for the two real aircraft
+ * types that have a verified, properly-licensed source photo on disk;
+ * every other type resolves to `null` via resolveHeroPhoto and falls back
+ * to the honest SVG silhouette system — never a mismatched photo.
+ */
+export interface HeroPhotoConfig {
+  /** Path under /public, e.g. "/images/aircraft/737-800-source.jpg". */
+  src: string;
+  width: number;
+  height: number;
+  /** Plain-language description of the real photographed aircraft, for alt text. */
+  alt: string;
+  /** Photographer/license credit, shown in Settings; required when the license demands it. */
+  attribution?: string;
+}
+
+const HERO_PHOTOS: Record<string, HeroPhotoConfig> = {
+  "type-737": {
+    src: "/images/aircraft/737-800-source.jpg",
+    width: 1920,
+    height: 1037,
+    alt: "Southwest Airlines Boeing 737-800 in flight, three-quarter front-right view against a blue sky.",
+    attribution: "Photo: Acroterion / Wikimedia Commons (CC BY-SA 4.0)",
+  },
+  "type-a320": {
+    src: "/images/aircraft/a320-200-source.jpg",
+    width: 1920,
+    height: 1280,
+    alt: "JetBlue Airways Airbus A320-200 taxiing on the runway, side-profile view.",
+    attribution: "Photo: Wikimedia Commons (public domain / CC0)",
+  },
+};
+
+/**
+ * Resolves the real hero photo for an exact aircraftTypeId. Returns null
+ * for every type without a verified photo on disk — callers must fall back
+ * to the SVG silhouette system rather than substitute a different type's
+ * photo.
+ */
+export function resolveHeroPhoto(aircraftTypeId: string | undefined): HeroPhotoConfig | null {
+  if (!aircraftTypeId) return null;
+  return HERO_PHOTOS[aircraftTypeId] ?? null;
+}

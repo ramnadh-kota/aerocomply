@@ -1,8 +1,34 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { resolveAircraftCategory, getAircraftVisualConfig, type AircraftCategory, type AircraftRegion } from "@/lib/aircraft-visual/config";
+import Image from "next/image";
+import {
+  resolveAircraftCategory,
+  getAircraftVisualConfig,
+  resolveHeroPhoto,
+  type AircraftCategory,
+  type AircraftRegion,
+} from "@/lib/aircraft-visual/config";
 import { getSilhouetteComponent } from "./silhouettes";
+
+/**
+ * Approximate screen-space anchor points (as % of the photo layer's box)
+ * for each region, used only when a real photo is the active background
+ * (no per-component photo coordinates exist the way they do for the
+ * hand-drawn SVG silhouettes). These are eyeballed against the two source
+ * photos' actual composition (737: three-quarter front-right, nose at
+ * left-center; A320: side profile, nose at left) and are NOT pixel-precise
+ * — they are a reasonable approximation, not a claim of exact component
+ * location.
+ */
+const PHOTO_REGION_ANCHORS: Record<AircraftRegion, { top: string; left: string }> = {
+  cockpit: { top: "42%", left: "18%" },
+  engine: { top: "62%", left: "42%" },
+  wing: { top: "58%", left: "50%" },
+  landingGear: { top: "78%", left: "48%" },
+  fuselage: { top: "50%", left: "55%" },
+  tail: { top: "38%", left: "82%" },
+};
 
 /**
  * Contextual, aircraft-type-aware decorative background layer.
@@ -47,6 +73,18 @@ export function AircraftContextLayer({ aircraftTypeId, opacity, highlightedRegio
     return <FleetContextLayer opacity={opacity ?? FLEET_OPACITY} showGrid={showGrid} />;
   }
 
+  const heroPhoto = resolveHeroPhoto(aircraftTypeId);
+  if (heroPhoto) {
+    return (
+      <PhotoContextLayer
+        photo={heroPhoto}
+        showGrid={showGrid}
+        highlightedRegion={highlightedRegion}
+        faultRegion={faultRegion}
+      />
+    );
+  }
+
   const category = resolveAircraftCategory(aircraftTypeId);
   const config = getAircraftVisualConfig(category);
   const Silhouette = getSilhouetteComponent(config.silhouetteId);
@@ -60,6 +98,56 @@ export function AircraftContextLayer({ aircraftTypeId, opacity, highlightedRegio
         highlightedRegion={highlightedRegion}
         faultRegion={faultRegion}
       />
+    </div>
+  );
+}
+
+/**
+ * Primary visual for the two real aircraft types with a verified, licensed
+ * source photo (737-800, A320-200). The photo is the primary aircraft
+ * representation here, per the product requirement — a dark gradient
+ * overlay (not a flat opacity reduction) keeps text readable while leaving
+ * the photo itself crisp. The blueprint grid, when requested, is kept as a
+ * faint secondary decorative accent over the photo, never competing with it.
+ */
+function PhotoContextLayer({
+  photo,
+  showGrid,
+  highlightedRegion,
+  faultRegion,
+}: {
+  photo: NonNullable<ReturnType<typeof resolveHeroPhoto>>;
+  showGrid?: boolean;
+  highlightedRegion?: AircraftRegion;
+  faultRegion?: AircraftRegion | null;
+}) {
+  const activeRegion = faultRegion ?? highlightedRegion ?? null;
+  const anchor = activeRegion ? PHOTO_REGION_ANCHORS[activeRegion] : null;
+  const isFault = !!faultRegion;
+
+  return (
+    <div className="ac-aircraft-context-layer ac-aircraft-context-layer--photo" aria-hidden="true" role="presentation">
+      <div className="ac-aircraft-context-photo-wrap">
+        <Image
+          src={photo.src}
+          alt={photo.alt}
+          width={photo.width}
+          height={photo.height}
+          className="ac-aircraft-context-photo"
+          sizes="100vw"
+          priority
+        />
+        <div className="ac-aircraft-context-photo-overlay" />
+        {showGrid && <div className="ac-aircraft-context-grid ac-aircraft-context-grid--photo" />}
+        {anchor && (
+          <div
+            className={`ac-context-photo-marker${isFault ? " ac-context-photo-marker--fault" : " ac-context-photo-marker--highlighted"}`}
+            style={{ top: anchor.top, left: anchor.left }}
+          >
+            {isFault && <span className="ac-context-photo-marker-glyph">!</span>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
