@@ -32,6 +32,21 @@ export function GenericAircraftSilhouette({ highlightedRegion, faultRegion, ...p
       <path d="M268 57 L292 38 L298 39 L280 59 Z" />
       <line x1="55" y1="66" x2="55" y2="72" />
       <line x1="240" y1="63" x2="240" y2="70" />
+
+      {/* Structural / technical detail. */}
+      <path d="M26 58 Q38 53 50 53 L50 65 Q36 66 24 63 Z" strokeWidth="1" />
+      <line x1="46" y1="53" x2="43" y2="65" strokeWidth="0.75" />
+      {Array.from({ length: 13 }, (_, i) => 58 + i * 14).map((x) => (
+        <line key={`win-${x}`} x1={x} y1="58" x2={x} y2="62" strokeWidth="0.6" opacity="0.7" />
+      ))}
+      {Array.from({ length: 5 }, (_, i) => 40 + i * 38).map((x) => (
+        <line key={`frame-${x}`} x1={x} y1="56" x2={x} y2="68" strokeWidth="0.5" opacity="0.5" />
+      ))}
+      <line x1="18" y1="63" x2="270" y2="58" strokeWidth="0.5" opacity="0.6" />
+      <path d="M154 34 L172 34" strokeWidth="0.6" opacity="0.6" />
+      <path d="M157 54 L170 22" strokeWidth="0.5" opacity="0.5" />
+      <path d="M154 82 L170 65" strokeWidth="0.5" opacity="0.5" />
+      <line x1="110" y1="68" x2="110" y2="73" strokeWidth="0.6" opacity="0.6" />
       {(Object.entries(MARKERS) as [AircraftRegion, { x: number; y: number }][]).map(([region, pt]) => {
         const isHighlighted = highlightedRegion === region;
         const isFault = faultRegion === region;

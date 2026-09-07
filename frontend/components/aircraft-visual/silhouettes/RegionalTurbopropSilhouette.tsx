@@ -34,6 +34,23 @@ export function RegionalTurbopropSilhouette({ highlightedRegion, faultRegion, ..
       <circle cx="152" cy="39" r="20" strokeDasharray="2 3" />
       <line x1="55" y1="72" x2="55" y2="78" />
       <line x1="225" y1="70" x2="225" y2="76" />
+
+      {/* Structural / technical detail. */}
+      <path d="M24 64 Q36 59 48 59 L48 71 Q34 72 22 69 Z" strokeWidth="1" />
+      <line x1="44" y1="59" x2="41" y2="71" strokeWidth="0.75" />
+      {Array.from({ length: 11 }, (_, i) => 56 + i * 12).map((x) => (
+        <line key={`win-${x}`} x1={x} y1="64" x2={x} y2="68" strokeWidth="0.6" opacity="0.7" />
+      ))}
+      {Array.from({ length: 5 }, (_, i) => 42 + i * 34).map((x) => (
+        <line key={`frame-${x}`} x1={x} y1="62" x2={x} y2="72" strokeWidth="0.5" opacity="0.5" />
+      ))}
+      <line x1="20" y1="69" x2="250" y2="63" strokeWidth="0.5" opacity="0.6" />
+      <path d="M144 46 L188 33" strokeWidth="0.5" opacity="0.5" />
+      <path d="M148 62 L172 88" strokeWidth="0.5" opacity="0.5" />
+      <line x1="152" y1="19" x2="152" y2="39" strokeWidth="0.5" opacity="0.4" />
+      <line x1="132" y1="39" x2="172" y2="39" strokeWidth="0.5" opacity="0.4" />
+      <line x1="270" y1="46" x2="278" y2="44" strokeWidth="0.6" opacity="0.6" />
+      <line x1="90" y1="72" x2="90" y2="78" strokeWidth="0.6" opacity="0.6" />
       {(Object.entries(MARKERS) as [AircraftRegion, { x: number; y: number }][]).map(([region, pt]) => {
         const isHighlighted = highlightedRegion === region;
         const isFault = faultRegion === region;

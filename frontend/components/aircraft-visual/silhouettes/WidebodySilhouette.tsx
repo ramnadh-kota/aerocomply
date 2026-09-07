@@ -32,6 +32,26 @@ export function WidebodySilhouette({ highlightedRegion, faultRegion, ...props }:
       <line x1="230" y1="78" x2="230" y2="70" />
       <line x1="70" y1="80" x2="70" y2="87" />
       <line x1="310" y1="76" x2="310" y2="85" />
+
+      {/* Structural / technical detail. */}
+      <path d="M22 68 Q38 61 54 61 L54 78 Q36 79 20 75 Z" strokeWidth="1" />
+      <line x1="48" y1="61" x2="44" y2="78" strokeWidth="0.75" />
+      {Array.from({ length: 19 }, (_, i) => 62 + i * 16).map((x) => (
+        <line key={`win-${x}`} x1={x} y1="71" x2={x} y2="76" strokeWidth="0.6" opacity="0.7" />
+      ))}
+      {Array.from({ length: 7 }, (_, i) => 50 + i * 45).map((x) => (
+        <line key={`frame-${x}`} x1={x} y1="68" x2={x} y2="82" strokeWidth="0.5" opacity="0.5" />
+      ))}
+      <line x1="14" y1="76" x2="350" y2="69" strokeWidth="0.5" opacity="0.6" />
+      <path d="M186 44 L216 44" strokeWidth="0.6" opacity="0.6" />
+      <path d="M190 65 L212 24" strokeWidth="0.6" opacity="0.6" />
+      <path d="M186 105 L210 76" strokeWidth="0.6" opacity="0.6" />
+      <line x1="220" y1="20" x2="220" y2="68" strokeWidth="0.5" opacity="0.5" />
+      <ellipse cx="230" cy="88" rx="10" ry="5" strokeWidth="0.5" opacity="0.6" />
+      <line x1="212" y1="88" x2="248" y2="88" strokeWidth="0.5" opacity="0.5" />
+      <line x1="365" y1="55" x2="380" y2="42" strokeWidth="0.6" opacity="0.6" />
+      <line x1="130" y1="79" x2="130" y2="84" strokeWidth="0.6" opacity="0.6" />
+      <line x1="30" y1="79" x2="30" y2="84" strokeWidth="0.6" opacity="0.6" />
       {(Object.entries(MARKERS) as [AircraftRegion, { x: number; y: number }][]).map(([region, pt]) => {
         const isHighlighted = highlightedRegion === region;
         const isFault = faultRegion === region;

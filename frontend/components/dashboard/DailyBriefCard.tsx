@@ -16,7 +16,7 @@ export function DailyBriefCard() {
   const dailyBrief = getDailyBrief(4, roleId);
 
   return (
-    <div className="ac-card" style={{ borderColor: "var(--ac-accent)" }}>
+    <div className="ac-card ac-card-glass" style={{ borderColor: "var(--ac-accent)" }}>
       <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
         <p className="ac-eyebrow" style={{ margin: 0 }}>{AI_NAME}&apos;s Daily Brief — Good Morning</p>
         <span className="ac-text-sm ac-text-muted">As of {dailyBrief.generatedAt}</span>

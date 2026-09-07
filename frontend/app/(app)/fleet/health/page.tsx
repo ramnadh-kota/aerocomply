@@ -13,6 +13,7 @@ import {
 } from "@/lib/mock/ai/analytics";
 import { getProactiveAlerts } from "@/lib/mock/ai/proactive";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
+import { AircraftContextLayer, MUTED_OPACITY } from "@/components/aircraft-visual/AircraftContextLayer";
 
 // Fleet-wide MRO Health Score.
 //
@@ -155,6 +156,12 @@ export default function FleetHealthPage() {
 
   return (
     <div>
+      {/* Multiple-aircraft treatment, reusing the same fleet-wide silhouette
+          pairing as /aircraft and /dashboard. This is a data-dense
+          engineering rollup (many stacked cards/tables), so it uses the
+          muted opacity tier rather than the hero tier, and skips the
+          blueprint grid to keep the dense grid of cards easy to scan. */}
+      <AircraftContextLayer opacity={MUTED_OPACITY} />
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Fleet Health" }]} />
       <div className="ac-section-header">
         <div>

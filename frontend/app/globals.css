@@ -239,7 +239,7 @@ table {
 
 .ac-aircraft-context-svg {
   color: var(--ac-text-primary);
-  opacity: var(--ac-context-opacity, 0.09);
+  opacity: var(--ac-context-opacity, 0.22);
   width: min(46vw, 620px);
   height: auto;
   margin: 0 -4vw 4vh 0;
@@ -261,10 +261,33 @@ table {
   margin: 14vh 18vw 0 0;
 }
 
+/* Blueprint/graph-paper technical grid, rendered behind the silhouette on
+   hero contexts only (dashboard, aircraft detail) via AircraftContextLayer's
+   showGrid prop. Pure CSS pattern, deliberately very faint — an honest
+   "technical drawing" texture, not a stand-in for photorealistic imagery. */
+.ac-aircraft-context-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.05;
+  background-image:
+    linear-gradient(var(--ac-text-primary) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ac-text-primary) 1px, transparent 1px),
+    linear-gradient(var(--ac-text-primary) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ac-text-primary) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+  background-position: -1px -1px;
+  mask-image: radial-gradient(ellipse 70% 70% at 65% 45%, #000 0%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 70% at 65% 45%, #000 0%, transparent 75%);
+}
+
 @media (max-width: 1024px) {
   .ac-aircraft-context-svg {
-    opacity: min(var(--ac-context-opacity, 0.09), 0.06);
+    opacity: min(var(--ac-context-opacity, 0.22), 0.14);
     width: min(60vw, 420px);
+  }
+
+  .ac-aircraft-context-grid {
+    opacity: 0.035;
   }
 }
 
@@ -466,6 +489,30 @@ button.ac-menu-toggle {
   border-radius: var(--ac-radius-lg);
   padding: var(--ac-space-5);
   box-shadow: var(--ac-shadow-card);
+}
+
+/* Glass-panel card variant: a translucent, blurred-backdrop treatment for
+   a small number of hero cards (Daily Brief, aircraft header) sitting over
+   the aircraft-context layer, giving the "instrument panel over the
+   aircraft" feel. Applied surgically — NOT a replacement for .ac-card.
+   Dark-theme only, matching the aircraft-context layer's own precedent
+   (the translucency/blur is tuned against the dark surface color; over the
+   light theme's clean white surface it would just look like a dirty card,
+   so light mode falls back to the ordinary opaque .ac-card look). */
+.ac-card-glass {
+  background: var(--ac-bg-surface);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-lg);
+  padding: var(--ac-space-5);
+  box-shadow: var(--ac-shadow-card);
+}
+
+:root[data-theme="dark"] .ac-card-glass {
+  background: rgba(14, 27, 42, 0.66);
+  border: 1px solid rgba(61, 139, 255, 0.16);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: var(--ac-shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .ac-section {

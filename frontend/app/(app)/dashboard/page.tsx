@@ -17,6 +17,7 @@ import { OperationalPriorityQueue } from "@/components/dashboard/OperationalPrio
 import { FleetTatSummary } from "@/components/dashboard/FleetTatSummary";
 import { ViewingAsBadge } from "@/components/layout/ViewingAsBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
+import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
 
 const KPIS = [
   { label: "Total Aircraft", value: "128", href: "/aircraft" },
@@ -61,6 +62,11 @@ export default function DashboardPage() {
 
   return (
     <div>
+      {/* Fleet-wide hero treatment: no single aircraft is "the" dashboard
+          aircraft, so this renders the generic multi-aircraft silhouette
+          pairing (same logic FleetContextLayer already uses on /aircraft)
+          at the higher hero opacity tier, with the blueprint grid. */}
+      <AircraftContextLayer showGrid />
       <div className="ac-section-header">
         <div>
           <h1 className="ac-h1">Compliance Intelligence</h1>

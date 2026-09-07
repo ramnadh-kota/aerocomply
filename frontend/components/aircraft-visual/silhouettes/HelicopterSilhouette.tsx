@@ -33,6 +33,21 @@ export function HelicopterSilhouette({ highlightedRegion, faultRegion, ...props 
       <path d="M244 44 L250 60 L256 44" />
       <line x1="100" y1="70" x2="94" y2="80" />
       <line x1="140" y1="70" x2="146" y2="80" />
+
+      {/* Structural / technical detail. */}
+      <path d="M85 45 Q95 42 105 42 L106 60 Q92 62 82 55 Z" strokeWidth="1" opacity="0.8" />
+      <line x1="100" y1="42" x2="98" y2="60" strokeWidth="0.6" opacity="0.6" />
+      <line x1="94" y1="80" x2="94" y2="86" strokeWidth="0.75" />
+      <line x1="146" y1="80" x2="146" y2="86" strokeWidth="0.75" />
+      <line x1="94" y1="86" x2="146" y2="86" strokeWidth="0.75" />
+      <line x1="130" y1="34" x2="130" y2="24" strokeDasharray="2 3" strokeWidth="0.6" opacity="0.6" />
+      <circle cx="130" cy="20" r="4" strokeWidth="0.5" opacity="0.5" />
+      {Array.from({ length: 4 }, (_, i) => 170 + i * 18).map((x) => (
+        <line key={`boom-${x}`} x1={x} y1="58" x2={x} y2="65" strokeWidth="0.5" opacity="0.5" />
+      ))}
+      <line x1="160" y1="56" x2="245" y2="60" strokeWidth="0.5" opacity="0.5" />
+      <line x1="250" y1="44" x2="250" y2="60" strokeWidth="0.5" opacity="0.5" />
+      <path d="M105 46 L128 47" strokeWidth="0.5" opacity="0.5" />
       {(Object.entries(MARKERS) as [AircraftRegion, { x: number; y: number }][]).map(([region, pt]) => {
         const isHighlighted = highlightedRegion === region;
         const isFault = faultRegion === region;

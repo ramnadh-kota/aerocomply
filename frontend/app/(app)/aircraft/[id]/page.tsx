@@ -210,7 +210,7 @@ function DemoAircraftDetailPage({ params }: { params: { id: string } }) {
 
   return (
     <div>
-      <AircraftContextLayer aircraftTypeId={type.id} highlightedRegion={highlightedRegion} faultRegion={faultRegion} />
+      <AircraftContextLayer aircraftTypeId={type.id} highlightedRegion={highlightedRegion} faultRegion={faultRegion} showGrid />
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft", href: "/aircraft" }, { label: registration }]} />
 
       <div className="ac-section-header">
@@ -231,15 +231,15 @@ function DemoAircraftDetailPage({ params }: { params: { id: string } }) {
       </div>
 
       <div className="ac-grid-3 ac-section">
-        <div className="ac-card">
+        <div className="ac-card ac-card-glass">
           <p className="ac-kpi-label">Aircraft Variant</p>
           <p style={{ fontWeight: 600, marginTop: 4 }}>{variant.modelDesignation}</p>
         </div>
-        <div className="ac-card">
+        <div className="ac-card ac-card-glass">
           <p className="ac-kpi-label">Operator</p>
           <p style={{ fontWeight: 600, marginTop: 4 }}>{operator?.name ?? "—"}</p>
         </div>
-        <div className="ac-card">
+        <div className="ac-card ac-card-glass">
           <p className="ac-kpi-label">Entry Into Service</p>
           <p style={{ fontWeight: 600, marginTop: 4 }}>{aircraft.entryIntoServiceDate}</p>
         </div>
