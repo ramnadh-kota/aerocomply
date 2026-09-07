@@ -21,7 +21,7 @@ import { getChecklistByWorkOrderId } from "../checklists";
 import { evidenceForAssessment } from "../evidence";
 import { overdueMaintenanceEvents, maintenanceEventsForAircraft, upcomingMaintenanceEvents } from "../maintenance";
 import { assessments, assessmentsForAircraft } from "../assessments";
-import { regulatoryDocuments, regulatoryRequirements, getAuthorityById, getDocumentById } from "../regulations";
+import { regulatoryDocuments, regulatoryRequirements, getAuthorityById, getDocumentById, getRecentRegulatoryChanges } from "../regulations";
 import { MOCK_TODAY as REG_MOCK_TODAY } from "../workOrders";
 import { getTechnicianById } from "../technicians";
 import { partsForWorkOrder, parts } from "../parts";
@@ -1117,6 +1117,22 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
           .map((d) => ({ doc: d, daysSince: Math.round((new Date(REG_MOCK_TODAY).getTime() - new Date(d.publicationDate).getTime()) / 86400000), authority: getAuthorityById(d.regulatoryAuthorityId) }))
           .filter((d) => d.daysSince >= 0 && d.daysSince <= RECENT_WINDOW_DAYS)
           .sort((a, b) => a.daysSince - b.daysSince);
+        // Fleet-wide impact — no aircraft named in the question, so this
+        // aggregates real affected aircraft (via ApplicabilityAssessment,
+        // the same link the /regulations/[id] detail page uses) across ALL
+        // recently changed documents, not just a per-regulation lookup.
+        const changes = getRecentRegulatoryChanges(RECENT_WINDOW_DAYS);
+        const impactLines: string[] = [];
+        for (const change of changes) {
+          for (const r of change.requirements) {
+            if (r.affectedAircraft.length === 0) {
+              impactLines.push(`FACT: ${r.requirement.requirementNumber} (${change.document.docNumber}) — no aircraft assessed against this requirement yet.`);
+            } else {
+              const regs = r.affectedAircraft.map((a) => `${a.registration} (${a.finalStatus.replace(/_/g, " ")})`).join(", ");
+              impactLines.push(`FACT: ${r.requirement.requirementNumber} (${change.document.docNumber}) affects ${r.affectedAircraft.length} aircraft on file: ${regs}.`);
+            }
+          }
+        }
         return {
           id: nextId(),
           question,
@@ -1124,6 +1140,7 @@ function answerByIntent(question: string, context?: AiQuestionContext): AiRespon
           narrative: [
             "UNKNOWN: No live DGCA/FAA/EASA regulatory feed is connected to this prototype — the regulatory library is a synchronized, hand-seeded demo dataset, not a live source.",
             ...recent.map((r) => `FACT: ${r.doc.docNumber} (${r.authority?.code ?? "unknown authority"}, ${r.doc.docType}) — ${r.doc.title}, published ${r.daysSince === 0 ? "today" : `${r.daysSince}d ago`}.`),
+            ...impactLines,
             TRUST_FOOTER,
           ],
           buttons: [{ label: "View Regulatory Library", href: "/regulations" }],

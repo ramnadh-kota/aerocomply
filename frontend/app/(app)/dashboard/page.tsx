@@ -13,6 +13,8 @@ import { inspectorReviews } from "@/lib/mock/inspectorReviews";
 import { findings } from "@/lib/mock/findings";
 import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics } from "@/lib/mock/ai/analytics";
 import { DailyBriefCard } from "@/components/dashboard/DailyBriefCard";
+import { OperationalPriorityQueue } from "@/components/dashboard/OperationalPriorityQueue";
+import { FleetTatSummary } from "@/components/dashboard/FleetTatSummary";
 import { ViewingAsBadge } from "@/components/layout/ViewingAsBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
 
@@ -69,6 +71,14 @@ export default function DashboardPage() {
 
       <section className="ac-section">
         <DailyBriefCard />
+      </section>
+
+      <section className="ac-section">
+        <OperationalPriorityQueue />
+      </section>
+
+      <section className="ac-section">
+        <FleetTatSummary />
       </section>
 
       <section className="ac-section">

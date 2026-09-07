@@ -362,7 +362,10 @@ export default function SettingsPage() {
             No integration is connected in this running environment. Statuses below distinguish two different
             realities: authentication has a real, tested backend implementation that simply isn&apos;t running here
             (no Postgres, no <span className="ac-mono">backend/.env</span>); every domain-data and infrastructure
-            integration below that has no NOT CONFIGURED status has zero backend code behind it at all.
+            integration below that has no NOT CONFIGURED status has zero backend code behind it at all. This is a
+            compact summary — see the{" "}
+            <Link href="/integrations">full Integration Hub →</Link> for the complete catalog of designed ingestion
+            points (MRO, ERP, procurement, HR, aircraft data, and more), grouped by category with sync methods.
           </p>
           {INTEGRATION_GROUPS.map((g) => (
             <div key={g.group} className="ac-card" style={{ marginBottom: 12 }}>

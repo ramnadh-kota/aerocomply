@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/status/StatusBadge";
-import { regulatoryRequirements, regulatoryDocuments, getDocumentById, getAuthorityById } from "@/lib/mock/regulations";
+import { regulatoryRequirements, regulatoryDocuments, getDocumentById, getAuthorityById, getRecentRegulatoryChanges } from "@/lib/mock/regulations";
 import { assessmentsForRequirement } from "@/lib/mock/assessments";
 import { MOCK_TODAY } from "@/lib/mock/workOrders";
 import type { RegulatoryRequirement } from "@/lib/mock/types";
@@ -58,6 +58,7 @@ export default function RegulationsLibraryPage() {
     .map((d) => ({ doc: d, daysSince: daysSincePublication(d.publicationDate), authority: getAuthorityById(d.regulatoryAuthorityId) }))
     .filter((d) => d.daysSince >= 0 && d.daysSince <= RECENT_WINDOW_DAYS)
     .sort((a, b) => a.daysSince - b.daysSince);
+  const recentChanges = getRecentRegulatoryChanges(RECENT_WINDOW_DAYS);
 
   const columns: Column<Row>[] = [
     { key: "authority", header: "Authority", render: (r) => r.authorityCode, sortValue: (r) => r.authorityCode },
@@ -111,6 +112,51 @@ export default function RegulationsLibraryPage() {
                   <span className="ac-text-sm ac-text-muted">{daysSince === 0 ? "Published today" : `${daysSince}d ago`}</span>
                 </div>
               </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {recentChanges.length > 0 && (
+        <section className="ac-section">
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Recently Changed — Aircraft Impact</h2>
+          <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 10 }}>
+            Documents published in the last {RECENT_WINDOW_DAYS} days, cross-referenced against real applicability
+            assessment links only — the same links the requirement detail page uses, not an inferred fleet match.
+          </p>
+          <div style={{ display: "grid", gap: 10 }}>
+            {recentChanges.map(({ document, authority, daysSincePublication: days, requirements }) => (
+              <div key={document.id} className="ac-card">
+                <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                  <div>
+                    <span className="ac-mono" style={{ fontWeight: 600 }}>{document.docNumber}</span>{" "}
+                    <span className="ac-text-sm ac-text-muted">{authority?.code ?? "Unknown authority"} · {document.docType}</span>
+                    <p className="ac-text-sm" style={{ margin: "2px 0 0" }}>{document.title}</p>
+                  </div>
+                  <span className="ac-text-sm ac-text-muted">{days === 0 ? "Published today" : `${days}d ago`}</span>
+                </div>
+                {requirements.map((r) => (
+                  <div key={r.requirement.id} style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ac-border)" }}>
+                    <Link href={`/regulations/${r.requirement.id}`} className="ac-text-sm" style={{ fontWeight: 600 }}>
+                      {r.requirement.requirementNumber}
+                    </Link>
+                    {r.affectedAircraft.length === 0 ? (
+                      <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>
+                        No aircraft assessed against this requirement yet.
+                      </p>
+                    ) : (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                        {r.affectedAircraft.map((a) => (
+                          <Link key={a.assessmentId} href={`/aircraft/${a.aircraftId}`} className="ac-flex ac-items-center ac-gap-1" style={{ textDecoration: "none" }}>
+                            <span className="ac-mono ac-text-sm">{a.registration}</span>
+                            <StatusBadge status={a.finalStatus} />
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             ))}
           </div>
         </section>

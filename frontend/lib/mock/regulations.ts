@@ -1,10 +1,16 @@
 import type {
   ApplicabilityCondition,
   ApplicabilityRule,
+  FinalStatus,
   RegulatoryAuthority,
   RegulatoryDocument,
   RegulatoryRequirement,
+  SystemResult,
 } from "./types";
+import { assessmentsForRequirement } from "./assessments";
+import { maintenanceEventsForRequirement } from "./maintenance";
+import { getAircraftById, currentRegistration } from "./aircraft";
+import { MOCK_TODAY } from "./workOrders";
 
 // MOCK DATA — these are FICTIONAL, DEMO-ONLY regulatory records. They are not
 // real, current, or legally binding requirements from any authority. See
@@ -150,4 +156,81 @@ export function flattenConditions(node: ApplicabilityCondition): ApplicabilityCo
     result.push(...flattenConditions(child));
   }
   return result;
+}
+
+// --- Fleet-wide "what changed recently and what's impacted" traversal ---
+// Built ON TOP of the same real data links already proven correct on the
+// per-regulation detail page (app/(app)/regulations/[id]/page.tsx): a
+// requirement's affected aircraft come only from real ApplicabilityAssessment
+// records (assessmentsForRequirement), and linked maintenance activity comes
+// only from real MaintenanceEvent.relatedRequirementId links
+// (maintenanceEventsForRequirement). Nothing here infers a fleet match —
+// a requirement with zero recorded assessments simply reports zero affected
+// aircraft, exactly as the detail page's "No linked aircraft/tasks" case does.
+
+export interface RegulatoryChangeAircraftImpact {
+  aircraftId: string;
+  registration: string;
+  systemResult: SystemResult;
+  finalStatus: FinalStatus;
+  assessmentId: string;
+}
+
+export interface RegulatoryChangeRequirementImpact {
+  requirement: RegulatoryRequirement;
+  affectedAircraft: RegulatoryChangeAircraftImpact[];
+  linkedMaintenanceEventCount: number;
+}
+
+export interface RegulatoryChangeImpact {
+  document: RegulatoryDocument;
+  authority: RegulatoryAuthority | undefined;
+  daysSincePublication: number;
+  requirements: RegulatoryChangeRequirementImpact[];
+}
+
+/**
+ * Regulatory documents published within the last `days` days of MOCK_TODAY
+ * (default 30, matching the window already used on the /regulations list
+ * page), each expanded with its requirements and the REAL affected aircraft
+ * for each — via the same ApplicabilityAssessment link the detail page uses,
+ * not an inferred fleet match.
+ */
+export function getRecentRegulatoryChanges(days: number = 30): RegulatoryChangeImpact[] {
+  return regulatoryDocuments
+    .map((doc) => ({
+      doc,
+      daysSincePublication: Math.round((new Date(MOCK_TODAY).getTime() - new Date(doc.publicationDate).getTime()) / 86400000),
+    }))
+    .filter((d) => d.daysSincePublication >= 0 && d.daysSincePublication <= days)
+    .sort((a, b) => a.daysSincePublication - b.daysSincePublication)
+    .map(({ doc, daysSincePublication }) => {
+      const requirements: RegulatoryChangeRequirementImpact[] = regulatoryRequirements
+        .filter((r) => r.regulatoryDocumentId === doc.id)
+        .map((requirement) => {
+          const affectedAircraft: RegulatoryChangeAircraftImpact[] = assessmentsForRequirement(requirement.id)
+            .filter((a) => a.subjectType === "AIRCRAFT")
+            .map((a) => {
+              const aircraft = getAircraftById(a.subjectId);
+              return {
+                aircraftId: a.subjectId,
+                registration: aircraft ? currentRegistration(aircraft) : a.subjectId,
+                systemResult: a.systemResult,
+                finalStatus: a.finalStatus,
+                assessmentId: a.id,
+              };
+            });
+          return {
+            requirement,
+            affectedAircraft,
+            linkedMaintenanceEventCount: maintenanceEventsForRequirement(requirement.id).length,
+          };
+        });
+      return {
+        document: doc,
+        authority: getAuthorityById(doc.regulatoryAuthorityId),
+        daysSincePublication,
+        requirements,
+      };
+    });
 }

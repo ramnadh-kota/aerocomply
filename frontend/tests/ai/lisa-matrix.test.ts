@@ -39,6 +39,7 @@ describe("Lisa question matrix", () => {
       { q: "Why can't this aircraft be released?" },
       { q: "Are there any new regulatory updates?" },
       { q: "Does this regulatory update affect VT-ABC?" },
+      { q: "What regulatory changes happened recently?" },
       { q: "What should I do next?" },
       { q: "Give me today's MRO priorities." },
       { q: "What's changed since yesterday?" },
@@ -81,6 +82,21 @@ describe("Lisa question matrix", () => {
     log("Which vendor should we use?", r4, { previousQuestion: "What about the part?" });
 
     expect(true).toBe(true);
+  });
+
+  it("'what changed recently' surfaces real fleet-wide aircraft impact, not just the doc list", () => {
+    const r = answerQuestion("What regulatory changes happened recently?");
+    log("What regulatory changes happened recently?", r);
+    expect(r.insufficientData).not.toBe(true);
+    // Every impact line must cite either a real aircraft registration+status
+    // pulled from an ApplicabilityAssessment, or the honest "no aircraft
+    // assessed yet" fallback — never a fabricated fleet match.
+    const impactLines = r.narrative.filter((n) => /affects \d+ aircraft on file|no aircraft assessed against this requirement yet/.test(n));
+    expect(impactLines.length).toBeGreaterThan(0);
+    // AD-2026-001 (published within the demo's recent window) has real
+    // linked assessments for VT-ABC and others — confirm at least one real
+    // registration surfaces rather than a generic disclaimer only.
+    expect(r.narrative.some((n) => n.includes("VT-"))).toBe(true);
   });
 
   it("answers generic no-entity operational-priority questions instead of INSUFFICIENT_DATA", () => {
