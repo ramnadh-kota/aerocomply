@@ -36,7 +36,7 @@ import { auditEvents, combinedAuditHistory, verifyAuditChain } from "../audit";
 import type { AuditEvent } from "../types";
 import { AI_DEMO_DATA_FOOTER } from "../../brand";
 import { resolveLisaIntent, INTENT_LABEL, INTENT_DATA_AREAS, type LisaIntent } from "./intent";
-import { getOperationalPriorities, type OperationalPriorityItem } from "./proactive";
+import { getOperationalPriorities, getDailyBrief, type OperationalPriorityItem } from "./proactive";
 import {
   getProjectAnalytics,
   getAircraftAnalytics,
@@ -573,6 +573,32 @@ const OPERATIONAL_PRIORITY_INITIAL_PATTERNS: RegExp[] = [
   /what should i focus on/,
 ];
 
+// --- Generalized semantic classifier ---------------------------------
+// The exact-phrase list above was the first cut at this and, predictably,
+// missed close natural variations ("what to do now", "what's next",
+// "where should I start", "what can wait" …) that ask the exact same
+// underlying question in slightly different words. Rather than keep
+// growing the phrase list (which only ever covers the wordings someone
+// happened to test), this classifier recognizes the SHAPE of a generic
+// operational-priority question: an interrogative/imperative opener
+// asking Lisa to name or rank something, combined with a small cluster of
+// terms that orbit "next action / priority / urgency / attention" — the
+// same deterministic term-cluster approach intent.ts already uses for
+// intent classification elsewhere in this file, just scoped narrowly here
+// to the "no explicit entity" case (the caller still requires
+// !resolveWorkOrder && !resolveAircraft before trusting this, so a
+// WO/aircraft-scoped question always keeps using the more specific branch
+// instead).
+const OPERATIONAL_QUESTION_OPENER = /^(what'?s?|whats|where|which|any\w*|give me|show me|prioriti[sz]e)\b/;
+const OPERATIONAL_QUESTION_CLUSTER =
+  /\b(do|next|start|begin|priorit\w*|urgent\w*|attention|focus\w*|happening|today|action\w*|wait|first|operational|picture)\b/;
+
+function isGenericOperationalQuestion(question: string): boolean {
+  const t = question.toLowerCase().trim();
+  if (!OPERATIONAL_QUESTION_OPENER.test(t)) return false;
+  return OPERATIONAL_QUESTION_CLUSTER.test(t);
+}
+
 // "Next one." / "Which one?" / "What about it?" only mean "advance the
 // operational-priority ranking" when the immediately preceding turn(s) were
 // already part of this same generic-priority exchange (see
@@ -583,7 +609,7 @@ const OPERATIONAL_PRIORITY_FOLLOWUP_PATTERNS: RegExp[] = [/^next one\.?$/, /^whi
 
 function isOperationalPriorityInitial(question: string): boolean {
   const t = question.toLowerCase().trim();
-  return OPERATIONAL_PRIORITY_INITIAL_PATTERNS.some((p) => p.test(t));
+  return OPERATIONAL_PRIORITY_INITIAL_PATTERNS.some((p) => p.test(t)) || isGenericOperationalQuestion(t);
 }
 
 function isOperationalPriorityFollowup(question: string): boolean {
@@ -741,6 +767,53 @@ function operationalPriorityResponse(question: string, index: number, context?: 
     relatedRecords: [operationalPriorityRelatedButton(item)],
     confidenceState: "CONFIRMED",
     actionCategory: "RECOMMENDATION",
+    understood: { intent: INTENT_LABEL.WORK_ORDER_PRIORITY, scope: "Fleet", entities: [], dataAreas: INTENT_DATA_AREAS.WORK_ORDER_PRIORITY },
+  };
+}
+
+// --- Generic ("no explicit entity") "what changed" questions ---
+// "What changed?", "What changed today?", "Anything newly blocked?", "Did
+// anything become overdue?" — same architectural fix as the
+// operational-priority family above: a shape-based classifier (opener +
+// change-related cluster) instead of an exact-phrase list, scoped to the
+// no-entity case only (a WO/aircraft-scoped "what changed on WO-1050?"
+// keeps using the existing findWorkOrderFromText branch elsewhere in this
+// file). Reuses getDailyBrief() (proactive.ts) — the same fleet-wide
+// snapshot the dashboard's "Lisa's Daily Brief" card renders — rather than
+// inventing a second change-tracking calculation; this mock dataset has no
+// historical diff/audit-delta feed, so the response is honest about
+// summarizing current outstanding state, not a literal since-last-time diff.
+const FLEET_CHANGE_OPENER = /^(what'?s?|whats|anything|any\w*|did)\b/;
+const FLEET_CHANGE_CLUSTER = /\b(chang\w*|newly blocked|new\w* blocked|become\w* overdue|new\w* overdue)\b/;
+
+function isGenericFleetChangeQuestion(question: string): boolean {
+  const t = question.toLowerCase().trim();
+  if (!FLEET_CHANGE_OPENER.test(t)) return false;
+  // A regulatory-scoped "what changed" ("What regulatory changes happened
+  // recently?", "Any new regulatory updates?") is a different, more
+  // specific question answered by the existing COMPLIANCE intent branch
+  // (real per-document/per-aircraft impact) — never intercept it here.
+  if (t.includes("regulat") || t.includes("compliance") || t.includes("document")) return false;
+  return FLEET_CHANGE_CLUSTER.test(t);
+}
+
+function fleetChangeResponse(question: string, context?: AiQuestionContext): AiResponse {
+  const brief = getDailyBrief(5, context?.role);
+  return {
+    id: nextId(),
+    question,
+    headline: brief.recommendedActions.length > 0 && brief.recommendedActions[0] !== "No urgent action indicated by current data." ? `${brief.topPriorities.length} outstanding operational item(s)` : "No outstanding operational items",
+    narrative: [
+      "UNKNOWN: this prototype has no historical change-log/diff feed, so this is the current outstanding operational state (same data as Lisa's Daily Brief), not a literal since-last-check delta.",
+      `FACT: ${brief.fleet.aogCount} AOG aircraft, ${brief.fleet.maintenanceDueCount} under maintenance, ${brief.fleet.tatAtRiskCount} work order(s) at TAT risk, ${brief.procurement.criticalPartsCount} part(s) out of stock.`,
+      ...brief.recommendedActions.map((a) => `FACT: ${a}`),
+      TRUST_FOOTER,
+    ],
+    priority: brief.fleet.aogCount > 0 ? "CRITICAL" : brief.topPriorities.length > 0 ? "HIGH" : "LOW",
+    whatIFound: brief.recommendedActions,
+    confidenceState: "CONFIRMED",
+    actionCategory: "INFORMATION",
+    buttons: [{ label: "Open Maintenance Control Center", href: "/maintenance/control-center" }],
     understood: { intent: INTENT_LABEL.WORK_ORDER_PRIORITY, scope: "Fleet", entities: [], dataAreas: INTENT_DATA_AREAS.WORK_ORDER_PRIORITY },
   };
 }
@@ -1336,6 +1409,22 @@ const AIRWORTHINESS_GUARD_PATTERNS = [
   // Order-agnostic: covers both "missing evidence" and "evidence is missing".
   /\brelease\b[^.?!]{0,80}\b(even though|although)\b[^.?!]{0,80}\b(missing|not (submitted|accepted)|incomplete)\b/i,
   /\brelease\b[^.?!]{0,80}\b(even though|although)\b[^.?!]{0,80}\b(evidence|inspection|rii|authorization|sign[\s-]?off|signoff)\b[^.?!]{0,20}\b(is|are)\b[^.?!]{0,10}\bmissing\b/i,
+  // "Can we release it?" — the same release-authorization ask as the
+  // "release this/that aircraft" patterns above, just with a pronoun in
+  // place of naming the aircraft (typically following an earlier turn that
+  // already established which aircraft/work order "it" refers to).
+  /\b(can|could|should|may) we release it\b/i,
+  // "Can we approve this without evidence/RII/inspection/sign-off?" — same
+  // underlying ask as "release without evidence": approving something while
+  // a required safety gate is unmet.
+  /\bapprove\b[^.?!]{0,40}\bwithout\b[^.?!]{0,20}\b(rii|inspection|independent inspection|evidence|sign[\s-]?off|signoff)\b/i,
+  // "Can we ignore the regulatory requirement?" — same underlying ask as
+  // skip/bypass a safety/compliance gate, phrased with "ignore".
+  /\bignore\b[^.?!]{0,40}\b(regulatory requirement|requirement|rii|inspection|independent inspection|evidence|safety gate|checklist|sign[\s-]?off|signoff)\b/i,
+  // "Can I override the blocker?" — same underlying ask as "override the
+  // inspection/RII/evidence gate" above, phrased against the blocker itself
+  // rather than naming the specific gate type.
+  /\boverride\b[^.?!]{0,40}\bblocker\b/i,
 ];
 
 function answerAirworthinessGuard(question: string): AiResponse | null {
@@ -3483,6 +3572,14 @@ export function answerQuestion(question: string, context?: AiQuestionContext): A
         TRUST_FOOTER,
       ],
     };
+  }
+
+  // Generic, no-explicit-entity "what changed" questions — checked ahead of
+  // the operational-priority branch below since both are "no entity
+  // resolvable" fallbacks and "what changed" is the more specific ask of
+  // the two.
+  if (isGenericFleetChangeQuestion(question) && !resolveWorkOrder(question, context) && !resolveAircraft(question, context)) {
+    return fleetChangeResponse(question, context);
   }
 
   // Generic, no-explicit-entity operational-priority questions — "What

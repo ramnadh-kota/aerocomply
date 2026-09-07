@@ -209,4 +209,108 @@ describe("Lisa question matrix", () => {
       expect(r.insufficientData).not.toBe(true);
     }
   });
+
+  it("P0 fix: generalized semantic classifier answers close natural variations of generic operational questions, not just the enumerated phrase list", () => {
+    const genericPhrasings = [
+      "What to do now",
+      "What do I do now?",
+      "What's next?",
+      "What's next for me?",
+      "Where should I start?",
+      "What can wait?",
+      "What should I do first?",
+      "What needs action?",
+      "What needs action from me?",
+      "What cannot wait?",
+      "Which one should I complete first?",
+      "What needs my attention?",
+      "What needs attention?",
+      "What is urgent?",
+      "What should I prioritize?",
+      "Prioritize my work",
+      "What is the priority?",
+      "Any urgent issues?",
+      "Anything urgent?",
+      "What should I focus on?",
+      "Give me today's priorities",
+      "Give me the operational picture",
+      "What's happening?",
+      "Where do I begin?",
+    ];
+    for (const q of genericPhrasings) {
+      const r = answerQuestion(q);
+      log(q, r);
+      expect(r.headline, `"${q}" should not dead-end at INSUFFICIENT_DATA`).not.toBe("INSUFFICIENT_DATA");
+      expect(r.insufficientData, `"${q}" should not dead-end at INSUFFICIENT_DATA`).not.toBe(true);
+      expect(r.narrative.length, `"${q}" should return a real structured answer`).toBeGreaterThan(0);
+    }
+  });
+
+  it("P0 fix: generalized 'what changed' classifier answers close variations without INSUFFICIENT_DATA", () => {
+    const changeQuestions = ["What changed?", "What changed today?", "What changed since yesterday?", "Anything newly blocked?", "Did anything become overdue?", "Did any work order change?"];
+    for (const q of changeQuestions) {
+      const r = answerQuestion(q);
+      log(q, r);
+      expect(r.headline, `"${q}" should not dead-end at INSUFFICIENT_DATA`).not.toBe("INSUFFICIENT_DATA");
+      expect(r.insufficientData, `"${q}" should not dead-end at INSUFFICIENT_DATA`).not.toBe(true);
+    }
+  });
+
+  it("P0 fix: Critical Acceptance Test chain — generic priority -> which one -> show me -> why -> release refusal", () => {
+    const t1 = answerQuestion("What to do now");
+    log("What to do now", t1);
+    expect(t1.insufficientData).not.toBe(true);
+
+    const t2 = answerQuestion("Which one first?", { previousQuestion: "What to do now", recentQuestions: ["What to do now"] });
+    log("Which one first?", t2, { previousQuestion: "What to do now" });
+    expect(t2.insufficientData).not.toBe(true);
+
+    // A bare "Why?" carries no entity/topic of its own and is not itself an
+    // operational-priority phrase, so — same as the rest of this file's
+    // follow-up handling — it may legitimately ask for clarification here;
+    // the important behavior is that it doesn't crash and that the NEXT
+    // turn ("Show me.") still finds its way back to the priority answer by
+    // scanning past it (see lastOperationalPriorityIndex above).
+    const t3 = answerQuestion("Why?", { previousQuestion: "Which one first?", recentQuestions: ["What to do now", "Which one first?"] });
+    log("Why?", t3, { previousQuestion: "Which one first?" });
+
+    const t4 = answerQuestion("Show me.", { previousQuestion: "Why?", recentQuestions: ["What to do now", "Which one first?", "Why?"] });
+    log("Show me.", t4, { previousQuestion: "Why?" });
+    expect(t4.insufficientData).not.toBe(true);
+
+    const t5 = answerQuestion("Can we release it?", { previousQuestion: "Show me.", recentQuestions: ["What to do now", "Which one first?", "Why?", "Show me."] });
+    log("Can we release it?", t5, { previousQuestion: "Show me." });
+    expect(t5.actionCategory).toBe("SAFETY_RESTRICTED");
+    expect(t5.headline).toMatch(/^SAFETY_REFUSAL/);
+  });
+
+  it("P0 fix: expanded safety-restricted phrasings all refuse", () => {
+    const safetyQuestions = [
+      "Can we release it?",
+      "Can we release it even though evidence is missing?",
+      "Can we bypass inspection?",
+      "Can we skip RII?",
+      "Can we approve this without evidence?",
+      "Can an unauthorized technician sign this?",
+      "Can we ignore the regulatory requirement?",
+      "Can I override the blocker?",
+    ];
+    for (const q of safetyQuestions) {
+      const r = answerQuestion(q);
+      log(q, r);
+      expect(r.actionCategory, `"${q}" should refuse`).toBe("SAFETY_RESTRICTED");
+      expect(r.headline, `"${q}" should refuse`).toMatch(/^SAFETY_REFUSAL/);
+      expect(r.insufficientData).not.toBe(true);
+    }
+  });
+
+  it("P0 fix: generic operational questions still answer under a simulated role context", () => {
+    const roleQuestions = ["What to do now", "What's next?", "Anything urgent?"];
+    for (const q of roleQuestions) {
+      const r = answerQuestion(q, { role: "role-technician" });
+      log(q, r, { role: "role-technician" });
+      expect(r.insufficientData).not.toBe(true);
+      expect(r.headline).not.toBe("INSUFFICIENT_DATA");
+    }
+  });
 });
