@@ -8,8 +8,37 @@ import { getProactiveAlerts, getDailyBrief, type ProactiveAlert } from "@/lib/mo
 import { AIResponseView } from "@/components/ai/AIResponseView";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { useRoleSim } from "@/lib/role-sim/RoleSimContext";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { lisaApi } from "@/lib/api/lisa";
+import { ApiError } from "@/lib/apiClient";
 import { AI_NAME, AI_DESCRIPTION, COMPANY_NAME } from "@/lib/brand";
 import { StatusBadge, priorityBadge } from "@/components/status/StatusBadge";
+
+// Honest capability boundary shown on the Lisa page (Part 8 of the AI-agent
+// build). Backend-tool-covered areas are answered by the real agent when
+// configured; frontend-only areas are still answered, but only via the
+// existing deterministic engine (lib/mock/ai/engine.ts) — never invented by
+// the agent. See backend/app/services/ai/tools.py for the authoritative list.
+const LISA_CAN: string[] = [
+  "Look up aircraft, work orders, tasks, evidence, and inspection/RII records (real backend data when in REAL mode)",
+  "Summarize recorded execution state, open safety gates, and open discrepancies",
+  "Explain TAT, vendor/procurement, regulatory deadlines, and operational priority using the demo dataset (deterministic engine, not agent-tool-backed yet)",
+  "Rank, compare, and highlight risk across the data it can see",
+];
+const LISA_CANNOT: string[] = [
+  "Certify an aircraft or determine airworthiness",
+  "Approve or perform a release to service",
+  "Bypass, skip, or waive any safety gate (inspection, RII, evidence, checklist, sign-off)",
+  "Calculate or assert a business fact the underlying tools don't return",
+];
+
+// "demo_local" (not "AI Connected · Demo Data") is deliberate: DEMO mode
+// never calls the backend agent at all — it always answers from the local
+// deterministic engine — so claiming an "AI Connected" status here would be
+// false regardless of whether ANTHROPIC_API_KEY happens to be set anywhere.
+// Only a REAL-mode call that actually succeeds may claim "real_data".
+type LisaAiStatus = "checking" | "real_data" | "demo_local" | "not_configured";
 
 interface Turn {
   id: string;
@@ -41,7 +70,61 @@ export function AIConsole({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [showCapabilities, setShowCapabilities] = useState(false);
+  // Once a real /lisa/ask call comes back 503 ai_not_configured, stop
+  // retrying the network on every question for the rest of this session —
+  // fall back to the deterministic engine immediately, same as DEMO mode.
+  const [aiNotConfigured, setAiNotConfigured] = useState(false);
+  // Whether the one-time REAL-mode configuration probe (below) has
+  // resolved yet. Starts false so the status indicator never optimistically
+  // claims "AI Connected · Real Data" before that's actually confirmed —
+  // it shows "checking" instead until the probe settles either way.
+  const [realAgentProbed, setRealAgentProbed] = useState(false);
   const { addAuditEvent, auditLog } = useMroState();
+  const { mode: dataMode } = useDataMode();
+  const { accessToken, isAuthenticated } = useSession();
+  const useRealAgent = dataMode === "REAL" && isAuthenticated && !!accessToken && !aiNotConfigured;
+  const aiStatus: LisaAiStatus =
+    dataMode === "REAL" && isAuthenticated && accessToken
+      ? aiNotConfigured
+        ? "not_configured"
+        : realAgentProbed
+          ? "real_data"
+          : "checking"
+      : "demo_local";
+
+  // Probe once per REAL-mode session whether the backend agent is actually
+  // configured, so the status indicator is honest before the user asks
+  // anything — never silently claim "Real Data" and then fall back mid-turn
+  // without telling them.
+  useEffect(() => {
+    if (dataMode !== "REAL" || !isAuthenticated || !accessToken || aiNotConfigured) return;
+    let cancelled = false;
+    lisaApi
+      .ask(accessToken, { question: "status probe: are you configured?" })
+      .then((res) => {
+        if (cancelled) return;
+        // A configured agent returned a real answer to the probe — confirmed.
+        void res;
+        setRealAgentProbed(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.code === "ai_not_configured") {
+          setAiNotConfigured(true);
+        } else {
+          // Any other failure (network, auth, timeout) is also not a
+          // confirmed connection — stay honest and fall back rather than
+          // claim "real_data" on an error we don't understand.
+          setAiNotConfigured(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataMode, isAuthenticated, accessToken]);
   // "View as Role" prototype simulation (see lib/role-sim/RoleSimContext) —
   // used here for relevance/framing only (suggested-question ordering,
   // proactive-alert ordering), never to gate which facts Lisa can answer.
@@ -67,12 +150,7 @@ export function AIConsole({
   const criticalCount = allAlerts.filter((a) => a.severity === "CRITICAL").length;
   const priorities: ProactiveAlert[] = dailyBrief.topPriorities;
 
-  function ask(question: string) {
-    const trimmed = question.trim();
-    if (!trimmed) return;
-    const previousQuestion = turns.length > 0 ? turns[turns.length - 1].question : undefined;
-    const recentQuestions = turns.slice(-5).map((t) => t.question);
-    const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId, auditLog, previousQuestion, recentQuestions, role: roleId });
+  function commitTurn(trimmed: string, response: AiResponse) {
     const turn: Turn = { id: response.id, question: trimmed, response, askedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
     setTurns((prev) => [...prev, turn]);
     setActiveId(turn.id);
@@ -91,10 +169,47 @@ export function AIConsole({
     });
   }
 
+  async function ask(question: string) {
+    const trimmed = question.trim();
+    if (!trimmed) return;
+    const previousQuestion = turns.length > 0 ? turns[turns.length - 1].question : undefined;
+    const recentQuestions = turns.slice(-5).map((t) => t.question);
+
+    // REAL mode + real session + agent not already known to be unconfigured:
+    // try the real backend agent first. Any failure (ai_not_configured,
+    // network, or any other error) falls back to the SAME deterministic
+    // engine call DEMO mode always uses — zero regression on failure.
+    if (useRealAgent && accessToken) {
+      setAsking(true);
+      try {
+        const backendResponse = await lisaApi.ask(accessToken, {
+          question: trimmed,
+          conversation_history: recentQuestions,
+          current_entity: initialAircraftId ?? initialProjectId,
+        });
+        // LisaAskResponse already matches the AiResponse field shape
+        // (whatIFound/whyItMatters/priority/... in camelCase) so it renders
+        // through the exact same AIResponseView with no fork.
+        commitTurn(trimmed, backendResponse as unknown as AiResponse);
+        setAsking(false);
+        return;
+      } catch (err) {
+        if (err instanceof ApiError && err.code === "ai_not_configured") {
+          setAiNotConfigured(true);
+        }
+        // Fall through to the deterministic engine below.
+      }
+      setAsking(false);
+    }
+
+    const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId, auditLog, previousQuestion, recentQuestions, role: roleId });
+    commitTurn(trimmed, response);
+  }
+
   useEffect(() => {
     if (askedInitial.current || !initialQuestion) return;
     askedInitial.current = true;
-    ask(initialQuestion);
+    void ask(initialQuestion);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuestion]);
 
@@ -114,7 +229,7 @@ export function AIConsole({
       <div className="ac-card" style={{ marginBottom: 12 }}>
         <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 8 }}>
           <div>
-            <p className="ac-eyebrow" style={{ marginBottom: 2 }}>{AI_NAME} — MRO Operational Copilot</p>
+            <p className="ac-eyebrow" style={{ marginBottom: 2 }}>{AI_NAME} — MRO Operational AI Agent</p>
             <p className="ac-text-sm ac-text-secondary" style={{ margin: 0, fontWeight: 600 }}>{AI_DESCRIPTION}</p>
           </div>
           <span className="ac-flex ac-items-center ac-gap-2" style={{ whiteSpace: "nowrap" }}>
@@ -124,14 +239,59 @@ export function AIConsole({
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                background: "var(--ac-status-compliant)",
+                background:
+                  aiStatus === "real_data"
+                    ? "var(--ac-status-compliant)"
+                    : aiStatus === "checking"
+                      ? "var(--ac-status-unknown)"
+                      : "var(--ac-status-review)",
                 display: "inline-block",
-                boxShadow: "0 0 0 3px color-mix(in srgb, var(--ac-status-compliant) 25%, transparent)",
+                boxShadow:
+                  aiStatus === "real_data"
+                    ? "0 0 0 3px color-mix(in srgb, var(--ac-status-compliant) 25%, transparent)"
+                    : aiStatus === "checking"
+                      ? "0 0 0 3px color-mix(in srgb, var(--ac-status-unknown) 25%, transparent)"
+                      : "0 0 0 3px color-mix(in srgb, var(--ac-status-review) 25%, transparent)",
               }}
             />
-            <span className="ac-text-sm" style={{ fontWeight: 600 }}>Operational Intelligence Active</span>
+            <span className="ac-text-sm" style={{ fontWeight: 600 }}>
+              {aiStatus === "real_data" && "AI Connected · Real Data"}
+              {aiStatus === "checking" && "Checking AI connection…"}
+              {aiStatus === "demo_local" && "Demo Mode · Local Reasoning Engine"}
+              {aiStatus === "not_configured" && "AI Not Configured"}
+            </span>
+            <button
+              className="ac-btn"
+              style={{ fontSize: 11, padding: "2px 8px" }}
+              onClick={() => setShowCapabilities((v) => !v)}
+            >
+              Lisa can / cannot
+            </button>
           </span>
         </div>
+        {showCapabilities && (
+          <div
+            className="ac-text-sm"
+            style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--ac-border-subtle)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}
+          >
+            <div>
+              <p style={{ margin: "0 0 4px", fontWeight: 700 }}>Lisa can</p>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {LISA_CAN.map((item) => (
+                  <li key={item} style={{ marginBottom: 4 }}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p style={{ margin: "0 0 4px", fontWeight: 700 }}>Lisa cannot</p>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {LISA_CANNOT.map((item) => (
+                  <li key={item} style={{ marginBottom: 4 }}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="ac-section" style={{ marginBottom: 16 }}>
@@ -211,7 +371,7 @@ export function AIConsole({
               }}
               aria-label={`Ask ${AI_NAME}`}
             />
-            <button className="ac-btn ac-btn-primary" style={{ width: "100%" }} onClick={() => ask(draft)}>
+            <button className="ac-btn ac-btn-primary" style={{ width: "100%" }} onClick={() => void ask(draft)}>
               Ask {AI_NAME}
             </button>
           </div>
@@ -269,7 +429,7 @@ export function AIConsole({
                   <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 4px", fontWeight: 600 }}>{cat.category}</p>
                   <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
                     {cat.questions.map((q) => (
-                      <button key={q} className="ac-btn" style={{ fontSize: 12, padding: "4px 8px" }} onClick={() => ask(q)}>
+                      <button key={q} className="ac-btn" style={{ fontSize: 12, padding: "4px 8px" }} onClick={() => void ask(q)}>
                         {q}
                       </button>
                     ))}

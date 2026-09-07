@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     s3_secret_key: str = "aerocomply_dev_secret"
     s3_bucket: str = "aerocomply-evidence"
 
+    # AI agent (Lisa). Absent/empty -> NotConfiguredProvider is used and the
+    # /lisa/ask endpoint returns an honest 503 ai_not_configured error; the
+    # frontend falls back to the existing deterministic engine. Never
+    # hardcode a real key here or anywhere else in the codebase.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-5"
+    ai_max_tool_round_trips: int = 6
+    ai_request_timeout_seconds: float = 30.0
+
 
 @lru_cache
 def get_settings() -> Settings:

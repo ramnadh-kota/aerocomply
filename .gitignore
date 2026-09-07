@@ -30,3 +30,6 @@ Thumbs.db
 .vscode/
 .idea/
 .local-tools/
+
+# stray dev server logs
+uvicorn.*.log
