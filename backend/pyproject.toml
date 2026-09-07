@@ -49,7 +49,7 @@ known-third-party = ["alembic"]
 # FastAPI's dependency-injection pattern is `param: T = Depends(...)`, which is the
 # documented, correct usage (https://fastapi.tiangolo.com/tutorial/dependencies/) —
 # not the mutable-default-argument footgun B008 exists to catch.
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Body", "fastapi.Header"]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Body", "fastapi.Header", "app.core.deps.require_permission"]
 
 [tool.mypy]
 python_version = "3.11"
