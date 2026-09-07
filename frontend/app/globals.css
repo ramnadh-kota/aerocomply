@@ -280,6 +280,36 @@ table {
   }
 }
 
+/* Region anchor markers drawn on top of a silhouette (engine/wing/tail/
+   landing-gear/cockpit/fuselage points), used to reflect the active tab
+   (highlighted) and any real open defect (fault) for the aircraft being
+   viewed. Restrained line-art styling — no glow/shadow — matching the rest
+   of this decorative layer. Fault state never relies on color alone: the
+   "!" glyph below carries the meaning as well. */
+.ac-context-marker {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.ac-context-marker--highlighted {
+  stroke: var(--ac-accent);
+  stroke-width: 2;
+}
+
+.ac-context-marker--fault {
+  stroke: var(--ac-status-non-compliant);
+  stroke-width: 2;
+}
+
+.ac-context-marker-fault-glyph {
+  fill: var(--ac-status-non-compliant);
+  stroke: none;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: system-ui, sans-serif;
+}
+
 .ac-sidebar {
   width: 240px;
   flex-shrink: 0;

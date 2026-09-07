@@ -96,3 +96,70 @@ export function resolveAircraftCategory(aircraftTypeId: string | undefined): Air
 export function getAircraftVisualConfig(category: AircraftCategory): AircraftVisualConfig {
   return AIRCRAFT_VISUAL_CONFIGS[category];
 }
+
+/**
+ * Named regions on the aircraft silhouette that a specific ATA-100 chapter
+ * can be honestly mapped onto for visual highlighting/fault markers.
+ */
+export type AircraftRegion = "engine" | "wing" | "landingGear" | "cockpit" | "tail" | "fuselage";
+
+/**
+ * ATA-100 chapter -> silhouette region mapping used to place highlight and
+ * fault markers. Deliberately conservative: a chapter is included only when
+ * it maps to one region a reasonable technician would point to on a side
+ * silhouette. Chapters that are physically distributed across the airframe,
+ * or ambiguous, return null rather than guess wrong.
+ *
+ *  Chapter(s)      System                          Region        Rationale
+ *  --------------  ------------------------------  ------------  ------------------------------------------------
+ *  70-79           Powerplant                       engine        Engine chapters map directly to the engine.
+ *  32              Landing gear                      landingGear   One-to-one system-to-region match.
+ *  57               Wings                            wing          One-to-one system-to-region match.
+ *  27               Flight controls                  wing          Primary flight controls (ailerons/spoilers/
+ *                                                                    flaps) are wing-mounted on every silhouette
+ *                                                                    in this registry; elevator/rudder are a
+ *                                                                    minority of ch.27 findings, so 'wing' is the
+ *                                                                    more common/defensible single answer.
+ *  55               Stabilizers                      tail          Horizontal/vertical stabilizer -> tail.
+ *  53               Fuselage                          fuselage      One-to-one system-to-region match.
+ *  23, 31, 34        Comms / indicating-recording /    cockpit       Flight-deck avionics and instrument
+ *                    navigation                                      chapters are physically housed in/around
+ *                                                                    the flight deck on every type here.
+ *  21               Air conditioning                  cockpit       Cabin-altitude/pressurization controls and
+ *                                                                    the primary flight-deck indications for
+ *                                                                    ch.21 events sit at the flight deck; the
+ *                                                                    ducting itself is distributed, so this is a
+ *                                                                    judgment call documented here rather than a
+ *                                                                    clean 1:1 match.
+ *  24, 33, 49, ...   Electrical / lights / APU / etc.  null          Electrical power (24) and lighting (33) are
+ *                                                                    distributed across the whole airframe; APU
+ *                                                                    (49) sits in the tailcone on some types and
+ *                                                                    is not represented on every silhouette here.
+ *                                                                    Rather than guess, these — and any chapter
+ *                                                                    not listed above — return null.
+ */
+const ATA_CHAPTER_TO_REGION: Record<string, AircraftRegion> = {
+  "27": "wing",
+  "32": "landingGear",
+  "53": "fuselage",
+  "55": "tail",
+  "57": "wing",
+  "70": "engine",
+  "71": "engine",
+  "72": "engine",
+  "73": "engine",
+  "74": "engine",
+  "75": "engine",
+  "76": "engine",
+  "77": "engine",
+  "78": "engine",
+  "79": "engine",
+  "21": "cockpit",
+  "23": "cockpit",
+  "31": "cockpit",
+  "34": "cockpit",
+};
+
+export function ataChapterToRegion(ataChapter: string): AircraftRegion | null {
+  return ATA_CHAPTER_TO_REGION[ataChapter] ?? null;
+}

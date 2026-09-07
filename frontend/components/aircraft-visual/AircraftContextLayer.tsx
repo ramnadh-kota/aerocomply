@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { resolveAircraftCategory, getAircraftVisualConfig, type AircraftCategory } from "@/lib/aircraft-visual/config";
+import { resolveAircraftCategory, getAircraftVisualConfig, type AircraftCategory, type AircraftRegion } from "@/lib/aircraft-visual/config";
 import { getSilhouetteComponent } from "./silhouettes";
 
 /**
@@ -23,12 +23,16 @@ interface AircraftContextLayerProps {
   aircraftTypeId?: string;
   /** Opacity override, 0.05–0.30 per the product's stated range. Defaults to a subtle 0.09. */
   opacity?: number;
+  /** Region to draw in an emphasized state, e.g. reflecting the active tab. Ignored for the fleet-wide (no aircraftTypeId) treatment. */
+  highlightedRegion?: AircraftRegion;
+  /** Region to draw with a fault indicator, derived from a real open defect. Ignored for the fleet-wide (no aircraftTypeId) treatment. */
+  faultRegion?: AircraftRegion | null;
 }
 
 const DEFAULT_OPACITY = 0.09;
 const FLEET_OPACITY = 0.07;
 
-export function AircraftContextLayer({ aircraftTypeId, opacity }: AircraftContextLayerProps) {
+export function AircraftContextLayer({ aircraftTypeId, opacity, highlightedRegion, faultRegion }: AircraftContextLayerProps) {
   if (!aircraftTypeId) {
     return <FleetContextLayer opacity={opacity ?? FLEET_OPACITY} />;
   }
@@ -42,6 +46,8 @@ export function AircraftContextLayer({ aircraftTypeId, opacity }: AircraftContex
       <Silhouette
         className="ac-aircraft-context-svg"
         style={{ "--ac-context-opacity": opacity ?? DEFAULT_OPACITY } as CSSProperties}
+        highlightedRegion={highlightedRegion}
+        faultRegion={faultRegion}
       />
     </div>
   );

@@ -39,6 +39,7 @@ import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
+import { ataChapterToRegion, type AircraftRegion } from "@/lib/aircraft-visual/config";
 
 const TABS = ["Overview", "Configuration", "Engines", "Components", "Regulatory", "Assessments", "Evidence", "Audit"] as const;
 type Tab = (typeof TABS)[number];
@@ -179,9 +180,37 @@ function DemoAircraftDetailPage({ params }: { params: { id: string } }) {
     { key: "final", header: "Status", render: (a) => <StatusBadge status={a.finalStatus} /> },
   ];
 
+  // Highlight a region additively based on the active tab. Only tabs whose
+  // content maps cleanly onto one silhouette region set this — e.g.
+  // Configuration has no single derivable region, so it stays undefined
+  // rather than forcing a guess.
+  const highlightedRegion: AircraftRegion | undefined = tab === "Engines" ? "engine" : undefined;
+
+  // Fault marker: derived only from real OPEN defects on this aircraft
+  // (never fabricated). When more than one open defect exists, HIGH/
+  // CRITICAL severity is shown in preference to LOW/MEDIUM, since a
+  // higher-severity open finding is the more operationally relevant one to
+  // surface on the silhouette at a glance. Ties within a severity tier keep
+  // the dataset's existing order (first match wins). Chapters that don't
+  // map to a region (see ataChapterToRegion) are skipped in favor of the
+  // next candidate rather than shown incorrectly.
+  const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+  const openDefectsRanked = aircraftDefects
+    .filter((d) => d.status === "OPEN")
+    .slice()
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  let faultRegion: AircraftRegion | null = null;
+  for (const d of openDefectsRanked) {
+    const region = ataChapterToRegion(d.ataChapter);
+    if (region) {
+      faultRegion = region;
+      break;
+    }
+  }
+
   return (
     <div>
-      <AircraftContextLayer aircraftTypeId={type.id} />
+      <AircraftContextLayer aircraftTypeId={type.id} highlightedRegion={highlightedRegion} faultRegion={faultRegion} />
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft", href: "/aircraft" }, { label: registration }]} />
 
       <div className="ac-section-header">

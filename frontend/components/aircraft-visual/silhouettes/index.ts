@@ -1,4 +1,5 @@
 import type { ComponentType, SVGProps } from "react";
+import type { AircraftRegion } from "@/lib/aircraft-visual/config";
 import { NarrowbodySilhouette } from "./NarrowbodySilhouette";
 import { WidebodySilhouette } from "./WidebodySilhouette";
 import { RegionalTurbopropSilhouette } from "./RegionalTurbopropSilhouette";
@@ -13,7 +14,9 @@ export {
   GenericAircraftSilhouette,
 };
 
-export type SilhouetteComponent = ComponentType<SVGProps<SVGSVGElement>>;
+export type SilhouetteComponent = ComponentType<
+  SVGProps<SVGSVGElement> & { highlightedRegion?: AircraftRegion; faultRegion?: AircraftRegion | null }
+>;
 
 /** Registry keyed by AircraftVisualConfig.silhouetteId. */
 export const SILHOUETTE_REGISTRY: Record<string, SilhouetteComponent> = {
