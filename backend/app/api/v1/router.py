@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import aircraft, auth, evidence, health, work_orders
+from app.api.v1 import aircraft, auth, evidence, health, inspections, work_orders
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -8,3 +8,4 @@ api_router.include_router(auth.router)
 api_router.include_router(aircraft.router)
 api_router.include_router(work_orders.router)
 api_router.include_router(evidence.router)
+api_router.include_router(inspections.router)

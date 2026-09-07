@@ -16,6 +16,12 @@ class Permission(StrEnum):
     COMPLIANCE_DECIDE = "compliance:decide"  # accept/override a system determination
     EVIDENCE_READ = "evidence:read"
     EVIDENCE_WRITE = "evidence:upload"
+    INSPECTION_READ = "inspection:read"
+    # Covers both creating/managing an inspection requirement and performing
+    # the transition (including RII sign-off) — same single-permission shape
+    # as EVIDENCE_WRITE above; the RII independence rule is enforced in
+    # app/services/inspection_service.py regardless of who holds this grant.
+    INSPECTION_WRITE = "inspection:write"
     USER_MANAGE = "user:manage"
     ORG_MANAGE = "org:manage"
     AUDIT_READ = "audit:read"
@@ -43,6 +49,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.COMPLIANCE_DECIDE,
         Permission.EVIDENCE_READ,
         Permission.EVIDENCE_WRITE,
+        Permission.INSPECTION_READ,
+        Permission.INSPECTION_WRITE,
         Permission.USER_MANAGE,
         Permission.ORG_MANAGE,
         Permission.AUDIT_READ,
@@ -56,6 +64,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.COMPLIANCE_DECIDE,
         Permission.EVIDENCE_READ,
         Permission.EVIDENCE_WRITE,
+        Permission.INSPECTION_READ,
+        Permission.INSPECTION_WRITE,
         Permission.AUDIT_READ,
     },
     Role.CAMO_MANAGER: {
@@ -66,12 +76,16 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.COMPLIANCE_DECIDE,
         Permission.EVIDENCE_READ,
         Permission.EVIDENCE_WRITE,
+        Permission.INSPECTION_READ,
+        Permission.INSPECTION_WRITE,
     },
     Role.QUALITY_MANAGER: {
         Permission.AIRCRAFT_READ,
         Permission.REGULATION_READ,
         Permission.COMPLIANCE_ASSESS,
         Permission.EVIDENCE_READ,
+        Permission.INSPECTION_READ,
+        Permission.INSPECTION_WRITE,
         Permission.AUDIT_READ,
     },
     Role.MAINTENANCE_ENGINEER: {
@@ -79,11 +93,13 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.REGULATION_READ,
         Permission.EVIDENCE_READ,
         Permission.EVIDENCE_WRITE,
+        Permission.INSPECTION_READ,
     },
     Role.VIEWER: {
         Permission.AIRCRAFT_READ,
         Permission.REGULATION_READ,
         Permission.EVIDENCE_READ,
+        Permission.INSPECTION_READ,
     },
 }
 
