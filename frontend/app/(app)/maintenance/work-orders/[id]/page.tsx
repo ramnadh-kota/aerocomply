@@ -28,6 +28,7 @@ import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
 import { tasksApi, type BackendTask } from "@/lib/api/tasks";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { RealTaskGatePanel } from "@/components/evidence/RealTaskGatePanel";
 
 function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
   const { apiBaseUrl } = useDataMode();
@@ -110,6 +111,7 @@ function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
                         <span>{t.description}</span>
                         <StatusBadge {...genericStatusBadge(t.execution_state)} />
                       </div>
+                      <RealTaskGatePanel taskId={t.id} />
                     </div>
                   ))}
                 </div>
