@@ -1,0 +1,765 @@
+/* AeroComply design system.
+   Premium enterprise SaaS surface (light, default) with a fully intentional
+   dark mode — not an inversion of light. Every component consumes these
+   --ac-* tokens rather than hardcoded colors, so both themes are produced
+   entirely from this one block plus the [data-theme="dark"] override below.
+   Semantic status colors are always paired with a label/icon (never color
+   alone) — see components/status/StatusBadge.tsx. */
+
+:root {
+  /* Light mode (default) */
+  --ac-bg: #f6f8fa;
+  --ac-bg-elevated: #ffffff;
+  --ac-bg-surface: #ffffff;
+  --ac-bg-surface-hover: #f1f5f9;
+  --ac-border: #e2e8f0;
+  --ac-border-subtle: #edf1f5;
+
+  --ac-text-primary: #16202b;
+  --ac-text-secondary: #55636f;
+  --ac-text-muted: #8a97a3;
+
+  --ac-accent: #2563eb;
+  --ac-accent-hover: #1d4fc4;
+  --ac-accent-muted: rgba(37, 99, 235, 0.1);
+
+  --ac-status-compliant: #1f9d5a;
+  --ac-status-compliant-bg: rgba(31, 157, 90, 0.12);
+  --ac-status-non-compliant: #d53f3f;
+  --ac-status-non-compliant-bg: rgba(213, 63, 63, 0.12);
+  --ac-status-insufficient: #7c5cfc;
+  --ac-status-insufficient-bg: rgba(124, 92, 252, 0.12);
+  --ac-status-review: #c6821f;
+  --ac-status-review-bg: rgba(198, 130, 31, 0.12);
+  --ac-status-unknown: #6b7686;
+  --ac-status-unknown-bg: rgba(107, 118, 134, 0.1);
+
+  --ac-space-1: 4px;
+  --ac-space-2: 8px;
+  --ac-space-3: 12px;
+  --ac-space-4: 16px;
+  --ac-space-5: 20px;
+  --ac-space-6: 24px;
+  --ac-space-8: 32px;
+  --ac-space-10: 40px;
+
+  --ac-radius-sm: 4px;
+  --ac-radius-md: 6px;
+  --ac-radius-lg: 10px;
+
+  --ac-shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+
+  --ac-font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --ac-font-mono: "SF Mono", "Cascadia Code", Consolas, monospace;
+
+  color-scheme: light;
+}
+
+/* Dark mode — a deliberately separate palette (not light inverted),
+   preserving AeroComply's original dark aviation-engineering identity as
+   an intentional theme rather than the only theme. Toggle via
+   ThemeToggle.tsx, which sets data-theme on <html> and persists to
+   localStorage; see app/layout.tsx for the no-flash bootstrap script. */
+:root[data-theme="dark"] {
+  /* M0.7 — retinted toward the mission-control navy/cyan reference palette
+     (near-black navy ground, cool blue-gray surfaces/borders) without
+     changing the accent or status colors below, which already read as
+     "electric aviation blue" and were left alone to avoid re-tuning
+     contrast against every status badge in one pass. */
+  --ac-bg: #050b14;
+  --ac-bg-elevated: #0b1624;
+  --ac-bg-surface: #0e1b2a;
+  --ac-bg-surface-hover: #111f30;
+  --ac-border: #1c2b42;
+  --ac-border-subtle: #142030;
+
+  --ac-text-primary: #e8edf7;
+  --ac-text-secondary: #9fb0cc;
+  --ac-text-muted: #6b7c9c;
+
+  --ac-accent: #3d8bff;
+  --ac-accent-hover: #5c9dff;
+  --ac-accent-muted: rgba(61, 139, 255, 0.14);
+
+  --ac-status-compliant: #2fbf71;
+  --ac-status-compliant-bg: rgba(47, 191, 113, 0.14);
+  --ac-status-non-compliant: #e5484d;
+  --ac-status-non-compliant-bg: rgba(229, 72, 77, 0.14);
+  --ac-status-insufficient: #9a6bff;
+  --ac-status-insufficient-bg: rgba(154, 107, 255, 0.14);
+  --ac-status-review: #e8a33d;
+  --ac-status-review-bg: rgba(232, 163, 61, 0.14);
+  --ac-status-unknown: #6b7c9c;
+  --ac-status-unknown-bg: rgba(107, 124, 156, 0.16);
+
+  --ac-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: var(--ac-bg);
+  color: var(--ac-text-primary);
+  font-family: var(--ac-font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* Safety net: no interior element should ever be able to force the whole
+     page to scroll sideways — a scrollable container (e.g. .ac-topbar,
+     DataTable's wrapper) should absorb overflow instead. */
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ac-accent);
+  outline-offset: 2px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+/* --- Layout primitives --- */
+
+.ac-shell {
+  display: flex;
+  min-height: 100vh;
+  position: relative;
+  z-index: 1;
+}
+
+/* --- Aviation/MRO background layer ---
+   Purely decorative (aria-hidden, pointer-events: none). Sits behind
+   .ac-shell via the stacking context above. Per-page opacity is set by
+   AviationBackground.tsx via the --ac-bg-opacity custom property so one
+   image asset and one component serve every screen at the right intensity. */
+
+/* Decorative MRO/hangar imagery is a dark-theme accent only — its overlay
+   gradient is tuned to the dark palette (rgba(10,15,26,...) below) and
+   would read as a muddy wash over the light enterprise surface, which the
+   light theme intentionally keeps clean per the design reference. */
+:root:not([data-theme="dark"]) .ac-aviation-bg {
+  display: none;
+}
+
+.ac-aviation-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ac-aviation-bg-image {
+  position: absolute;
+  inset: 0;
+  background-image: url("/images/aerocomply-mro-background.svg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: var(--ac-bg-opacity, 0.12);
+  transition: opacity 0.2s ease;
+}
+
+.ac-aviation-bg-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 60% 35%, rgba(10, 15, 26, 0) 0%, rgba(10, 15, 26, 0.55) 60%, rgba(10, 15, 26, 0.88) 100%),
+    linear-gradient(180deg, rgba(10, 15, 26, 0.55) 0%, rgba(10, 15, 26, 0.25) 35%, rgba(10, 15, 26, 0.9) 100%);
+}
+
+@media (max-width: 1024px) {
+  .ac-aviation-bg-image {
+    opacity: min(var(--ac-bg-opacity, 0.12), 0.08);
+  }
+}
+
+@media (max-width: 640px) {
+  .ac-aviation-bg-image {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-aviation-bg-image {
+    transition: none;
+  }
+}
+
+.ac-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--ac-bg-elevated);
+  border-right: 1px solid var(--ac-border-subtle);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.ac-sidebar-backdrop {
+  display: none;
+}
+
+button.ac-menu-toggle {
+  display: none;
+}
+
+/* Mobile: sidebar becomes a slide-in drawer over the content, with a
+   click-to-dismiss backdrop. Desktop layout (sticky column) is untouched
+   above this breakpoint. */
+@media (max-width: 768px) {
+  button.ac-menu-toggle {
+    display: inline-flex;
+  }
+
+  .ac-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 60;
+    width: 272px;
+    max-width: 84vw;
+    transform: translateX(-100%);
+    transition: transform 200ms ease;
+    box-shadow: 4px 0 24px rgba(16, 24, 40, 0.18);
+  }
+
+  .ac-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .ac-sidebar-backdrop.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(10, 15, 26, 0.4);
+    animation: ac-fade-in 180ms ease;
+  }
+
+  .ac-nav-link {
+    min-height: 44px;
+  }
+}
+
+@keyframes ac-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-sidebar { transition: none; }
+  .ac-sidebar-backdrop.open { animation: none; }
+}
+
+.ac-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ac-topbar {
+  height: 56px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--ac-border-subtle);
+  display: flex;
+  align-items: center;
+  gap: var(--ac-space-4);
+  padding: 0 var(--ac-space-6);
+  background: var(--ac-bg-elevated);
+}
+
+.ac-content {
+  flex: 1;
+  padding: var(--ac-space-6) var(--ac-space-8);
+  max-width: 1440px;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .ac-content {
+    padding: var(--ac-space-4);
+  }
+
+  .ac-topbar {
+    padding: 0 var(--ac-space-4);
+    gap: var(--ac-space-2);
+    /* The topbar packs several controls (search, role/org selectors, quick
+       actions, avatar) that don't have room to wrap on narrow viewports.
+       Let the bar itself scroll horizontally rather than forcing the whole
+       page to — matches the pattern used for tables (DataTable's wrapper). */
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .ac-topbar > * {
+    flex-shrink: 0;
+  }
+}
+
+/* --- Typography --- */
+
+.ac-h1 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.ac-h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--ac-text-primary);
+}
+
+.ac-subtitle {
+  color: var(--ac-text-secondary);
+  font-size: 13px;
+  margin: var(--ac-space-1) 0 0;
+}
+
+.ac-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+}
+
+.ac-mono {
+  font-family: var(--ac-font-mono);
+}
+
+/* --- Cards / sections --- */
+
+.ac-card {
+  background: var(--ac-bg-surface);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-lg);
+  padding: var(--ac-space-5);
+  box-shadow: var(--ac-shadow-card);
+}
+
+.ac-section {
+  margin-bottom: var(--ac-space-8);
+}
+
+.ac-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--ac-space-4);
+}
+
+/* --- KPI cards --- */
+
+.ac-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--ac-space-4);
+}
+
+@media (max-width: 1280px) {
+  .ac-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.ac-kpi-card {
+  background: var(--ac-bg-surface);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-lg);
+  padding: var(--ac-space-4) var(--ac-space-5);
+}
+
+.ac-kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: var(--ac-space-1) 0 0;
+}
+
+.ac-kpi-label {
+  font-size: 12px;
+  color: var(--ac-text-secondary);
+}
+
+/* --- Tables --- */
+
+.ac-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+  padding: var(--ac-space-2) var(--ac-space-3);
+  border-bottom: 1px solid var(--ac-border);
+  white-space: nowrap;
+}
+
+.ac-table td {
+  padding: var(--ac-space-3);
+  border-bottom: 1px solid var(--ac-border-subtle);
+  font-size: 13px;
+}
+
+.ac-table tbody tr {
+  transition: background-color 0.1s ease;
+}
+
+.ac-table tbody tr.ac-row-clickable:hover {
+  background: var(--ac-bg-surface-hover);
+  cursor: pointer;
+}
+
+.ac-th-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ac-th-sortable:hover {
+  color: var(--ac-text-secondary);
+}
+
+/* --- Status badges (never color alone: icon + label always present) --- */
+
+.ac-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.ac-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ac-badge-compliant { color: var(--ac-status-compliant); background: var(--ac-status-compliant-bg); }
+.ac-badge-compliant .ac-badge-dot { background: var(--ac-status-compliant); }
+
+.ac-badge-non_compliant { color: var(--ac-status-non-compliant); background: var(--ac-status-non-compliant-bg); }
+.ac-badge-non_compliant .ac-badge-dot { background: var(--ac-status-non-compliant); }
+
+.ac-badge-insufficient_data { color: var(--ac-status-insufficient); background: var(--ac-status-insufficient-bg); }
+.ac-badge-insufficient_data .ac-badge-dot { background: var(--ac-status-insufficient); }
+
+.ac-badge-review_required { color: var(--ac-status-review); background: var(--ac-status-review-bg); }
+.ac-badge-review_required .ac-badge-dot { background: var(--ac-status-review); }
+
+.ac-badge-unknown { color: var(--ac-status-unknown); background: var(--ac-status-unknown-bg); }
+.ac-badge-unknown .ac-badge-dot { background: var(--ac-status-unknown); }
+
+.ac-badge-applicable { color: var(--ac-status-non-compliant); background: var(--ac-status-non-compliant-bg); }
+.ac-badge-applicable .ac-badge-dot { background: var(--ac-status-non-compliant); }
+
+.ac-badge-not_applicable { color: var(--ac-status-compliant); background: var(--ac-status-compliant-bg); }
+.ac-badge-not_applicable .ac-badge-dot { background: var(--ac-status-compliant); }
+
+.ac-badge-true { color: var(--ac-status-compliant); background: var(--ac-status-compliant-bg); }
+.ac-badge-true .ac-badge-dot { background: var(--ac-status-compliant); }
+
+.ac-badge-false { color: var(--ac-status-non-compliant); background: var(--ac-status-non-compliant-bg); }
+.ac-badge-false .ac-badge-dot { background: var(--ac-status-non-compliant); }
+
+.ac-badge-active { color: var(--ac-status-compliant); background: var(--ac-status-compliant-bg); }
+.ac-badge-active .ac-badge-dot { background: var(--ac-status-compliant); }
+
+.ac-badge-stored { color: var(--ac-status-review); background: var(--ac-status-review-bg); }
+.ac-badge-stored .ac-badge-dot { background: var(--ac-status-review); }
+
+.ac-badge-neutral { color: var(--ac-text-secondary); background: var(--ac-bg-surface-hover); }
+.ac-badge-neutral .ac-badge-dot { background: var(--ac-text-secondary); }
+
+/* --- Buttons --- */
+
+.ac-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--ac-radius-md);
+  border: 1px solid var(--ac-border);
+  background: var(--ac-bg-surface);
+  color: var(--ac-text-primary);
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.12s ease;
+}
+
+.ac-btn:hover {
+  background: var(--ac-bg-surface-hover);
+  border-color: var(--ac-text-muted);
+}
+
+.ac-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.ac-btn-primary {
+  background: var(--ac-accent);
+  border-color: var(--ac-accent);
+  color: white;
+}
+
+.ac-btn-primary:hover {
+  background: var(--ac-accent-hover);
+  border-color: var(--ac-accent-hover);
+}
+
+.ac-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-btn { transition: none; }
+  .ac-btn:active:not(:disabled) { transform: none; }
+}
+
+/* --- Skeleton loading (matches final component dimensions — never a
+   generic full-page spinner) --- */
+
+.ac-skeleton {
+  background: linear-gradient(90deg, var(--ac-bg-surface-hover) 25%, var(--ac-border-subtle) 37%, var(--ac-bg-surface-hover) 63%);
+  background-size: 400% 100%;
+  border-radius: var(--ac-radius-md);
+  animation: ac-skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes ac-skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-skeleton { animation: none; }
+}
+
+/* --- Empty / insufficient-data state (consistent across the app; never a
+   giant decorative icon) --- */
+
+.ac-empty-state {
+  padding: var(--ac-space-6) var(--ac-space-4);
+  text-align: left;
+  color: var(--ac-text-secondary);
+}
+
+.ac-empty-state-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ac-text-primary);
+  margin: 0 0 4px;
+}
+
+.ac-empty-state-detail {
+  font-size: 12px;
+  color: var(--ac-text-muted);
+  margin: 0;
+}
+
+.ac-input {
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-md);
+  padding: 8px 12px;
+  color: var(--ac-text-primary);
+  width: 100%;
+}
+
+.ac-input:focus {
+  border-color: var(--ac-accent);
+}
+
+/* --- Navigation --- */
+
+.ac-nav-link {
+  display: flex;
+  align-items: center;
+  gap: var(--ac-space-3);
+  padding: 9px var(--ac-space-4);
+  margin: 1px var(--ac-space-3);
+  border-radius: var(--ac-radius-md);
+  color: var(--ac-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ac-nav-link:hover {
+  background: var(--ac-bg-surface-hover);
+  color: var(--ac-text-primary);
+}
+
+.ac-nav-link.active {
+  background: var(--ac-accent-muted);
+  color: var(--ac-accent-hover);
+}
+
+.ac-nav-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+  padding: var(--ac-space-4) var(--ac-space-4) var(--ac-space-1);
+}
+
+/* --- Tabs --- */
+
+.ac-tabs {
+  display: flex;
+  gap: var(--ac-space-2);
+  border-bottom: 1px solid var(--ac-border);
+  margin-bottom: var(--ac-space-5);
+}
+
+.ac-tab {
+  padding: var(--ac-space-3) var(--ac-space-3);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ac-text-secondary);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.ac-tab:hover {
+  color: var(--ac-text-primary);
+}
+
+.ac-tab.active {
+  color: var(--ac-text-primary);
+  border-bottom-color: var(--ac-accent);
+}
+
+/* --- Breadcrumb --- */
+
+.ac-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ac-text-secondary);
+}
+
+.ac-breadcrumb a:hover {
+  color: var(--ac-text-primary);
+}
+
+/* --- Utility --- */
+
+.ac-flex { display: flex; }
+.ac-flex-col { display: flex; flex-direction: column; }
+.ac-items-center { align-items: center; }
+.ac-justify-between { justify-content: space-between; }
+.ac-gap-1 { gap: var(--ac-space-1); }
+.ac-gap-2 { gap: var(--ac-space-2); }
+.ac-gap-3 { gap: var(--ac-space-3); }
+.ac-gap-4 { gap: var(--ac-space-4); }
+.ac-gap-6 { gap: var(--ac-space-6); }
+.ac-text-muted { color: var(--ac-text-muted); }
+.ac-text-secondary { color: var(--ac-text-secondary); }
+.ac-text-sm { font-size: 12px; }
+.ac-w-full { width: 100%; }
+.ac-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ac-space-6); }
+.ac-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--ac-space-4); }
+.ac-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--ac-space-4); }
+
+@media (max-width: 1024px) {
+  .ac-grid-2, .ac-grid-3 { grid-template-columns: 1fr; }
+  .ac-grid-4 { grid-template-columns: 1fr 1fr; }
+  .ac-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .ac-grid-4 { grid-template-columns: 1fr; }
+  .ac-kpi-grid { grid-template-columns: 1fr; }
+}
+
+/* Lisa UX redesign — split copilot layout (question/suggestions column +
+   persistent answer column). A dedicated class instead of an inline
+   gridTemplateColumns override, so the existing responsive breakpoint
+   actually applies: an inline style would win over any media-query rule
+   from an external stylesheet and silently break mobile/tablet. */
+.ac-lisa-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+@media (max-width: 1024px) {
+  .ac-lisa-grid { grid-template-columns: 1fr; }
+}
+
+.ac-divider {
+  height: 1px;
+  background: var(--ac-border-subtle);
+  border: none;
+  margin: var(--ac-space-4) 0;
+}
+
+.ac-prototype-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--ac-space-2);
+  padding: var(--ac-space-3) var(--ac-space-4);
+  margin: var(--ac-space-3);
+  border-radius: var(--ac-radius-md);
+  background: var(--ac-status-review-bg);
+  border: 1px solid var(--ac-status-review);
+  color: var(--ac-status-review);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ac-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--ac-accent);
+  color: white;
+  padding: var(--ac-space-2) var(--ac-space-4);
+  z-index: 100;
+}
+
+.ac-skip-link:focus {
+  left: 0;
+}
