@@ -218,3 +218,22 @@ const OPERATIONAL_STATUS_MAP: Record<string, BadgeKind> = {
 export function operationalStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: OPERATIONAL_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
+
+// Generic fallback for arbitrary backend status strings (e.g. REAL data-mode
+// aircraft.status, task.execution_state) that don't have a bespoke mapping
+// above — best-effort color guess by common vocabulary, always paired with
+// the real label text so meaning is never lost to color alone.
+const GENERIC_STATUS_MAP: Record<string, BadgeKind> = {
+  ACTIVE: "ACTIVE",
+  OPEN: "PENDING",
+  PENDING: "PENDING",
+  IN_PROGRESS: "REVIEW_REQUIRED",
+  COMPLETED: "COMPLIANT",
+  DONE: "COMPLIANT",
+  CANCELLED: "UNKNOWN",
+  CLOSED: "COMPLIANT",
+};
+
+export function genericStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: GENERIC_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}

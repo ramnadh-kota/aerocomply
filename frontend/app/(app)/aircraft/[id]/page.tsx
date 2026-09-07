@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, workOrderStatusBadge, projectStatusBadge, defectStatusBadge, inspectorReviewStatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, workOrderStatusBadge, projectStatusBadge, defectStatusBadge, inspectorReviewStatusBadge, genericStatusBadge } from "@/components/status/StatusBadge";
 import { DataTable, type Column } from "@/components/tables/DataTable";
 import {
   getAircraftById,
@@ -32,11 +32,90 @@ import { getTechnicianById } from "@/lib/mock/technicians";
 import { getInspectorReviewById } from "@/lib/mock/inspectorReviews";
 import { Timeline } from "@/components/timeline/Timeline";
 import type { ApplicabilityAssessment, ComponentInstallation, EngineInstallation } from "@/lib/mock/types";
+import { useEffect, useState as useReactState } from "react";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 
 const TABS = ["Overview", "Configuration", "Engines", "Components", "Regulatory", "Assessments", "Evidence", "Audit"] as const;
 type Tab = (typeof TABS)[number];
 
+function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
+  const { apiBaseUrl } = useDataMode();
+  const { accessToken, isAuthenticated } = useSession();
+  const [record, setRecord] = useReactState<BackendAircraft | null>(null);
+  const [loading, setLoading] = useReactState(true);
+  const [error, setError] = useReactState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    aircraftApi
+      .get(accessToken, aircraftId)
+      .then((data) => {
+        if (!cancelled) setRecord(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(normalizeApiError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isAuthenticated, aircraftId]);
+
+  return (
+    <div>
+      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft", href: "/aircraft" }, { label: record?.registration ?? aircraftId }]} />
+      <div className="ac-section-header">
+        <div>
+          <h1 className="ac-h1">{record?.registration ?? "Aircraft"}</h1>
+          <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
+        </div>
+        {record && <StatusBadge {...genericStatusBadge(record.status)} />}
+      </div>
+      {!isAuthenticated ? (
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <p className="ac-text-sm" style={{ margin: 0 }}>
+            REAL data mode requires signing in. <Link href="/login">Sign in →</Link>
+          </p>
+        </div>
+      ) : (
+        <RealDataPanel loading={loading} error={error} isEmpty={!record} emptyMessage="This aircraft could not be found in the connected database.">
+          {record && (
+            <div className="ac-card">
+              <p><strong>MSN:</strong> {record.msn}</p>
+              <p><strong>Aircraft Type:</strong> {record.aircraft_type}</p>
+              <p><strong>Status:</strong> {record.status}</p>
+              <p><strong>Created:</strong> {new Date(record.created_at).toLocaleString()}</p>
+            </div>
+          )}
+        </RealDataPanel>
+      )}
+    </div>
+  );
+}
+
 export default function AircraftDetailPage({ params }: { params: { id: string } }) {
+  const { isReal, hydrated } = useDataMode();
+  // Wait for the persisted data-mode choice to load before picking a branch —
+  // otherwise a REAL-only id trips the DEMO branch's notFound() on first
+  // paint (mode still defaults to DEMO) before REAL mode has a chance to load.
+  if (!hydrated) return null;
+  if (isReal) return <RealAircraftDetail aircraftId={params.id} />;
+  return <DemoAircraftDetailPage params={params} />;
+}
+
+function DemoAircraftDetailPage({ params }: { params: { id: string } }) {
   const aircraft = getAircraftById(params.id);
   const [tab, setTab] = useState<Tab>("Overview");
   const [, setVersion] = useState(0);

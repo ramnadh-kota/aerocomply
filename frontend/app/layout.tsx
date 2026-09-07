@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import "./globals.css";
 import { PLATFORM_NAME, PLATFORM_TAGLINE } from "@/lib/brand";
+import { DataModeProvider } from "@/lib/data-mode/DataModeContext";
+import { SessionProvider } from "@/lib/auth/SessionContext";
 
 export const metadata = {
   title: PLATFORM_NAME,
@@ -25,7 +27,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <DataModeProvider>
+          <SessionProvider>{children}</SessionProvider>
+        </DataModeProvider>
+      </body>
     </html>
   );
 }

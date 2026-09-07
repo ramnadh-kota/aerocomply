@@ -1,15 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
-import { StatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, genericStatusBadge } from "@/components/status/StatusBadge";
 import { aircraft, aircraftVariants, getAircraftVariant, getAircraftType, currentRegistration } from "@/lib/mock/aircraft";
 import { currentEnginesForAircraft, getEngineById, getEngineType } from "@/lib/mock/engines";
 import { assessmentsForAircraft, latestAssessmentForAircraft } from "@/lib/mock/assessments";
 import { getOrganizationById } from "@/lib/mock/organizations";
 import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import type { Aircraft, MaintenanceEventStatus } from "@/lib/mock/types";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 
 interface Row {
   aircraft: Aircraft;
@@ -65,7 +71,84 @@ function buildRows(): Row[] {
   });
 }
 
+function RealAircraftList() {
+  const { apiBaseUrl } = useDataMode();
+  const { accessToken, isAuthenticated } = useSession();
+  const [rows, setRows] = useState<BackendAircraft[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    aircraftApi
+      .list(accessToken)
+      .then((data) => {
+        if (!cancelled) setRows(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(normalizeApiError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isAuthenticated]);
+
+  const columns: Column<BackendAircraft>[] = [
+    { key: "registration", header: "Registration", render: (a) => <span className="ac-mono">{a.registration}</span>, sortValue: (a) => a.registration },
+    { key: "msn", header: "MSN", render: (a) => <span className="ac-mono">{a.msn}</span>, sortValue: (a) => a.msn },
+    { key: "type", header: "Aircraft Type", render: (a) => a.aircraft_type, sortValue: (a) => a.aircraft_type },
+    { key: "status", header: "Status", render: (a) => <StatusBadge {...genericStatusBadge(a.status)} /> },
+    { key: "created", header: "Created", render: (a) => new Date(a.created_at).toLocaleDateString(), sortValue: (a) => a.created_at },
+  ];
+
+  return (
+    <div>
+      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft" }]} />
+      <div className="ac-section-header">
+        <div>
+          <h1 className="ac-h1">Aircraft Fleet</h1>
+          <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
+        </div>
+      </div>
+
+      {!isAuthenticated ? (
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <p className="ac-text-sm" style={{ margin: 0 }}>
+            REAL data mode requires signing in. <Link href="/login">Sign in →</Link>
+          </p>
+        </div>
+      ) : (
+        <RealDataPanel
+          loading={loading}
+          error={error}
+          isEmpty={rows.length === 0}
+          emptyMessage="No aircraft in the connected database yet. Create one via the backend API (POST /aircraft) to see it here."
+        >
+          <div className="ac-card" style={{ padding: 0 }}>
+            <DataTable columns={columns} rows={rows} getRowHref={(a) => `/aircraft/${a.id}`} emptyMessage="No aircraft found." />
+          </div>
+        </RealDataPanel>
+      )}
+    </div>
+  );
+}
+
 export default function AircraftListPage() {
+  const { isReal } = useDataMode();
+  if (isReal) return <RealAircraftList />;
+  return <DemoAircraftListPage />;
+}
+
+function DemoAircraftListPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [operatorFilter, setOperatorFilter] = useState("ALL");

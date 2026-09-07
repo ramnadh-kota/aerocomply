@@ -2,11 +2,15 @@
 
 import { useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, authApi } from "@/lib/apiClient";
+import { authApi, normalizeApiError } from "@/lib/apiClient";
+import { useSession } from "@/lib/auth/SessionContext";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { Logo } from "@/components/branding/Logo";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login } = useSession();
+  const { setMode } = useDataMode();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -19,11 +23,12 @@ export default function LoginPage() {
     try {
       const tokens = await authApi.login(email, password);
       // MVP: token storage; production should move to httpOnly cookies.
-      window.localStorage.setItem("aerocomply_access_token", tokens.access_token);
-      window.localStorage.setItem("aerocomply_refresh_token", tokens.refresh_token);
+      await login(tokens);
+      // A successful real login is a strong signal the user wants REAL data mode.
+      setMode("REAL");
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Login failed. Please try again.");
+      setError(normalizeApiError(err).message);
     } finally {
       setLoading(false);
     }

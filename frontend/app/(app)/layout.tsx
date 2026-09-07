@@ -8,6 +8,9 @@ import { SidebarDrawerProvider } from "@/components/layout/SidebarDrawerContext"
 import { WelcomeTour } from "@/components/onboarding/WelcomeTour";
 import { AlertStateProvider } from "@/lib/mock/ai/alertState";
 
+// DataModeProvider/SessionProvider are mounted at the root layout (app/layout.tsx)
+// so both the (app) shell and the standalone /login page share one session.
+
 export default function AppShellLayout({ children }: { children: ReactNode }) {
   return (
     <MroStateProvider>

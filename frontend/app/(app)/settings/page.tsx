@@ -10,6 +10,9 @@ import { regulatoryAuthorities, regulatoryDocuments } from "@/lib/mock/regulatio
 import { getCurrentUser } from "@/lib/domain/currentUser";
 import { TAT_AT_RISK_WINDOW_DAYS, DUE_SOON_DAYS } from "@/lib/mock/ai/analytics";
 import { COMPANY_NAME, AI_NAME, AI_DESCRIPTION, AI_DEMO_DATA_FOOTER } from "@/lib/brand";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { useRouter } from "next/navigation";
 
 // M0.5 — Settings. There is no persistence layer in this prototype (no
 // backend settings table, no auth-scoped tenant config), so this screen
@@ -114,6 +117,9 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("General");
   const current = getCurrentUser();
   const org = current?.organization ?? organizations[0];
+  const { mode, setMode, apiBaseUrl } = useDataMode();
+  const { user: realUser, isAuthenticated, logout } = useSession();
+  const router = useRouter();
 
   const [notifPrefs, setNotifPrefs] = useState<Record<string, boolean>>(
     Object.fromEntries(NOTIFICATION_TOGGLES.map((n) => [n.key, true]))
@@ -166,11 +172,63 @@ export default function SettingsPage() {
           <h2 className="ac-eyebrow" style={{ margin: "20px 0 10px" }}>System Status</h2>
           <div className="ac-card">
             <p className="ac-text-sm" style={{ margin: 0 }}>
-              This demo environment runs entirely on client-side mock data. A real backend exists in this repository
-              (FastAPI, JWT auth, PostgreSQL data model, RBAC permissions) but requires infrastructure (PostgreSQL,
-              environment configuration) to run, and currently only covers authentication, organizations, and audit —
-              it does not yet have endpoints for aircraft, maintenance, evidence, procurement, or regulatory data.
+              This demo environment runs entirely on client-side mock data by default. A real backend exists in this
+              repository (FastAPI, JWT auth, PostgreSQL data model, RBAC permissions) and currently exposes
+              Aircraft, Work Order, Task, Evidence, and Inspection Requirement endpoints. It is a LOCAL-ONLY
+              development server — it is never deployed and this switch is a prototype/testing aid, not a production
+              connection.
             </p>
+          </div>
+          <div className="ac-card" style={{ marginTop: 12 }}>
+            <Row
+              label="Data Mode"
+              value={
+                <span className="ac-flex ac-gap-2" style={{ alignItems: "center", justifyContent: "flex-end" }}>
+                  <StatusBadge
+                    status={mode === "REAL" ? "ACTIVE" : "PENDING"}
+                    label={mode === "REAL" ? `REAL (connected to ${apiBaseUrl})` : "DEMO"}
+                  />
+                  <select
+                    className="ac-input"
+                    style={{ width: 120 }}
+                    value={mode}
+                    onChange={(e) => setMode(e.target.value as "DEMO" | "REAL")}
+                    aria-label="Data mode"
+                  >
+                    <option value="DEMO">DEMO</option>
+                    <option value="REAL">REAL</option>
+                  </select>
+                </span>
+              }
+              note="DEMO (default) uses this prototype's client-side mock data everywhere. REAL calls the local FastAPI backend and requires signing in with a real account — pages currently wired for REAL data are Aircraft and Work Orders."
+            />
+            {mode === "REAL" && (
+              <Row
+                label="Session"
+                value={
+                  isAuthenticated ? (
+                    <span className="ac-flex ac-gap-2" style={{ alignItems: "center", justifyContent: "flex-end" }}>
+                      <span>{realUser?.email}</span>
+                      <button
+                        className="ac-btn"
+                        style={{ fontSize: 12, padding: "4px 10px" }}
+                        onClick={() => {
+                          logout();
+                          router.push("/login");
+                        }}
+                      >
+                        Sign out
+                      </button>
+                    </span>
+                  ) : (
+                    <Link href="/login" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>
+                      Sign in
+                    </Link>
+                  )
+                }
+                note="REAL mode pages show empty/error states until a real backend session is signed in."
+              />
+            )}
           </div>
         </section>
       )}

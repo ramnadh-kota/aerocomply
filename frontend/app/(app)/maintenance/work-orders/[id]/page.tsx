@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, workOrderStatusBadge, priorityBadge, partStatusBadge, inspectorReviewStatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, workOrderStatusBadge, priorityBadge, partStatusBadge, inspectorReviewStatusBadge, genericStatusBadge } from "@/components/status/StatusBadge";
 import { EvidenceCard } from "@/components/evidence/EvidenceCard";
 import { ChecklistPanel } from "@/components/maintenance/ChecklistPanel";
 import { getWorkOrderById } from "@/lib/mock/workOrders";
@@ -21,8 +21,118 @@ import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { getChecklistByWorkOrderId } from "@/lib/mock/checklists";
 import { auditEventsForObjectLabelContains } from "@/lib/mock/audit";
 import { Timeline } from "@/components/timeline/Timeline";
+import { useEffect, useState as useReactState } from "react";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
+import { tasksApi, type BackendTask } from "@/lib/api/tasks";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+
+function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
+  const { apiBaseUrl } = useDataMode();
+  const { accessToken, isAuthenticated } = useSession();
+  const [wo, setWo] = useReactState<BackendWorkOrder | null>(null);
+  const [tasks, setTasks] = useReactState<BackendTask[]>([]);
+  const [loading, setLoading] = useReactState(true);
+  const [error, setError] = useReactState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([workOrdersApi.get(accessToken, workOrderId), tasksApi.listForWorkOrder(accessToken, workOrderId)])
+      .then(([woData, taskData]) => {
+        if (!cancelled) {
+          setWo(woData);
+          setTasks(taskData);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(normalizeApiError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isAuthenticated, workOrderId]);
+
+  return (
+    <div>
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Maintenance", href: "/maintenance/projects" },
+          { label: "Work Orders", href: "/maintenance/work-orders" },
+          { label: wo?.work_order_number ?? workOrderId },
+        ]}
+      />
+      <div className="ac-section-header">
+        <div>
+          <h1 className="ac-h1">{wo?.work_order_number ?? "Work Order"}</h1>
+          <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
+        </div>
+        {wo && (
+          <div className="ac-flex ac-gap-2">
+            <StatusBadge {...priorityBadge(wo.priority)} />
+            <StatusBadge {...workOrderStatusBadge(wo.status)} />
+          </div>
+        )}
+      </div>
+      {!isAuthenticated ? (
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <p className="ac-text-sm" style={{ margin: 0 }}>
+            REAL data mode requires signing in. <Link href="/login">Sign in →</Link>
+          </p>
+        </div>
+      ) : (
+        <RealDataPanel loading={loading} error={error} isEmpty={!wo} emptyMessage="This work order could not be found in the connected database.">
+          {wo && (
+            <>
+              <div className="ac-card" style={{ marginBottom: 16 }}>
+                <p><strong>Aircraft ID:</strong> <span className="ac-mono">{wo.aircraft_id}</span></p>
+                <p><strong>Created:</strong> {new Date(wo.created_at).toLocaleString()}</p>
+              </div>
+              <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>Tasks ({tasks.length})</h2>
+              {tasks.length === 0 ? (
+                <div className="ac-card"><p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No tasks recorded on this work order yet.</p></div>
+              ) : (
+                <div className="ac-flex ac-flex-col ac-gap-2">
+                  {tasks.map((t) => (
+                    <div key={t.id} className="ac-card">
+                      <div className="ac-flex ac-justify-between ac-items-center">
+                        <span>{t.description}</span>
+                        <StatusBadge {...genericStatusBadge(t.execution_state)} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </RealDataPanel>
+      )}
+    </div>
+  );
+}
 
 export default function WorkOrderDetailPage({ params }: { params: { id: string } }) {
+  const { isReal, hydrated } = useDataMode();
+  // See identical comment in app/(app)/aircraft/[id]/page.tsx — must wait
+  // for hydration before choosing a branch to avoid an irrecoverable
+  // notFound() on the DEMO branch for a REAL-only id.
+  if (!hydrated) return null;
+  if (isReal) return <RealWorkOrderDetail workOrderId={params.id} />;
+  return <DemoWorkOrderDetailPage params={params} />;
+}
+
+function DemoWorkOrderDetailPage({ params }: { params: { id: string } }) {
   const wo = getWorkOrderById(params.id);
   if (!wo) notFound();
 

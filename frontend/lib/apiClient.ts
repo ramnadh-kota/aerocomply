@@ -10,8 +10,76 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Stable, UI-facing error classification. Backend error codes/messages are
+ * never shown raw to the user (no stack traces, no internal error strings) —
+ * every ApiError (and network failure) collapses into one of these kinds
+ * with a safe, human-readable message.
+ */
+export type ApiErrorKind =
+  | "unauthorized"
+  | "forbidden"
+  | "not_found"
+  | "validation"
+  | "conflict"
+  | "server"
+  | "offline"
+  | "unknown";
+
+export interface NormalizedApiError {
+  kind: ApiErrorKind;
+  message: string;
+  status?: number;
+}
+
+const DEFAULT_MESSAGES: Record<ApiErrorKind, string> = {
+  unauthorized: "Your session has expired. Please sign in again.",
+  forbidden: "You do not have permission to perform this action.",
+  not_found: "The requested item could not be found.",
+  validation: "The request could not be processed — please check the submitted data.",
+  conflict: "This action conflicts with the item's current state.",
+  server: "The server encountered an error. Please try again later.",
+  offline: "Unable to reach the server. Check your connection and try again.",
+  unknown: "Something went wrong. Please try again.",
+};
+
+/** Map any thrown error (ApiError or network failure) to a stable, safe shape for the UI. */
+export function normalizeApiError(err: unknown): NormalizedApiError {
+  if (err instanceof ApiError) {
+    let kind: ApiErrorKind;
+    switch (err.status) {
+      case 401:
+        kind = "unauthorized";
+        break;
+      case 403:
+        kind = "forbidden";
+        break;
+      case 404:
+        kind = "not_found";
+        break;
+      case 422:
+        kind = "validation";
+        break;
+      case 409:
+        kind = "conflict";
+        break;
+      default:
+        kind = err.status >= 500 ? "server" : "unknown";
+    }
+    // Backend messages for 4xx are already user-safe (validation/business
+    // errors); 5xx bodies may leak internals, so use the generic message.
+    const message = kind === "server" ? DEFAULT_MESSAGES.server : err.message || DEFAULT_MESSAGES[kind];
+    return { kind, message, status: err.status };
+  }
+  // fetch() throws TypeError on network failure (server down, no connection, CORS).
+  if (err instanceof TypeError) {
+    return { kind: "offline", message: DEFAULT_MESSAGES.offline };
+  }
+  return { kind: "unknown", message: DEFAULT_MESSAGES.unknown };
+}
+
 interface RequestOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   accessToken?: string;
 }
@@ -27,8 +95,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
 
   const data = await response.json().catch(() => null);
 
@@ -67,3 +139,9 @@ export const authApi = {
 
   me: (accessToken: string) => apiRequest<CurrentUser>("/auth/me", { accessToken }),
 };
+
+// Local storage keys for JWT tokens — shared across the app (login page,
+// SessionContext, apiRequest callers). Kept here since apiClient owns the
+// token contract.
+export const ACCESS_TOKEN_STORAGE_KEY = "aerocomply_access_token";
+export const REFRESH_TOKEN_STORAGE_KEY = "aerocomply_refresh_token";
