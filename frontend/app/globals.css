@@ -216,6 +216,70 @@ table {
   }
 }
 
+/* --- Contextual aircraft-type silhouette layer ---
+   Additive to .ac-aviation-bg above: per-page, aircraft-type-aware line art
+   rendered by AircraftContextLayer.tsx. Same conventions — aria-hidden,
+   pointer-events: none, fixed + z-index: 0, strictly behind .ac-shell
+   (z-index: 1) — and, like the hangar imagery, a dark-theme accent only, so
+   it never reads as a muddy wash over the light enterprise surface. */
+:root:not([data-theme="dark"]) .ac-aircraft-context-layer {
+  display: none;
+}
+
+.ac-aircraft-context-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.ac-aircraft-context-svg {
+  color: var(--ac-text-primary);
+  opacity: var(--ac-context-opacity, 0.09);
+  width: min(46vw, 620px);
+  height: auto;
+  margin: 0 -4vw 4vh 0;
+  transition: opacity 0.2s ease;
+}
+
+.ac-aircraft-context-layer--fleet {
+  justify-content: center;
+}
+
+.ac-aircraft-context-svg--fleet-a {
+  width: min(38vw, 480px);
+  margin: -6vh -12vw 0 0;
+}
+
+.ac-aircraft-context-svg--fleet-b {
+  position: absolute;
+  width: min(30vw, 380px);
+  margin: 14vh 18vw 0 0;
+}
+
+@media (max-width: 1024px) {
+  .ac-aircraft-context-svg {
+    opacity: min(var(--ac-context-opacity, 0.09), 0.06);
+    width: min(60vw, 420px);
+  }
+}
+
+@media (max-width: 640px) {
+  .ac-aircraft-context-layer {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-aircraft-context-svg {
+    transition: none;
+  }
+}
+
 .ac-sidebar {
   width: 240px;
   flex-shrink: 0;

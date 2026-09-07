@@ -38,6 +38,7 @@ import { useSession } from "@/lib/auth/SessionContext";
 import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
 
 const TABS = ["Overview", "Configuration", "Engines", "Components", "Regulatory", "Assessments", "Evidence", "Audit"] as const;
 type Tab = (typeof TABS)[number];
@@ -180,6 +181,7 @@ function DemoAircraftDetailPage({ params }: { params: { id: string } }) {
 
   return (
     <div>
+      <AircraftContextLayer aircraftTypeId={type.id} />
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft", href: "/aircraft" }, { label: registration }]} />
 
       <div className="ac-section-header">

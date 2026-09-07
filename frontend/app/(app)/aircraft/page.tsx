@@ -16,6 +16,7 @@ import { useSession } from "@/lib/auth/SessionContext";
 import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
 
 interface Row {
   aircraft: Aircraft;
@@ -203,6 +204,7 @@ function DemoAircraftListPage() {
 
   return (
     <div>
+      <AircraftContextLayer />
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft" }]} />
       <div className="ac-section-header">
         <div>
