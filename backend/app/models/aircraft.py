@@ -1,0 +1,13 @@
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
+
+
+class Aircraft(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
+    __tablename__ = "aircraft"
+
+    registration: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    msn: Mapped[str] = mapped_column(String(64), nullable=False)
+    aircraft_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
