@@ -1563,6 +1563,16 @@ function answerGlossaryQuestion(question: string): AiResponse | null {
   return null;
 }
 
+// Exported so callers (AIConsole) can decide BEFORE falling back to this
+// engine whether a question is safe to answer from general knowledge
+// (never depends on record/operational data) versus one that would require
+// falling back to demo operational records if the real backend is
+// unavailable. REAL mode must never silently answer a record-specific
+// question from demo data — see AIConsole.tsx's ask() failure handling.
+export function isGeneralKnowledgeQuestion(question: string): boolean {
+  return isGeneralSafetyGuidanceQuestion(question) || answerGlossaryQuestion(question) !== null;
+}
+
 export function answerQuestion(question: string, context?: AiQuestionContext): AiResponse {
   const guard = answerAirworthinessGuard(question);
   if (guard) return guard;

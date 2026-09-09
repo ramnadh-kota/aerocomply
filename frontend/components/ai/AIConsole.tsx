@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
-import { answerQuestion, getSuggestedQuestionsForRole, type AiResponse } from "@/lib/mock/ai/engine";
+import { answerQuestion, isGeneralKnowledgeQuestion, getSuggestedQuestionsForRole, type AiResponse } from "@/lib/mock/ai/engine";
 import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getReleaseQueue } from "@/lib/mock/ai/analytics";
 import { getProactiveAlerts, getDailyBrief, type ProactiveAlert } from "@/lib/mock/ai/proactive";
 import { AIResponseView } from "@/components/ai/AIResponseView";
@@ -39,6 +39,48 @@ const LISA_CANNOT: string[] = [
 // false regardless of whether ANTHROPIC_API_KEY happens to be set anywhere.
 // Only a REAL-mode call that actually succeeds may claim "real_data".
 type LisaAiStatus = "checking" | "real_data" | "demo_local" | "not_configured";
+
+let fallbackResponseCounter = 0;
+
+// The explicit, non-demo-data answer shown for a record-specific/
+// operational question in REAL mode when the backend call itself failed.
+// Never routes through answerQuestion()/demo records — see ask()'s
+// MANDATORY FALLBACK POLICY comment.
+function backendUnavailableResponse(
+  question: string,
+  reason: "AI_PROVIDER_UNAVAILABLE" | "PERMISSION_DENIED" | "BACKEND_UNAVAILABLE"
+): AiResponse {
+  fallbackResponseCounter += 1;
+  const headline =
+    reason === "AI_PROVIDER_UNAVAILABLE"
+      ? "AI_PROVIDER_UNAVAILABLE"
+      : reason === "PERMISSION_DENIED"
+        ? "PERMISSION_DENIED"
+        : "BACKEND_UNAVAILABLE";
+  const explanation =
+    reason === "AI_PROVIDER_UNAVAILABLE"
+      ? "The backend AI provider is not configured, so this question cannot be answered from authoritative operational data right now."
+      : reason === "PERMISSION_DENIED"
+        ? "Your role does not have permission to retrieve the backend data this question requires."
+        : "The backend could not be reached, so this question cannot be answered from authoritative operational data right now.";
+  return {
+    id: `lisa-fallback-${fallbackResponseCounter}`,
+    question,
+    headline,
+    narrative: [
+      explanation,
+      "This is a record-specific/operational question, so Lisa will not answer it from demo data while in Real Data mode — that would present frontend demo state as if it were live aircraft, work order, AOG, or release data.",
+      reason === "BACKEND_UNAVAILABLE"
+        ? "Try again once the backend is reachable, or switch to Demo Mode to explore with sample data (clearly labeled as such)."
+        : reason === "AI_PROVIDER_UNAVAILABLE"
+          ? "General knowledge and safety-guidance questions still work without the AI provider — ask a glossary question or 'tell me what not to do'."
+          : "Contact an administrator if you believe you should have access to this data.",
+    ],
+    whatIFound: [explanation],
+    confidenceState: "NOT_CONFIGURED",
+    actionCategory: "INFORMATION",
+  };
+}
 
 interface Turn {
   id: string;
@@ -92,7 +134,13 @@ export function AIConsole({
   const { addAuditEvent, auditLog } = useMroState();
   const { mode: dataMode } = useDataMode();
   const { accessToken, isAuthenticated } = useSession();
-  const useRealAgent = dataMode === "REAL" && isAuthenticated && !!accessToken && !aiNotConfigured;
+  // A genuine REAL-mode session — the no-mock-fallback policy in ask()
+  // applies whenever this is true, REGARDLESS of aiNotConfigured. Whether
+  // or not the AI provider itself is configured is a separate question
+  // from whether this is a real authenticated session that must never
+  // silently answer a record-specific question from demo data.
+  const isRealModeSession = dataMode === "REAL" && isAuthenticated && !!accessToken;
+  const useRealAgent = isRealModeSession && !aiNotConfigured;
   const aiStatus: LisaAiStatus =
     dataMode === "REAL" && isAuthenticated && accessToken
       ? aiNotConfigured
@@ -177,6 +225,30 @@ export function AIConsole({
     });
   }
 
+  // Shared by every REAL-mode failure/known-unconfigured path below: general
+  // knowledge answers locally (not a "demo data" fallback — the same
+  // deterministic glossary/safety logic the backend agent itself would
+  // use); anything record-specific gets the explicit failure-state answer,
+  // never demo operational data. See MANDATORY FALLBACK POLICY below.
+  function answerInRealModeWithoutBackend(
+    trimmed: string,
+    previousQuestion: string | undefined,
+    recentQuestions: string[],
+    reason: "AI_PROVIDER_UNAVAILABLE" | "PERMISSION_DENIED" | "BACKEND_UNAVAILABLE"
+  ): AiResponse {
+    if (isGeneralKnowledgeQuestion(trimmed)) {
+      return answerQuestion(trimmed, {
+        projectId: initialProjectId,
+        aircraftId: initialAircraftId,
+        auditLog,
+        previousQuestion,
+        recentQuestions,
+        role: roleId,
+      });
+    }
+    return backendUnavailableResponse(trimmed, reason);
+  }
+
   async function ask(question: string) {
     const trimmed = question.trim();
     if (!trimmed) return;
@@ -184,14 +256,28 @@ export function AIConsole({
     const recentQuestions = turns.slice(-5).map((t) => t.question);
     setLastFallbackReason(null);
 
-    // REAL mode + real session + agent not already known to be unconfigured:
-    // try the real backend agent first. Any failure (ai_not_configured,
-    // network, or any other error) falls back to the SAME deterministic
-    // engine call DEMO mode always uses — zero regression on failure. The
-    // reason for the fallback is still surfaced to the user (see
-    // lastFallbackReason below) rather than silently presenting a demo
-    // answer as if nothing went wrong.
-    if (useRealAgent && accessToken) {
+    if (isRealModeSession) {
+      // MANDATORY FALLBACK POLICY: a genuine REAL-mode session must never
+      // silently answer a record-specific/operational question from DEMO
+      // mock data — neither on a network failure below, nor here when the
+      // AI provider is already known to be unconfigured (aiNotConfigured
+      // is sticky for the session; without this branch every subsequent
+      // question would silently fall through to the demo-mode branch at
+      // the bottom of this function, which is the exact bug this fixes).
+      if (!useRealAgent || !accessToken) {
+        setLastFallbackReason("AI_PROVIDER_UNAVAILABLE");
+        commitTurn(
+          trimmed,
+          answerInRealModeWithoutBackend(
+            trimmed,
+            previousQuestion,
+            recentQuestions,
+            "AI_PROVIDER_UNAVAILABLE"
+          )
+        );
+        return;
+      }
+
       setAsking(true);
       try {
         const backendResponse = await lisaApi.ask(accessToken, {
@@ -206,23 +292,32 @@ export function AIConsole({
         setAsking(false);
         return;
       } catch (err) {
+        let reason: "AI_PROVIDER_UNAVAILABLE" | "PERMISSION_DENIED" | "BACKEND_UNAVAILABLE";
         if (err instanceof ApiError && err.code === "ai_not_configured") {
           setAiNotConfigured(true);
-          setLastFallbackReason("AI_PROVIDER_UNAVAILABLE");
+          reason = "AI_PROVIDER_UNAVAILABLE";
         } else if (err instanceof ApiError && err.status === 403) {
-          setLastFallbackReason("PERMISSION_DENIED");
-        } else if (err instanceof TypeError) {
-          // fetch() throws TypeError on network failure — the backend
-          // itself is unreachable, not merely returning an error.
-          setLastFallbackReason("BACKEND_UNAVAILABLE");
+          reason = "PERMISSION_DENIED";
         } else {
-          setLastFallbackReason("BACKEND_UNAVAILABLE");
+          // fetch() throws TypeError on network failure (backend down/
+          // unreachable); any other ApiError (5xx, timeout-shaped, etc.)
+          // is likewise treated as the backend being unavailable rather
+          // than guessed at more specifically.
+          reason = "BACKEND_UNAVAILABLE";
         }
-        // Fall through to the deterministic engine below.
+        setLastFallbackReason(reason);
+        setAsking(false);
+        commitTurn(
+          trimmed,
+          answerInRealModeWithoutBackend(trimmed, previousQuestion, recentQuestions, reason)
+        );
+        return;
       }
-      setAsking(false);
     }
 
+    // True DEMO mode: the deterministic local engine and its demo dataset
+    // are the EXPECTED, honestly-labeled behavior here, not a fallback
+    // from a failure.
     const response = answerQuestion(trimmed, { projectId: initialProjectId, aircraftId: initialAircraftId, auditLog, previousQuestion, recentQuestions, role: roleId });
     commitTurn(trimmed, response);
   }
@@ -486,25 +581,36 @@ export function AIConsole({
             </div>
           ) : (
             <div className="ac-card" style={{ marginBottom: 16, borderColor: "var(--ac-accent)", borderWidth: 2 }}>
-              {active.id === turns[turns.length - 1]?.id && lastFallbackReason && (
-                <div
-                  className="ac-text-sm"
-                  style={{
-                    marginBottom: 10,
-                    padding: "8px 10px",
-                    borderRadius: 6,
-                    border: "1px solid var(--ac-status-review)",
-                    background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)",
-                  }}
-                >
-                  {lastFallbackReason === "AI_PROVIDER_UNAVAILABLE" &&
-                    "The backend AI provider is not configured — this answer came from the local demo reasoning engine, not real backend data."}
-                  {lastFallbackReason === "PERMISSION_DENIED" &&
-                    "Your role does not have permission to retrieve that backend data — this answer came from the local demo reasoning engine instead."}
-                  {lastFallbackReason === "BACKEND_UNAVAILABLE" &&
-                    "The backend could not be reached — this answer came from the local demo reasoning engine, not real backend data."}
-                </div>
-              )}
+              {active.id === turns[turns.length - 1]?.id &&
+                lastFallbackReason &&
+                // Suppress this banner when the answer itself IS the
+                // explicit failure state (headline already says
+                // BACKEND_UNAVAILABLE/etc. — see backendUnavailableResponse
+                // in ask()); only show it for the general-knowledge case,
+                // where the active answer is a real glossary/safety-
+                // guidance response and the banner explains why it did not
+                // come from the backend.
+                !["AI_PROVIDER_UNAVAILABLE", "PERMISSION_DENIED", "BACKEND_UNAVAILABLE"].includes(
+                  active.response.headline
+                ) && (
+                  <div
+                    className="ac-text-sm"
+                    style={{
+                      marginBottom: 10,
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: "1px solid var(--ac-status-review)",
+                      background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)",
+                    }}
+                  >
+                    {lastFallbackReason === "AI_PROVIDER_UNAVAILABLE" &&
+                      "The backend AI provider is not configured — this general-knowledge answer did not require it."}
+                    {lastFallbackReason === "PERMISSION_DENIED" &&
+                      "Your role does not have permission to retrieve backend data for this question — this general-knowledge answer did not require it."}
+                    {lastFallbackReason === "BACKEND_UNAVAILABLE" &&
+                      "The backend could not be reached — this general-knowledge answer did not require it."}
+                  </div>
+                )}
               <div className="ac-flex ac-justify-between" style={{ alignItems: "flex-start", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                 <div>
                   <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Question</p>

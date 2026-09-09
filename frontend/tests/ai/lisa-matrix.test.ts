@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { answerQuestion } from "../../lib/mock/ai/engine";
+import { answerQuestion, isGeneralKnowledgeQuestion } from "../../lib/mock/ai/engine";
 import type { AiQuestionContext, AiResponse } from "../../lib/mock/ai/engine";
 import { getControlTowerFleet } from "../../lib/mock/ai/analytics";
 
@@ -343,6 +343,32 @@ describe("Lisa question matrix", () => {
       log(q, r);
       expect(r.insufficientData, `"${q}" should not be INSUFFICIENT_DATA`).not.toBe(true);
       expect(`${r.headline} ${r.narrative.join(" ")}`).toMatch(expected);
+    }
+  });
+
+  it("isGeneralKnowledgeQuestion classifies general vs record-specific correctly (REAL-mode fallback policy depends on this)", () => {
+    const general = [
+      "tell me what not to do",
+      "what is TAT?",
+      "what does RII mean?",
+      "what is an evidence gate?",
+      "define MEL",
+    ];
+    for (const q of general) {
+      expect(isGeneralKnowledgeQuestion(q), `"${q}" should be general knowledge`).toBe(true);
+    }
+
+    const recordSpecific = [
+      "Can we release N221ML?",
+      "Why is N221ML AOG?",
+      "Which part is missing?",
+      "Which vendor should I use?",
+      "What's blocking WO-1042?",
+      "What needs attention?",
+      "Which aircraft is most urgent?",
+    ];
+    for (const q of recordSpecific) {
+      expect(isGeneralKnowledgeQuestion(q), `"${q}" should NOT be general knowledge`).toBe(false);
     }
   });
 
