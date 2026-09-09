@@ -7,8 +7,10 @@ from app.api.v1 import (
     health,
     inspections,
     lisa,
+    parts,
     release_readiness,
     tat,
+    vendors,
     work_orders,
 )
 
@@ -21,4 +23,6 @@ api_router.include_router(evidence.router)
 api_router.include_router(inspections.router)
 api_router.include_router(tat.router)
 api_router.include_router(release_readiness.router)
+api_router.include_router(parts.router)
+api_router.include_router(vendors.router)
 api_router.include_router(lisa.router)

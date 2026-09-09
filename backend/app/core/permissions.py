@@ -25,6 +25,10 @@ class Permission(StrEnum):
     USER_MANAGE = "user:manage"
     ORG_MANAGE = "org:manage"
     AUDIT_READ = "audit:read"
+    PART_READ = "part:read"
+    PART_WRITE = "part:write"
+    VENDOR_READ = "vendor:read"
+    VENDOR_WRITE = "vendor:write"
 
 
 class Role(StrEnum):
@@ -39,6 +43,19 @@ class Role(StrEnum):
 
 ALL_PERMISSIONS = {p.value for p in Permission}
 
+# PART_READ/VENDOR_READ reasoning: granted alongside AIRCRAFT_READ/EVIDENCE_READ
+# on every role, including VIEWER — parts and vendor records are reference/
+# inventory data that every operational role plausibly needs to see (e.g. to
+# check part availability before requesting work), mirroring how broadly
+# AIRCRAFT_READ is already granted.
+#
+# PART_WRITE/VENDOR_WRITE reasoning: restricted to the roles that actually own
+# inventory and supplier relationships in an MRO org — ORG_ADMIN (full admin
+# authority) and CAMO_MANAGER (owns continuing-airworthiness/maintenance
+# planning, the natural owner of parts stock and vendor approval status).
+# COMPLIANCE_MANAGER, QUALITY_MANAGER, MAINTENANCE_ENGINEER, and VIEWER get
+# read-only: none of those roles are inventory/procurement owners in this
+# slice (procurement workflows are explicitly out of scope for M3).
 ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.SUPER_ADMIN: set(Permission),
     Role.ORG_ADMIN: {
@@ -54,6 +71,10 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.USER_MANAGE,
         Permission.ORG_MANAGE,
         Permission.AUDIT_READ,
+        Permission.PART_READ,
+        Permission.PART_WRITE,
+        Permission.VENDOR_READ,
+        Permission.VENDOR_WRITE,
     },
     Role.COMPLIANCE_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -67,6 +88,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.INSPECTION_READ,
         Permission.INSPECTION_WRITE,
         Permission.AUDIT_READ,
+        Permission.PART_READ,
+        Permission.VENDOR_READ,
     },
     Role.CAMO_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -78,6 +101,10 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.EVIDENCE_WRITE,
         Permission.INSPECTION_READ,
         Permission.INSPECTION_WRITE,
+        Permission.PART_READ,
+        Permission.PART_WRITE,
+        Permission.VENDOR_READ,
+        Permission.VENDOR_WRITE,
     },
     Role.QUALITY_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -87,6 +114,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.INSPECTION_READ,
         Permission.INSPECTION_WRITE,
         Permission.AUDIT_READ,
+        Permission.PART_READ,
+        Permission.VENDOR_READ,
     },
     Role.MAINTENANCE_ENGINEER: {
         Permission.AIRCRAFT_READ,
@@ -94,12 +123,16 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.EVIDENCE_READ,
         Permission.EVIDENCE_WRITE,
         Permission.INSPECTION_READ,
+        Permission.PART_READ,
+        Permission.VENDOR_READ,
     },
     Role.VIEWER: {
         Permission.AIRCRAFT_READ,
         Permission.REGULATION_READ,
         Permission.EVIDENCE_READ,
         Permission.INSPECTION_READ,
+        Permission.PART_READ,
+        Permission.VENDOR_READ,
     },
 }
 
