@@ -10,6 +10,7 @@ class VendorCreateRequest(BaseModel):
     location: str | None = Field(default=None, max_length=255)
     certifications: str | None = None
     approved: bool = False
+    reliability_score: int | None = Field(default=None, ge=0, le=100)
 
 
 class VendorUpdateRequest(BaseModel):
@@ -18,6 +19,7 @@ class VendorUpdateRequest(BaseModel):
     location: str | None = Field(default=None, max_length=255)
     certifications: str | None = None
     approved: bool | None = None
+    reliability_score: int | None = Field(default=None, ge=0, le=100)
 
 
 class VendorResponse(BaseModel):
@@ -28,6 +30,7 @@ class VendorResponse(BaseModel):
     location: str | None
     certifications: str | None
     approved: bool
+    reliability_score: int | None
     created_at: datetime
 
     class Config:

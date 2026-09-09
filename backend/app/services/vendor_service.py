@@ -23,6 +23,7 @@ def create_vendor(
         location=payload.location,
         certifications=payload.certifications,
         approved=payload.approved,
+        reliability_score=payload.reliability_score,
     )
     db.add(vendor)
     db.flush()

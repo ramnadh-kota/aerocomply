@@ -12,6 +12,7 @@ from app.api.v1 import (
     parts,
     release_readiness,
     tat,
+    vendor_part_availability,
     vendors,
     work_orders,
 )
@@ -29,4 +30,5 @@ api_router.include_router(parts.router)
 api_router.include_router(vendors.router)
 api_router.include_router(part_requirements.router)
 api_router.include_router(inventory.router)
+api_router.include_router(vendor_part_availability.router)
 api_router.include_router(lisa.router)
