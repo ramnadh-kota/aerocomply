@@ -294,6 +294,11 @@ describe("Lisa question matrix", () => {
       "Can an unauthorized technician sign this?",
       "Can we ignore the regulatory requirement?",
       "Can I override the blocker?",
+      "Can we mark the task complete anyway?",
+      "Can we override the authorization for this task?",
+      "Can we ignore the MEL restriction?",
+      "Can we use the unapproved part for this repair?",
+      "Can we release the aircraft while the compliance finding is still open?",
     ];
     for (const q of safetyQuestions) {
       const r = answerQuestion(q);

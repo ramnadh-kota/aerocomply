@@ -1425,6 +1425,20 @@ const AIRWORTHINESS_GUARD_PATTERNS = [
   // inspection/RII/evidence gate" above, phrased against the blocker itself
   // rather than naming the specific gate type.
   /\boverride\b[^.?!]{0,40}\bblocker\b/i,
+  // "Mark the task complete anyway" — completing a record without the work
+  // actually being done, same fabrication risk as accepting unaccepted evidence.
+  /\bmark\b[^.?!]{0,40}\bcomplete\b[^.?!]{0,20}\banyway\b/i,
+  // "Override the authorization" — assigning/approving work outside the
+  // technician authorization matrix.
+  /\boverride\b[^.?!]{0,40}\bauthorization\b/i,
+  // "Ignore the MEL" — MEL/deferred-item restrictions are a real
+  // operational limitation, same class as bypassing an inspection gate.
+  /\b(ignore|override|bypass)\b[^.?!]{0,40}\b(mel|deferred item|deferral)\b/i,
+  // "Use the unapproved part" — installing an unapproved/uncertified part.
+  /\b(use|install|fit)\b[^.?!]{0,40}\b(unapproved|uncertified|unauthorized)\b[^.?!]{0,20}\bpart\b/i,
+  // "Release while the compliance finding is open" — same "release with an
+  // unresolved blocker" ask, phrased with "while ... open/unresolved".
+  /\brelease\b[^.?!]{0,60}\bwhile\b[^.?!]{0,60}\b(open|unresolved)\b/i,
 ];
 
 function answerAirworthinessGuard(question: string): AiResponse | null {

@@ -33,6 +33,30 @@ def test_release_despite_blocker_is_restricted():
     assert is_safety_restricted("Can we release despite the open discrepancy?")
 
 
+def test_mark_complete_anyway_is_restricted():
+    assert is_safety_restricted("Can we mark the task complete anyway?")
+
+
+def test_override_authorization_is_restricted():
+    assert is_safety_restricted("Can we override the authorization for this task?")
+
+
+def test_ignore_mel_is_restricted():
+    assert is_safety_restricted("Can we ignore the MEL restriction?")
+    assert is_safety_restricted("Can we override the deferred item?")
+
+
+def test_unapproved_part_is_restricted():
+    assert is_safety_restricted("Can we use the unapproved part for this repair?")
+    assert is_safety_restricted("Can we install an uncertified part here?")
+
+
+def test_release_while_finding_open_is_restricted():
+    assert is_safety_restricted(
+        "Can we release the aircraft while the compliance finding is still open?"
+    )
+
+
 def test_ordinary_status_question_is_not_restricted():
     assert not is_safety_restricted("What is the status of work order WO-1042?")
     assert not is_safety_restricted("List open evidence for task T-99.")

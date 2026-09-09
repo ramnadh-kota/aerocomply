@@ -57,6 +57,37 @@ AIRWORTHINESS_GUARD_PATTERNS: list[re.Pattern[str]] = [
         r"\brelease\b[^.?!]{0,40}\bdespite\b",
         re.IGNORECASE,
     ),
+    # "Mark the task complete anyway" — completing a record without the
+    # work actually being done is the same fabrication risk as accepting
+    # unaccepted evidence.
+    re.compile(
+        r"\bmark\b[^.?!]{0,40}\bcomplete\b[^.?!]{0,20}\banyway\b",
+        re.IGNORECASE,
+    ),
+    # "Override the authorization" — assigning/approving work outside the
+    # technician authorization matrix.
+    re.compile(
+        r"\boverride\b[^.?!]{0,40}\bauthorization\b",
+        re.IGNORECASE,
+    ),
+    # "Ignore the MEL" — MEL/deferred-item restrictions are a real
+    # operational limitation, same class as bypassing an inspection gate.
+    re.compile(
+        r"\b(ignore|override|bypass)\b[^.?!]{0,40}\b(mel|deferred item|deferral)\b",
+        re.IGNORECASE,
+    ),
+    # "Use the unapproved part" — installing an unapproved/uncertified part.
+    re.compile(
+        r"\b(use|install|fit)\b[^.?!]{0,40}\b(unapproved|uncertified|unauthorized)\b[^.?!]{0,20}\bpart\b",
+        re.IGNORECASE,
+    ),
+    # "Release while the compliance finding is open" — same "release with
+    # an unresolved blocker" ask as the despite/without patterns above,
+    # phrased with "while ... open/unresolved".
+    re.compile(
+        r"\brelease\b[^.?!]{0,60}\bwhile\b[^.?!]{0,60}\b(open|unresolved)\b",
+        re.IGNORECASE,
+    ),
 ]
 
 SAFETY_REFUSAL_HEADLINE = "SAFETY_REFUSAL — this requires authorized maintenance personnel"
