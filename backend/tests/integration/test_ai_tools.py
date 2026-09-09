@@ -102,3 +102,53 @@ def test_get_regulatory_provider_status_tool_always_not_configured(db_session):
     result = execute_tool(db_session, user, "get_regulatory_provider_status", {})
     assert len(result["providers"]) == 5
     assert all(p["status"] == "NOT_CONFIGURED" for p in result["providers"])
+
+
+def test_maintenance_engineer_cannot_read_compliance_assessments(db_session):
+    # MAINTENANCE_ENGINEER holds PART_READ/VENDOR_READ/PROCUREMENT_READ but
+    # NOT COMPLIANCE_ASSESS (see app/core/permissions.py) — confirm the
+    # tool layer draws this line for real, not just the REST layer.
+    org_id = uuid.uuid4()
+    aircraft = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_id,
+        payload=AircraftCreateRequest(registration="N5AI", msn="MSN-AI-5", aircraft_type="A320"),
+    )
+    user = _user(org_id, ["MAINTENANCE_ENGINEER"])
+
+    with pytest.raises(ForbiddenError):
+        execute_tool(
+            db_session,
+            user,
+            "get_compliance_assessments",
+            {"aircraft_id": str(aircraft.id)},
+        )
+
+
+def test_compliance_manager_can_read_compliance_assessments(db_session):
+    org_id = uuid.uuid4()
+    aircraft = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_id,
+        payload=AircraftCreateRequest(registration="N6AI", msn="MSN-AI-6", aircraft_type="A320"),
+    )
+    user = _user(org_id, ["COMPLIANCE_MANAGER"])
+
+    result = execute_tool(
+        db_session, user, "get_compliance_assessments", {"aircraft_id": str(aircraft.id)}
+    )
+    assert result["assessments"] == []
+
+
+def test_no_mutation_tools_exist_in_registry(db_session):
+    # Every tool in the Lisa registry is READ-only today (see
+    # app/services/ai/tools.py module docstring and the M4 "Lisa Actions"
+    # boundary — Lisa may recommend/prepare but must never silently
+    # execute a safety-critical mutation). Assert this structurally so a
+    # future write-capable tool addition can't slip past this boundary
+    # without a deliberate, reviewed change to this test.
+    from app.services.ai.tools import TOOL_REGISTRY
+
+    write_verbs = ("create", "update", "approve", "reject", "cancel", "close", "receive", "mark_")
+    offending = [t.name for t in TOOL_REGISTRY if any(v in t.name for v in write_verbs)]
+    assert offending == [], f"Found apparent mutation tools in read-only Lisa registry: {offending}"
