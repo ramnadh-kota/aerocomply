@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 class RegulatoryRequirementCreateRequest(BaseModel):
     authority: str = Field(max_length=16)
+    regulatory_document_id: uuid.UUID | None = None
     requirement_number: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=255)
     description: str = Field(min_length=1)
@@ -18,6 +19,7 @@ class RegulatoryRequirementResponse(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     authority: str
+    regulatory_document_id: uuid.UUID | None
     requirement_number: str
     title: str
     description: str

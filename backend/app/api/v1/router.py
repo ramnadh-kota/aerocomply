@@ -17,6 +17,7 @@ from app.api.v1 import (
     procurement,
     purchase_orders,
     receiving,
+    regulatory,
     release_readiness,
     tat,
     vendor_part_availability,
@@ -45,4 +46,5 @@ api_router.include_router(receiving.router)
 api_router.include_router(maintenance.router)
 api_router.include_router(deferred_items.router)
 api_router.include_router(compliance.router)
+api_router.include_router(regulatory.router)
 api_router.include_router(lisa.router)

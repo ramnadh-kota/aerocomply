@@ -24,6 +24,7 @@ def create_requirement(
     requirement = RegulatoryRequirement(
         organization_id=organization_id,
         authority=payload.authority,
+        regulatory_document_id=payload.regulatory_document_id,
         requirement_number=payload.requirement_number,
         title=payload.title,
         description=payload.description,

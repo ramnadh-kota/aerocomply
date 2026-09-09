@@ -31,6 +31,9 @@ class RegulatoryRequirement(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base
     __tablename__ = "regulatory_requirements"
 
     authority: Mapped[str] = mapped_column(String(16), nullable=False)
+    regulatory_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("regulatory_documents.id"), nullable=True
+    )
     requirement_number: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
