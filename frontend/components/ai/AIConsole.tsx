@@ -81,6 +81,14 @@ export function AIConsole({
   // claims "AI Connected · Real Data" before that's actually confirmed —
   // it shows "checking" instead until the probe settles either way.
   const [realAgentProbed, setRealAgentProbed] = useState(false);
+  // Why the MOST RECENT question fell back to the local deterministic
+  // engine, if it did — cleared at the start of every new ask() so a stale
+  // reason never lingers on an answer that actually succeeded. null means
+  // either the last question succeeded against the backend, or DEMO mode
+  // never attempted the backend at all (no fallback to explain).
+  const [lastFallbackReason, setLastFallbackReason] = useState<
+    "AI_PROVIDER_UNAVAILABLE" | "PERMISSION_DENIED" | "BACKEND_UNAVAILABLE" | null
+  >(null);
   const { addAuditEvent, auditLog } = useMroState();
   const { mode: dataMode } = useDataMode();
   const { accessToken, isAuthenticated } = useSession();
@@ -174,11 +182,15 @@ export function AIConsole({
     if (!trimmed) return;
     const previousQuestion = turns.length > 0 ? turns[turns.length - 1].question : undefined;
     const recentQuestions = turns.slice(-5).map((t) => t.question);
+    setLastFallbackReason(null);
 
     // REAL mode + real session + agent not already known to be unconfigured:
     // try the real backend agent first. Any failure (ai_not_configured,
     // network, or any other error) falls back to the SAME deterministic
-    // engine call DEMO mode always uses — zero regression on failure.
+    // engine call DEMO mode always uses — zero regression on failure. The
+    // reason for the fallback is still surfaced to the user (see
+    // lastFallbackReason below) rather than silently presenting a demo
+    // answer as if nothing went wrong.
     if (useRealAgent && accessToken) {
       setAsking(true);
       try {
@@ -196,6 +208,15 @@ export function AIConsole({
       } catch (err) {
         if (err instanceof ApiError && err.code === "ai_not_configured") {
           setAiNotConfigured(true);
+          setLastFallbackReason("AI_PROVIDER_UNAVAILABLE");
+        } else if (err instanceof ApiError && err.status === 403) {
+          setLastFallbackReason("PERMISSION_DENIED");
+        } else if (err instanceof TypeError) {
+          // fetch() throws TypeError on network failure — the backend
+          // itself is unreachable, not merely returning an error.
+          setLastFallbackReason("BACKEND_UNAVAILABLE");
+        } else {
+          setLastFallbackReason("BACKEND_UNAVAILABLE");
         }
         // Fall through to the deterministic engine below.
       }
@@ -465,6 +486,25 @@ export function AIConsole({
             </div>
           ) : (
             <div className="ac-card" style={{ marginBottom: 16, borderColor: "var(--ac-accent)", borderWidth: 2 }}>
+              {active.id === turns[turns.length - 1]?.id && lastFallbackReason && (
+                <div
+                  className="ac-text-sm"
+                  style={{
+                    marginBottom: 10,
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    border: "1px solid var(--ac-status-review)",
+                    background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)",
+                  }}
+                >
+                  {lastFallbackReason === "AI_PROVIDER_UNAVAILABLE" &&
+                    "The backend AI provider is not configured — this answer came from the local demo reasoning engine, not real backend data."}
+                  {lastFallbackReason === "PERMISSION_DENIED" &&
+                    "Your role does not have permission to retrieve that backend data — this answer came from the local demo reasoning engine instead."}
+                  {lastFallbackReason === "BACKEND_UNAVAILABLE" &&
+                    "The backend could not be reached — this answer came from the local demo reasoning engine, not real backend data."}
+                </div>
+              )}
               <div className="ac-flex ac-justify-between" style={{ alignItems: "flex-start", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                 <div>
                   <p className="ac-eyebrow" style={{ marginBottom: 4 }}>Question</p>

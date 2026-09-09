@@ -313,4 +313,45 @@ describe("Lisa question matrix", () => {
       expect(r.headline).not.toBe("INSUFFICIENT_DATA");
     }
   });
+
+  it("general safety-guidance meta-questions never fall through to INSUFFICIENT_DATA", () => {
+    const questions = [
+      "tell me what not to do",
+      "What should I not do?",
+      "What are the things we should not do?",
+      "What are the safety guardrails?",
+    ];
+    for (const q of questions) {
+      const r = answerQuestion(q);
+      log(q, r);
+      expect(r.insufficientData, `"${q}" should not be INSUFFICIENT_DATA`).not.toBe(true);
+      expect(r.headline).not.toBe("INSUFFICIENT_DATA");
+      expect(r.actionCategory).not.toBe("SAFETY_RESTRICTED");
+      expect(r.narrative.join(" ")).toMatch(/RII|inspection|evidence|MEL/i);
+    }
+  });
+
+  it("glossary questions answer directly without needing a named record", () => {
+    const cases: [string, RegExp][] = [
+      ["what does RII mean?", /independent inspector/i],
+      ["what is TAT?", /turnaround/i],
+      ["what is an evidence gate?", /accepted/i],
+      ["what is release readiness?", /gate/i],
+    ];
+    for (const [q, expected] of cases) {
+      const r = answerQuestion(q);
+      log(q, r);
+      expect(r.insufficientData, `"${q}" should not be INSUFFICIENT_DATA`).not.toBe(true);
+      expect(`${r.headline} ${r.narrative.join(" ")}`).toMatch(expected);
+    }
+  });
+
+  it("named-record release questions are not blanket-refused by the airworthiness guard", () => {
+    // Naming a specific work order/aircraft (not "this/that aircraft" or a
+    // bare "it") must resolve to the record-specific release branch, not a
+    // SAFETY_REFUSAL — see answerAirworthinessGuard's pattern list.
+    const r = answerQuestion("What is the release status of WO-1001?");
+    log("What is the release status of WO-1001?", r);
+    expect(r.actionCategory).not.toBe("SAFETY_RESTRICTED");
+  });
 });

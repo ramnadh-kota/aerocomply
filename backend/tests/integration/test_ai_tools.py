@@ -1,0 +1,104 @@
+"""Tests for the Lisa tool registry (app/services/ai/tools.py): RBAC
+enforcement per tool and tenant isolation of the data tools return.
+"""
+import uuid
+
+import pytest
+
+from app.core.errors import ForbiddenError, NotFoundError
+from app.schemas.aircraft import AircraftCreateRequest
+from app.schemas.auth import CurrentUser
+from app.services import aircraft_service
+from app.services.ai.tools import execute_tool
+
+
+def _user(org_id: uuid.UUID, roles: list[str]) -> CurrentUser:
+    return CurrentUser(
+        id=uuid.uuid4(),
+        organization_id=org_id,
+        email="lisa-tool-test@example.com",
+        full_name="Tool Test User",
+        roles=roles,
+    )
+
+
+def test_unknown_tool_raises(db_session):
+    org_id = uuid.uuid4()
+    user = _user(org_id, ["ORG_ADMIN"])
+    with pytest.raises(Exception) as exc_info:
+        execute_tool(db_session, user, "not_a_real_tool", {})
+    assert "unknown_tool" in str(exc_info.value) or "Unknown tool" in str(exc_info.value)
+
+
+def test_viewer_role_can_read_aircraft(db_session):
+    org_id = uuid.uuid4()
+    aircraft = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_id,
+        payload=AircraftCreateRequest(registration="N1AI", msn="MSN-AI-1", aircraft_type="A320"),
+    )
+    user = _user(org_id, ["VIEWER"])
+
+    result = execute_tool(db_session, user, "get_aircraft", {"aircraft_id": str(aircraft.id)})
+    assert result["registration"] == "N1AI"
+
+
+def test_role_without_permission_is_forbidden(db_session):
+    org_id = uuid.uuid4()
+    # A role with no grants at all — permissions_for_roles([]) returns an
+    # empty set, so every tool must refuse it.
+    user = _user(org_id, [])
+
+    with pytest.raises(ForbiddenError):
+        execute_tool(db_session, user, "list_aircraft", {})
+
+
+def test_tool_cannot_see_other_tenant_aircraft(db_session):
+    org_a = uuid.uuid4()
+    org_b = uuid.uuid4()
+    aircraft = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_a,
+        payload=AircraftCreateRequest(registration="N2AI", msn="MSN-AI-2", aircraft_type="A320"),
+    )
+    user_b = _user(org_b, ["ORG_ADMIN"])
+
+    with pytest.raises(NotFoundError):
+        execute_tool(db_session, user_b, "get_aircraft", {"aircraft_id": str(aircraft.id)})
+
+
+def test_tool_list_scoped_to_tenant(db_session):
+    org_a = uuid.uuid4()
+    org_b = uuid.uuid4()
+    aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_a,
+        payload=AircraftCreateRequest(registration="N3AI", msn="MSN-AI-3", aircraft_type="A320"),
+    )
+    user_b = _user(org_b, ["ORG_ADMIN"])
+
+    result = execute_tool(db_session, user_b, "list_aircraft", {})
+    assert result["aircraft"] == []
+
+
+def test_get_control_center_summary_tool(db_session):
+    org_id = uuid.uuid4()
+    aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_id,
+        payload=AircraftCreateRequest(registration="N4AI", msn="MSN-AI-4", aircraft_type="A320"),
+    )
+    user = _user(org_id, ["ORG_ADMIN"])
+
+    result = execute_tool(db_session, user, "get_control_center_summary", {})
+    assert result["total_aircraft"] == 1
+    assert result["operational"] == 1
+
+
+def test_get_regulatory_provider_status_tool_always_not_configured(db_session):
+    org_id = uuid.uuid4()
+    user = _user(org_id, ["ORG_ADMIN"])
+
+    result = execute_tool(db_session, user, "get_regulatory_provider_status", {})
+    assert len(result["providers"]) == 5
+    assert all(p["status"] == "NOT_CONFIGURED" for p in result["providers"])

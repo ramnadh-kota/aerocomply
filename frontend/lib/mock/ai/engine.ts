@@ -1449,9 +1449,129 @@ function answerAirworthinessGuard(question: string): AiResponse | null {
   };
 }
 
+// General MRO safety-guidance meta-question — "tell me what not to do" and
+// close variants. Distinct from answerAirworthinessGuard above: that guard
+// fires when a question ASKS Lisa to make/imply a release or bypass
+// determination; this branch fires when the user asks Lisa to EXPLAIN the
+// operational guardrails themselves. Neither is a record lookup, so this
+// never depends on demo data / backend availability and must not fall
+// through to INSUFFICIENT_DATA.
+const GENERAL_SAFETY_GUIDANCE_PATTERNS = [
+  /\bwhat (should i not|shouldn'?t i|not to|should not)\b.*\bdo\b/i,
+  /\bwhat not to do\b/i,
+  /\bthings (i|we) (should not|shouldn'?t) do\b/i,
+  /\b(safety|operational) (guidance|guardrails|do'?s and don'?ts|rules)\b/i,
+  /\bwhat (are|is) the (rules|guardrails|restrictions)\b/i,
+];
+
+function isGeneralSafetyGuidanceQuestion(question: string): boolean {
+  return GENERAL_SAFETY_GUIDANCE_PATTERNS.some((p) => p.test(question));
+}
+
+function answerGeneralSafetyGuidance(question: string): AiResponse {
+  return {
+    id: nextId(),
+    question,
+    headline: "General MRO operational safety guidance",
+    narrative: [
+      "You're asking what should never be done during controlled MRO operations — this is general guidance, not a decision about any specific aircraft or work order.",
+      "Do not: bypass required inspection or RII; bypass required evidence acceptance; perform work without required technician authorization; override MEL/deferred-item restrictions; mark incomplete work as complete; release an aircraft with unresolved blockers; fabricate or assume missing maintenance, compliance, or regulatory evidence; treat UNKNOWN data as if it were confirmed.",
+      TRUST_FOOTER,
+    ],
+    priority: "HIGH",
+    whatIFound: [
+      "You are asking for actions that should not be performed during controlled MRO operations.",
+    ],
+    whyItMatters:
+      "These controls protect maintenance traceability, technician authorization, regulatory compliance, and release safety — bypassing any of them can compromise airworthiness determinations made downstream.",
+    recommendedNextStep:
+      "Ask about a specific aircraft or work order's recorded execution state, safety gates, or open discrepancies for a concrete answer — this response is general operational guidance, not an aircraft-specific release decision.",
+    whoShouldAct: "All maintenance and quality personnel",
+    confidenceState: "CONFIRMED",
+    actionCategory: "INFORMATION",
+  };
+}
+
+// General glossary/definition questions — "what is TAT?", "what does RII
+// mean?", "what is an evidence gate?". These are answerable independent of
+// any record/demo data, so they must never fall through to INSUFFICIENT_DATA
+// just because no aircraft/work order was named.
+const GLOSSARY_TERMS: { patterns: RegExp[]; term: string; definition: string }[] = [
+  {
+    patterns: [/\brii\b/i, /\bindependent inspection\b/i],
+    term: "RII (Required Inspection Item)",
+    definition:
+      "A task-level requirement that a second, independent inspector — someone who did not perform or directly supervise the work — must inspect and sign off before the work can be considered complete. The inspector must differ from whoever performed/uploaded evidence for the same task.",
+  },
+  {
+    patterns: [/\btat\b/i, /\bturnaround time\b/i],
+    term: "TAT (Turnaround Time)",
+    definition:
+      "The elapsed/target time to complete a work order from start to release. This system reports ON_TRACK / AT_RISK / DELAYED / UNKNOWN based on recorded due dates — never a fabricated deadline. UNKNOWN means no due-date data exists to compute a status from.",
+  },
+  {
+    patterns: [/\bevidence gate\b/i, /\bevidence requirement\b/i],
+    term: "Evidence Gate",
+    definition:
+      "A completion requirement that photographic/documentary evidence be uploaded AND formally accepted by a reviewer before a task counts as done. Submitted evidence is not the same as accepted evidence — only ACCEPTED evidence satisfies the gate.",
+  },
+  {
+    patterns: [/\bmel\b/i, /\bminimum equipment list\b/i],
+    term: "MEL (Minimum Equipment List)",
+    definition:
+      "The authoritative list of equipment that may be inoperative while an aircraft remains airworthy, subject to specific operational limitations and repair intervals. A deferred item citing an MEL reference carries a real operational restriction, not a suggestion.",
+  },
+  {
+    patterns: [/\baog\b/i, /\baircraft on ground\b/i],
+    term: "AOG (Aircraft On Ground)",
+    definition:
+      "A status indicating the aircraft cannot fly due to an unresolved maintenance issue — typically a critical open defect, missing part, or safety-gate blocker. Recovery requires resolving every recorded blocker before the aircraft can return to service.",
+  },
+  {
+    patterns: [/\bdeferred item\b/i, /\bdeferral\b/i],
+    term: "Deferred Item",
+    definition:
+      "A known discrepancy that is not immediately corrected but instead deferred under an MEL/CDL reference or other authorized basis, subject to operational limitations and a due date/category-driven repair interval. Deferring an item does not make it resolved.",
+  },
+  {
+    patterns: [/\brelease readiness\b/i],
+    term: "Release Readiness",
+    definition:
+      "The deterministic, gate-by-gate check of whether a work order can be released: all tasks complete, all required evidence ACCEPTED, all required inspections/RII complete, and no unresolved deferred/MEL or authorization blockers. Reported as READY / BLOCKED / AT_RISK / UNKNOWN — never inferred from partial data.",
+  },
+];
+
+function answerGlossaryQuestion(question: string): AiResponse | null {
+  const isDefinitionQuestion = /\bwhat (is|does|are)\b.*\bmean\b|\bwhat is\b|\bwhat does\b|\bdefine\b|\bexplain\b/i.test(
+    question
+  );
+  if (!isDefinitionQuestion) return null;
+
+  for (const entry of GLOSSARY_TERMS) {
+    if (entry.patterns.some((p) => p.test(question))) {
+      return {
+        id: nextId(),
+        question,
+        headline: entry.term,
+        narrative: [entry.definition, TRUST_FOOTER],
+        whatIFound: [entry.definition],
+        confidenceState: "CONFIRMED",
+        actionCategory: "INFORMATION",
+      };
+    }
+  }
+  return null;
+}
+
 export function answerQuestion(question: string, context?: AiQuestionContext): AiResponse {
   const guard = answerAirworthinessGuard(question);
   if (guard) return guard;
+
+  if (isGeneralSafetyGuidanceQuestion(question)) return answerGeneralSafetyGuidance(question);
+
+  const glossaryAnswer = answerGlossaryQuestion(question);
+  if (glossaryAnswer) return glossaryAnswer;
+
   const q = question.toLowerCase();
 
   // "What is the execution/release status of WO-XXXX?" / "Is WO-XXXX released?"
