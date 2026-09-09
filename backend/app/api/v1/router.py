@@ -5,6 +5,7 @@ from app.api.v1 import (
     aog,
     auth,
     compliance,
+    control_center,
     deferred_items,
     evidence,
     health,
@@ -47,4 +48,5 @@ api_router.include_router(maintenance.router)
 api_router.include_router(deferred_items.router)
 api_router.include_router(compliance.router)
 api_router.include_router(regulatory.router)
+api_router.include_router(control_center.router)
 api_router.include_router(lisa.router)
