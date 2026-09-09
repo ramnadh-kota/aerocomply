@@ -4,6 +4,7 @@ from app.api.v1 import (
     aircraft,
     aog,
     auth,
+    compliance,
     deferred_items,
     evidence,
     health,
@@ -43,4 +44,5 @@ api_router.include_router(purchase_orders.router)
 api_router.include_router(receiving.router)
 api_router.include_router(maintenance.router)
 api_router.include_router(deferred_items.router)
+api_router.include_router(compliance.router)
 api_router.include_router(lisa.router)
