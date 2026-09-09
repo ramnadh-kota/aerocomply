@@ -9,6 +9,7 @@ from app.api.v1 import (
     inspections,
     inventory,
     lisa,
+    maintenance,
     part_requirements,
     parts,
     procurement,
@@ -39,4 +40,5 @@ api_router.include_router(vendor_part_availability.router)
 api_router.include_router(procurement.router)
 api_router.include_router(purchase_orders.router)
 api_router.include_router(receiving.router)
+api_router.include_router(maintenance.router)
 api_router.include_router(lisa.router)
