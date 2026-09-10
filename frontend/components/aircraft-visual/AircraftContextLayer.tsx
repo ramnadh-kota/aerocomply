@@ -6,7 +6,6 @@ import {
   resolveAircraftCategory,
   getAircraftVisualConfig,
   resolveHeroPhoto,
-  type AircraftCategory,
   type AircraftRegion,
 } from "@/lib/aircraft-visual/config";
 import { getSilhouetteComponent } from "./silhouettes";
@@ -66,11 +65,10 @@ interface AircraftContextLayerProps {
 export const HERO_OPACITY = 0.22;
 /** Data-dense/background contexts: settings, reports, audit. */
 export const MUTED_OPACITY = 0.12;
-const FLEET_OPACITY = 0.16;
 
 export function AircraftContextLayer({ aircraftTypeId, opacity, highlightedRegion, faultRegion, showGrid }: AircraftContextLayerProps) {
   if (!aircraftTypeId) {
-    return <FleetContextLayer opacity={opacity ?? FLEET_OPACITY} showGrid={showGrid} />;
+    return <FleetContextLayer showGrid={showGrid} />;
   }
 
   const heroPhoto = resolveHeroPhoto(aircraftTypeId);
@@ -153,26 +151,22 @@ function PhotoContextLayer({
 }
 
 /**
- * Fleet-wide treatment: two generic silhouettes layered at low opacity, per
- * Section 12's "Fleet: Multiple aircraft silhouettes" — never claims one
- * specific aircraft type represents the whole fleet.
+ * Fleet-wide treatment (dashboard, aircraft list, fleet health — any page
+ * with no single aircraftTypeId): renders NO aircraft shape at all. This
+ * used to layer two generic aircraft silhouettes at low opacity; that was
+ * exactly the kind of line-art/wireframe aircraft that must never appear
+ * outside an explicit single-aircraft hero (see product direction — no
+ * SVG/silhouette/wireframe/blueprint aircraft on any page that isn't a
+ * dedicated aircraft-detail view). A fleet-wide page has no single
+ * aircraft to depict anyway, so the honest treatment is no aircraft
+ * imagery here — only the optional grid, same as the dense-data
+ * background.
  */
-function FleetContextLayer({ opacity, showGrid }: { opacity: number; showGrid?: boolean }) {
-  const category: AircraftCategory = "narrowbody";
-  const Primary = getSilhouetteComponent(getAircraftVisualConfig(category).silhouetteId);
-  const Secondary = getSilhouetteComponent("generic");
-
+function FleetContextLayer({ showGrid }: { showGrid?: boolean }) {
+  if (!showGrid) return null;
   return (
     <div className="ac-aircraft-context-layer ac-aircraft-context-layer--fleet" aria-hidden="true" role="presentation">
-      {showGrid && <div className="ac-aircraft-context-grid" />}
-      <Primary
-        className="ac-aircraft-context-svg ac-aircraft-context-svg--fleet-a"
-        style={{ "--ac-context-opacity": opacity } as CSSProperties}
-      />
-      <Secondary
-        className="ac-aircraft-context-svg ac-aircraft-context-svg--fleet-b"
-        style={{ "--ac-context-opacity": opacity * 0.8 } as CSSProperties}
-      />
+      <div className="ac-aircraft-context-grid" />
     </div>
   );
 }

@@ -157,16 +157,15 @@ table {
   z-index: 1;
 }
 
-/* --- Aviation/MRO background layer ---
+/* --- Global background layer ---
    Purely decorative (aria-hidden, pointer-events: none). Sits behind
-   .ac-shell via the stacking context above. Per-page opacity is set by
-   AviationBackground.tsx via the --ac-bg-opacity custom property so one
-   image asset and one component serve every screen at the right intensity. */
+   .ac-shell via the stacking context above.
 
-/* Decorative MRO/hangar imagery is a dark-theme accent only — its overlay
-   gradient is tuned to the dark palette (rgba(10,15,26,...) below) and
-   would read as a muddy wash over the light enterprise surface, which the
-   light theme intentionally keeps clean per the design reference. */
+   NO AIRCRAFT ASSET — this layer never references any aircraft/fuselage/
+   silhouette image. It used to load /images/aerocomply-mro-background.svg
+   (a drawn aircraft) on a subset of routes; that reference has been
+   removed entirely, not just faded out. See AviationBackground.tsx. */
+
 :root:not([data-theme="dark"]) .ac-aviation-bg {
   display: none;
 }
@@ -179,30 +178,9 @@ table {
   overflow: hidden;
 }
 
-.ac-aviation-bg-image {
-  position: absolute;
-  inset: 0;
-  background-image: url("/images/aerocomply-mro-background.svg");
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  opacity: var(--ac-bg-opacity, 0.12);
-  transition: opacity 0.2s ease;
-}
-
-.ac-aviation-bg-overlay {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 60% 35%, rgba(10, 15, 26, 0) 0%, rgba(10, 15, 26, 0.55) 60%, rgba(10, 15, 26, 0.88) 100%),
-    linear-gradient(180deg, rgba(10, 15, 26, 0.55) 0%, rgba(10, 15, 26, 0.25) 35%, rgba(10, 15, 26, 0.9) 100%);
-}
-
-/* Dense-data variant — used wherever AviationBackground resolves to the
-   "denseData" zone (tables, notifications, admin/RBAC, audit, reports).
-   No aircraft image layer at all, just a flat near-black navy so text/
-   rows never compete with any imagery. Kept extremely subtle on purpose. */
 .ac-aviation-bg-overlay--plain {
+  position: absolute;
+  inset: 0;
   background: linear-gradient(180deg, #0a0f1a 0%, #070b12 55%, #05070c 100%);
 }
 
@@ -210,22 +188,21 @@ table {
   background: var(--ac-bg);
 }
 
-@media (max-width: 1024px) {
-  .ac-aviation-bg-image {
-    opacity: min(var(--ac-bg-opacity, 0.12), 0.08);
-  }
+/* Faint technical grid — geometric lines only, no imagery of any kind.
+   Kept extremely subtle (2% line opacity) so it reads as texture, not
+   decoration that competes with content. */
+.ac-aviation-bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(140, 170, 220, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(140, 170, 220, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 0%, transparent 75%);
 }
 
-@media (max-width: 640px) {
-  .ac-aviation-bg-image {
-    display: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ac-aviation-bg-image {
-    transition: none;
-  }
+:root:not([data-theme="dark"]) .ac-aviation-bg-grid {
+  display: none;
 }
 
 /* --- Contextual aircraft-type silhouette layer ---
