@@ -9,7 +9,9 @@ from app.schemas.auth import CurrentUser
 from app.schemas.inventory_transaction import (
     InventoryAdjustRequest,
     InventoryConsumeRequest,
+    InventoryQuarantineRequest,
     InventoryReceiveRequest,
+    InventoryReleaseQuarantineRequest,
     InventoryReleaseRequest,
     InventoryReserveRequest,
     InventoryTransactionResponse,
@@ -95,6 +97,40 @@ def adjust(
     current_user: CurrentUser = Depends(require_permission(Permission.PART_WRITE)),
 ) -> InventoryTransactionResponse:
     transaction = inventory_transaction_service.adjust_part(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        part_id=part_id,
+        payload=payload,
+    )
+    return InventoryTransactionResponse.model_validate(transaction)
+
+
+@router.post("/quarantine", response_model=InventoryTransactionResponse, status_code=201)
+def quarantine(
+    part_id: uuid.UUID,
+    payload: InventoryQuarantineRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PART_WRITE)),
+) -> InventoryTransactionResponse:
+    transaction = inventory_transaction_service.quarantine_part(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        part_id=part_id,
+        payload=payload,
+    )
+    return InventoryTransactionResponse.model_validate(transaction)
+
+
+@router.post("/release-quarantine", response_model=InventoryTransactionResponse, status_code=201)
+def release_quarantine(
+    part_id: uuid.UUID,
+    payload: InventoryReleaseQuarantineRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PART_WRITE)),
+) -> InventoryTransactionResponse:
+    transaction = inventory_transaction_service.release_quarantine(
         db,
         organization_id=current_user.organization_id,
         actor_user_id=current_user.id,

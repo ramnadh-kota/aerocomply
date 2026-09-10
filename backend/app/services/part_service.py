@@ -22,6 +22,9 @@ def create_part(
         description=payload.description,
         manufacturer=payload.manufacturer,
         condition=payload.condition,
+        serial_number=payload.serial_number,
+        batch_or_lot=payload.batch_or_lot,
+        location=payload.location,
         quantity_on_hand=payload.quantity_on_hand,
         quantity_reserved=payload.quantity_reserved,
     )

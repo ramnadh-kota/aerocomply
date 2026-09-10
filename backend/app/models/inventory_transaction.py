@@ -9,9 +9,12 @@ from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
 
 class InventoryTransactionType:
     """Movements this slice actually implements against Part.quantity_on_hand /
-    quantity_reserved. RECEIVE increases on_hand; RESERVE/RELEASE move reserved;
-    CONSUME reduces both on_hand and reserved (issued against a reservation);
-    ADJUST is a manual correction (can be positive or negative) for cycle counts.
+    quantity_reserved / quantity_quarantined. RECEIVE increases on_hand;
+    RESERVE/RELEASE move reserved; CONSUME reduces both on_hand and reserved
+    (issued against a reservation); ADJUST is a manual correction (can be
+    positive or negative) for cycle counts; QUARANTINE/RELEASE_QUARANTINE
+    move stock into/out of quantity_quarantined (excluded from
+    available_quantity while quarantined — see app/models/part.py).
     """
 
     RECEIVE = "RECEIVE"
@@ -19,6 +22,8 @@ class InventoryTransactionType:
     RELEASE = "RELEASE"
     CONSUME = "CONSUME"
     ADJUST = "ADJUST"
+    QUARANTINE = "QUARANTINE"
+    RELEASE_QUARANTINE = "RELEASE_QUARANTINE"
 
 
 class InventoryTransaction(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
@@ -33,6 +38,8 @@ class InventoryTransaction(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base)
     on_hand_delta: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Signed delta applied to Part.quantity_reserved for this transaction.
     reserved_delta: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Signed delta applied to Part.quantity_quarantined for this transaction.
+    quarantined_delta: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Optional traceability back to the work order / part requirement that drove
     # this movement — nullable because a manual ADJUST may have no such origin.
     reference_type: Mapped[str | None] = mapped_column(String(32), nullable=True)

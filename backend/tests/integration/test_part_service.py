@@ -99,13 +99,13 @@ def test_update_part_not_found_raises(db_session):
 
 
 def test_shortage_status_true_when_available_zero_or_negative():
-    part = Part(quantity_on_hand=5, quantity_reserved=5)
+    part = Part(quantity_on_hand=5, quantity_reserved=5, quantity_quarantined=0)
     assert part_service.get_shortage_status(part) is True
 
-    part = Part(quantity_on_hand=3, quantity_reserved=5)
+    part = Part(quantity_on_hand=3, quantity_reserved=5, quantity_quarantined=0)
     assert part_service.get_shortage_status(part) is True
 
 
 def test_shortage_status_false_when_stock_available():
-    part = Part(quantity_on_hand=10, quantity_reserved=2)
+    part = Part(quantity_on_hand=10, quantity_reserved=2, quantity_quarantined=0)
     assert part_service.get_shortage_status(part) is False

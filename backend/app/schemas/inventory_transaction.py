@@ -48,6 +48,21 @@ class InventoryAdjustRequest(BaseModel):
         return value
 
 
+class InventoryQuarantineRequest(BaseModel):
+    quantity: int = Field(gt=0)
+    reason: str = Field(min_length=1)
+    reference_type: str | None = Field(default=None, max_length=32)
+    reference_id: uuid.UUID | None = None
+
+
+class InventoryReleaseQuarantineRequest(BaseModel):
+    quantity: int = Field(gt=0)
+    # New status after release — SERVICEABLE (passed inspection) or SCRAPPED
+    # (failed, being written off). Never defaults silently to SERVICEABLE.
+    new_status: str = Field(max_length=32)
+    notes: str | None = None
+
+
 class InventoryTransactionResponse(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
@@ -55,6 +70,7 @@ class InventoryTransactionResponse(BaseModel):
     transaction_type: str
     on_hand_delta: int
     reserved_delta: int
+    quarantined_delta: int
     reference_type: str | None
     reference_id: uuid.UUID | None
     notes: str | None

@@ -4,12 +4,15 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.errors import ConflictError, NotFoundError
+from app.models.part import PartServiceabilityStatus
 from app.models.part_requirement import PartRequirementStatus
 from app.schemas.aircraft import AircraftCreateRequest
 from app.schemas.inventory_transaction import (
     InventoryAdjustRequest,
     InventoryConsumeRequest,
+    InventoryQuarantineRequest,
     InventoryReceiveRequest,
+    InventoryReleaseQuarantineRequest,
     InventoryReleaseRequest,
     InventoryReserveRequest,
 )
@@ -254,3 +257,114 @@ def test_receiving_stock_flips_short_requirement_to_available(db_session):
         db_session, organization_id=org_id, requirement_id=requirement.id
     )
     assert refreshed.status == PartRequirementStatus.AVAILABLE
+
+
+def test_quarantine_removes_from_available_but_not_on_hand(db_session):
+    org_id = uuid.uuid4()
+    part = _create_part(db_session, org_id, quantity_on_hand=5)
+
+    inventory_transaction_service.quarantine_part(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=None,
+        part_id=part.id,
+        payload=InventoryQuarantineRequest(quantity=2, reason="Suspected corrosion damage"),
+    )
+
+    refreshed = part_service.get_part(db_session, organization_id=org_id, part_id=part.id)
+    assert refreshed.quantity_on_hand == 5
+    assert refreshed.quantity_quarantined == 2
+    assert refreshed.available_quantity == 3
+    assert refreshed.serviceability_status == PartServiceabilityStatus.QUARANTINED
+    assert refreshed.quarantine_reason == "Suspected corrosion damage"
+
+
+def test_quarantine_cannot_exceed_available_stock(db_session):
+    org_id = uuid.uuid4()
+    part = _create_part(db_session, org_id, quantity_on_hand=2, quantity_reserved=1)
+
+    with pytest.raises(ConflictError):
+        inventory_transaction_service.quarantine_part(
+            db_session,
+            organization_id=org_id,
+            actor_user_id=None,
+            part_id=part.id,
+            payload=InventoryQuarantineRequest(quantity=2, reason="Damage check"),
+        )
+
+
+def test_release_quarantine_to_serviceable_restores_availability(db_session):
+    org_id = uuid.uuid4()
+    part = _create_part(db_session, org_id, quantity_on_hand=5)
+    inventory_transaction_service.quarantine_part(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=None,
+        part_id=part.id,
+        payload=InventoryQuarantineRequest(quantity=2, reason="Pending inspection"),
+    )
+
+    inventory_transaction_service.release_quarantine(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=None,
+        part_id=part.id,
+        payload=InventoryReleaseQuarantineRequest(
+            quantity=2, new_status=PartServiceabilityStatus.SERVICEABLE, notes="Passed inspection"
+        ),
+    )
+
+    refreshed = part_service.get_part(db_session, organization_id=org_id, part_id=part.id)
+    assert refreshed.quantity_on_hand == 5
+    assert refreshed.quantity_quarantined == 0
+    assert refreshed.available_quantity == 5
+    assert refreshed.serviceability_status == PartServiceabilityStatus.SERVICEABLE
+    assert refreshed.quarantine_reason is None
+
+
+def test_release_quarantine_to_scrapped_removes_stock_entirely(db_session):
+    org_id = uuid.uuid4()
+    part = _create_part(db_session, org_id, quantity_on_hand=5)
+    inventory_transaction_service.quarantine_part(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=None,
+        part_id=part.id,
+        payload=InventoryQuarantineRequest(quantity=2, reason="Failed inspection"),
+    )
+
+    inventory_transaction_service.release_quarantine(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=None,
+        part_id=part.id,
+        payload=InventoryReleaseQuarantineRequest(
+            quantity=2, new_status=PartServiceabilityStatus.SCRAPPED
+        ),
+    )
+
+    refreshed = part_service.get_part(db_session, organization_id=org_id, part_id=part.id)
+    assert refreshed.quantity_on_hand == 3
+    assert refreshed.quantity_quarantined == 0
+    assert refreshed.serviceability_status == PartServiceabilityStatus.SCRAPPED
+
+
+def test_release_quarantine_rejects_unknown_status(db_session):
+    org_id = uuid.uuid4()
+    part = _create_part(db_session, org_id, quantity_on_hand=5)
+    inventory_transaction_service.quarantine_part(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=None,
+        part_id=part.id,
+        payload=InventoryQuarantineRequest(quantity=1, reason="Check"),
+    )
+
+    with pytest.raises(ConflictError):
+        inventory_transaction_service.release_quarantine(
+            db_session,
+            organization_id=org_id,
+            actor_user_id=None,
+            part_id=part.id,
+            payload=InventoryReleaseQuarantineRequest(quantity=1, new_status="MADE_UP_STATUS"),
+        )
