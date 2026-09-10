@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # /lisa/ask endpoint returns an honest 503 ai_not_configured error; the
     # frontend falls back to the existing deterministic engine. Never
     # hardcode a real key here or anywhere else in the codebase.
+    ai_provider: str = "auto"  # "auto" | "openai_compatible" | "anthropic" | "none"
+    # e.g. "http://localhost:11434/v1" (Ollama) or "http://localhost:8000/v1" (vLLM)
+    ai_base_url: str = ""
+    ai_model: str = ""  # e.g. "qwen2.5:14b", "llama3.3:70b"
+    ai_api_key: str = ""  # Optional API key for OpenAI-compatible endpoint
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-5"
     ai_max_tool_round_trips: int = 6

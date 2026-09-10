@@ -1,78 +1,33 @@
 """LLM provider abstraction for the Lisa agent.
 
-Two implementations:
-- NotConfiguredProvider: used whenever ANTHROPIC_API_KEY is unset. Its
-  complete() always raises AIProviderNotConfiguredError — it never
-  fabricates or silently substitutes a fake response.
-- AnthropicProvider: real implementation over the Anthropic Messages API
-  with tool use, a hard round-trip cap, a request timeout, and a single
-  retry on transient errors.
+Provides factory and provider implementations for:
+- NotConfiguredProvider: used whenever no AI provider is configured. complete()
+  always raises AIProviderNotConfiguredError — never fabricates a response.
+- OpenAICompatibleProvider: for self-hosted/local inference (vLLM, Ollama) or
+  OpenAI-compatible endpoints over asynchronous HTTP.
+- AnthropicProvider: for Anthropic Messages API (optional, lazy loaded).
 
-get_ai_provider() is the only factory callers should use; which concrete
-class it returns depends solely on whether an API key is configured.
+get_ai_provider() is the central factory callers use to obtain the configured provider.
 """
 
 from __future__ import annotations
 
 import time
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.services.ai.providers.base import (
+    AIProvider,
+    AIProviderError,
+    AIProviderNotConfiguredError,
+    AIProviderResponse,
+    AIToolCall,
+    NotConfiguredProvider,
+)
+from app.services.ai.providers.openai_compatible import OpenAICompatibleProvider
 
 logger = get_logger(__name__)
-
-
-class AIProviderNotConfiguredError(Exception):
-    """Raised by NotConfiguredProvider.complete(). Never caught and papered
-    over with fake data — callers must surface this as ai_not_configured."""
-
-
-class AIProviderError(Exception):
-    """Raised for real provider failures (timeout, exhausted retries, API error)."""
-
-
-@dataclass
-class AIToolCall:
-    id: str
-    name: str
-    input: dict[str, Any]
-
-
-@dataclass
-class AIProviderResponse:
-    """Either a request for more tool calls, or a final text answer."""
-
-    stop_reason: str  # "tool_use" | "end_turn" | other Anthropic stop reasons
-    text: str = ""
-    tool_calls: list[AIToolCall] = field(default_factory=list)
-    raw: Any = None
-
-
-class AIProvider(ABC):
-    @abstractmethod
-    async def complete(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-        tool_choice: dict[str, Any] | None = None,
-    ) -> AIProviderResponse:
-        """Send one turn of the conversation to the model."""
-        raise NotImplementedError
-
-
-class NotConfiguredProvider(AIProvider):
-    async def complete(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-        tool_choice: dict[str, Any] | None = None,
-    ) -> AIProviderResponse:
-        raise AIProviderNotConfiguredError(
-            "AI model is not configured. Set ANTHROPIC_API_KEY to enable the real agent."
-        )
 
 
 class AnthropicProvider(AIProvider):
@@ -148,14 +103,80 @@ class AnthropicProvider(AIProvider):
 
 
 def get_ai_provider() -> AIProvider:
-    """Factory: real provider iff ANTHROPIC_API_KEY is set, else the honest
-    not-configured stub. This is the ONLY place that decision is made."""
+    """Factory: resolves the active AI provider based on configuration.
+
+    Supports:
+    - OpenAI-compatible local/remote providers (vLLM, Ollama, etc.) via AI_BASE_URL and AI_MODEL
+    - Anthropic Claude via ANTHROPIC_API_KEY
+    - Explicit AI_PROVIDER setting ('openai_compatible', 'anthropic', 'none', 'auto')
+    - Honest NotConfiguredProvider whenever required configurations are absent.
+    """
     settings = get_settings()
+    provider_type = (settings.ai_provider or "auto").strip().lower()
+
+    if provider_type == "none":
+        return NotConfiguredProvider("AI provider is explicitly disabled.")
+
+    if provider_type == "openai_compatible":
+        base_url = (settings.ai_base_url or "").strip()
+        model = (settings.ai_model or "").strip()
+        if not base_url or not model:
+            return NotConfiguredProvider(
+                "OpenAI-compatible AI provider is selected but not configured. "
+                "Set AI_BASE_URL and AI_MODEL."
+            )
+        return OpenAICompatibleProvider(
+            base_url=base_url,
+            model=model,
+            api_key=settings.ai_api_key or None,
+            timeout_seconds=settings.ai_request_timeout_seconds,
+        )
+
+    if provider_type == "anthropic":
+        api_key = (settings.anthropic_api_key or "").strip()
+        if not api_key:
+            return NotConfiguredProvider(
+                "Anthropic AI provider is selected but not configured. Set ANTHROPIC_API_KEY."
+            )
+        return AnthropicProvider(
+            api_key=api_key,
+            model=settings.anthropic_model,
+            timeout_seconds=settings.ai_request_timeout_seconds,
+        )
+
+    # "auto" detection mode:
+    # 1. Prefer OpenAI-compatible if AI_BASE_URL and AI_MODEL are configured
+    base_url = (settings.ai_base_url or "").strip()
+    model = (settings.ai_model or "").strip()
+    if base_url and model:
+        return OpenAICompatibleProvider(
+            base_url=base_url,
+            model=model,
+            api_key=settings.ai_api_key or None,
+            timeout_seconds=settings.ai_request_timeout_seconds,
+        )
+
+    # 2. Fall back to Anthropic if ANTHROPIC_API_KEY is configured
     api_key = (settings.anthropic_api_key or "").strip()
-    if not api_key:
-        return NotConfiguredProvider()
-    return AnthropicProvider(
-        api_key=api_key,
-        model=settings.anthropic_model,
-        timeout_seconds=settings.ai_request_timeout_seconds,
-    )
+    if api_key:
+        return AnthropicProvider(
+            api_key=api_key,
+            model=settings.anthropic_model,
+            timeout_seconds=settings.ai_request_timeout_seconds,
+        )
+
+    # 3. Otherwise return the honest not-configured provider
+    return NotConfiguredProvider()
+
+
+__all__ = [
+    "AIProvider",
+    "AIProviderError",
+    "AIProviderNotConfiguredError",
+    "AIProviderResponse",
+    "AIToolCall",
+    "AnthropicProvider",
+    "NotConfiguredProvider",
+    "OpenAICompatibleProvider",
+    "get_ai_provider",
+]
