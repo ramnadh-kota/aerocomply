@@ -30,6 +30,13 @@ import { workOrders } from "@/lib/mock/workOrders";
 import { getAircraftByRegistration } from "@/lib/mock/aircraft";
 import { ActionHistory, type ActionHistoryLink } from "@/components/audit/ActionHistory";
 import type { AuditEvent } from "@/lib/mock/types";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import {
+  controlCenterApi,
+  type ControlCenterSummary,
+  type ControlCenterAircraftRow,
+} from "@/lib/api/controlCenter";
 
 // M12.5 — Maintenance Control Center. A pure aggregation view: every number
 // and reason on this page is read from the same analytics functions the
@@ -50,6 +57,50 @@ export default function MaintenanceControlCenterPage() {
   const current = getCurrentUser();
   const reviewed = useRef(false);
   const [, setVersion] = useState(0);
+
+  // Backend-authoritative fleet summary (REAL mode only) — additive to the
+  // existing mock-driven page below, not a replacement. The rich sections
+  // further down (execution queue, discrepancy groups, automation queue,
+  // etc.) have no backend equivalent yet — see docs/LISA_ARCHITECTURE.md's
+  // "Not implemented" list — so they remain mock-driven in both modes.
+  // This section is the honest, currently-achievable slice: real fleet
+  // status/AOG/deferred/shortage counts from Postgres via
+  // GET /control-center/summary and /control-center/fleet.
+  const { mode: dataMode } = useDataMode();
+  const { accessToken, isAuthenticated } = useSession();
+  const isRealModeSession = dataMode === "REAL" && isAuthenticated && !!accessToken;
+  const [backendSummary, setBackendSummary] = useState<ControlCenterSummary | null>(null);
+  const [backendFleet, setBackendFleet] = useState<ControlCenterAircraftRow[] | null>(null);
+  const [backendStatus, setBackendStatus] = useState<
+    "idle" | "loading" | "loaded" | "unavailable"
+  >("idle");
+
+  useEffect(() => {
+    if (!isRealModeSession || !accessToken) {
+      setBackendSummary(null);
+      setBackendFleet(null);
+      setBackendStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setBackendStatus("loading");
+    Promise.all([controlCenterApi.getSummary(accessToken), controlCenterApi.getFleet(accessToken)])
+      .then(([summaryResult, fleetResult]) => {
+        if (cancelled) return;
+        setBackendSummary(summaryResult);
+        setBackendFleet(fleetResult);
+        setBackendStatus("loaded");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBackendSummary(null);
+        setBackendFleet(null);
+        setBackendStatus("unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isRealModeSession, accessToken]);
 
   const summary = getMaintenanceControlCenterSummary();
   const queue = getMaintenanceControlCenter();
@@ -158,7 +209,94 @@ export default function MaintenanceControlCenterPage() {
         </div>
       </div>
 
+      {isRealModeSession && (
+        <section className="ac-section" style={{ marginBottom: 16 }}>
+          <p className="ac-eyebrow" style={{ marginBottom: 8 }}>
+            Backend-Authoritative Fleet Summary
+            {backendStatus === "loaded" && " · Live Postgres Data"}
+          </p>
+          {backendStatus === "unavailable" && (
+            <p
+              className="ac-text-sm"
+              style={{
+                marginBottom: 8,
+                padding: "8px 10px",
+                borderRadius: 6,
+                border: "1px solid var(--ac-status-review)",
+                background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)",
+              }}
+            >
+              BACKEND_UNAVAILABLE — real fleet data could not be retrieved. The sections below
+              this point are still the existing demo-dataset view, not a fallback for this one.
+            </p>
+          )}
+          {backendStatus === "loaded" && backendSummary && (
+            <>
+              <div className="ac-kpi-grid">
+                <div className="ac-kpi-card">
+                  <p className="ac-kpi-label">Total Aircraft</p>
+                  <p className="ac-kpi-value">{backendSummary.total_aircraft}</p>
+                </div>
+                <div className="ac-kpi-card">
+                  <p className="ac-kpi-label">AOG</p>
+                  <p className="ac-kpi-value">{backendSummary.aog}</p>
+                </div>
+                <div className="ac-kpi-card">
+                  <p className="ac-kpi-label">Under Maintenance</p>
+                  <p className="ac-kpi-value">{backendSummary.under_maintenance}</p>
+                </div>
+                <div className="ac-kpi-card">
+                  <p className="ac-kpi-label">Open Work Orders</p>
+                  <p className="ac-kpi-value">{backendSummary.open_work_orders_total}</p>
+                </div>
+                <div className="ac-kpi-card">
+                  <p className="ac-kpi-label">Open Deferred Items</p>
+                  <p className="ac-kpi-value">{backendSummary.open_deferred_items_total}</p>
+                </div>
+                <div className="ac-kpi-card">
+                  <p className="ac-kpi-label">Open Part Shortages</p>
+                  <p className="ac-kpi-value">{backendSummary.open_part_shortages_total}</p>
+                </div>
+              </div>
+              {backendFleet && backendFleet.length > 0 && (
+                <div className="ac-card" style={{ marginTop: 12, padding: 0 }}>
+                  <table className="ac-table" style={{ width: "100%" }}>
+                    <thead>
+                      <tr>
+                        <th>Registration</th>
+                        <th>Status</th>
+                        <th>Open WOs</th>
+                        <th>Open Deferred</th>
+                        <th>Open Shortages</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {backendFleet.map((row) => (
+                        <tr key={row.aircraft_id}>
+                          <td>
+                            <Link href={`/aircraft/${row.aircraft_id}`} className="ac-mono">
+                              {row.registration}
+                            </Link>
+                          </td>
+                          <td>{row.operational_status.replace(/_/g, " ")}</td>
+                          <td>{row.open_work_orders}</td>
+                          <td>{row.open_deferred_items}</td>
+                          <td>{row.open_part_shortages}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       <section className="ac-section">
+        <p className="ac-eyebrow" style={{ marginBottom: 8 }}>
+          {isRealModeSession ? "Demo Dataset View (below)" : "Fleet Overview"}
+        </p>
         <div className="ac-kpi-grid">
           {kpis.map((k) => (
             <div key={k.label} className="ac-kpi-card">
