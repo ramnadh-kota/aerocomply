@@ -9,15 +9,20 @@ import { procurementRepository } from "@/lib/domain/repositories";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
 import { purchaseOrdersApi, type BackendPurchaseOrder } from "@/lib/api/purchaseOrders";
+import { procurementRequestsApi, type BackendProcurementRequest } from "@/lib/api/procurementRequests";
+import { vendorsApi, type BackendVendor } from "@/lib/api/vendors";
 import { ApiError, normalizeApiError } from "@/lib/apiClient";
 
-// M11.8 — Purchase Order list. A PO can ONLY be created from an approved
-// request (see /procurement/approvals/[id]) — no direct creation UI exists
-// here, per Rule 4 (technicians cannot issue POs, and this page has no
-// "New PO" button at all). This remains true for the backend-authoritative
-// panel below too: it lists/transitions/receives against real POs, but
-// does not add PO *creation* — that UI does not exist yet (see commit
-// message for this slice).
+// M11.8 — Purchase Order list. The demo/mock dataset below has no direct
+// "New PO" button (Rule 4 — technicians cannot issue POs), and that stays
+// true. The backend-authoritative panels DO include real PO creation: an
+// "Approved Procurement Requests" panel lists real APPROVED requests and
+// lets an authorized user turn one into a real Purchase Order via the
+// existing backend create endpoint (backend/app/api/v1/purchase_orders.py)
+// — no parallel creation logic, no client-side fabrication. The backend
+// itself enforces duplicate-PO safety: create_purchase_order requires the
+// linked request to still be APPROVED and flips it to ORDERED, so a second
+// creation attempt against the same request is rejected with a 409.
 
 function poStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   switch (status) {
@@ -67,6 +72,20 @@ export default function PurchaseOrdersPage() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ poId: string; text: string; isError: boolean } | null>(null);
 
+  const [approvedRequests, setApprovedRequests] = useState<BackendProcurementRequest[] | null>(null);
+  const [requestsStatus, setRequestsStatus] = useState<"idle" | "loading" | "loaded" | "unavailable">("idle");
+  const [backendVendors, setBackendVendors] = useState<BackendVendor[] | null>(null);
+  const [createExpandedId, setCreateExpandedId] = useState<string | null>(null);
+  const [createForm, setCreateForm] = useState<{
+    poNumber: string;
+    vendorId: string;
+    quantity: number;
+    unitPriceDollars: string;
+    notes: string;
+  } | null>(null);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createMessage, setCreateMessage] = useState<{ requestId: string; text: string; isError: boolean } | null>(null);
+
   function refetchPurchaseOrders(token: string) {
     setBackendStatus("loading");
     return purchaseOrdersApi
@@ -81,15 +100,96 @@ export default function PurchaseOrdersPage() {
       });
   }
 
+  function refetchApprovedRequests(token: string) {
+    setRequestsStatus("loading");
+    return procurementRequestsApi
+      .list(token, "APPROVED")
+      .then((result) => {
+        setApprovedRequests(result);
+        setRequestsStatus("loaded");
+      })
+      .catch(() => {
+        setApprovedRequests(null);
+        setRequestsStatus("unavailable");
+      });
+  }
+
   useEffect(() => {
     if (!isRealModeSession || !accessToken) {
       setBackendPOs(null);
       setBackendStatus("idle");
+      setApprovedRequests(null);
+      setRequestsStatus("idle");
+      setBackendVendors(null);
       return;
     }
     refetchPurchaseOrders(accessToken);
+    refetchApprovedRequests(accessToken);
+    vendorsApi
+      .list(accessToken)
+      .then(setBackendVendors)
+      .catch(() => setBackendVendors(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRealModeSession, accessToken]);
+
+  function startCreatePo(request: BackendProcurementRequest) {
+    setCreateExpandedId(request.id);
+    setCreateMessage(null);
+    setCreateForm({
+      poNumber: `PO-${request.id.slice(0, 8).toUpperCase()}`,
+      vendorId: request.selected_vendor_id ?? request.preferred_vendor_id ?? "",
+      quantity: request.quantity,
+      unitPriceDollars: "",
+      notes: "",
+    });
+  }
+
+  async function submitCreatePo(request: BackendProcurementRequest) {
+    if (!accessToken || !createForm) return;
+    if (!createForm.vendorId) {
+      setCreateMessage({ requestId: request.id, text: "Select a vendor before creating the purchase order.", isError: true });
+      return;
+    }
+    if (createForm.quantity <= 0) {
+      setCreateMessage({ requestId: request.id, text: "Quantity must be greater than zero.", isError: true });
+      return;
+    }
+    const unitPriceCents = createForm.unitPriceDollars.trim()
+      ? Math.round(Number(createForm.unitPriceDollars) * 100)
+      : null;
+    if (createForm.unitPriceDollars.trim() && (!Number.isFinite(unitPriceCents) || (unitPriceCents ?? -1) < 0)) {
+      setCreateMessage({ requestId: request.id, text: "Unit price must be a valid non-negative amount.", isError: true });
+      return;
+    }
+    setCreateBusy(true);
+    setCreateMessage(null);
+    try {
+      await purchaseOrdersApi.create(accessToken, {
+        po_number: createForm.poNumber,
+        vendor_id: createForm.vendorId,
+        aircraft_id: request.aircraft_id,
+        currency: "USD",
+        notes: createForm.notes.trim() || null,
+        lines: [
+          {
+            procurement_request_id: request.id,
+            part_number: request.part_number,
+            description: request.description,
+            quantity: createForm.quantity,
+            unit_price_cents: unitPriceCents,
+          },
+        ],
+      });
+      setCreateMessage({ requestId: request.id, text: "Purchase order created.", isError: false });
+      setCreateExpandedId(null);
+      setCreateForm(null);
+      await Promise.all([refetchApprovedRequests(accessToken), refetchPurchaseOrders(accessToken)]);
+    } catch (err) {
+      setCreateMessage({ requestId: request.id, text: describeError(err), isError: true });
+    } finally {
+      setCreateBusy(false);
+    }
+  }
 
   async function runTransition(poId: string, action: "submit" | "approve" | "send" | "cancel") {
     if (!accessToken) return;
@@ -147,6 +247,161 @@ export default function PurchaseOrdersPage() {
           <p className="ac-subtitle">Generated only from approved procurement requests. {purchaseOrders.length} PO(s) exist this session.</p>
         </div>
       </div>
+
+      {isRealModeSession && (
+        <div className="ac-card" style={{ marginBottom: 16, padding: 0 }}>
+          <div style={{ padding: 12 }}>
+            <p className="ac-eyebrow" style={{ marginBottom: 8 }}>
+              Approved Procurement Requests
+              {requestsStatus === "loaded" && " · Live Postgres Data"}
+            </p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 8px" }}>
+              Approved requests awaiting a purchase order. Creating one calls the real backend and
+              converts the request to ORDERED — a second attempt against the same request is
+              rejected by the backend.
+            </p>
+            {requestsStatus === "unavailable" && (
+              <p className="ac-text-sm" style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--ac-status-review)", background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)" }}>
+                BACKEND_UNAVAILABLE — real procurement requests could not be retrieved.
+              </p>
+            )}
+            {requestsStatus === "loaded" && approvedRequests && approvedRequests.length === 0 && (
+              <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No approved procurement requests are awaiting a purchase order.</p>
+            )}
+          </div>
+          {requestsStatus === "loaded" && approvedRequests && approvedRequests.length > 0 && (
+            <div style={{ overflowX: "auto" }}>
+              <table className="ac-table" style={{ width: "100%" }}>
+                <thead>
+                  <tr>
+                    <th>Request</th>
+                    <th>Part</th>
+                    <th>Qty</th>
+                    <th>Priority</th>
+                    <th>Vendor</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {approvedRequests.map((request) => {
+                    const vendor = backendVendors?.find(
+                      (v) => v.id === (request.selected_vendor_id ?? request.preferred_vendor_id)
+                    );
+                    return (
+                      <Fragment key={request.id}>
+                        <tr>
+                          <td className="ac-mono" style={{ fontSize: 11 }}>{request.id.slice(0, 8)}…</td>
+                          <td className="ac-mono">{request.part_number}</td>
+                          <td>{request.quantity}</td>
+                          <td>{request.priority}</td>
+                          <td>{vendor ? vendor.name : "Not selected"}</td>
+                          <td>
+                            <button
+                              className="ac-btn"
+                              style={{ fontSize: 12, padding: "2px 8px" }}
+                              onClick={() => {
+                                if (createExpandedId === request.id) {
+                                  setCreateExpandedId(null);
+                                  setCreateForm(null);
+                                } else {
+                                  startCreatePo(request);
+                                }
+                              }}
+                            >
+                              {createExpandedId === request.id ? "Close" : "Create Purchase Order"}
+                            </button>
+                          </td>
+                        </tr>
+                        {createExpandedId === request.id && createForm && (
+                          <tr>
+                            <td colSpan={6} style={{ padding: "8px 12px" }}>
+                              <div className="ac-flex ac-items-center ac-gap-2" style={{ flexWrap: "wrap", marginBottom: 8 }}>
+                                <label className="ac-text-sm">
+                                  PO Number
+                                  <input
+                                    className="ac-input"
+                                    style={{ display: "block", width: 160 }}
+                                    value={createForm.poNumber}
+                                    onChange={(e) => setCreateForm({ ...createForm, poNumber: e.target.value })}
+                                  />
+                                </label>
+                                <label className="ac-text-sm">
+                                  Vendor
+                                  <select
+                                    className="ac-input"
+                                    style={{ display: "block", width: 200 }}
+                                    value={createForm.vendorId}
+                                    onChange={(e) => setCreateForm({ ...createForm, vendorId: e.target.value })}
+                                  >
+                                    <option value="">Select a vendor…</option>
+                                    {(backendVendors ?? []).map((v) => (
+                                      <option key={v.id} value={v.id}>
+                                        {v.name}{v.approved ? "" : " (unapproved)"}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="ac-text-sm">
+                                  Quantity
+                                  <input
+                                    className="ac-input"
+                                    style={{ display: "block", width: 80 }}
+                                    type="number"
+                                    min={1}
+                                    value={createForm.quantity}
+                                    onChange={(e) => setCreateForm({ ...createForm, quantity: Number(e.target.value) })}
+                                  />
+                                </label>
+                                <label className="ac-text-sm">
+                                  Unit Price (USD)
+                                  <input
+                                    className="ac-input"
+                                    style={{ display: "block", width: 100 }}
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    placeholder="Optional"
+                                    value={createForm.unitPriceDollars}
+                                    onChange={(e) => setCreateForm({ ...createForm, unitPriceDollars: e.target.value })}
+                                  />
+                                </label>
+                                <label className="ac-text-sm" style={{ flex: 1, minWidth: 160 }}>
+                                  Notes
+                                  <input
+                                    className="ac-input"
+                                    style={{ display: "block", width: "100%" }}
+                                    placeholder="Optional"
+                                    value={createForm.notes}
+                                    onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })}
+                                  />
+                                </label>
+                              </div>
+                              <div className="ac-flex ac-items-center ac-gap-2">
+                                <button
+                                  className="ac-btn ac-btn-primary"
+                                  disabled={createBusy}
+                                  onClick={() => submitCreatePo(request)}
+                                >
+                                  {createBusy ? "Creating…" : "Submit"}
+                                </button>
+                                {createMessage && createMessage.requestId === request.id && (
+                                  <span className="ac-text-sm" style={{ color: createMessage.isError ? "var(--ac-status-review)" : "var(--ac-status-compliant)" }}>
+                                    {createMessage.text}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {isRealModeSession && (
         <div className="ac-card" style={{ marginBottom: 16, padding: 0 }}>

@@ -184,6 +184,50 @@ def test_create_purchase_order_rejects_unapproved_request(db_session):
         )
 
 
+def test_second_purchase_order_from_same_request_rejected(db_session):
+    org_id = uuid.uuid4()
+    approver = _create_user(db_session, org_id)
+    vendor = _create_vendor(db_session, org_id)
+    approved_request = _create_approved_request(db_session, org_id, approver.id)
+
+    purchase_order_service.create_purchase_order(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=approver.id,
+        payload=PurchaseOrderCreateRequest(
+            po_number="PO-2000",
+            vendor_id=vendor.id,
+            lines=[
+                PurchaseOrderLineCreateRequest(
+                    procurement_request_id=approved_request.id,
+                    part_number="PN-6000",
+                    description="Hydraulic pump",
+                    quantity=1,
+                )
+            ],
+        ),
+    )
+
+    with pytest.raises(ConflictError):
+        purchase_order_service.create_purchase_order(
+            db_session,
+            organization_id=org_id,
+            actor_user_id=approver.id,
+            payload=PurchaseOrderCreateRequest(
+                po_number="PO-2001",
+                vendor_id=vendor.id,
+                lines=[
+                    PurchaseOrderLineCreateRequest(
+                        procurement_request_id=approved_request.id,
+                        part_number="PN-6000",
+                        description="Hydraulic pump",
+                        quantity=1,
+                    )
+                ],
+            ),
+        )
+
+
 def test_full_lifecycle_draft_to_acknowledged(db_session):
     org_id = uuid.uuid4()
     vendor = _create_vendor(db_session, org_id)

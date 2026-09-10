@@ -37,7 +37,33 @@ export interface BackendPurchaseOrder {
   created_at: string;
 }
 
+export interface PurchaseOrderLineCreatePayload {
+  procurement_request_id?: string | null;
+  part_number: string;
+  description: string;
+  quantity: number;
+  unit_price_cents?: number | null;
+}
+
+export interface PurchaseOrderCreatePayload {
+  po_number: string;
+  vendor_id: string;
+  aircraft_id?: string | null;
+  currency?: string;
+  tax_cents?: number | null;
+  shipping_cents?: number | null;
+  required_by?: string | null;
+  notes?: string | null;
+  lines: PurchaseOrderLineCreatePayload[];
+}
+
 export const purchaseOrdersApi = {
+  create: (accessToken: string, payload: PurchaseOrderCreatePayload) =>
+    apiRequest<BackendPurchaseOrder>("/purchase-orders", {
+      method: "POST",
+      body: payload,
+      accessToken,
+    }),
   list: (accessToken: string, status?: string) =>
     apiRequest<BackendPurchaseOrder[]>(`/purchase-orders${status ? `?status=${status}` : ""}`, {
       accessToken,
