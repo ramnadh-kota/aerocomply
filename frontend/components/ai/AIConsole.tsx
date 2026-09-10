@@ -4,13 +4,14 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { answerQuestion, isGeneralKnowledgeQuestion, getSuggestedQuestionsForRole, type AiResponse } from "@/lib/mock/ai/engine";
 import { getProjectAnalytics, getAircraftAnalytics, getFleetAnalytics, getReleaseQueue } from "@/lib/mock/ai/analytics";
-import { getProactiveAlerts, getDailyBrief, type ProactiveAlert } from "@/lib/mock/ai/proactive";
+import { getProactiveAlerts, getDailyBrief } from "@/lib/mock/ai/proactive";
 import { AIResponseView } from "@/components/ai/AIResponseView";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { useRoleSim } from "@/lib/role-sim/RoleSimContext";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
 import { lisaApi } from "@/lib/api/lisa";
+import { proactiveApi, type BackendProactiveAlert } from "@/lib/api/proactive";
 import { ApiError } from "@/lib/apiClient";
 import { AI_NAME, AI_DESCRIPTION, COMPANY_NAME } from "@/lib/brand";
 import { StatusBadge, priorityBadge } from "@/components/status/StatusBadge";
@@ -181,30 +182,86 @@ export function AIConsole({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataMode, isAuthenticated, accessToken]);
+
+  // Backend-authoritative proactive alerts (REAL mode only). Deterministic
+  // — derived entirely from persisted domain records, requires no LLM/AI
+  // provider — so this fetch is independent of aiNotConfigured and still
+  // runs even when the AI agent itself is not configured (see
+  // proactive_service.py). null = not yet loaded; "unavailable" = REAL
+  // mode session but the fetch failed — never silently substituted with
+  // demo alerts (same no-mock-fallback policy as ask()).
+  const [backendAlerts, setBackendAlerts] = useState<BackendProactiveAlert[] | null>(null);
+  const [backendAlertsStatus, setBackendAlertsStatus] = useState<
+    "idle" | "loading" | "loaded" | "unavailable"
+  >("idle");
+
+  useEffect(() => {
+    if (!isRealModeSession || !accessToken) {
+      setBackendAlerts(null);
+      setBackendAlertsStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setBackendAlertsStatus("loading");
+    proactiveApi
+      .getAlerts(accessToken)
+      .then((alerts) => {
+        if (cancelled) return;
+        setBackendAlerts(alerts);
+        setBackendAlertsStatus("loaded");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBackendAlerts(null);
+        setBackendAlertsStatus("unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isRealModeSession, accessToken]);
+
   // "View as Role" prototype simulation (see lib/role-sim/RoleSimContext) —
   // used here for relevance/framing only (suggested-question ordering,
   // proactive-alert ordering), never to gate which facts Lisa can answer.
   const { roleId } = useRoleSim();
   const askedInitial = useRef(false);
-  // Reuses the SAME proactive engine as the Topbar notification panel and
-  // the dashboard's Daily Brief — never a second alert calculation. Role is
-  // passed through only to reorder by relevance; the full alert set is
-  // still what's fetched (see getProactiveAlerts() role-relevance comment).
-  const proactiveAlerts = useMemo(() => getProactiveAlerts(roleId).slice(0, 3), [roleId]);
-  const suggestedQuestionCategories = useMemo(() => getSuggestedQuestionsForRole(roleId), [roleId]);
 
-  // "Today's Operational Picture" KPI strip + "Lisa's Priorities" list — both
-  // read the SAME canonical engines as the dashboard's Daily Brief and the
-  // Topbar notification panel (see getDailyBrief()/getProactiveAlerts() in
-  // lib/mock/ai/proactive.ts), never a second/invented aggregate. If a
-  // richer priority-ranking engine (getOperationalPriorities()) lands later,
-  // only this one call site needs to change — the render below only assumes
-  // a {id, severity, title, message, href}-shaped array.
-  const allAlerts = useMemo(() => getProactiveAlerts(roleId), [roleId]);
+  function backendAlertHref(a: BackendProactiveAlert): string {
+    if (a.work_order_id) return `/maintenance/work-orders/${a.work_order_id}`;
+    if (a.aircraft_id) return `/aircraft/${a.aircraft_id}`;
+    return "/ai";
+  }
+
+  // "Today's Operational Picture" KPI strip, "Lisa's Priorities", and
+  // "Lisa noticed…" — all three read ONE alert source, chosen once here:
+  // backend-authoritative alerts in a REAL-mode session (never demo data,
+  // per the no-mock-fallback policy — see ask() above), or the existing
+  // frontend demo engine in DEMO mode. Never a second/invented aggregate.
+  const allAlerts: { id: string; severity: string; title: string; message: string; href: string }[] =
+    isRealModeSession
+      ? (backendAlerts ?? []).map((a) => ({
+          id: a.id,
+          severity: a.severity,
+          title: a.title,
+          message: a.message,
+          href: backendAlertHref(a),
+        }))
+      : getProactiveAlerts(roleId);
+  const suggestedQuestionCategories = useMemo(() => getSuggestedQuestionsForRole(roleId), [roleId]);
+  const proactiveAlerts = allAlerts.slice(0, 3);
   const dailyBrief = useMemo(() => getDailyBrief(5, roleId), [roleId]);
-  const releaseBlockedCount = useMemo(() => getReleaseQueue().length, []);
+  const releaseBlockedCount = isRealModeSession
+    ? allAlerts.filter((a) => a.href.includes("/work-orders/")).length
+    : getReleaseQueue().length;
   const criticalCount = allAlerts.filter((a) => a.severity === "CRITICAL").length;
-  const priorities: ProactiveAlert[] = dailyBrief.topPriorities;
+  const aogCount = isRealModeSession
+    ? (backendAlerts ?? []).filter((a) => a.category === "AOG").length
+    : dailyBrief.fleet.aogCount;
+  // TAT risk has no backend equivalent yet (no due_date column anywhere in
+  // this schema — see tat_service.py) — honestly UNKNOWN in REAL mode
+  // rather than borrowing the DEMO dataset's fabricated-looking count.
+  const tatAtRiskDisplay: number | "—" = isRealModeSession ? "—" : dailyBrief.fleet.tatAtRiskCount;
+  const priorities = isRealModeSession ? allAlerts.slice(0, 5) : dailyBrief.topPriorities;
 
   function commitTurn(trimmed: string, response: AiResponse) {
     const turn: Turn = { id: response.id, question: trimmed, response, askedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
@@ -411,26 +468,52 @@ export function AIConsole({
       </div>
 
       <div className="ac-section" style={{ marginBottom: 16 }}>
-        <p className="ac-eyebrow" style={{ marginBottom: 8 }}>Today&rsquo;s Operational Picture</p>
+        <p className="ac-eyebrow" style={{ marginBottom: 8 }}>
+          Today&rsquo;s Operational Picture
+          {isRealModeSession && backendAlertsStatus === "loaded" && " · Backend Authoritative"}
+        </p>
+        {isRealModeSession && backendAlertsStatus === "unavailable" && (
+          <p
+            className="ac-text-sm"
+            style={{
+              marginBottom: 8,
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: "1px solid var(--ac-status-review)",
+              background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)",
+            }}
+          >
+            BACKEND_UNAVAILABLE — operational alerts could not be retrieved. Not showing demo
+            counts in their place.
+          </p>
+        )}
         <div className="ac-kpi-grid">
           <Link href="/notifications" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">Critical</p>
-            <p className="ac-kpi-value">{criticalCount}</p>
+            <p className="ac-kpi-value">
+              {isRealModeSession && backendAlertsStatus === "unavailable" ? "—" : criticalCount}
+            </p>
             <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>alerts requiring attention</p>
           </Link>
           <Link href="/maintenance/control-center" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">AOG</p>
-            <p className="ac-kpi-value">{dailyBrief.fleet.aogCount}</p>
+            <p className="ac-kpi-value">
+              {isRealModeSession && backendAlertsStatus === "unavailable" ? "—" : aogCount}
+            </p>
             <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>aircraft grounded</p>
           </Link>
           <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">TAT Risk</p>
-            <p className="ac-kpi-value">{dailyBrief.fleet.tatAtRiskCount}</p>
-            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>work orders at risk / delayed</p>
+            <p className="ac-kpi-value">{tatAtRiskDisplay}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              {isRealModeSession ? "not tracked in this system" : "work orders at risk / delayed"}
+            </p>
           </Link>
           <Link href="/maintenance/release-readiness" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">Release Blocked</p>
-            <p className="ac-kpi-value">{releaseBlockedCount}</p>
+            <p className="ac-kpi-value">
+              {isRealModeSession && backendAlertsStatus === "unavailable" ? "—" : releaseBlockedCount}
+            </p>
             <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>work orders awaiting release</p>
           </Link>
         </div>

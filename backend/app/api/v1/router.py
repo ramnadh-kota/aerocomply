@@ -15,6 +15,7 @@ from app.api.v1 import (
     maintenance,
     part_requirements,
     parts,
+    proactive,
     procurement,
     purchase_orders,
     receiving,
@@ -49,4 +50,5 @@ api_router.include_router(deferred_items.router)
 api_router.include_router(compliance.router)
 api_router.include_router(regulatory.router)
 api_router.include_router(control_center.router)
+api_router.include_router(proactive.router)
 api_router.include_router(lisa.router)

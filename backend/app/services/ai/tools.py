@@ -42,6 +42,7 @@ from app.services import (
     maintenance_service,
     part_requirement_service,
     part_service,
+    proactive_service,
     procurement_service,
     purchase_order_service,
     regulatory_service,
@@ -512,6 +513,18 @@ def _handle_get_control_center_fleet(
     return {"fleet": [r.model_dump(mode="json") for r in rows]}
 
 
+def _handle_get_proactive_alerts(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    alerts = proactive_service.get_proactive_alerts(db, organization_id=user.organization_id)
+    return {"alerts": [a.model_dump(mode="json") for a in alerts]}
+
+
+def _handle_get_daily_brief(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    brief = proactive_service.get_daily_brief(db, organization_id=user.organization_id)
+    return brief.model_dump(mode="json")
+
+
 TOOL_REGISTRY: list[ToolSpec] = [
     ToolSpec(
         name="get_aircraft",
@@ -839,8 +852,28 @@ TOOL_REGISTRY: list[ToolSpec] = [
         ),
         input_schema={"type": "object", "properties": {}},
         handler=_handle_get_control_center_fleet,
-    
-    required_permission=Permission.AIRCRAFT_READ,
+        required_permission=Permission.AIRCRAFT_READ,
+    ),
+    ToolSpec(
+        name="get_proactive_alerts",
+        description=(
+            "Get real, backend-derived operational alerts (AOG, part shortages, release "
+            "blockers, overdue/due-soon deferred items, non-compliant assessments) — every "
+            "alert traces to a real record, never fabricated."
+        ),
+        input_schema={"type": "object", "properties": {}},
+        handler=_handle_get_proactive_alerts,
+        required_permission=Permission.AIRCRAFT_READ,
+    ),
+    ToolSpec(
+        name="get_daily_brief",
+        description=(
+            "Get the backend-authoritative daily brief: alert counts by severity and the top "
+            "5 priorities, derived the same way as get_proactive_alerts."
+        ),
+        input_schema={"type": "object", "properties": {}},
+        handler=_handle_get_daily_brief,
+        required_permission=Permission.AIRCRAFT_READ,
     ),
 ]
 

@@ -126,6 +126,18 @@ def get_assessment(
     return assessment
 
 
+def list_all_assessments(db: Session, *, organization_id: uuid.UUID) -> list[ComplianceAssessment]:
+    return list(
+        db.execute(
+            select(ComplianceAssessment).where(
+                ComplianceAssessment.organization_id == organization_id
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 def list_assessments_for_aircraft(
     db: Session, *, organization_id: uuid.UUID, aircraft_id: uuid.UUID
 ) -> list[ComplianceAssessment]:
