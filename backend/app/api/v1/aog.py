@@ -11,8 +11,9 @@ from app.schemas.aog_event import (
     AogEventResponse,
     AogEventUpdateRequest,
 )
+from app.schemas.aog_recovery import AogRecoveryStatusResponse
 from app.schemas.auth import CurrentUser
-from app.services import aog_service
+from app.services import aog_recovery_service, aog_service
 
 router = APIRouter(prefix="/aog-events", tags=["aog"])
 
@@ -136,6 +137,18 @@ def mark_recovered(
         event_id=event_id,
     )
     return AogEventResponse.model_validate(event)
+
+
+@router.get("/recovery-status/{aircraft_id}", response_model=AogRecoveryStatusResponse)
+def get_recovery_status(
+    aircraft_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+) -> AogRecoveryStatusResponse:
+    status = aog_recovery_service.get_recovery_status(
+        db, organization_id=current_user.organization_id, aircraft_id=aircraft_id
+    )
+    return AogRecoveryStatusResponse.model_validate(status)
 
 
 @router.post("/{event_id}/cancel", response_model=AogEventResponse)

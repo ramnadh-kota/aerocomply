@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -11,6 +11,10 @@ import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getCurrentUser } from "@/lib/domain/currentUser";
 import { combinedAuditHistory } from "@/lib/mock/audit";
 import { ActionHistory } from "@/components/audit/ActionHistory";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { aircraftApi } from "@/lib/api/aircraft";
+import { aogRecoveryApi, type BackendAogRecoveryStatus } from "@/lib/api/aogRecovery";
 
 // M14.1 — AOG Recovery detail view. Read-only analysis (getAogRecoveryAnalysis,
 // lib/mock/ai/analytics.ts) plus ONE human-approved action: escalating the
@@ -66,6 +70,20 @@ const STEP_BADGE: Record<StepStatus, { status: Parameters<typeof StatusBadge>[0]
   PENDING: { status: "INSUFFICIENT_DATA", label: "PENDING" },
 };
 
+// Backend-authoritative identity reconciliation status for the panel below.
+// "matched" means a real backend Aircraft was found whose registration
+// equals the demo/mock aircraft's registration — the only shared, real
+// identity field between the two datasets. This is a live lookup against
+// the real Aircraft table, never a hard-coded/fabricated id mapping table:
+// if no backend aircraft shares the registration, that is reported plainly
+// rather than guessing.
+type IdentityState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "matched"; aircraftId: string }
+  | { kind: "unmatched" }
+  | { kind: "unavailable" };
+
 export default function AogRecoveryPage() {
   const params = useParams<{ aircraftId: string }>();
   const aircraftId = params.aircraftId;
@@ -75,6 +93,49 @@ export default function AogRecoveryPage() {
   void version;
 
   const analysis = getAircraftRecoveryPlan(aircraftId);
+
+  const { mode: dataMode } = useDataMode();
+  const { accessToken, isAuthenticated } = useSession();
+  const isRealModeSession = dataMode === "REAL" && isAuthenticated && !!accessToken;
+
+  const [identity, setIdentity] = useState<IdentityState>({ kind: "idle" });
+  const [recoveryStatus, setRecoveryStatus] = useState<BackendAogRecoveryStatus | null>(null);
+  const [recoveryFetchState, setRecoveryFetchState] = useState<"idle" | "loading" | "loaded" | "unavailable">("idle");
+
+  useEffect(() => {
+    if (!isRealModeSession || !accessToken || !analysis) {
+      setIdentity({ kind: "idle" });
+      return;
+    }
+    setIdentity({ kind: "loading" });
+    aircraftApi
+      .list(accessToken)
+      .then((aircraft) => {
+        const match = aircraft.find((a) => a.registration === analysis.registration);
+        setIdentity(match ? { kind: "matched", aircraftId: match.id } : { kind: "unmatched" });
+      })
+      .catch(() => setIdentity({ kind: "unavailable" }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRealModeSession, accessToken, analysis?.registration]);
+
+  useEffect(() => {
+    if (identity.kind !== "matched" || !accessToken) {
+      setRecoveryStatus(null);
+      setRecoveryFetchState("idle");
+      return;
+    }
+    setRecoveryFetchState("loading");
+    aogRecoveryApi
+      .getRecoveryStatus(accessToken, identity.aircraftId)
+      .then((result) => {
+        setRecoveryStatus(result);
+        setRecoveryFetchState("loaded");
+      })
+      .catch(() => {
+        setRecoveryStatus(null);
+        setRecoveryFetchState("unavailable");
+      });
+  }, [identity, accessToken]);
 
   if (!analysis) {
     return (
@@ -148,6 +209,84 @@ export default function AogRecoveryPage() {
         </div>
         <StatusBadge status={analysis.isAog ? "NON_COMPLIANT" : "COMPLIANT"} label={analysis.isAog ? "AOG" : "NOT AOG"} />
       </div>
+
+      {isRealModeSession && (
+        <section className="ac-section">
+          <div className="ac-card">
+            <p className="ac-eyebrow" style={{ marginBottom: 8 }}>
+              Backend AOG Recovery Status
+              {recoveryFetchState === "loaded" && " · Live Postgres Data"}
+            </p>
+            {identity.kind === "loading" && (
+              <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>Reconciling this aircraft against real backend records…</p>
+            )}
+            {identity.kind === "unmatched" && (
+              <p className="ac-text-sm" style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--ac-status-review)", background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)" }}>
+                NO_MATCHING_BACKEND_AIRCRAFT — no real Aircraft record shares registration {analysis.registration}. This
+                page is showing demo/mock analysis below; nothing is fabricated to fill the gap.
+              </p>
+            )}
+            {identity.kind === "unavailable" && (
+              <p className="ac-text-sm" style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--ac-status-review)", background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)" }}>
+                BACKEND_UNAVAILABLE — could not reach the backend to reconcile aircraft identity.
+              </p>
+            )}
+            {identity.kind === "matched" && recoveryFetchState === "unavailable" && (
+              <p className="ac-text-sm" style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--ac-status-review)", background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)" }}>
+                BACKEND_UNAVAILABLE — real recovery status could not be retrieved for aircraft {identity.aircraftId}.
+              </p>
+            )}
+            {identity.kind === "matched" && recoveryFetchState === "loaded" && recoveryStatus && (
+              <div>
+                <p className="ac-text-sm" style={{ margin: "0 0 8px" }}>
+                  Reconciled to real Aircraft <span className="ac-mono">{identity.aircraftId.slice(0, 8)}…</span> by matching registration.
+                </p>
+                <StatusBadge status={recoveryStatus.is_aog ? "NON_COMPLIANT" : "COMPLIANT"} label={recoveryStatus.is_aog ? "AOG (real)" : "NOT AOG (real)"} />
+                {recoveryStatus.is_aog && (
+                  <div style={{ marginTop: 10 }}>
+                    <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 4px" }}>
+                      Event {recoveryStatus.aog_event_id?.slice(0, 8)}… · {recoveryStatus.aog_status} · {recoveryStatus.severity}
+                      {recoveryStatus.work_order_id && <> · Work Order <span className="ac-mono">{recoveryStatus.work_order_id.slice(0, 8)}…</span></>}
+                    </p>
+                    <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 4px" }}>
+                      Release Readiness: {recoveryStatus.release_readiness_status ?? "N/A"} · TAT: {recoveryStatus.tat_status ?? "N/A"}
+                      {recoveryStatus.tat_reason && ` (${recoveryStatus.tat_reason})`}
+                    </p>
+                    <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 8px" }}>
+                      Technician Authorization: {recoveryStatus.technician_authorization} · ETA: {recoveryStatus.eta} · Compliance: {recoveryStatus.compliance_status}
+                    </p>
+                    {recoveryStatus.blockers.length > 0 ? (
+                      <div style={{ overflowX: "auto" }}>
+                        <table className="ac-table">
+                          <thead><tr><th>Category</th><th>Description</th><th>Who Should Act</th><th>Dependency</th></tr></thead>
+                          <tbody>
+                            {recoveryStatus.blockers.map((b, i) => (
+                              <tr key={i} style={recoveryStatus.next_best_action === b ? { outline: "2px solid var(--ac-accent)" } : undefined}>
+                                <td className="ac-mono ac-text-sm">{b.category}</td>
+                                <td className="ac-text-sm">{b.description}</td>
+                                <td className="ac-text-sm">{b.who_should_act}</td>
+                                <td className="ac-text-sm">{b.dependency}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No real blockers recorded for this aircraft&apos;s active AOG event.</p>
+                    )}
+                    {recoveryStatus.next_best_action && (
+                      <p className="ac-text-sm" style={{ marginTop: 8 }}>
+                        <strong>Next best action:</strong> {recoveryStatus.next_best_action.dependency} ({recoveryStatus.next_best_action.who_should_act})
+                      </p>
+                    )}
+                    <p className="ac-text-sm ac-text-muted" style={{ marginTop: 8 }}>{recoveryStatus.data_completeness}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {analysis.isAog && (
         <section className="ac-section">

@@ -32,6 +32,7 @@ from app.core.permissions import Permission, permissions_for_roles
 from app.schemas.auth import CurrentUser
 from app.services import (
     aircraft_service,
+    aog_recovery_service,
     aog_service,
     compliance_service,
     control_center_service,
@@ -410,6 +411,53 @@ def _handle_get_aog_events(db: Session, user: CurrentUser, args: dict[str, Any])
     }
 
 
+def _handle_get_aog_recovery_status(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    status = aog_recovery_service.get_recovery_status(
+        db,
+        organization_id=user.organization_id,
+        aircraft_id=_uuid(args["aircraft_id"], "aircraft_id"),
+    )
+    return {
+        "aircraft_id": status.aircraft_id,
+        "registration": status.registration,
+        "is_aog": status.is_aog,
+        "aog_event_id": status.aog_event_id,
+        "aog_status": status.aog_status,
+        "severity": status.severity,
+        "work_order_id": status.work_order_id,
+        "release_readiness_status": status.release_readiness_status,
+        "tat_status": status.tat_status,
+        "tat_reason": status.tat_reason,
+        "blockers": [
+            {
+                "category": b.category,
+                "description": b.description,
+                "record_type": b.record_type,
+                "record_id": b.record_id,
+                "who_should_act": b.who_should_act,
+                "dependency": b.dependency,
+            }
+            for b in status.blockers
+        ],
+        "next_best_action": (
+            {
+                "category": status.next_best_action.category,
+                "description": status.next_best_action.description,
+                "who_should_act": status.next_best_action.who_should_act,
+                "dependency": status.next_best_action.dependency,
+            }
+            if status.next_best_action
+            else None
+        ),
+        "technician_authorization": status.technician_authorization,
+        "eta": status.eta,
+        "compliance_status": status.compliance_status,
+        "data_completeness": status.data_completeness,
+    }
+
+
 def _handle_get_maintenance_due(
     db: Session, user: CurrentUser, args: dict[str, Any]
 ) -> dict[str, Any]:
@@ -761,7 +809,29 @@ TOOL_REGISTRY: list[ToolSpec] = [
             },
         },
         handler=_handle_get_aog_events,
-    
+
+    required_permission=Permission.AIRCRAFT_READ,
+    ),
+    ToolSpec(
+        name="get_aog_recovery_status",
+        description=(
+            "Get the synthesized recovery status for one aircraft: whether it is "
+            "currently AOG, the active AOG event, release readiness, TAT, and every "
+            "real blocker (task execution, evidence, inspection/RII, and material "
+            "shortages with their exact procurement/PO/receiving state), ranked into "
+            "a single next-best-action. Never fabricates technician authorization, "
+            "ETA, or compliance sync — those are reported as NOT_TRACKED/UNKNOWN when "
+            "no backend record exists."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "aircraft_id": {"type": "string", "description": "Aircraft UUID"},
+            },
+            "required": ["aircraft_id"],
+        },
+        handler=_handle_get_aog_recovery_status,
+
     required_permission=Permission.AIRCRAFT_READ,
     ),
     ToolSpec(
