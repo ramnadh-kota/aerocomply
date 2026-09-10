@@ -87,6 +87,39 @@ def update_part(
     return part
 
 
+def assign_location(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    actor_user_id: uuid.UUID | None,
+    part_id: uuid.UUID,
+    location_id: uuid.UUID,
+) -> Part:
+    """Sets Part.location_id, which becomes authoritative over the legacy
+    free-text `location` field from this point on (see app/models/part.py).
+    """
+    from app.services import warehouse_service
+
+    part = get_part(db, organization_id=organization_id, part_id=part_id)
+    # Confirm the location belongs to this tenant before assigning it.
+    warehouse_service.get_location(db, organization_id=organization_id, location_id=location_id)
+
+    part.location_id = location_id
+    db.add(part)
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=actor_user_id,
+        action="part.location_assigned",
+        entity_type="Part",
+        entity_id=part.id,
+        metadata={"location_id": str(location_id)},
+    )
+    db.commit()
+    db.refresh(part)
+    return part
+
+
 def get_shortage_status(part: Part) -> bool:
     """A part is in shortage when there is nothing left to allocate: on-hand minus
     reserved has hit zero or gone negative. No severity tiers are inferred here —

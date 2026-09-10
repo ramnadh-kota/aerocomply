@@ -1,4 +1,7 @@
-from sqlalchemy import Integer, String, Text
+import uuid
+
+from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
@@ -38,7 +41,15 @@ class Part(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     # for this exact field, frontend/lib/mock/types.ts Part.serialNumber).
     serial_number: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     batch_or_lot: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Free-text fallback — superseded by location_id once a part is assigned
+    # a real Location record. These are NOT two competing sources of truth:
+    # location_id is authoritative whenever set (see part_service helpers),
+    # and `location` is only ever read/shown when location_id is null (a
+    # part that predates the Location model, or was never assigned one).
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("locations.id"), nullable=True, index=True
+    )
     serviceability_status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=PartServiceabilityStatus.SERVICEABLE
     )

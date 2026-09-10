@@ -38,6 +38,7 @@ class PartResponse(BaseModel):
     serial_number: str | None
     batch_or_lot: str | None
     location: str | None
+    location_id: uuid.UUID | None
     serviceability_status: str
     quarantine_reason: str | None
     quantity_on_hand: int

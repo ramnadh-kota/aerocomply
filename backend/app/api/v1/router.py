@@ -24,6 +24,7 @@ from app.api.v1 import (
     tat,
     vendor_part_availability,
     vendors,
+    warehouses,
     work_orders,
 )
 
@@ -51,4 +52,5 @@ api_router.include_router(compliance.router)
 api_router.include_router(regulatory.router)
 api_router.include_router(control_center.router)
 api_router.include_router(proactive.router)
+api_router.include_router(warehouses.router)
 api_router.include_router(lisa.router)
