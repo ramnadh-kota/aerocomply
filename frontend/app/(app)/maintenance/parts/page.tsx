@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -14,6 +14,8 @@ import type { Part, CertificateVerificationStatus, TraceabilityStatus } from "@/
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
 import { partsApi, type BackendPart } from "@/lib/api/parts";
+import { inventoryApi } from "@/lib/api/inventory";
+import { ApiError, normalizeApiError } from "@/lib/apiClient";
 
 // M7.2 — Parts Traceability Workspace. Extends the existing Parts &
 // Inventory list (kept as the single parts table — no second parts system)
@@ -39,6 +41,20 @@ export default function PartsInventoryPage() {
     "idle" | "loading" | "loaded" | "unavailable"
   >("idle");
 
+  function refetchBackendParts(token: string) {
+    setBackendStatus("loading");
+    return partsApi
+      .list(token)
+      .then((result) => {
+        setBackendParts(result);
+        setBackendStatus("loaded");
+      })
+      .catch(() => {
+        setBackendParts(null);
+        setBackendStatus("unavailable");
+      });
+  }
+
   useEffect(() => {
     if (!isRealModeSession || !accessToken) {
       setBackendParts(null);
@@ -63,6 +79,51 @@ export default function PartsInventoryPage() {
       cancelled = true;
     };
   }, [isRealModeSession, accessToken]);
+
+  // Inventory mutation UI state — which part's action row is expanded, the
+  // quantity typed, and the most recent result (success or a normalized
+  // error) shown inline next to that row. Kept minimal (no modal/dialog)
+  // since this is a first real-mutation slice on an already-additive panel.
+  const [actionPartId, setActionPartId] = useState<string | null>(null);
+  const [actionQuantity, setActionQuantity] = useState(1);
+  const [actionReason, setActionReason] = useState("");
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState<{ partId: string; text: string; isError: boolean } | null>(null);
+
+  async function runInventoryAction(
+    action: "reserve" | "release" | "consume" | "quarantine" | "release-serviceable",
+    partId: string
+  ) {
+    if (!accessToken) return;
+    setActionBusy(true);
+    setActionMessage(null);
+    try {
+      if (action === "reserve") await inventoryApi.reserve(accessToken, partId, actionQuantity);
+      else if (action === "release") await inventoryApi.release(accessToken, partId, actionQuantity);
+      else if (action === "consume") await inventoryApi.consume(accessToken, partId, actionQuantity);
+      else if (action === "quarantine") {
+        if (!actionReason.trim()) {
+          setActionMessage({ partId, text: "A reason is required to quarantine stock.", isError: true });
+          setActionBusy(false);
+          return;
+        }
+        await inventoryApi.quarantine(accessToken, partId, actionQuantity, actionReason.trim());
+      } else if (action === "release-serviceable") {
+        await inventoryApi.releaseQuarantine(accessToken, partId, actionQuantity, "SERVICEABLE");
+      }
+      setActionMessage({ partId, text: "Updated.", isError: false });
+      await refetchBackendParts(accessToken);
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      const text =
+        err instanceof ApiError && err.status === 403
+          ? "PERMISSION_DENIED — your role cannot perform this action."
+          : normalized.message;
+      setActionMessage({ partId, text, isError: true });
+    } finally {
+      setActionBusy(false);
+    }
+  }
 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -196,20 +257,76 @@ export default function PartsInventoryPage() {
                     <th>Reserved</th>
                     <th>Quarantined</th>
                     <th>Available</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {backendParts.map((p) => (
-                    <tr key={p.id}>
-                      <td className="ac-mono">{p.part_number}</td>
-                      <td>{p.description}</td>
-                      <td className="ac-mono">{p.serial_number ?? p.batch_or_lot ?? "—"}</td>
-                      <td>{p.serviceability_status.replace(/_/g, " ")}</td>
-                      <td>{p.quantity_on_hand}</td>
-                      <td>{p.quantity_reserved}</td>
-                      <td>{p.quantity_quarantined}</td>
-                      <td>{p.available_quantity}</td>
-                    </tr>
+                    <Fragment key={p.id}>
+                      <tr>
+                        <td className="ac-mono">{p.part_number}</td>
+                        <td>{p.description}</td>
+                        <td className="ac-mono">{p.serial_number ?? p.batch_or_lot ?? "—"}</td>
+                        <td>{p.serviceability_status.replace(/_/g, " ")}</td>
+                        <td>{p.quantity_on_hand}</td>
+                        <td>{p.quantity_reserved}</td>
+                        <td>{p.quantity_quarantined}</td>
+                        <td>{p.available_quantity}</td>
+                        <td>
+                          <button
+                            className="ac-btn"
+                            style={{ fontSize: 12, padding: "2px 8px" }}
+                            onClick={() => {
+                              setActionPartId(actionPartId === p.id ? null : p.id);
+                              setActionMessage(null);
+                              setActionReason("");
+                              setActionQuantity(1);
+                            }}
+                          >
+                            {actionPartId === p.id ? "Close" : "Inventory Action"}
+                          </button>
+                        </td>
+                      </tr>
+                      {actionPartId === p.id && (
+                        <tr>
+                          <td colSpan={9} style={{ background: "var(--ac-surface-2, transparent)" }}>
+                            <div className="ac-flex ac-items-center ac-gap-2" style={{ flexWrap: "wrap", padding: "8px 0" }}>
+                              <label className="ac-flex ac-items-center ac-gap-2">
+                                <span className="ac-text-sm ac-text-muted">Qty</span>
+                                <input
+                                  className="ac-input"
+                                  style={{ width: 70 }}
+                                  type="number"
+                                  min={1}
+                                  value={actionQuantity}
+                                  onChange={(e) => setActionQuantity(Math.max(1, Number(e.target.value)))}
+                                />
+                              </label>
+                              <input
+                                className="ac-input"
+                                style={{ width: 220 }}
+                                placeholder="Reason (required for quarantine)"
+                                value={actionReason}
+                                onChange={(e) => setActionReason(e.target.value)}
+                              />
+                              <button className="ac-btn" disabled={actionBusy} onClick={() => runInventoryAction("reserve", p.id)}>Reserve</button>
+                              <button className="ac-btn" disabled={actionBusy} onClick={() => runInventoryAction("release", p.id)}>Release Reservation</button>
+                              <button className="ac-btn" disabled={actionBusy} onClick={() => runInventoryAction("consume", p.id)}>Consume</button>
+                              <button className="ac-btn" disabled={actionBusy} onClick={() => runInventoryAction("quarantine", p.id)}>Quarantine</button>
+                              <button className="ac-btn" disabled={actionBusy} onClick={() => runInventoryAction("release-serviceable", p.id)}>Release Quarantine → Serviceable</button>
+                              {actionMessage && actionMessage.partId === p.id && (
+                                <span
+                                  className="ac-text-sm"
+                                  style={{ color: actionMessage.isError ? "var(--ac-status-review)" : "var(--ac-status-compliant)" }}
+                                >
+                                  {actionMessage.text}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
