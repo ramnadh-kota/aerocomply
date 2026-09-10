@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -11,6 +11,9 @@ import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { certificatesForPart, traceabilityStatusForPart } from "@/lib/mock/partTraceability";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import type { Part, CertificateVerificationStatus, TraceabilityStatus } from "@/lib/mock/types";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { partsApi, type BackendPart } from "@/lib/api/parts";
 
 // M7.2 — Parts Traceability Workspace. Extends the existing Parts &
 // Inventory list (kept as the single parts table — no second parts system)
@@ -19,6 +22,48 @@ import type { Part, CertificateVerificationStatus, TraceabilityStatus } from "@/
 
 export default function PartsInventoryPage() {
   const { submissions } = useMroState();
+
+  // Backend-authoritative parts (REAL mode only) — additive to the existing
+  // demo-dataset table below, not a replacement. The backend Part model
+  // does not (yet) carry certificate/installation/removal history, so the
+  // Certificate/Traceability columns in the demo table below have no
+  // backend equivalent and are not part of this panel — see
+  // docs/LISA_ARCHITECTURE.md. This panel shows what the backend genuinely
+  // has: identity, serviceability status, and real on-hand/reserved/
+  // quarantined/available quantities.
+  const { mode: dataMode } = useDataMode();
+  const { accessToken, isAuthenticated } = useSession();
+  const isRealModeSession = dataMode === "REAL" && isAuthenticated && !!accessToken;
+  const [backendParts, setBackendParts] = useState<BackendPart[] | null>(null);
+  const [backendStatus, setBackendStatus] = useState<
+    "idle" | "loading" | "loaded" | "unavailable"
+  >("idle");
+
+  useEffect(() => {
+    if (!isRealModeSession || !accessToken) {
+      setBackendParts(null);
+      setBackendStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setBackendStatus("loading");
+    partsApi
+      .list(accessToken)
+      .then((result) => {
+        if (cancelled) return;
+        setBackendParts(result);
+        setBackendStatus("loaded");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBackendParts(null);
+        setBackendStatus("unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isRealModeSession, accessToken]);
+
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [certFilter, setCertFilter] = useState<string>("ALL");
@@ -112,6 +157,70 @@ export default function PartsInventoryPage() {
         </div>
       </div>
 
+      {isRealModeSession && (
+        <div className="ac-card" style={{ marginBottom: 16 }}>
+          <p className="ac-eyebrow" style={{ marginBottom: 8 }}>
+            Backend Parts
+            {backendStatus === "loaded" && " · Live Postgres Data"}
+          </p>
+          {backendStatus === "unavailable" && (
+            <p
+              className="ac-text-sm"
+              style={{
+                marginBottom: 8,
+                padding: "8px 10px",
+                borderRadius: 6,
+                border: "1px solid var(--ac-status-review)",
+                background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)",
+              }}
+            >
+              BACKEND_UNAVAILABLE — real part inventory could not be retrieved. The table below
+              this point is the existing demo dataset, not a fallback for this panel.
+            </p>
+          )}
+          {backendStatus === "loaded" && backendParts && backendParts.length === 0 && (
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              No parts recorded in the backend for this organization yet.
+            </p>
+          )}
+          {backendStatus === "loaded" && backendParts && backendParts.length > 0 && (
+            <div style={{ overflowX: "auto" }}>
+              <table className="ac-table" style={{ width: "100%" }}>
+                <thead>
+                  <tr>
+                    <th>Part Number</th>
+                    <th>Description</th>
+                    <th>Serial / Batch</th>
+                    <th>Status</th>
+                    <th>On Hand</th>
+                    <th>Reserved</th>
+                    <th>Quarantined</th>
+                    <th>Available</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backendParts.map((p) => (
+                    <tr key={p.id}>
+                      <td className="ac-mono">{p.part_number}</td>
+                      <td>{p.description}</td>
+                      <td className="ac-mono">{p.serial_number ?? p.batch_or_lot ?? "—"}</td>
+                      <td>{p.serviceability_status.replace(/_/g, " ")}</td>
+                      <td>{p.quantity_on_hand}</td>
+                      <td>{p.quantity_reserved}</td>
+                      <td>{p.quantity_quarantined}</td>
+                      <td>{p.available_quantity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      <p className="ac-eyebrow" style={{ marginBottom: 8 }}>
+        {isRealModeSession ? "Demo Dataset View (below)" : "Search & Filter"}
+      </p>
       <div className="ac-card" style={{ marginBottom: 16 }}>
         <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
           <input

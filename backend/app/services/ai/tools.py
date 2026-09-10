@@ -249,8 +249,10 @@ def _handle_get_parts(db: Session, user: CurrentUser, args: dict[str, Any]) -> d
                 "id": str(p.id),
                 "part_number": p.part_number,
                 "description": p.description,
+                "serviceability_status": p.serviceability_status,
                 "quantity_on_hand": p.quantity_on_hand,
                 "quantity_reserved": p.quantity_reserved,
+                "quantity_quarantined": p.quantity_quarantined,
                 "available_quantity": p.available_quantity,
             }
             for p in parts
