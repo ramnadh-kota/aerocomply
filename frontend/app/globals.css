@@ -198,6 +198,18 @@ table {
     linear-gradient(180deg, rgba(10, 15, 26, 0.55) 0%, rgba(10, 15, 26, 0.25) 35%, rgba(10, 15, 26, 0.9) 100%);
 }
 
+/* Dense-data variant — used wherever AviationBackground resolves to the
+   "denseData" zone (tables, notifications, admin/RBAC, audit, reports).
+   No aircraft image layer at all, just a flat near-black navy so text/
+   rows never compete with any imagery. Kept extremely subtle on purpose. */
+.ac-aviation-bg-overlay--plain {
+  background: linear-gradient(180deg, #0a0f1a 0%, #070b12 55%, #05070c 100%);
+}
+
+:root:not([data-theme="dark"]) .ac-aviation-bg-overlay--plain {
+  background: var(--ac-bg);
+}
+
 @media (max-width: 1024px) {
   .ac-aviation-bg-image {
     opacity: min(var(--ac-bg-opacity, 0.12), 0.08);
