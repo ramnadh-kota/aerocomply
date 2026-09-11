@@ -11,6 +11,7 @@ import { useRoleSim } from "@/lib/role-sim/RoleSimContext";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
 import { lisaApi } from "@/lib/api/lisa";
+import { lisaContextApi, type BackendLisaConversationContext } from "@/lib/api/lisaContext";
 import { proactiveApi, type BackendProactiveAlert } from "@/lib/api/proactive";
 import { ApiError } from "@/lib/apiClient";
 import { AI_NAME, AI_DESCRIPTION, COMPANY_NAME } from "@/lib/brand";
@@ -190,6 +191,32 @@ export function AIConsole({
   // proactive_service.py). null = not yet loaded; "unavailable" = REAL
   // mode session but the fetch failed — never silently substituted with
   // demo alerts (same no-mock-fallback policy as ask()).
+  const [lisaContext, setLisaContext] = useState<BackendLisaConversationContext | null>(null);
+
+  function refreshLisaContext() {
+    if (!isRealModeSession || !accessToken) return;
+    lisaContextApi
+      .get(accessToken)
+      .then(setLisaContext)
+      .catch(() => setLisaContext(null));
+  }
+
+  useEffect(() => {
+    refreshLisaContext();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRealModeSession, accessToken]);
+
+  async function resetLisaContext() {
+    if (!accessToken) return;
+    try {
+      const reset = await lisaContextApi.reset(accessToken);
+      setLisaContext(reset);
+    } catch {
+      // Context reset failing is non-fatal to the chat itself — just leave
+      // the displayed context as-is rather than showing a misleading state.
+    }
+  }
+
   const [backendAlerts, setBackendAlerts] = useState<BackendProactiveAlert[] | null>(null);
   const [backendAlertsStatus, setBackendAlertsStatus] = useState<
     "idle" | "loading" | "loaded" | "unavailable"
@@ -347,6 +374,7 @@ export function AIConsole({
         // through the exact same AIResponseView with no fork.
         commitTurn(trimmed, backendResponse as unknown as AiResponse);
         setAsking(false);
+        refreshLisaContext();
         return;
       } catch (err) {
         let reason: "AI_PROVIDER_UNAVAILABLE" | "PERMISSION_DENIED" | "BACKEND_UNAVAILABLE";
@@ -364,6 +392,11 @@ export function AIConsole({
         }
         setLastFallbackReason(reason);
         setAsking(false);
+        // Entity/reference resolution runs before the AI provider call on
+        // the backend, so context may have been persisted even though this
+        // request itself failed (e.g. AI_PROVIDER_UNAVAILABLE) — refresh to
+        // reflect that rather than leaving a stale indicator.
+        refreshLisaContext();
         commitTurn(
           trimmed,
           answerInRealModeWithoutBackend(trimmed, previousQuestion, recentQuestions, reason)
@@ -466,6 +499,36 @@ export function AIConsole({
           </div>
         )}
       </div>
+
+      {isRealModeSession && lisaContext && (
+        <div className="ac-card" style={{ marginBottom: 12, padding: "8px 12px" }}>
+          <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 8 }}>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              {lisaContext.current_aircraft_id || lisaContext.current_work_order_id ? (
+                <>
+                  Lisa is using:{" "}
+                  {lisaContext.current_aircraft_id && (
+                    <span className="ac-mono">aircraft {lisaContext.current_aircraft_id.slice(0, 8)}…</span>
+                  )}
+                  {lisaContext.current_aircraft_id && lisaContext.current_work_order_id && " · "}
+                  {lisaContext.current_work_order_id && (
+                    <span className="ac-mono">work order {lisaContext.current_work_order_id.slice(0, 8)}…</span>
+                  )}
+                </>
+              ) : (
+                "Lisa has no active aircraft/work order context yet."
+              )}
+            </p>
+            <button
+              className="ac-btn"
+              style={{ fontSize: 11, padding: "2px 8px" }}
+              onClick={resetLisaContext}
+            >
+              Reset context
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="ac-section" style={{ marginBottom: 16 }}>
         <p className="ac-eyebrow" style={{ marginBottom: 8 }}>

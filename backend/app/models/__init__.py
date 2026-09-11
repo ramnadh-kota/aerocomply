@@ -2,6 +2,7 @@ from app.models.aircraft import Aircraft
 from app.models.audit_event import AuditEvent
 from app.models.evidence import Evidence, EvidenceStatus
 from app.models.inspection_requirement import InspectionRequirement
+from app.models.lisa_conversation_context import LisaConversationContext
 from app.models.organization import Organization
 from app.models.part import Part
 from app.models.task import Task
@@ -24,4 +25,5 @@ __all__ = [
     "Part",
     "Vendor",
     "TechnicianQualification",
+    "LisaConversationContext",
 ]

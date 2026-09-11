@@ -27,6 +27,8 @@ from app.services.ai.provider import (
 )
 from app.services.ai.safety import is_safety_restricted, safety_refusal_response
 from app.services.ai.tools import anthropic_tool_schemas, execute_tool
+from app.services.lisa import context_service
+from app.services.lisa.message_resolution_service import resolve_message
 
 logger = get_logger(__name__)
 
@@ -90,11 +92,46 @@ async def ask_lisa(
         resp = safety_refusal_response()
         return {"id": _new_id(), "question": question, **resp}
 
+    # Deterministic CONTEXT LOAD -> ENTITY RESOLUTION -> REFERENCE RESOLUTION,
+    # entirely rule-based against real backend records — never the LLM. An
+    # ambiguous match short-circuits before any provider call is made.
+    resolution = resolve_message(
+        db, organization_id=user.organization_id, user_id=user.id, question=question
+    )
+    if resolution.needs_clarification:
+        ambiguous = resolution.ambiguous
+        assert ambiguous is not None
+        options = "\n".join(f"- {c.display}" for c in ambiguous.candidates)
+        return {
+            "id": _new_id(),
+            "question": question,
+            "headline": (
+                f"I found {len(ambiguous.candidates)} matching "
+                f"{ambiguous.entity_type.replace('_', ' ')} records"
+            ),
+            "narrative": [f"Which one do you mean?\n{options}"],
+            "priority": None,
+            "whatIFound": [c.display for c in ambiguous.candidates],
+            "whyItMatters": None,
+            "recommendedNextStep": "Reply with the specific record you mean.",
+            "dependencies": [],
+            "whoShouldAct": None,
+            "relatedRecords": [],
+            "confidenceState": "AMBIGUOUS",
+            "actionCategory": "CLARIFICATION_NEEDED",
+            "source": "ENTITY_RESOLUTION",
+        }
+
+    context_service.record_question(db, resolution.context, question=question)
+
     context_lines = [
         f"Organization: {user.organization_id}",
         f"User roles: {', '.join(user.roles) if user.roles else 'none'}",
         "DATA_MODE: REAL",
     ]
+    resolved_line = resolution.entity_summary_line()
+    if resolved_line:
+        context_lines.append(resolved_line)
     if current_entity:
         context_lines.append(f"Current page/entity: {current_entity}")
     if conversation_history:
