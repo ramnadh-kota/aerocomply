@@ -22,7 +22,12 @@ def _register(client, org_name="Lisa Context Airline", email="context-admin@lisa
     return resp.json()["access_token"]
 
 
-def test_ask_resolves_and_persists_context_even_without_ai_provider(client):
+def test_ask_answers_deterministically_and_persists_context_without_ai_provider(client):
+    """An AOG-family question is answered by the deterministic orchestrator
+    (app/services/lisa/orchestration_service.py) entirely without the AI
+    provider — no ANTHROPIC_API_KEY is configured in this environment, and
+    this must still return 200 with a real, backend-authoritative answer.
+    """
     settings = get_settings()
     assert not settings.anthropic_api_key
 
@@ -42,15 +47,38 @@ def test_ask_resolves_and_persists_context_even_without_ai_provider(client):
         json={"question": "Why is VT-CTX still AOG?"},
         headers=headers,
     )
-    # No AI provider configured -> honest 503, but resolution/context work
-    # happens BEFORE the provider is called, so it must still have run.
-    assert ask_resp.status_code == 503
+    # The deterministic orchestrator handles this intent entirely on its
+    # own — never reaches the (unconfigured) AI provider.
+    assert ask_resp.status_code == 200
+    body = ask_resp.json()
+    assert body["source"] == "OPERATIONAL_ORCHESTRATION"
+    assert "not currently AOG" in body["headline"]
 
     context_resp = client.get("/api/v1/lisa/context", headers=headers)
     assert context_resp.status_code == 200
     body = context_resp.json()
     assert body["current_aircraft_id"] == aircraft_id
     assert body["previous_question"] == "Why is VT-CTX still AOG?"
+
+
+def test_ask_falls_through_to_provider_for_non_operational_question(client):
+    """A question outside the deterministic orchestrator's known intents
+    (UNKNOWN, and no continuation context to infer from) must still fall
+    through to the existing LLM tool-loop — and, honestly, 503 here since
+    no ANTHROPIC_API_KEY is configured.
+    """
+    token = _register(
+        client, org_name="Lisa Fallthrough Airline", email="fallthrough-admin@lisatest.com"
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    ask_resp = client.post(
+        "/api/v1/lisa/ask",
+        json={"question": "What is the weather forecast for tomorrow?"},
+        headers=headers,
+    )
+    assert ask_resp.status_code == 503
+    assert ask_resp.json()["error"]["code"] == "ai_not_configured"
 
 
 def test_ask_returns_clarification_for_ambiguous_aircraft_without_calling_provider(client):

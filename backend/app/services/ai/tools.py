@@ -110,8 +110,16 @@ def _task_to_dict(t: Any) -> dict[str, Any]:
     return {
         "id": str(t.id),
         "work_order_id": str(t.work_order_id),
-        "status": getattr(t, "status", None),
+        # Task has no "status" column — execution_state is the real field
+        # (see app/models/task.py). The previous version of this function
+        # read a nonexistent "status" attribute and always returned None.
+        "execution_state": getattr(t, "execution_state", None),
         "description": getattr(t, "description", None),
+        "assigned_technician_user_id": (
+            str(t.assigned_technician_user_id)
+            if getattr(t, "assigned_technician_user_id", None)
+            else None
+        ),
     }
 
 
@@ -163,6 +171,12 @@ def _handle_get_work_order_tasks(
         db, organization_id=user.organization_id, work_order_id=work_order_id
     )
     return {"tasks": [_task_to_dict(t) for t in tasks]}
+
+
+def _handle_get_task(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    task_id = _uuid(args["task_id"], "task_id")
+    task = work_order_service.get_task(db, organization_id=user.organization_id, task_id=task_id)
+    return _task_to_dict(task)
 
 
 def _handle_get_evidence(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
@@ -237,7 +251,12 @@ def _handle_get_release_readiness(
         "work_order_id": str(work_order_id),
         "status": readiness.status,
         "blockers": [
-            {"category": b.category, "description": b.description} for b in readiness.blockers
+            {
+                "category": b.category,
+                "description": b.description,
+                "related_record_id": str(b.related_record_id) if b.related_record_id else None,
+            }
+            for b in readiness.blockers
         ],
         "data_completeness": readiness.data_completeness,
     }
@@ -375,6 +394,20 @@ def _handle_get_purchase_orders(
                 "vendor_id": str(po.vendor_id),
                 "status": po.status,
                 "total_cents": po.total_cents,
+                "lines": [
+                    {
+                        "id": str(line.id),
+                        "procurement_request_id": (
+                            str(line.procurement_request_id)
+                            if line.procurement_request_id
+                            else None
+                        ),
+                        "part_number": line.part_number,
+                        "quantity": line.quantity,
+                        "received_quantity": line.received_quantity,
+                    }
+                    for line in po.lines
+                ],
             }
             for po in purchase_orders
         ]
@@ -448,6 +481,8 @@ def _handle_get_aog_recovery_status(
                 "description": status.next_best_action.description,
                 "who_should_act": status.next_best_action.who_should_act,
                 "dependency": status.next_best_action.dependency,
+                "record_type": status.next_best_action.record_type,
+                "record_id": status.next_best_action.record_id,
             }
             if status.next_best_action
             else None
@@ -648,7 +683,21 @@ TOOL_REGISTRY: list[ToolSpec] = [
             "required": ["work_order_id"],
         },
         handler=_handle_get_work_order_tasks,
-    
+
+    required_permission=Permission.AIRCRAFT_READ,
+    ),
+    ToolSpec(
+        name="get_task",
+        description=(
+            "Get one task by id: work order, execution_state, description, assigned technician."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"task_id": {"type": "string", "description": "Task UUID"}},
+            "required": ["task_id"],
+        },
+        handler=_handle_get_task,
+
     required_permission=Permission.AIRCRAFT_READ,
     ),
     ToolSpec(

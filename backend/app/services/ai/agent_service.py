@@ -29,6 +29,7 @@ from app.services.ai.safety import is_safety_restricted, safety_refusal_response
 from app.services.ai.tools import anthropic_tool_schemas, execute_tool
 from app.services.lisa import context_service
 from app.services.lisa.message_resolution_service import resolve_message
+from app.services.lisa.orchestration_service import InvestigationResult, investigate
 
 logger = get_logger(__name__)
 
@@ -123,6 +124,20 @@ async def ask_lisa(
         }
 
     context_service.record_question(db, resolution.context, question=question)
+
+    # Deterministic OPERATIONAL PLAN -> DEPENDENCY-AWARE TOOL EXECUTION ->
+    # SYNTHESIS for the closed set of intents the orchestrator recognizes.
+    # This answers real operational questions (AOG / release readiness /
+    # technician authorization / procurement-PO-receiving chain /
+    # compliance) WITHOUT the AI provider — every fact traces to a real
+    # tool call via execute_tool. Falls through to the existing LLM
+    # tool-loop below only when no deterministic intent matched.
+    investigation = investigate(db, user, question=question, resolution=resolution)
+    if investigation is not None:
+        if investigation.result_graph:
+            updates = _graph_to_context_updates(investigation.result_graph)
+            context_service.update_context(db, resolution.context, updates=updates)
+        return _investigation_to_response(question, investigation)
 
     context_lines = [
         f"Organization: {user.organization_id}",
@@ -236,6 +251,81 @@ def _run_tool(db: Session, user: CurrentUser, call: AIToolCall) -> dict[str, Any
             "content": f"Tool error: {exc}",
             "is_error": True,
         }
+
+
+_GRAPH_FIELD_TO_CONTEXT_FIELD = {
+    "aircraft_id": "current_aircraft_id",
+    "work_order_id": "current_work_order_id",
+    "task_id": "current_task_id",
+    "part_id": "current_part_id",
+    "part_requirement_id": "current_part_requirement_id",
+    "procurement_request_id": "current_procurement_request_id",
+    "vendor_id": "current_vendor_id",
+    "purchase_order_id": "current_purchase_order_id",
+    "technician_user_id": "current_technician_user_id",
+    "aog_event_id": "current_aog_event_id",
+}
+
+
+def _graph_to_context_updates(result_graph: dict[str, str]) -> dict[str, str | None]:
+    """Only real, resolvable identifiers from an InvestigationResult's
+    result_graph are ever written back to persisted context — fields like
+    "registration" (a display string, not an id) are silently dropped.
+    """
+    updates: dict[str, str | None] = {}
+    for graph_field, value in result_graph.items():
+        context_field = _GRAPH_FIELD_TO_CONTEXT_FIELD.get(graph_field)
+        if context_field is not None:
+            updates[context_field] = value
+    return updates
+
+
+_STATUS_TO_CONFIDENCE = {
+    "ANSWERED": "CONFIRMED",
+    "NEEDS_ENTITY": "PARTIAL_DATA",
+    "NOT_FOUND": "UNKNOWN",
+    "PERMISSION_DENIED": "PERMISSION_DENIED",
+    "BACKEND_UNAVAILABLE": "BACKEND_UNAVAILABLE",
+}
+_STATUS_TO_ACTION_CATEGORY = {
+    "ANSWERED": "RECOMMENDATION",
+    "NEEDS_ENTITY": "CLARIFICATION_NEEDED",
+    "NOT_FOUND": "INFORMATION",
+    "PERMISSION_DENIED": "INFORMATION",
+    "BACKEND_UNAVAILABLE": "INFORMATION",
+}
+
+
+def _investigation_to_response(question: str, investigation: InvestigationResult) -> dict[str, Any]:
+    # Only link to routes actually confirmed to exist in the frontend —
+    # never a guessed path (see "no fake navigation").
+    _KNOWN_ROUTES = {
+        "PurchaseOrder": "/procurement/purchase-orders/{id}",
+        "Aircraft": "/aircraft/{id}",
+    }
+    related = [
+        {
+            "label": f"{r.label} {r.id[:8]}",
+            "href": _KNOWN_ROUTES[r.label].format(id=r.id) if r.label in _KNOWN_ROUTES else "",
+        }
+        for r in investigation.related_records
+    ]
+    return {
+        "id": _new_id(),
+        "question": question,
+        "headline": investigation.headline,
+        "narrative": investigation.what_i_found or [investigation.headline],
+        "priority": None,
+        "whatIFound": investigation.what_i_found,
+        "whyItMatters": investigation.why_it_matters,
+        "recommendedNextStep": investigation.next_step,
+        "dependencies": [],
+        "whoShouldAct": investigation.who_should_act,
+        "relatedRecords": related,
+        "confidenceState": _STATUS_TO_CONFIDENCE.get(investigation.status, "PARTIAL_DATA"),
+        "actionCategory": _STATUS_TO_ACTION_CATEGORY.get(investigation.status, "INFORMATION"),
+        "source": "OPERATIONAL_ORCHESTRATION",
+    }
 
 
 __all__ = ["ask_lisa", "AIProviderNotConfiguredError", "AIProviderError"]
