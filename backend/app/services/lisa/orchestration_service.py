@@ -83,10 +83,11 @@ class _CallBudget:
 
 
 def _needs_entity(intent: Intent, entity_label: str) -> InvestigationResult:
+    article = "an" if entity_label[0] in "aeiou" else "a"
     return InvestigationResult(
         intent=intent.value,
         status="NEEDS_ENTITY",
-        headline=f"I need a {entity_label} to investigate this — which one do you mean?",
+        headline=f"I need {article} {entity_label} to investigate this — which one do you mean?",
     )
 
 
@@ -531,6 +532,18 @@ _INVESTIGATORS = {
     Intent.COMPLIANCE: _investigate_compliance,
 }
 
+# Which entity_type(s) each intent's investigator actually reads from
+# context. Used only to decide whether an explicit-but-unresolvable
+# reference in THIS message should block investigation (see investigate())
+# — deliberately not a general "required entities" schema beyond that.
+_INTENT_ENTITY_TYPES: dict[Intent, tuple[str, ...]] = {
+    Intent.AOG: ("aircraft",),
+    Intent.RELEASE_READINESS: ("work_order",),
+    Intent.TECHNICIAN_AUTHORIZATION: ("task", "technician"),
+    Intent.PROCUREMENT_CHAIN: ("purchase_order", "procurement_request"),
+    Intent.COMPLIANCE: ("aircraft",),
+}
+
 
 def investigate(
     db: Session, user: CurrentUser, *, question: str, resolution: MessageResolution
@@ -544,6 +557,23 @@ def investigate(
         resolved_intent = _infer_continuation_intent(resolution.context)
     if resolved_intent is None:
         return None
+
+    # If THIS message contained an explicit reference that failed to
+    # resolve (e.g. a registration/number that looks real but matches no
+    # record), never silently fall back to whatever entity was in context
+    # from an earlier turn — that would answer about the wrong record. Only
+    # the entity type(s) the chosen intent actually needs are checked, so
+    # an unrelated not-found elsewhere in the message doesn't block it.
+    needed_types = _INTENT_ENTITY_TYPES.get(resolved_intent, ())
+    for not_found in resolution.not_found:
+        if not_found.entity_type in needed_types:
+            label = not_found.entity_type.replace("_", " ")
+            article = "an" if label[0] in "aeiou" else "a"
+            return InvestigationResult(
+                intent=resolved_intent.value,
+                status="NOT_FOUND",
+                headline=f"I couldn't find {article} {label} matching {not_found.identifier!r}.",
+            )
 
     investigator = _INVESTIGATORS.get(resolved_intent)
     if investigator is None:

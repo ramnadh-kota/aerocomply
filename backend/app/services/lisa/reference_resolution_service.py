@@ -80,6 +80,14 @@ _PURCHASE_ORDER_PATTERN = re.compile(r"\bPO-[A-Za-z0-9-]+\b", re.IGNORECASE)
 _AIRCRAFT_REGISTRATION_PATTERN = re.compile(
     r"\b(?:[A-Z]{1,2}-[A-Z0-9]{2,6}|N[0-9]{1,5}[A-Z]{0,3})\b"
 )
+# A bare UUID is the "exact authoritative ID" case (entity_resolution_service's
+# own priority rule #1) — critically, this is also the exact identifier Lisa
+# itself surfaces when asking the user to disambiguate ("VT-DUPX — Aircraft
+# 10d3b430-..."), so a user replying with that UUID (alone or embedded in a
+# sentence) must resolve, regardless of which entity type it turns out to be.
+_UUID_PATTERN = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+)
 
 
 def is_reset_request(question: str) -> bool:
@@ -114,6 +122,15 @@ def extract_explicit_identifiers(question: str) -> dict[str, str]:
         found["aircraft"] = ac_match.group(0).upper()
 
     return found
+
+
+def extract_bare_uuid(question: str) -> str | None:
+    """A standalone UUID in the message — its entity type is unknown here
+    (that's for the caller to determine by trying each resolver), only
+    whether one is present at all.
+    """
+    match = _UUID_PATTERN.search(question)
+    return match.group(0) if match else None
 
 
 def resolve_reference(

@@ -199,6 +199,67 @@ def test_message_resolution_reset_phrase_clears_context(db_session):
     assert reset.context.current_aircraft_id is None
 
 
+def test_message_resolution_resolves_bare_uuid_from_ambiguity_candidate(db_session):
+    """Regression test for a real defect found during the 5b9c2bf QA pass:
+    Lisa surfaces a real UUID as a disambiguation option (e.g. "VT-DUP —
+    Aircraft <uuid>") but had no way to resolve that same UUID if the user
+    replied with it — extract_explicit_identifiers only matched WO-/PO-/
+    registration-shaped tokens, never a bare UUID. A user could never
+    actually select the aircraft Lisa just offered them.
+    """
+    org_id = uuid.uuid4()
+    user_id = _create_user(db_session, org_id).id
+    first = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_id,
+        payload=AircraftCreateRequest(registration="VT-UID", msn="MSN-U1", aircraft_type="A320"),
+    )
+    aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_id,
+        payload=AircraftCreateRequest(registration="VT-UID", msn="MSN-U2", aircraft_type="B737"),
+    )
+
+    ambiguous = resolve_message(
+        db_session, organization_id=org_id, user_id=user_id, question="Why is VT-UID AOG?"
+    )
+    assert ambiguous.needs_clarification
+
+    # The user replies with the exact UUID Lisa surfaced, embedded in a
+    # normal sentence — this must resolve to that specific aircraft.
+    resolution = resolve_message(
+        db_session,
+        organization_id=org_id,
+        user_id=user_id,
+        question=f"I mean aircraft {first.id}.",
+    )
+    assert not resolution.needs_clarification
+    assert resolution.resolved
+    assert resolution.resolved[0].entity_id == str(first.id)
+    assert str(resolution.context.current_aircraft_id) == str(first.id)
+
+
+def test_message_resolution_bare_uuid_from_other_tenant_does_not_resolve(db_session):
+    org_a = uuid.uuid4()
+    org_b = uuid.uuid4()
+    user_b = _create_user(db_session, org_b).id
+    aircraft_a = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_a,
+        payload=AircraftCreateRequest(registration="VT-TUX", msn="MSN-TUX", aircraft_type="A320"),
+    )
+
+    resolution = resolve_message(
+        db_session,
+        organization_id=org_b,
+        user_id=user_b,
+        question=f"Tell me about {aircraft_a.id}.",
+    )
+    assert not resolution.needs_clarification
+    assert not resolution.resolved
+    assert resolution.context.current_aircraft_id is None
+
+
 def test_message_resolution_context_is_tenant_scoped(db_session):
     org_a = uuid.uuid4()
     org_b = uuid.uuid4()

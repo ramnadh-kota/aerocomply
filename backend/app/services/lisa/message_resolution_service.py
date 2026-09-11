@@ -95,9 +95,29 @@ def resolve_message(
         result.resolved.append(resolution)
         context_updates[_CONTEXT_FIELD_BY_TYPE[resolution.entity_type]] = resolution.entity_id
 
+    # 1b. A bare UUID (e.g. the user replying with the exact id Lisa just
+    # surfaced while asking them to disambiguate) — try each known entity
+    # type's resolver in a fixed priority order until one actually finds a
+    # record. Only attempted when nothing already resolved above, so a
+    # typed identifier (a WO-/PO-/registration match) always wins.
+    if not result.resolved:
+        bare_uuid = reference_resolution_service.extract_bare_uuid(question)
+        if bare_uuid is not None:
+            for resolver in _RESOLVER_BY_TYPE.values():
+                resolution = resolver(db, organization_id=organization_id, identifier=bare_uuid)
+                if isinstance(resolution, ResolvedEntity):
+                    result.resolved.append(resolution)
+                    context_updates[_CONTEXT_FIELD_BY_TYPE[resolution.entity_type]] = (
+                        resolution.entity_id
+                    )
+                    break
+                # A syntactically valid UUID that doesn't match this type is
+                # simply NotFound for that type — try the next one. It can
+                # never be AmbiguousMatch (a UUID is unique by definition).
+
     # 2. Pronoun/reference resolution against context — only attempted for
     # entity types the message didn't already resolve explicitly.
-    if not explicit:
+    if not explicit and not result.resolved:
         reference = reference_resolution_service.resolve_reference(question, context)
         if reference is not None:
             entity_type, entity_id = reference

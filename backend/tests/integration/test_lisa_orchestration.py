@@ -397,10 +397,13 @@ def test_orchestration_is_tenant_scoped(db_session):
         question=f"Why is {scenario.aircraft.registration} AOG?",
         resolution=resolution,
     )
-    # org_b has no aircraft with that registration -> never resolved, so
-    # the orchestrator has no aircraft to investigate.
+    # org_b has no aircraft with that registration -> never resolved. The
+    # explicit reference in this message is NOT_FOUND for org_b, not just
+    # "no entity in context" — the orchestrator must not fall back to
+    # NEEDS_ENTITY generically, and must never leak that the registration
+    # exists for a different tenant.
     assert result is not None
-    assert result.status == "NEEDS_ENTITY"
+    assert result.status == "NOT_FOUND"
 
 
 def test_orchestration_permission_denied_does_not_leak_via_fallback(db_session):
@@ -468,3 +471,41 @@ def test_unknown_intent_returns_none_for_llm_fallthrough(db_session):
         db_session, user, question="What is the weather forecast?", resolution=resolution
     )
     assert result is None
+
+
+def test_unresolvable_explicit_reference_never_falls_back_to_stale_context(db_session):
+    """Regression test for a real defect found during the 5b9c2bf QA pass:
+    asking about a nonexistent aircraft registration ("Why is ZZ-NOPE still
+    AOG?") after a real aircraft was already in context answered about the
+    OLD aircraft instead of reporting NOT_FOUND — because the investigator
+    read context.current_aircraft_id directly without checking whether
+    this turn's own explicit reference had actually resolved. A registration
+    that looks real but matches nothing must never silently fall back to
+    whatever aircraft happened to be in context from an earlier turn.
+    """
+    org_id = uuid.uuid4()
+    scenario = _Scenario(db_session, org_id)
+
+    # Turn 1: real aircraft — the AOG investigation itself is already
+    # covered elsewhere; only the context side effect matters here.
+    resolution = scenario.question(
+        scenario.approver, f"Why is {scenario.aircraft.registration} AOG?"
+    )
+    assert str(resolution.context.current_aircraft_id) == str(scenario.aircraft.id)
+
+    # Turn 2: a syntactically valid but nonexistent registration.
+    resolution = scenario.question(scenario.approver, "Why is ZZ-NOPE still AOG?")
+    result = investigate(
+        db_session,
+        scenario.approver,
+        question="Why is ZZ-NOPE still AOG?",
+        resolution=resolution,
+    )
+    assert result is not None
+    assert result.status == "NOT_FOUND"
+    assert "ZZ-NOPE" in result.headline
+    # Must NOT answer about the previous aircraft.
+    assert scenario.aircraft.registration not in result.headline
+    # Context's stale aircraft id is untouched by the failed reference, but
+    # the investigator still correctly refused to use it for this turn.
+    assert str(resolution.context.current_aircraft_id) == str(scenario.aircraft.id)
