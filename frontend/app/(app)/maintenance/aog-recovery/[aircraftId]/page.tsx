@@ -14,7 +14,7 @@ import { ActionHistory } from "@/components/audit/ActionHistory";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
 import { aircraftApi } from "@/lib/api/aircraft";
-import { aogRecoveryApi, type BackendAogRecoveryStatus } from "@/lib/api/aogRecovery";
+import { aogRecoveryApi, type BackendAogRecoveryStatus, type BackendCriticalPathStage } from "@/lib/api/aogRecovery";
 
 // M14.1 — AOG Recovery detail view. Read-only analysis (getAogRecoveryAnalysis,
 // lib/mock/ai/analytics.ts) plus ONE human-approved action: escalating the
@@ -61,6 +61,22 @@ const NEXT_ACTION_BY_BLOCKER_TYPE: Record<AogBlockerType, string> = {
   SAFETY: "Escalate blocker to maintenance manager",
   EXECUTION: "Escalate blocker to maintenance manager",
   UNKNOWN: "Escalate blocker to maintenance manager",
+};
+
+const CRITICAL_PATH_GLYPH: Record<BackendCriticalPathStage["status"], string> = {
+  COMPLETE: "✓",
+  ACTIVE: "●",
+  BLOCKED: "⚠",
+  WAITING: "○",
+  UNKNOWN: "?",
+};
+
+const CRITICAL_PATH_COLOR: Record<BackendCriticalPathStage["status"], string> = {
+  COMPLETE: "var(--ac-status-compliant)",
+  ACTIVE: "var(--ac-accent)",
+  BLOCKED: "var(--ac-status-non-compliant)",
+  WAITING: "var(--ac-text-muted)",
+  UNKNOWN: "var(--ac-status-review)",
 };
 
 type StepStatus = "DONE" | "BLOCKED" | "PENDING";
@@ -255,6 +271,36 @@ export default function AogRecoveryPage() {
                     <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 8px" }}>
                       Technician Authorization: {recoveryStatus.technician_authorization} · ETA: {recoveryStatus.eta} · Compliance: {recoveryStatus.compliance_status}
                     </p>
+                    {recoveryStatus.critical_path.length > 0 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <p className="ac-eyebrow" style={{ margin: "0 0 6px" }}>Critical Path</p>
+                        <div style={{ overflowX: "auto" }}>
+                          <table className="ac-table">
+                            <thead><tr><th>Stage</th><th>Status</th><th>Reason</th><th>Record</th><th>Next Action</th></tr></thead>
+                            <tbody>
+                              {recoveryStatus.critical_path.map((stage) => (
+                                <tr key={stage.stage}>
+                                  <td className="ac-mono ac-text-sm">{stage.stage.replace(/_/g, " ")}</td>
+                                  <td>
+                                    <span style={{ color: CRITICAL_PATH_COLOR[stage.status], fontWeight: 700, marginRight: 6 }} aria-hidden>
+                                      {CRITICAL_PATH_GLYPH[stage.status]}
+                                    </span>
+                                    <span className="ac-text-sm">{stage.status}</span>
+                                  </td>
+                                  <td className="ac-text-sm">{stage.reason}</td>
+                                  <td className="ac-mono ac-text-sm">
+                                    {stage.record_type && stage.record_id
+                                      ? `${stage.record_type} ${stage.record_id.slice(0, 8)}…`
+                                      : "—"}
+                                  </td>
+                                  <td className="ac-text-sm">{stage.next_action ?? "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                     {recoveryStatus.blockers.length > 0 ? (
                       <div style={{ overflowX: "auto" }}>
                         <table className="ac-table">

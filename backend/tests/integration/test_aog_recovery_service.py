@@ -15,6 +15,8 @@ from app.schemas.procurement_request import (
 )
 from app.schemas.purchase_order import PurchaseOrderCreateRequest, PurchaseOrderLineCreateRequest
 from app.schemas.receiving import ReceiveLineRequest, ReceivePurchaseOrderRequest
+from app.schemas.task import TaskCreateRequest
+from app.schemas.technician import TechnicianQualificationCreateRequest
 from app.schemas.vendor import VendorCreateRequest
 from app.schemas.work_order import WorkOrderCreateRequest
 from app.services import (
@@ -26,6 +28,7 @@ from app.services import (
     procurement_service,
     purchase_order_service,
     receiving_service,
+    technician_service,
     vendor_service,
     work_order_service,
 )
@@ -132,7 +135,7 @@ def test_shortage_not_requested_yields_material_not_requested_blocker(db_session
     assert status.next_best_action.category == "MATERIAL_NOT_REQUESTED"
     # Honesty guarantees — never fabricated.
     assert status.tat_status == "UNKNOWN"
-    assert "NOT_TRACKED" in status.technician_authorization
+    assert "UNKNOWN" in status.technician_authorization
     assert "UNKNOWN" in status.eta
     assert "NOT_EVALUATED" in status.compliance_status
 
@@ -241,3 +244,83 @@ def test_recovery_status_is_tenant_scoped(db_session):
         aog_recovery_service.get_recovery_status(
             db_session, organization_id=org_b, aircraft_id=ctx["aircraft"].id
         )
+
+
+def test_critical_path_reflects_material_stage_for_shortage(db_session):
+    ctx = _setup_aog_with_shortage(db_session, uuid.uuid4())
+    status = aog_recovery_service.get_recovery_status(
+        db_session, organization_id=ctx["org_id"], aircraft_id=ctx["aircraft"].id
+    )
+    by_stage = {s.stage: s for s in status.critical_path}
+    assert by_stage["PART"].status == "BLOCKED"
+    assert by_stage["PROCUREMENT"].status == "WAITING"
+    assert by_stage["PURCHASE_ORDER"].status == "WAITING"
+    assert by_stage["RECEIVING"].status == "WAITING"
+
+
+def test_critical_path_no_technician_stage_without_task(db_session):
+    ctx = _setup_aog_with_shortage(db_session, uuid.uuid4())
+    status = aog_recovery_service.get_recovery_status(
+        db_session, organization_id=ctx["org_id"], aircraft_id=ctx["aircraft"].id
+    )
+    stage_names = [s.stage for s in status.critical_path]
+    # No Task rows were created in this fixture, so TECHNICIAN is genuinely
+    # not applicable — never fabricated as COMPLETE or BLOCKED.
+    assert "TECHNICIAN" not in stage_names
+
+
+def test_technician_stage_unknown_when_task_exists_but_unassigned(db_session):
+    org_id = uuid.uuid4()
+    ctx = _setup_aog_with_shortage(db_session, org_id)
+    work_order_service.create_task(
+        db_session,
+        organization_id=org_id,
+        payload=TaskCreateRequest(work_order_id=ctx["work_order"].id, description="Install part"),
+    )
+    status = aog_recovery_service.get_recovery_status(
+        db_session, organization_id=org_id, aircraft_id=ctx["aircraft"].id
+    )
+    by_stage = {s.stage: s for s in status.critical_path}
+    assert by_stage["TECHNICIAN"].status == "UNKNOWN"
+    assert "assigned technician" in status.technician_authorization
+
+
+def test_technician_stage_blocked_then_complete_after_qualification(db_session):
+    org_id = uuid.uuid4()
+    ctx = _setup_aog_with_shortage(db_session, org_id)
+    technician = _create_user(db_session, org_id)
+    task = work_order_service.create_task(
+        db_session,
+        organization_id=org_id,
+        payload=TaskCreateRequest(work_order_id=ctx["work_order"].id, description="Install part"),
+    )
+    technician_service.assign_technician(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=None,
+        task_id=task.id,
+        technician_user_id=technician.id,
+    )
+
+    status = aog_recovery_service.get_recovery_status(
+        db_session, organization_id=org_id, aircraft_id=ctx["aircraft"].id
+    )
+    by_stage = {s.stage: s for s in status.critical_path}
+    assert by_stage["TECHNICIAN"].status == "BLOCKED"
+    assert "MISSING" in by_stage["TECHNICIAN"].reason
+
+    technician_service.grant_qualification(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=None,
+        payload=TechnicianQualificationCreateRequest(
+            user_id=technician.id, aircraft_type="A320", qualification_type="AIRFRAME_POWERPLANT"
+        ),
+    )
+
+    status = aog_recovery_service.get_recovery_status(
+        db_session, organization_id=org_id, aircraft_id=ctx["aircraft"].id
+    )
+    by_stage = {s.stage: s for s in status.critical_path}
+    assert by_stage["TECHNICIAN"].status == "COMPLETE"
+    assert "AUTHORIZED" in status.technician_authorization

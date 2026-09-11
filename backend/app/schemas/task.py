@@ -16,6 +16,7 @@ class TaskResponse(BaseModel):
     work_order_id: uuid.UUID
     description: str
     execution_state: str
+    assigned_technician_user_id: uuid.UUID | None
     created_at: datetime
 
     class Config:

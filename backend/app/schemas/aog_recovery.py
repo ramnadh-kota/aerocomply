@@ -12,6 +12,17 @@ class RecoveryBlockerResponse(BaseModel):
     dependency: str
 
 
+class CriticalPathStageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    stage: str
+    status: str
+    reason: str
+    record_type: str | None
+    record_id: str | None
+    next_action: str | None
+
+
 class AogRecoveryStatusResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -27,6 +38,7 @@ class AogRecoveryStatusResponse(BaseModel):
     tat_reason: str | None
     blockers: list[RecoveryBlockerResponse]
     next_best_action: RecoveryBlockerResponse | None
+    critical_path: list[CriticalPathStageResponse]
     technician_authorization: str
     eta: str
     compliance_status: str

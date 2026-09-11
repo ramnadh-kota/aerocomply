@@ -49,6 +49,7 @@ from app.services import (
     regulatory_service,
     release_readiness_service,
     tat_service,
+    technician_service,
     vendor_fit_service,
     vendor_service,
     work_order_service,
@@ -451,10 +452,40 @@ def _handle_get_aog_recovery_status(
             if status.next_best_action
             else None
         ),
+        "critical_path": [
+            {
+                "stage": s.stage,
+                "status": s.status,
+                "reason": s.reason,
+                "record_type": s.record_type,
+                "record_id": s.record_id,
+                "next_action": s.next_action,
+            }
+            for s in status.critical_path
+        ],
         "technician_authorization": status.technician_authorization,
         "eta": status.eta,
         "compliance_status": status.compliance_status,
         "data_completeness": status.data_completeness,
+    }
+
+
+def _handle_check_technician_authorization(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    result = technician_service.check_authorization(
+        db,
+        organization_id=user.organization_id,
+        task_id=_uuid(args["task_id"], "task_id"),
+        technician_user_id=_uuid(args["technician_user_id"], "technician_user_id"),
+    )
+    return {
+        "status": result.status,
+        "reason": result.reason,
+        "task_id": str(result.task_id),
+        "technician_user_id": str(result.technician_user_id),
+        "aircraft_type": result.aircraft_type,
+        "qualification_id": str(result.qualification_id) if result.qualification_id else None,
     }
 
 
@@ -816,12 +847,13 @@ TOOL_REGISTRY: list[ToolSpec] = [
         name="get_aog_recovery_status",
         description=(
             "Get the synthesized recovery status for one aircraft: whether it is "
-            "currently AOG, the active AOG event, release readiness, TAT, and every "
-            "real blocker (task execution, evidence, inspection/RII, and material "
-            "shortages with their exact procurement/PO/receiving state), ranked into "
-            "a single next-best-action. Never fabricates technician authorization, "
-            "ETA, or compliance sync — those are reported as NOT_TRACKED/UNKNOWN when "
-            "no backend record exists."
+            "currently AOG, the active AOG event, release readiness, TAT, a structured "
+            "critical_path (PART/PROCUREMENT/PURCHASE_ORDER/RECEIVING/EXECUTION/"
+            "EVIDENCE/INSPECTION_RII/TECHNICIAN/RELEASE_READINESS stages, each with a "
+            "real COMPLETE/BLOCKED/WAITING/UNKNOWN status), every real blocker, and a "
+            "single next-best-action. Technician authorization is real when a task has "
+            "an assigned technician; ETA and compliance sync remain UNKNOWN/"
+            "NOT_EVALUATED because no backend record exists for them."
         ),
         input_schema={
             "type": "object",
@@ -833,6 +865,27 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_aog_recovery_status,
 
     required_permission=Permission.AIRCRAFT_READ,
+    ),
+    ToolSpec(
+        name="check_technician_authorization",
+        description=(
+            "Check whether a specific technician is authorized to perform a specific "
+            "task, based on real TechnicianQualification records matched against the "
+            "task's aircraft type. Returns AUTHORIZED / NOT_AUTHORIZED / EXPIRED / "
+            "MISSING / UNKNOWN with a concrete reason — never inferred from the "
+            "technician's application role."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task UUID"},
+                "technician_user_id": {"type": "string", "description": "Technician user UUID"},
+            },
+            "required": ["task_id", "technician_user_id"],
+        },
+        handler=_handle_check_technician_authorization,
+
+    required_permission=Permission.TECHNICIAN_READ,
     ),
     ToolSpec(
         name="get_maintenance_due",

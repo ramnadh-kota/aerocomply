@@ -15,3 +15,6 @@ class Task(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)
     execution_state: Mapped[str] = mapped_column(String(32), nullable=False, default="PENDING")
+    assigned_technician_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
+    )

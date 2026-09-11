@@ -13,6 +13,15 @@ export interface BackendRecoveryBlocker {
   dependency: string;
 }
 
+export interface BackendCriticalPathStage {
+  stage: string;
+  status: "COMPLETE" | "ACTIVE" | "BLOCKED" | "WAITING" | "UNKNOWN";
+  reason: string;
+  record_type: string | null;
+  record_id: string | null;
+  next_action: string | null;
+}
+
 export interface BackendAogRecoveryStatus {
   aircraft_id: string;
   registration: string;
@@ -26,6 +35,7 @@ export interface BackendAogRecoveryStatus {
   tat_reason: string | null;
   blockers: BackendRecoveryBlocker[];
   next_best_action: BackendRecoveryBlocker | null;
+  critical_path: BackendCriticalPathStage[];
   technician_authorization: string;
   eta: string;
   compliance_status: string;

@@ -36,6 +36,11 @@ class Permission(StrEnum):
     # here (who can hold the grant) and in procurement_service (an approver
     # can never approve their own request, regardless of grant).
     PROCUREMENT_APPROVE = "procurement:approve"
+    TECHNICIAN_READ = "technician:read"
+    # Granting/revoking a qualification, and assigning a technician to a
+    # task, are both maintenance-ownership actions — same grant, same
+    # reasoning as PART_WRITE below.
+    TECHNICIAN_WRITE = "technician:write"
 
 
 class Role(StrEnum):
@@ -85,6 +90,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.PROCUREMENT_READ,
         Permission.PROCUREMENT_WRITE,
         Permission.PROCUREMENT_APPROVE,
+        Permission.TECHNICIAN_READ,
+        Permission.TECHNICIAN_WRITE,
     },
     Role.COMPLIANCE_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -101,6 +108,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.PART_READ,
         Permission.VENDOR_READ,
         Permission.PROCUREMENT_READ,
+        Permission.TECHNICIAN_READ,
     },
     Role.CAMO_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -119,6 +127,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.PROCUREMENT_READ,
         Permission.PROCUREMENT_WRITE,
         Permission.PROCUREMENT_APPROVE,
+        Permission.TECHNICIAN_READ,
+        Permission.TECHNICIAN_WRITE,
     },
     Role.QUALITY_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -131,6 +141,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.PART_READ,
         Permission.VENDOR_READ,
         Permission.PROCUREMENT_READ,
+        Permission.TECHNICIAN_READ,
     },
     Role.MAINTENANCE_ENGINEER: {
         Permission.AIRCRAFT_READ,
@@ -142,6 +153,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.VENDOR_READ,
         Permission.PROCUREMENT_READ,
         Permission.PROCUREMENT_WRITE,
+        Permission.TECHNICIAN_READ,
+        Permission.TECHNICIAN_WRITE,
     },
     Role.VIEWER: {
         Permission.AIRCRAFT_READ,
@@ -151,6 +164,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.PART_READ,
         Permission.VENDOR_READ,
         Permission.PROCUREMENT_READ,
+        Permission.TECHNICIAN_READ,
     },
 }
 
