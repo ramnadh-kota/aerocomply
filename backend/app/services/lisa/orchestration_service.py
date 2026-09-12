@@ -524,12 +524,120 @@ def _investigate_compliance(
     )
 
 
+def _investigate_assessment(
+    db: Session, user: CurrentUser, resolution: MessageResolution
+) -> InvestigationResult:
+    """Answers assessment questions (biggest risk/gap, top recommendations,
+    roadmap, "what changed") from the most recently created assessment's
+    latest snapshot. There is no per-assessment conversation-context field
+    yet (see LisaConversationContext), so this always reads the org's
+    fleet-scoped assessment rather than remembering "the assessment we
+    discussed" across turns — a deliberate, documented scope limit, not a
+    fabricated memory of one.
+    """
+    budget = _CallBudget(db, user)
+    try:
+        listing = budget.call("get_assessments", {})
+    except AeroComplyError as exc:
+        return _error_result(Intent.ASSESSMENT, exc, budget.tools_invoked)
+    if listing is None:
+        return InvestigationResult(
+            intent=Intent.ASSESSMENT.value,
+            status="BACKEND_UNAVAILABLE",
+            headline=(
+                "I couldn't complete the assessment investigation within the tool-call budget."
+            ),
+            tools_invoked=budget.tools_invoked,
+        )
+
+    assessments = listing["assessments"]
+    if not assessments:
+        return InvestigationResult(
+            intent=Intent.ASSESSMENT.value,
+            status="ANSWERED",
+            headline="No assessments have been created yet for this organization.",
+            tools_invoked=budget.tools_invoked,
+            next_step="Create and run an assessment from the Assessment Command Center.",
+        )
+
+    chosen = next((a for a in assessments if a["scope_type"] == "FLEET"), assessments[0])
+    assessment_id = chosen["id"]
+
+    try:
+        detail = budget.call("get_assessment", {"assessment_id": assessment_id})
+    except AeroComplyError as exc:
+        return _error_result(Intent.ASSESSMENT, exc, budget.tools_invoked)
+    if detail is None:
+        return InvestigationResult(
+            intent=Intent.ASSESSMENT.value,
+            status="BACKEND_UNAVAILABLE",
+            headline=(
+                "I couldn't complete the assessment investigation within the tool-call budget."
+            ),
+            tools_invoked=budget.tools_invoked,
+        )
+
+    graph: dict[str, str] = {"assessment_id": assessment_id, "assessment_name": chosen["name"]}
+    snapshot = detail["latest_snapshot"]
+    if snapshot is None:
+        return InvestigationResult(
+            intent=Intent.ASSESSMENT.value,
+            status="ANSWERED",
+            headline=f"'{chosen['name']}' has not been run yet — no findings exist.",
+            tools_invoked=budget.tools_invoked,
+            result_graph=graph,
+            next_step="Run the assessment to generate findings, risks, and a roadmap.",
+        )
+    graph["snapshot_id"] = snapshot["id"]
+    graph["snapshot_version"] = str(snapshot["version"])
+
+    try:
+        findings_result = budget.call("get_assessment_findings", {"assessment_id": assessment_id})
+    except AeroComplyError as exc:
+        return _error_result(Intent.ASSESSMENT, exc, budget.tools_invoked)
+    findings = findings_result["findings"] if findings_result else []
+
+    if not findings:
+        return InvestigationResult(
+            intent=Intent.ASSESSMENT.value,
+            status="ANSWERED",
+            headline="No assessable operational findings are currently available for this scope.",
+            tools_invoked=budget.tools_invoked,
+            result_graph=graph,
+        )
+
+    top = findings[0]
+    graph["top_finding_id"] = top["id"]
+    graph["top_finding_entity_type"] = top["entity_type"]
+    graph["top_finding_entity_id"] = top["entity_id"]
+
+    return InvestigationResult(
+        intent=Intent.ASSESSMENT.value,
+        status="ANSWERED",
+        headline=(
+            f"Snapshot v{snapshot['version']} of '{chosen['name']}': {snapshot['finding_count']} "
+            f"finding(s), {snapshot['critical_finding_count']} critical, "
+            f"overall score {snapshot['overall_score']} ({snapshot['maturity_band']})."
+        ),
+        tools_invoked=budget.tools_invoked,
+        result_graph=graph,
+        what_i_found=[f"{f['title']}: {f['description']}" for f in findings[:5]],
+        why_it_matters=(
+            f"{top['title']} is {top['severity']} priority, impacting "
+            f"{', '.join(top['impact_dimensions'])}."
+        ),
+        next_step=f"Address the top-priority finding first: {top['title']}.",
+        related_records=[RelatedRecord(label=top["entity_type"], id=top["entity_id"])],
+    )
+
+
 _INVESTIGATORS = {
     Intent.AOG: _investigate_aog,
     Intent.RELEASE_READINESS: _investigate_release_readiness,
     Intent.TECHNICIAN_AUTHORIZATION: _investigate_technician_authorization,
     Intent.PROCUREMENT_CHAIN: _investigate_procurement_chain,
     Intent.COMPLIANCE: _investigate_compliance,
+    Intent.ASSESSMENT: _investigate_assessment,
 }
 
 # Which entity_type(s) each intent's investigator actually reads from
@@ -542,6 +650,7 @@ _INTENT_ENTITY_TYPES: dict[Intent, tuple[str, ...]] = {
     Intent.TECHNICIAN_AUTHORIZATION: ("task", "technician"),
     Intent.PROCUREMENT_CHAIN: ("purchase_order", "procurement_request"),
     Intent.COMPLIANCE: ("aircraft",),
+    Intent.ASSESSMENT: (),
 }
 
 

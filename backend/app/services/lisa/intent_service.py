@@ -15,10 +15,35 @@ class Intent(StrEnum):
     TECHNICIAN_AUTHORIZATION = "TECHNICIAN_AUTHORIZATION"
     PROCUREMENT_CHAIN = "PROCUREMENT_CHAIN"  # material / procurement / PO / receiving
     COMPLIANCE = "COMPLIANCE"
+    ASSESSMENT = "ASSESSMENT"
     UNKNOWN = "UNKNOWN"
 
 
 _KEYWORDS: tuple[tuple[Intent, tuple[str, ...]], ...] = (
+    (
+        Intent.ASSESSMENT,
+        (
+            "biggest risk",
+            "biggest gap",
+            "operational risk",
+            "what should we improve",
+            "highest impact",
+            "highest priority",
+            "highest risk",
+            "most complex",
+            "top recommendation",
+            "recommendations",
+            "roadmap",
+            "run an assessment",
+            "run assessment",
+            "assessment",
+            "what changed since",
+            "compare the latest",
+            "compare assessment",
+            "previous assessment",
+            "previous snapshot",
+        ),
+    ),
     (
         Intent.TECHNICIAN_AUTHORIZATION,
         (

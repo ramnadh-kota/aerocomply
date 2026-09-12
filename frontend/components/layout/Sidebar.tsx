@@ -50,6 +50,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/compliance", label: "AeroComply", glyph: "◆" },
       { href: "/regulations", label: "Regulations", glyph: "§" },
       { href: "/assessments", label: "Assessments", glyph: "✓" },
+      { href: "/assessment-intelligence", label: "Assessment Intelligence", glyph: "◆" },
       { href: "/evidence", label: "Evidence", glyph: "▣" },
       { href: "/documents", label: "Documents", glyph: "🗎" },
     ],

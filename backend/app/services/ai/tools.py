@@ -54,6 +54,7 @@ from app.services import (
     vendor_service,
     work_order_service,
 )
+from app.services.assessment import engine as assessment_engine
 
 ToolHandler = Callable[[Session, CurrentUser, dict[str, Any]], dict[str, Any]]
 
@@ -84,6 +85,238 @@ def _uuid(raw: Any, field: str) -> uuid.UUID:
         raise AeroComplyError(
             f"Invalid UUID for {field}: {raw!r}", code="invalid_tool_input"
         ) from exc
+
+
+def _assessment_to_dict(a: Any) -> dict[str, Any]:
+    return {
+        "id": str(a.id),
+        "name": a.name,
+        "scope_type": a.scope_type,
+        "scope_id": str(a.scope_id) if a.scope_id else None,
+        "status": a.status,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+    }
+
+
+def _snapshot_to_dict(s: Any) -> dict[str, Any]:
+    return {
+        "id": str(s.id),
+        "assessment_id": str(s.assessment_id),
+        "version": s.version,
+        "overall_score": s.overall_score,
+        "maturity_band": s.maturity_band,
+        "summary": s.summary,
+        "finding_count": s.finding_count,
+        "critical_finding_count": s.critical_finding_count,
+    }
+
+
+def _finding_to_dict(f: Any) -> dict[str, Any]:
+    return {
+        "id": str(f.id),
+        "category": f.category,
+        "severity": f.severity,
+        "title": f.title,
+        "description": f.description,
+        "entity_type": f.entity_type,
+        "entity_id": f.entity_id,
+        "materiality_score": f.materiality_score,
+        "complexity_band": f.complexity_band,
+        "dependency_count": f.dependency_count,
+        "impact_dimensions": list(f.impact_dimensions),
+        "priority_rank": f.priority_rank,
+        "source": f.source,
+        "resolved": f.resolved,
+    }
+
+
+def _risk_to_dict(r: Any) -> dict[str, Any]:
+    return {
+        "id": str(r.id),
+        "finding_id": str(r.finding_id) if r.finding_id else None,
+        "risk_level": r.risk_level,
+        "likelihood": r.likelihood,
+        "reason": r.reason,
+        "entity_type": r.entity_type,
+        "entity_id": r.entity_id,
+        "mitigation": r.mitigation,
+        "owner_role": r.owner_role,
+    }
+
+
+def _gap_to_dict(g: Any) -> dict[str, Any]:
+    return {
+        "id": str(g.id),
+        "finding_id": str(g.finding_id) if g.finding_id else None,
+        "category": g.category,
+        "severity": g.severity,
+        "entity_type": g.entity_type,
+        "entity_id": g.entity_id,
+        "expected_condition": g.expected_condition,
+        "current_condition": g.current_condition,
+        "recommended_action": g.recommended_action,
+    }
+
+
+def _recommendation_to_dict(r: Any) -> dict[str, Any]:
+    return {
+        "id": str(r.id),
+        "finding_id": str(r.finding_id) if r.finding_id else None,
+        "recommendation": r.recommendation,
+        "why": r.why,
+        "priority": r.priority,
+        "responsible_role": r.responsible_role,
+        "entity_type": r.entity_type,
+        "entity_id": r.entity_id,
+        "status": r.status,
+    }
+
+
+def _roadmap_item_to_dict(r: Any) -> dict[str, Any]:
+    return {
+        "id": str(r.id),
+        "finding_id": str(r.finding_id) if r.finding_id else None,
+        "sequence": r.sequence,
+        "title": r.title,
+        "description": r.description,
+        "category": r.category,
+        "priority": r.priority,
+        "status": r.status,
+        "entity_type": r.entity_type,
+        "entity_id": r.entity_id,
+        "prerequisite_sequence_numbers": list(r.prerequisite_sequence_numbers),
+        "owner_role": r.owner_role,
+        "estimated_effort_band": r.estimated_effort_band,
+        "effort_confidence": r.effort_confidence,
+        "expected_impact": r.expected_impact,
+        "risk_if_delayed": r.risk_if_delayed,
+    }
+
+
+def _handle_get_assessments(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    assessments = assessment_engine.list_assessments(db, organization_id=user.organization_id)
+    return {"assessments": [_assessment_to_dict(a) for a in assessments]}
+
+
+def _handle_get_assessment(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    assessment_id = _uuid(args["assessment_id"], "assessment_id")
+    assessment = assessment_engine.get_assessment(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    snapshot = assessment_engine.get_latest_snapshot(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    return {
+        "assessment": _assessment_to_dict(assessment),
+        "latest_snapshot": _snapshot_to_dict(snapshot) if snapshot else None,
+    }
+
+
+def _handle_run_assessment(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    assessment_id = _uuid(args["assessment_id"], "assessment_id")
+    snapshot = assessment_engine.run_assessment(
+        db,
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        assessment_id=assessment_id,
+    )
+    return {"snapshot": _snapshot_to_dict(snapshot)}
+
+
+def _handle_get_assessment_findings(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    assessment_id = _uuid(args["assessment_id"], "assessment_id")
+    assessment_engine.get_assessment(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    snapshot = assessment_engine.get_latest_snapshot(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    if snapshot is None:
+        return {"findings": [], "note": "This assessment has not been run yet."}
+    return {"findings": [_finding_to_dict(f) for f in snapshot.findings]}
+
+
+def _handle_get_assessment_risks(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    assessment_id = _uuid(args["assessment_id"], "assessment_id")
+    assessment_engine.get_assessment(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    snapshot = assessment_engine.get_latest_snapshot(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    if snapshot is None:
+        return {"risks": [], "note": "This assessment has not been run yet."}
+    return {"risks": [_risk_to_dict(r) for r in snapshot.risks]}
+
+
+def _handle_get_assessment_gaps(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    assessment_id = _uuid(args["assessment_id"], "assessment_id")
+    assessment_engine.get_assessment(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    snapshot = assessment_engine.get_latest_snapshot(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    if snapshot is None:
+        return {"gaps": [], "note": "This assessment has not been run yet."}
+    return {"gaps": [_gap_to_dict(g) for g in snapshot.gaps]}
+
+
+def _handle_get_assessment_recommendations(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    assessment_id = _uuid(args["assessment_id"], "assessment_id")
+    assessment_engine.get_assessment(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    snapshot = assessment_engine.get_latest_snapshot(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    if snapshot is None:
+        return {"recommendations": [], "note": "This assessment has not been run yet."}
+    return {"recommendations": [_recommendation_to_dict(r) for r in snapshot.recommendations]}
+
+
+def _handle_get_assessment_roadmap(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    assessment_id = _uuid(args["assessment_id"], "assessment_id")
+    assessment_engine.get_assessment(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    snapshot = assessment_engine.get_latest_snapshot(
+        db, organization_id=user.organization_id, assessment_id=assessment_id
+    )
+    if snapshot is None:
+        return {"roadmap": [], "note": "This assessment has not been run yet."}
+    items = sorted(snapshot.roadmap_items, key=lambda r: r.sequence)
+    return {"roadmap": [_roadmap_item_to_dict(r) for r in items]}
+
+
+def _handle_compare_assessment_snapshots(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    snapshot_id_a = _uuid(args["snapshot_id_a"], "snapshot_id_a")
+    snapshot_id_b = _uuid(args["snapshot_id_b"], "snapshot_id_b")
+    comparison = assessment_engine.compare_snapshots(
+        db,
+        organization_id=user.organization_id,
+        snapshot_id_a=snapshot_id_a,
+        snapshot_id_b=snapshot_id_b,
+    )
+    return {
+        "from_version": comparison.from_version,
+        "to_version": comparison.to_version,
+        "score_delta": comparison.score_delta,
+        "new_findings": [_finding_to_dict(f) for f in comparison.new_findings],
+        "resolved_findings": comparison.resolved_findings,
+    }
 
 
 def _aircraft_to_dict(a: Any) -> dict[str, Any]:
@@ -1048,6 +1281,125 @@ TOOL_REGISTRY: list[ToolSpec] = [
         input_schema={"type": "object", "properties": {}},
         handler=_handle_get_daily_brief,
         required_permission=Permission.AIRCRAFT_READ,
+    ),
+    ToolSpec(
+        name="get_assessments",
+        description=(
+            "List all MRO assessments for this organization (fleet/aircraft/work-order scoped)."
+        ),
+        input_schema={"type": "object", "properties": {}},
+        handler=_handle_get_assessments,
+        required_permission=Permission.ASSESSMENT_READ,
+    ),
+    ToolSpec(
+        name="get_assessment",
+        description=(
+            "Get one assessment's metadata plus its latest snapshot summary "
+            "(overall score, maturity band, finding counts)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"assessment_id": {"type": "string", "description": "Assessment UUID"}},
+            "required": ["assessment_id"],
+        },
+        handler=_handle_get_assessment,
+        required_permission=Permission.ASSESSMENT_READ,
+    ),
+    ToolSpec(
+        name="run_assessment",
+        description=(
+            "Run (or re-run) a deterministic assessment against real operational data, "
+            "producing a new versioned snapshot with findings, risks, gaps, "
+            "recommendations, and roadmap items."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"assessment_id": {"type": "string", "description": "Assessment UUID"}},
+            "required": ["assessment_id"],
+        },
+        handler=_handle_run_assessment,
+        required_permission=Permission.ASSESSMENT_WRITE,
+    ),
+    ToolSpec(
+        name="get_assessment_findings",
+        description="Get the findings from an assessment's latest snapshot, ranked by priority.",
+        input_schema={
+            "type": "object",
+            "properties": {"assessment_id": {"type": "string", "description": "Assessment UUID"}},
+            "required": ["assessment_id"],
+        },
+        handler=_handle_get_assessment_findings,
+        required_permission=Permission.ASSESSMENT_READ,
+    ),
+    ToolSpec(
+        name="get_assessment_risks",
+        description=(
+            "Get the risks from an assessment's latest snapshot. Likelihood is always "
+            "UNKNOWN — this backend has no historical failure-rate data, and never "
+            "fabricates a probability."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"assessment_id": {"type": "string", "description": "Assessment UUID"}},
+            "required": ["assessment_id"],
+        },
+        handler=_handle_get_assessment_risks,
+        required_permission=Permission.ASSESSMENT_READ,
+    ),
+    ToolSpec(
+        name="get_assessment_gaps",
+        description=(
+            "Get the gaps (expected vs. current condition) from an assessment's latest snapshot."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"assessment_id": {"type": "string", "description": "Assessment UUID"}},
+            "required": ["assessment_id"],
+        },
+        handler=_handle_get_assessment_gaps,
+        required_permission=Permission.ASSESSMENT_READ,
+    ),
+    ToolSpec(
+        name="get_assessment_recommendations",
+        description="Get the recommendations from an assessment's latest snapshot.",
+        input_schema={
+            "type": "object",
+            "properties": {"assessment_id": {"type": "string", "description": "Assessment UUID"}},
+            "required": ["assessment_id"],
+        },
+        handler=_handle_get_assessment_recommendations,
+        required_permission=Permission.ASSESSMENT_READ,
+    ),
+    ToolSpec(
+        name="get_assessment_roadmap",
+        description=(
+            "Get the dependency-sequenced roadmap from an assessment's latest snapshot. "
+            "Effort is a qualitative band (never a fabricated hour count or date)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"assessment_id": {"type": "string", "description": "Assessment UUID"}},
+            "required": ["assessment_id"],
+        },
+        handler=_handle_get_assessment_roadmap,
+        required_permission=Permission.ASSESSMENT_READ,
+    ),
+    ToolSpec(
+        name="compare_assessment_snapshots",
+        description=(
+            "Compare two snapshots of the same assessment: score delta, findings that "
+            "newly appeared, and findings that were resolved between the two versions."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "snapshot_id_a": {"type": "string", "description": "First snapshot UUID"},
+                "snapshot_id_b": {"type": "string", "description": "Second snapshot UUID"},
+            },
+            "required": ["snapshot_id_a", "snapshot_id_b"],
+        },
+        handler=_handle_compare_assessment_snapshots,
+        required_permission=Permission.ASSESSMENT_READ,
     ),
 ]
 
