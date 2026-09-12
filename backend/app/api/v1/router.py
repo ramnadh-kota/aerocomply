@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     aircraft,
     aog,
+    assessments,
     auth,
     compliance,
     control_center,
@@ -56,3 +57,4 @@ api_router.include_router(proactive.router)
 api_router.include_router(warehouses.router)
 api_router.include_router(technicians.router)
 api_router.include_router(lisa.router)
+api_router.include_router(assessments.router)

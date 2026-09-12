@@ -1,4 +1,14 @@
 from app.models.aircraft import Aircraft
+from app.models.assessment import (
+    Assessment,
+    AssessmentFinding,
+    AssessmentGap,
+    AssessmentMetric,
+    AssessmentRecommendation,
+    AssessmentRisk,
+    AssessmentRoadmapItem,
+    AssessmentSnapshot,
+)
 from app.models.audit_event import AuditEvent
 from app.models.evidence import Evidence, EvidenceStatus
 from app.models.inspection_requirement import InspectionRequirement
@@ -26,4 +36,12 @@ __all__ = [
     "Vendor",
     "TechnicianQualification",
     "LisaConversationContext",
+    "Assessment",
+    "AssessmentSnapshot",
+    "AssessmentFinding",
+    "AssessmentRisk",
+    "AssessmentGap",
+    "AssessmentRecommendation",
+    "AssessmentRoadmapItem",
+    "AssessmentMetric",
 ]
