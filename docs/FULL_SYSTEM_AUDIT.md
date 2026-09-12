@@ -82,7 +82,7 @@ Confirmed edges: Lisa tools → {aircraft, aog, aog_recovery, compliance, contro
 ## 10. End-to-End Workflow Assessment
 
 - **Routine maintenance chain** (work order → task → inspection → evidence → release readiness): router/service files exist for every link (work_orders, inspections, evidence, release_readiness) and are all reachable from Lisa's tool registry. Whether the *frontend* wires all links (work-orders page is REAL; inspections/evidence/release-readiness page REAL-mode status is UNKNOWN) is PARTIAL.
-- **Defect → deferred chain** (inspection finding → deferred_item → MEL tracking): deferred_item_service (163 LOC) exists and is unit-tested; PARTIAL — frontend wiring UNKNOWN.
+- **Defect → deferred chain** (inspection finding → deferred_item → MEL tracking): deferred_item_service (163 LOC) exists and is unit-tested; frontend wiring CONFIRMED 2026-09-12 — `maintenance/deferred` page now has a REAL-mode branch (`frontend/lib/api/deferred-items.ts`) reading/closing deferred items against the live backend, closure gated entirely server-side.
 - **Material/procurement chain** (part_requirement → procurement_request → purchase_order → receiving → inventory_transaction): all five services exist and are individually tested; purchase-orders frontend is REAL. Whether receiving/inventory pages are wired is UNKNOWN. Overall: PARTIAL, backend-complete, frontend-partial.
 - **AOG chain** (aog_service + aog_recovery_service, 833 combined LOC, both tested): backend appears deep; aog-recovery frontend page is REAL-mode. This is the most substantiated chain end-to-end.
 - **Compliance chain** (regulatory_service → compliance_service → assessment engine): backend services exist and tested; explicit self-documented gap that regulatory condition-tree applicability evaluation is NOT backend-resident (Section 7) — this chain is PARTIAL/INCOMPLETE by the code's own admission, not just my inference.
@@ -101,7 +101,9 @@ Confirmed edges: Lisa tools → {aircraft, aog, aog_recovery, compliance, contro
 | procurement/purchase-orders | same | REAL/PARTIAL REAL |
 | assessment-intelligence | same | REAL/PARTIAL REAL |
 | settings, login | same | REAL |
-| evidence, inspections (list pages), deferred/MEL equivalents, compliance, regulations, dashboard, executive, finance, fleet, pilot, workspace, organization, platform, reports, documents, automation, integrations, notifications, engines, audit, data-import | no `useDataMode`/`isReal` hit found | MOCK or STATIC (UNCONFIRMED per-page; inferred from absence of the real/mock switch pattern and the repo-wide 78-file `lib/mock` import count) |
+| maintenance/deferred (Deferred Items / MEL) | `useDataMode`/`isReal` present (added 2026-09-12) — `frontend/lib/api/deferred-items.ts` | REAL/PARTIAL REAL |
+| maintenance/inspections (list + `[id]` detail, RII) | `useDataMode`/`isReal` present (added 2026-09-12) — `frontend/lib/api/inspections.ts`; wired to `/inspections` create/get/by-work-order/transition | REAL/PARTIAL REAL |
+| evidence, compliance, regulations, dashboard, executive, finance, fleet, pilot, workspace, organization, platform, reports, documents, automation, integrations, notifications, engines, audit, data-import | no `useDataMode`/`isReal` hit found | MOCK or STATIC (UNCONFIRMED per-page; inferred from absence of the real/mock switch pattern and the repo-wide 78-file `lib/mock` import count) |
 
 ## 12. Lisa Assessment
 
@@ -206,7 +208,7 @@ Backend: moderately mature — real services, migrations, tenant/security-harden
 
 ## 19. High-Value Gaps
 
-1. Wire remaining frontend areas (evidence, inspections, deferred/MEL, compliance, release-readiness) to `lib/api/` following the pattern already proven in work-orders/technicians/aircraft.
+1. Wire remaining frontend areas (evidence, inspections, compliance, release-readiness) to `lib/api/` following the pattern already proven in work-orders/technicians/aircraft/deferred-items.
 2. Add API-level integration tests for work_orders, evidence, inspections, deferred_items, vendor_part_availability.
 3. Complete a full per-model tenancy audit and close any indirect-scoping gaps found.
 4. Confirm live Lisa frontend↔backend wiring with a browser-driven request trace.

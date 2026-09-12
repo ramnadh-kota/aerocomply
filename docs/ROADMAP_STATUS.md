@@ -13,8 +13,8 @@ Maturity levels (highest truthfully earned, low to high): EXISTS < WORKS_IN_TEST
 | purchase_orders | Router+service (282 LOC) | REAL-mode wiring confirmed | test_purchase_order_service.py | Lisa tool present | INTEGRATED |
 | assessments | Router (206 LOC) + assessment engine | REAL-mode wiring confirmed (assessment-intelligence page) | test_assessment_engine.py, test_assessments_api.py, test_lisa_assessment_tools.py | Lisa tool present | INTEGRATED |
 | evidence | Router+service (147 LOC) | No REAL-mode evidence found in area scan | test_evidence_lifecycle.py (unit) | Lisa tool present | WORKS_IN_TESTS |
-| inspections | Router+service (224 LOC) | No REAL-mode evidence found | test_inspection_lifecycle.py (unit) | Lisa tool present | WORKS_IN_TESTS |
-| deferred_items | Router+service (163 LOC) | No dedicated frontend area found in top-level scan | test_deferred_item_service.py | Lisa tool present | WORKS_IN_TESTS |
+| inspections | Router+service (224 LOC) | REAL-mode wiring added 2026-09-12 (`maintenance/inspections` list + `[id]` detail, `lib/api/inspections.ts`); browser-verified list (empty + DEMO fallback) and mobile viewport, detail create/transition flow unverified against live data due to shared dev-DB being emptied mid-session by other agents' work | test_inspection_lifecycle.py (unit) | Lisa tool present | INTEGRATED |
+| deferred_items | Router+service (163 LOC) | REAL-mode wiring confirmed 2026-09-12 (`maintenance/deferred` page, `lib/api/deferred-items.ts`) | test_deferred_item_service.py | Lisa tool present | INTEGRATED |
 | release_readiness | Router (23 LOC, thin) + service (150 LOC) | No dedicated frontend area found | test_release_readiness_service.py (unit) | Lisa tool present | WORKS_IN_TESTS |
 | compliance | Router (136 LOC) + service (204 LOC) | Frontend page exists but no REAL-mode signal found | test_compliance_service.py | Lisa tool present; applicability engine explicitly NOT backend-resident | WORKS_IN_TESTS |
 | regulatory | Router+service (100 LOC) | Frontend "regulations" page exists, REAL-mode unconfirmed | test_regulatory_service.py | Lisa tool present | WORKS_IN_TESTS |
