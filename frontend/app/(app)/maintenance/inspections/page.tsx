@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -17,6 +17,106 @@ import { getAssessmentById } from "@/lib/mock/assessments";
 import { useMroState, type WorkOrderChecklistRecord } from "@/lib/mro-state/MroStateContext";
 import { getInspectionRequirement, type InspectionRequirementStatus } from "@/lib/mock/ai/analytics";
 import type { WorkOrder, InspectorReviewStatus } from "@/lib/mock/types";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
+import { inspectionsApi, type BackendInspectionRequirement } from "@/lib/api/inspections";
+
+const REQUIREMENT_BADGE: Record<string, { status: Parameters<typeof StatusBadge>[0]["status"]; label: string }> = {
+  PENDING: { status: "PENDING", label: "PENDING" },
+  COMPLETED: { status: "COMPLIANT", label: "COMPLETED" },
+  NOT_REQUIRED: { status: "COMPLIANT", label: "NOT REQUIRED" },
+  REJECTED: { status: "NON_COMPLIANT", label: "REJECTED" },
+};
+
+interface RealRow {
+  workOrder: BackendWorkOrder;
+  requirement: BackendInspectionRequirement;
+}
+
+function RealInspectionQueueList() {
+  const { apiBaseUrl } = useDataMode();
+  const { accessToken, isAuthenticated } = useSession();
+  const [rows, setRows] = useState<RealRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    workOrdersApi
+      .list(accessToken)
+      .then(async (orders) => {
+        // No bulk "all requirements" endpoint exists on the backend — only
+        // by-work-order — so this fans out per work order. Fine at
+        // prototype scale; would need a bulk endpoint before this becomes a
+        // fleet-wide production queue.
+        const perOrder = await Promise.all(
+          orders.map((wo) =>
+            inspectionsApi
+              .listForWorkOrder(accessToken, wo.id)
+              .then((reqs) => reqs.map((r) => ({ workOrder: wo, requirement: r })))
+          )
+        );
+        if (cancelled) return;
+        setRows(perOrder.flat());
+      })
+      .catch((err) => {
+        if (!cancelled) setError(normalizeApiError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isAuthenticated]);
+
+  const columns: Column<RealRow>[] = [
+    { key: "wo", header: "Work Order", render: (r) => <span className="ac-mono">{r.workOrder.work_order_number}</span>, sortValue: (r) => r.workOrder.work_order_number },
+    { key: "status", header: "Work Order Status", render: (r) => <StatusBadge status={r.workOrder.status === "CLOSED" ? "COMPLIANT" : "PENDING"} label={r.workOrder.status} /> },
+    { key: "kind", header: "Kind", render: (r) => (r.requirement.required ? "RII (Independent)" : "Checklist Review") },
+    { key: "reqStatus", header: "Inspection Status", render: (r) => <StatusBadge {...(REQUIREMENT_BADGE[r.requirement.status] ?? { status: "INSUFFICIENT_DATA", label: r.requirement.status })} /> },
+    { key: "created", header: "Created", render: (r) => new Date(r.requirement.created_at).toLocaleString() },
+  ];
+
+  return (
+    <div>
+      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Maintenance", href: "/maintenance/projects" }, { label: "Inspection Queue" }]} />
+      <div className="ac-section-header">
+        <div>
+          <h1 className="ac-h1">Inspection Queue</h1>
+          <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
+        </div>
+      </div>
+      {!isAuthenticated ? (
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <p className="ac-text-sm" style={{ margin: 0 }}>
+            REAL data mode requires signing in. <Link href="/login">Sign in →</Link>
+          </p>
+        </div>
+      ) : (
+        <RealDataPanel
+          loading={loading}
+          error={error}
+          isEmpty={rows.length === 0}
+          emptyMessage="No inspection requirements are recorded for this organization yet."
+        >
+          <div className="ac-card" style={{ padding: 0 }}>
+            <DataTable columns={columns} rows={rows} getRowHref={(r) => `/maintenance/inspections/${r.workOrder.id}`} />
+          </div>
+        </RealDataPanel>
+      )}
+    </div>
+  );
+}
 
 // M25 RII status is a DIFFERENT concept from the checklist inspector review
 // above (InspectorReviewStatus/inspectorReviewStatusBadge): RII is whether
@@ -86,7 +186,7 @@ function triageScore(r: Row): number {
   return score;
 }
 
-export default function InspectionQueuePage() {
+function DemoInspectionQueuePage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [aircraftFilter, setAircraftFilter] = useState("ALL");
@@ -314,4 +414,10 @@ export default function InspectionQueuePage() {
       </div>
     </div>
   );
+}
+
+export default function InspectionQueuePage() {
+  const { isReal, hydrated } = useDataMode();
+  if (!hydrated) return null;
+  return isReal ? <RealInspectionQueueList /> : <DemoInspectionQueuePage />;
 }
