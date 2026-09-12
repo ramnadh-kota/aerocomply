@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import ConflictError, NotFoundError
 from app.models.evidence import Evidence
 from app.models.inspection_requirement import InspectionRequirement, InspectionRequirementStatus
+from app.services import work_order_service
 from app.services.audit_service import record_audit_event
 
 _ALLOWED_TRANSITIONS: dict[InspectionRequirementStatus, set[InspectionRequirementStatus]] = {
@@ -184,6 +185,15 @@ def create_inspection_requirement(
     work_order_id: uuid.UUID | None,
     required: bool,
 ) -> InspectionRequirement:
+    # task_id / work_order_id are client-supplied; verify whichever is given
+    # belongs to this organization before attaching the requirement to it
+    # (cross-tenant IDOR otherwise).
+    if task_id is not None:
+        work_order_service.get_task(db, organization_id=organization_id, task_id=task_id)
+    if work_order_id is not None:
+        work_order_service.get_work_order(
+            db, organization_id=organization_id, work_order_id=work_order_id
+        )
     requirement = InspectionRequirement(
         organization_id=organization_id,
         task_id=task_id,

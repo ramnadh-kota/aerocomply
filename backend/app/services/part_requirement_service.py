@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import NotFoundError
 from app.models.part_requirement import PartRequirement, PartRequirementStatus
 from app.schemas.part_requirement import PartRequirementCreateRequest, PartRequirementUpdateRequest
-from app.services import part_service
+from app.services import part_service, work_order_service
 from app.services.audit_service import record_audit_event
 
 
@@ -39,6 +39,14 @@ def create_part_requirement(
     payload: PartRequirementCreateRequest,
 ) -> PartRequirement:
     part = part_service.get_part(db, organization_id=organization_id, part_id=payload.part_id)
+    # work_order_id / task_id are client-supplied references -- verify each
+    # belongs to this organization before linking it (cross-tenant IDOR
+    # otherwise).
+    work_order_service.get_work_order(
+        db, organization_id=organization_id, work_order_id=payload.work_order_id
+    )
+    if payload.task_id is not None:
+        work_order_service.get_task(db, organization_id=organization_id, task_id=payload.task_id)
 
     requirement = PartRequirement(
         organization_id=organization_id,

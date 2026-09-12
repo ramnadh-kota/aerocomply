@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
 from app.models.evidence import Evidence, EvidenceStatus
+from app.models.task import Task
 from app.services.audit_service import record_audit_event
 
 # Forward lifecycle sequence. REJECTED is reachable from SUBMITTED or
@@ -112,6 +113,16 @@ def transition_evidence(
 def create_evidence(
     db: Session, *, organization_id: uuid.UUID, task_id: uuid.UUID, uploaded_by_user_id: uuid.UUID
 ) -> Evidence:
+    # The task_id comes from client-supplied request data, so it must be
+    # verified to belong to the caller's own organization before evidence is
+    # attached to it -- otherwise a caller could submit evidence against a
+    # task_id belonging to a different tenant (cross-tenant IDOR).
+    task = db.execute(
+        select(Task).where(Task.id == task_id, Task.organization_id == organization_id)
+    ).scalar_one_or_none()
+    if task is None:
+        raise NotFoundError("Task not found")
+
     evidence = Evidence(
         organization_id=organization_id,
         task_id=task_id,

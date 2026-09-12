@@ -10,7 +10,7 @@ from app.schemas.purchase_order import (
     PurchaseOrderAcknowledgeRequest,
     PurchaseOrderCreateRequest,
 )
-from app.services import procurement_service, vendor_service
+from app.services import aircraft_service, procurement_service, vendor_service
 from app.services.audit_service import record_audit_event
 
 _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
@@ -63,6 +63,12 @@ def create_purchase_order(
     payload: PurchaseOrderCreateRequest,
 ) -> PurchaseOrder:
     vendor_service.get_vendor(db, organization_id=organization_id, vendor_id=payload.vendor_id)
+    if payload.aircraft_id is not None:
+        # aircraft_id is optional, client-supplied data -- verify it belongs
+        # to this organization (cross-tenant IDOR otherwise).
+        aircraft_service.get_aircraft(
+            db, organization_id=organization_id, aircraft_id=payload.aircraft_id
+        )
 
     linked_requests = []
     for line_payload in payload.lines:

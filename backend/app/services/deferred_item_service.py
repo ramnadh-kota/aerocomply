@@ -14,7 +14,7 @@ from app.schemas.deferred_item import (
     DeferredItemCreateRequest,
     DeferredItemUpdateRequest,
 )
-from app.services import aircraft_service
+from app.services import aircraft_service, work_order_service
 from app.services.audit_service import record_audit_event
 
 
@@ -28,6 +28,13 @@ def create_deferred_item(
     aircraft_service.get_aircraft(
         db, organization_id=organization_id, aircraft_id=payload.aircraft_id
     )
+    # work_order_id is optional, client-supplied data -- verify it belongs to
+    # this organization too, or a caller could link a deferred item to a
+    # different tenant's work order (cross-tenant IDOR).
+    if payload.work_order_id is not None:
+        work_order_service.get_work_order(
+            db, organization_id=organization_id, work_order_id=payload.work_order_id
+        )
     approval_status = (
         DeferredItemApprovalStatus.PENDING
         if payload.approval_required

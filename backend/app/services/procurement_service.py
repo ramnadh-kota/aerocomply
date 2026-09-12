@@ -11,7 +11,7 @@ from app.schemas.procurement_request import (
     ProcurementRequestCreateRequest,
     ProcurementRequestRejectRequest,
 )
-from app.services import aircraft_service, vendor_service
+from app.services import aircraft_service, part_service, vendor_service, work_order_service
 from app.services.audit_service import record_audit_event
 
 # Explicit transition table — a status change not listed here is rejected
@@ -70,6 +70,17 @@ def create_request(
         vendor_service.get_vendor(
             db, organization_id=organization_id, vendor_id=payload.preferred_vendor_id
         )
+    # work_order_id / task_id / part_id are optional, client-supplied
+    # references -- verify each belongs to this organization before linking
+    # it to the request (cross-tenant IDOR otherwise).
+    if payload.work_order_id is not None:
+        work_order_service.get_work_order(
+            db, organization_id=organization_id, work_order_id=payload.work_order_id
+        )
+    if payload.task_id is not None:
+        work_order_service.get_task(db, organization_id=organization_id, task_id=payload.task_id)
+    if payload.part_id is not None:
+        part_service.get_part(db, organization_id=organization_id, part_id=payload.part_id)
 
     request = ProcurementRequest(
         organization_id=organization_id,

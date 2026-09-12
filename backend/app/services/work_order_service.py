@@ -8,6 +8,7 @@ from app.models.task import Task
 from app.models.work_order import WorkOrder
 from app.schemas.task import TaskCreateRequest
 from app.schemas.work_order import WorkOrderCreateRequest
+from app.services import aircraft_service
 
 
 def create_work_order(
@@ -17,6 +18,12 @@ def create_work_order(
     created_by_user_id: uuid.UUID | None,
     payload: WorkOrderCreateRequest,
 ) -> WorkOrder:
+    # aircraft_id is client-supplied; verify it belongs to this organization
+    # before attaching a work order to it (cross-tenant IDOR otherwise).
+    aircraft_service.get_aircraft(
+        db, organization_id=organization_id, aircraft_id=payload.aircraft_id
+    )
+
     work_order = WorkOrder(
         organization_id=organization_id,
         aircraft_id=payload.aircraft_id,
