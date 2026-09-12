@@ -112,6 +112,40 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return data as T;
 }
 
+/**
+ * Multipart file upload — a separate helper from apiRequest because a
+ * FormData body must NOT be JSON.stringified and must NOT set its own
+ * Content-Type (the browser sets the multipart boundary automatically).
+ * Same error handling/shape as apiRequest otherwise.
+ */
+export async function apiUploadFile<T>(
+  path: string,
+  file: File,
+  options: { accessToken?: string } = {}
+): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (options.accessToken) {
+    headers.Authorization = `Bearer ${options.accessToken}`;
+  }
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const errorBody = data?.error ?? { code: "unknown_error", message: "Request failed" };
+    throw new ApiError(response.status, errorBody.code, errorBody.message);
+  }
+
+  return data as T;
+}
+
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;

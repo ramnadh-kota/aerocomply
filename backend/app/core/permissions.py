@@ -47,6 +47,11 @@ class Permission(StrEnum):
     # management-tier roles that hold COMPLIANCE_ASSESS/PROCUREMENT_APPROVE,
     # not to MAINTENANCE_ENGINEER/VIEWER.
     ASSESSMENT_WRITE = "assessment:write"
+    # Platform-level cross-tenant administration (create/activate/suspend
+    # organizations, create a customer's first admin, view platform-wide
+    # audit events). Deliberately its own permission, never bundled into
+    # ORG_ADMIN's grant set — an org admin manages their own tenant only.
+    PLATFORM_MANAGE = "platform:manage"
 
 
 class Role(StrEnum):
@@ -57,6 +62,12 @@ class Role(StrEnum):
     QUALITY_MANAGER = "QUALITY_MANAGER"
     MAINTENANCE_ENGINEER = "MAINTENANCE_ENGINEER"
     VIEWER = "VIEWER"
+    # Platform operator staff — NOT a customer-organization role. A user
+    # holding this role still belongs to exactly one organization (the
+    # platform operator's own), but PLATFORM_MANAGE grants them access to
+    # cross-tenant /platform/* endpoints that intentionally do not filter
+    # by their own organization_id.
+    PLATFORM_ADMIN = "PLATFORM_ADMIN"
 
 
 ALL_PERMISSIONS = {p.value for p in Permission}
@@ -181,6 +192,13 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.PROCUREMENT_READ,
         Permission.TECHNICIAN_READ,
         Permission.ASSESSMENT_READ,
+    },
+    # Deliberately minimal: platform staff can administer tenants but do not
+    # implicitly gain any customer operational-data permission — a platform
+    # admin who also needs to view a customer's MRO data would need a
+    # separate, explicit grant within that tenant, same as any other user.
+    Role.PLATFORM_ADMIN: {
+        Permission.PLATFORM_MANAGE,
     },
 }
 

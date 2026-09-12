@@ -7,6 +7,7 @@ from app.api.v1 import (
     auth,
     compliance,
     control_center,
+    data_import,
     deferred_items,
     evidence,
     health,
@@ -16,6 +17,7 @@ from app.api.v1 import (
     maintenance,
     part_requirements,
     parts,
+    platform,
     proactive,
     procurement,
     purchase_orders,
@@ -58,3 +60,5 @@ api_router.include_router(warehouses.router)
 api_router.include_router(technicians.router)
 api_router.include_router(lisa.router)
 api_router.include_router(assessments.router)
+api_router.include_router(platform.router)
+api_router.include_router(data_import.router)

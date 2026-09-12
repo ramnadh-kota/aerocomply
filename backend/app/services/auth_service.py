@@ -13,7 +13,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.organization import Organization
+from app.models.organization import Organization, OrganizationStatus
 from app.models.user import User, UserRole
 from app.schemas.auth import RegisterOrganizationRequest, TokenResponse
 from app.services.audit_service import record_audit_event
@@ -75,6 +75,10 @@ def authenticate(db: Session, email: str, password: str) -> TokenResponse:
     if user is None or not user.is_active or not verify_password(password, user.hashed_password):
         raise UnauthorizedError("Invalid email or password")
 
+    org = db.get(Organization, user.organization_id)
+    if org is not None and org.status == OrganizationStatus.SUSPENDED:
+        raise UnauthorizedError("This organization has been suspended")
+
     roles = _roles_for_user(db, user.id)
 
     record_audit_event(
@@ -103,6 +107,10 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenResponse:
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise UnauthorizedError("User no longer active")
+
+    org = db.get(Organization, user.organization_id)
+    if org is not None and org.status == OrganizationStatus.SUSPENDED:
+        raise UnauthorizedError("This organization has been suspended")
 
     roles = _roles_for_user(db, user.id)
     return _issue_tokens(user, roles)

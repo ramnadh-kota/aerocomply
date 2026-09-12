@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useRoleSim, NAV_MODULE_MAP } from "@/lib/role-sim/RoleSimContext";
 import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
 import { Logo } from "@/components/branding/Logo";
+import { useSession } from "@/lib/auth/SessionContext";
 
 interface NavItem {
   href: string;
@@ -51,6 +52,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/regulations", label: "Regulations", glyph: "§" },
       { href: "/assessments", label: "Assessments", glyph: "✓" },
       { href: "/assessment-intelligence", label: "Assessment Intelligence", glyph: "◆" },
+      { href: "/data-import", label: "Data Import", glyph: "⇧" },
       { href: "/evidence", label: "Evidence", glyph: "▣" },
       { href: "/documents", label: "Documents", glyph: "🗎" },
     ],
@@ -103,6 +105,20 @@ export function Sidebar() {
   const pathname = usePathname();
   const { accessFor } = useRoleSim();
   const { open, close } = useSidebarDrawer();
+  const { user } = useSession();
+  // Platform Admin is a real backend role (never a role-sim demo role) —
+  // this only hides the nav entry; the backend independently enforces
+  // PLATFORM_MANAGE on every /platform/* call regardless of what's shown.
+  const isPlatformAdmin = user?.roles?.includes("PLATFORM_ADMIN") ?? false;
+  const groups = isPlatformAdmin
+    ? [
+        ...NAV_GROUPS,
+        {
+          label: "Platform",
+          items: [{ href: "/platform/organizations", label: "Organizations", glyph: "⛨" }],
+        },
+      ]
+    : NAV_GROUPS;
 
   return (
     <>
@@ -115,7 +131,7 @@ export function Sidebar() {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 8 }}>
-        {NAV_GROUPS.map((group, gi) => (
+        {groups.map((group, gi) => (
           <div key={group.label}>
             {gi > 0 && <p className="ac-nav-section-label">{group.label}</p>}
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>

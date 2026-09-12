@@ -11,6 +11,7 @@ from app.models.assessment import (
 )
 from app.models.audit_event import AuditEvent
 from app.models.evidence import Evidence, EvidenceStatus
+from app.models.import_job import ImportDomain, ImportJob, ImportJobStatus
 from app.models.inspection_requirement import InspectionRequirement
 from app.models.lisa_conversation_context import LisaConversationContext
 from app.models.organization import Organization
@@ -44,4 +45,7 @@ __all__ = [
     "AssessmentRecommendation",
     "AssessmentRoadmapItem",
     "AssessmentMetric",
+    "ImportJob",
+    "ImportDomain",
+    "ImportJobStatus",
 ]
