@@ -23,15 +23,15 @@ def test_database_engine_has_a_bounded_connect_timeout():
     SQLAlchemy doesn't expose connect_args back off an already-built
     Engine in a stable public way, so this asserts on the module source
     instead of internals — a plain, reliable guard against the line being
-    accidentally removed.
+    accidentally removed. Deliberately does NOT connect through the
+    module-level `engine` global: it's built from `settings.database_url`
+    at import time, which in CI's test step is only ever the (unreachable)
+    default — every other test talks to the database exclusively through
+    the `db_session`/`client` fixtures' own connection instead.
     """
     import inspect
 
     from app.db import session as session_module
-
-    # Sanity: the engine this module builds is real and connectable.
-    raw_connection = session_module.engine.raw_connection()
-    raw_connection.close()
 
     source = inspect.getsource(session_module)
     assert "connect_timeout" in source, (
