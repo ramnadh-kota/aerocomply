@@ -21,7 +21,10 @@ def upgrade() -> None:
     op.create_table(
         "assessments",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            primary_key=True,
         ),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
@@ -30,7 +33,10 @@ def upgrade() -> None:
         sa.Column("scope_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="DRAFT"),
         sa.Column(
-            "created_by_user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=True
+            "created_by_user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id"),
+            nullable=True,
         ),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
     )
@@ -39,11 +45,17 @@ def upgrade() -> None:
     op.create_table(
         "assessment_snapshots",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            primary_key=True,
         ),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
-            "assessment_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("assessments.id"), nullable=False
+            "assessment_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("assessments.id"),
+            nullable=False,
         ),
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column("overall_score", sa.Float(), nullable=False),
@@ -53,13 +65,20 @@ def upgrade() -> None:
         sa.Column("critical_finding_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
     )
-    op.create_index("ix_assessment_snapshots_organization_id", "assessment_snapshots", ["organization_id"])
-    op.create_index("ix_assessment_snapshots_assessment_id", "assessment_snapshots", ["assessment_id"])
+    op.create_index(
+        "ix_assessment_snapshots_organization_id", "assessment_snapshots", ["organization_id"]
+    )
+    op.create_index(
+        "ix_assessment_snapshots_assessment_id", "assessment_snapshots", ["assessment_id"]
+    )
 
     op.create_table(
         "assessment_findings",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            primary_key=True,
         ),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
@@ -83,13 +102,18 @@ def upgrade() -> None:
         sa.Column("resolved", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
     )
-    op.create_index("ix_assessment_findings_organization_id", "assessment_findings", ["organization_id"])
+    op.create_index(
+        "ix_assessment_findings_organization_id", "assessment_findings", ["organization_id"]
+    )
     op.create_index("ix_assessment_findings_snapshot_id", "assessment_findings", ["snapshot_id"])
 
     op.create_table(
         "assessment_risks",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            primary_key=True,
         ),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
@@ -99,7 +123,10 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column(
-            "finding_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("assessment_findings.id"), nullable=True
+            "finding_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("assessment_findings.id"),
+            nullable=True,
         ),
         sa.Column("risk_level", sa.String(length=32), nullable=False),
         sa.Column("likelihood", sa.String(length=32), nullable=False, server_default="UNKNOWN"),
@@ -116,7 +143,10 @@ def upgrade() -> None:
     op.create_table(
         "assessment_gaps",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            primary_key=True,
         ),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
@@ -126,7 +156,10 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column(
-            "finding_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("assessment_findings.id"), nullable=True
+            "finding_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("assessment_findings.id"),
+            nullable=True,
         ),
         sa.Column("category", sa.String(length=64), nullable=False),
         sa.Column("severity", sa.String(length=32), nullable=False),
@@ -143,7 +176,10 @@ def upgrade() -> None:
     op.create_table(
         "assessment_recommendations",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            primary_key=True,
         ),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
@@ -153,7 +189,10 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column(
-            "finding_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("assessment_findings.id"), nullable=True
+            "finding_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("assessment_findings.id"),
+            nullable=True,
         ),
         sa.Column("recommendation", sa.Text(), nullable=False),
         sa.Column("why", sa.Text(), nullable=False),
@@ -165,7 +204,9 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
     )
     op.create_index(
-        "ix_assessment_recommendations_organization_id", "assessment_recommendations", ["organization_id"]
+        "ix_assessment_recommendations_organization_id",
+        "assessment_recommendations",
+        ["organization_id"],
     )
     op.create_index(
         "ix_assessment_recommendations_snapshot_id", "assessment_recommendations", ["snapshot_id"]
@@ -174,7 +215,10 @@ def upgrade() -> None:
     op.create_table(
         "assessment_roadmap_items",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            primary_key=True,
         ),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
@@ -184,7 +228,10 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column(
-            "finding_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("assessment_findings.id"), nullable=True
+            "finding_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("assessment_findings.id"),
+            nullable=True,
         ),
         sa.Column("sequence", sa.Integer(), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
@@ -196,21 +243,30 @@ def upgrade() -> None:
         sa.Column("entity_id", sa.String(length=64), nullable=False),
         sa.Column("prerequisite_sequence_numbers", postgresql.ARRAY(sa.Integer()), nullable=False),
         sa.Column("owner_role", sa.String(length=64), nullable=True),
-        sa.Column("estimated_effort_band", sa.String(length=32), nullable=False, server_default="UNKNOWN"),
+        sa.Column(
+            "estimated_effort_band", sa.String(length=32), nullable=False, server_default="UNKNOWN"
+        ),
         sa.Column("effort_confidence", sa.String(length=32), nullable=False, server_default="LOW"),
         sa.Column("expected_impact", sa.Text(), nullable=False),
         sa.Column("risk_if_delayed", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
     )
     op.create_index(
-        "ix_assessment_roadmap_items_organization_id", "assessment_roadmap_items", ["organization_id"]
+        "ix_assessment_roadmap_items_organization_id",
+        "assessment_roadmap_items",
+        ["organization_id"],
     )
-    op.create_index("ix_assessment_roadmap_items_snapshot_id", "assessment_roadmap_items", ["snapshot_id"])
+    op.create_index(
+        "ix_assessment_roadmap_items_snapshot_id", "assessment_roadmap_items", ["snapshot_id"]
+    )
 
     op.create_table(
         "assessment_metrics",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            primary_key=True,
         ),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
@@ -226,7 +282,9 @@ def upgrade() -> None:
         sa.Column("explanation", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
     )
-    op.create_index("ix_assessment_metrics_organization_id", "assessment_metrics", ["organization_id"])
+    op.create_index(
+        "ix_assessment_metrics_organization_id", "assessment_metrics", ["organization_id"]
+    )
     op.create_index("ix_assessment_metrics_snapshot_id", "assessment_metrics", ["snapshot_id"])
 
 

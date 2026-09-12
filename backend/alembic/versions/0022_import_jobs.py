@@ -21,7 +21,10 @@ def upgrade() -> None:
     op.create_table(
         "import_jobs",
         sa.Column(
-            "id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            primary_key=True,
         ),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("domain", sa.String(length=64), nullable=False),
