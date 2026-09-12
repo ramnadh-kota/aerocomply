@@ -35,10 +35,13 @@ def _create_user(db_session, org_id, **overrides):
 
 
 def _create_aircraft(db_session, org_id):
+    suffix = uuid.uuid4().hex[:6].upper()
     return aircraft_service.create_aircraft(
         db_session,
         organization_id=org_id,
-        payload=AircraftCreateRequest(registration="N300AC", msn="MSN-3", aircraft_type="B777"),
+        payload=AircraftCreateRequest(
+            registration=f"N{suffix}", msn=f"MSN-{suffix}", aircraft_type="B777"
+        ),
     )
 
 

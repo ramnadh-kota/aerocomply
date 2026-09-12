@@ -10,10 +10,13 @@ from app.services import aircraft_service, aog_service
 
 
 def _create_aircraft(db_session, org_id):
+    suffix = uuid.uuid4().hex[:6].upper()
     return aircraft_service.create_aircraft(
         db_session,
         organization_id=org_id,
-        payload=AircraftCreateRequest(registration="N600AC", msn="MSN-7", aircraft_type="B737"),
+        payload=AircraftCreateRequest(
+            registration=f"N{suffix}", msn=f"MSN-{suffix}", aircraft_type="B737"
+        ),
     )
 
 

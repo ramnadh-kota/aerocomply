@@ -16,9 +16,11 @@ row_results — never re-validates against a file the caller could swap.
 import csv
 import io
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select
+from sqlalchemy import update as sa_update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.core.errors import AeroComplyError, ConflictError, NotFoundError
@@ -184,12 +186,15 @@ def list_import_jobs(db: Session, *, organization_id: uuid.UUID) -> list[ImportJ
     )
 
 
-def get_import_job(db: Session, *, organization_id: uuid.UUID, job_id: uuid.UUID) -> ImportJob:
-    job = db.execute(
-        select(ImportJob).where(
-            ImportJob.id == job_id, ImportJob.organization_id == organization_id
-        )
-    ).scalar_one_or_none()
+def get_import_job(
+    db: Session, *, organization_id: uuid.UUID, job_id: uuid.UUID, for_update: bool = False
+) -> ImportJob:
+    query = select(ImportJob).where(
+        ImportJob.id == job_id, ImportJob.organization_id == organization_id
+    )
+    if for_update:
+        query = query.with_for_update()
+    job = db.execute(query).scalar_one_or_none()
     if job is None:
         raise NotFoundError("Import job not found")
     return job
@@ -198,9 +203,31 @@ def get_import_job(db: Session, *, organization_id: uuid.UUID, job_id: uuid.UUID
 def commit_import_job(
     db: Session, *, organization_id: uuid.UUID, actor_user_id: uuid.UUID | None, job_id: uuid.UUID
 ) -> ImportJob:
-    job = get_import_job(db, organization_id=organization_id, job_id=job_id)
-    if job.status != ImportJobStatus.VALIDATED:
+    # Atomically claim the job before doing any work: a plain SELECT (even
+    # with_for_update) is not enough here because aircraft_service.
+    # create_aircraft commits per row internally, which would release a
+    # row lock held only across this function's own (uncommitted) span.
+    # This conditional UPDATE is the actual compare-and-swap that makes two
+    # concurrent commit_import_job calls on the same job mutually exclusive
+    # — only one can move status off VALIDATED.
+    claim = cast(
+        CursorResult[Any],
+        db.execute(
+            sa_update(ImportJob)
+            .where(
+                ImportJob.id == job_id,
+                ImportJob.organization_id == organization_id,
+                ImportJob.status == ImportJobStatus.VALIDATED,
+            )
+            .values(status=ImportJobStatus.COMPLETED)
+        ),
+    )
+    db.commit()
+    if claim.rowcount == 0:
+        job = get_import_job(db, organization_id=organization_id, job_id=job_id)
         raise ConflictError(f"Import job is already {job.status}; it cannot be committed again")
+
+    job = get_import_job(db, organization_id=organization_id, job_id=job_id)
 
     importable_rows = [r for r in job.row_results if r["status"] in ("VALID", "WARNING")]
     created = 0
@@ -216,10 +243,22 @@ def commit_import_job(
                     payload=AircraftCreateRequest(**row["data"]),
                 )
                 created += 1
-        except Exception as exc:  # noqa: BLE001 - one bad row must not abort the whole batch
+        except AeroComplyError as exc:
+            # Safe to surface: AeroComplyError messages are already
+            # user-facing (e.g. "registration already exists"), never raw
+            # database/internal detail.
             db.rollback()
             failed += 1
-            failure_messages.append(f"Row {row['row_number']}: {exc}")
+            failure_messages.append(f"Row {row['row_number']}: {exc.message}")
+        except Exception:  # noqa: BLE001 - one bad row must not abort the whole batch
+            # Anything else (e.g. a raw IntegrityError) is NOT put into
+            # error_summary verbatim — that would leak internal
+            # table/constraint details through a customer-visible API
+            # response (see app/core/errors.py's own unhandled_error_handler
+            # policy, applied here at the row level).
+            db.rollback()
+            failed += 1
+            failure_messages.append(f"Row {row['row_number']}: could not be imported")
 
     job.status = ImportJobStatus.COMPLETED if failed == 0 else ImportJobStatus.FAILED
     job.rows_created = created

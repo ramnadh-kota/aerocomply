@@ -32,14 +32,15 @@ def _create_part(db_session, org_id, **overrides):
 
 
 def _create_work_order(db_session, org_id, **overrides):
+    suffix = uuid.uuid4().hex[:6].upper()
     aircraft = aircraft_service.create_aircraft(
         db_session,
         organization_id=org_id,
         payload=AircraftCreateRequest(
-            registration="N100AC", msn="MSN-1", aircraft_type="B737-800"
+            registration=f"N{suffix}", msn=f"MSN-{suffix}", aircraft_type="B737-800"
         ),
     )
-    data = dict(aircraft_id=aircraft.id, work_order_number="WO-1000")
+    data = dict(aircraft_id=aircraft.id, work_order_number=f"WO-{suffix}")
     data.update(overrides)
     return work_order_service.create_work_order(
         db_session,

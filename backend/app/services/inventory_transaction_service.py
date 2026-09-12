@@ -113,7 +113,9 @@ def receive_part(
     part_id: uuid.UUID,
     payload: InventoryReceiveRequest,
 ) -> InventoryTransaction:
-    part = part_service.get_part(db, organization_id=organization_id, part_id=part_id)
+    part = part_service.get_part(
+        db, organization_id=organization_id, part_id=part_id, for_update=True
+    )
     return _apply_transaction(
         db,
         organization_id=organization_id,
@@ -136,7 +138,9 @@ def reserve_part(
     part_id: uuid.UUID,
     payload: InventoryReserveRequest,
 ) -> InventoryTransaction:
-    part = part_service.get_part(db, organization_id=organization_id, part_id=part_id)
+    part = part_service.get_part(
+        db, organization_id=organization_id, part_id=part_id, for_update=True
+    )
     return _apply_transaction(
         db,
         organization_id=organization_id,
@@ -159,7 +163,9 @@ def release_reservation(
     part_id: uuid.UUID,
     payload: InventoryReleaseRequest,
 ) -> InventoryTransaction:
-    part = part_service.get_part(db, organization_id=organization_id, part_id=part_id)
+    part = part_service.get_part(
+        db, organization_id=organization_id, part_id=part_id, for_update=True
+    )
     return _apply_transaction(
         db,
         organization_id=organization_id,
@@ -182,7 +188,9 @@ def consume_part(
     part_id: uuid.UUID,
     payload: InventoryConsumeRequest,
 ) -> InventoryTransaction:
-    part = part_service.get_part(db, organization_id=organization_id, part_id=part_id)
+    part = part_service.get_part(
+        db, organization_id=organization_id, part_id=part_id, for_update=True
+    )
     return _apply_transaction(
         db,
         organization_id=organization_id,
@@ -205,7 +213,9 @@ def adjust_part(
     part_id: uuid.UUID,
     payload: InventoryAdjustRequest,
 ) -> InventoryTransaction:
-    part = part_service.get_part(db, organization_id=organization_id, part_id=part_id)
+    part = part_service.get_part(
+        db, organization_id=organization_id, part_id=part_id, for_update=True
+    )
     return _apply_transaction(
         db,
         organization_id=organization_id,
@@ -232,7 +242,9 @@ def quarantine_part(
     available_quantity) pending inspection/disposition — does NOT reduce
     on_hand, since the part is still physically on hand, just not issuable.
     """
-    part = part_service.get_part(db, organization_id=organization_id, part_id=part_id)
+    part = part_service.get_part(
+        db, organization_id=organization_id, part_id=part_id, for_update=True
+    )
     transaction = _apply_transaction(
         db,
         organization_id=organization_id,
@@ -267,7 +279,9 @@ def release_quarantine(
     off from on_hand too). new_status is required, never defaulted, so a
     caller can't silently mark quarantined stock serviceable.
     """
-    part = part_service.get_part(db, organization_id=organization_id, part_id=part_id)
+    part = part_service.get_part(
+        db, organization_id=organization_id, part_id=part_id, for_update=True
+    )
     if payload.new_status not in (
         PartServiceabilityStatus.SERVICEABLE,
         PartServiceabilityStatus.UNSERVICEABLE,

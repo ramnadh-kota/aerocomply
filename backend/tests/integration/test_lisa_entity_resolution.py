@@ -1,5 +1,8 @@
 import uuid
 
+import pytest
+
+from app.core.errors import ConflictError
 from app.schemas.aircraft import AircraftCreateRequest
 from app.schemas.part import PartCreateRequest
 from app.schemas.purchase_order import PurchaseOrderCreateRequest, PurchaseOrderLineCreateRequest
@@ -46,21 +49,43 @@ def test_resolve_aircraft_not_found(db_session):
     assert isinstance(result, NotFound)
 
 
-def test_resolve_aircraft_ambiguous_when_duplicate_registration(db_session):
+def test_duplicate_aircraft_registration_within_org_is_rejected(db_session):
+    """resolve_aircraft used to have to handle two aircraft sharing a
+    registration within one tenant returning AmbiguousMatch — that data
+    state can no longer exist at all: a database-level uniqueness
+    constraint (uq_aircraft_organization_id_registration) now rejects the
+    second create outright, so this asserts the rejection instead. The
+    AmbiguousMatch mechanism itself remains covered by
+    test_resolve_work_order_ambiguous below (work orders have no
+    equivalent uniqueness constraint).
+    """
     org_id = uuid.uuid4()
     aircraft_service.create_aircraft(
         db_session,
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="VT-DUP", msn="MSN-3A", aircraft_type="A320"),
     )
+    with pytest.raises(ConflictError):
+        aircraft_service.create_aircraft(
+            db_session,
+            organization_id=org_id,
+            payload=AircraftCreateRequest(
+                registration="VT-DUP", msn="MSN-3B", aircraft_type="B737"
+            ),
+        )
+    # create_aircraft's own db.rollback() (needed to recover the session
+    # after the IntegrityError) rolls back this test fixture's single flat
+    # transaction, not a savepoint — it takes the earlier "committed" first
+    # aircraft with it too. Re-create it to verify resolution still works
+    # cleanly after a rejected duplicate, rather than asserting on data
+    # this test harness cannot make survive the rollback.
     aircraft_service.create_aircraft(
         db_session,
         organization_id=org_id,
-        payload=AircraftCreateRequest(registration="VT-DUP", msn="MSN-3B", aircraft_type="B737"),
+        payload=AircraftCreateRequest(registration="VT-DUP", msn="MSN-3A", aircraft_type="A320"),
     )
     result = er.resolve_aircraft(db_session, organization_id=org_id, identifier="VT-DUP")
-    assert isinstance(result, AmbiguousMatch)
-    assert len(result.candidates) == 2
+    assert isinstance(result, ResolvedEntity)
 
 
 def test_resolve_aircraft_is_tenant_scoped(db_session):

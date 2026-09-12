@@ -163,20 +163,29 @@ def test_message_resolution_switches_aircraft_on_new_explicit_reference(db_sessi
 
 
 def test_message_resolution_ambiguous_short_circuits(db_session):
+    """Aircraft can no longer produce this ambiguity (a database-level
+    uniqueness constraint on (organization_id, registration) now rejects a
+    duplicate registration outright — see uq_aircraft_organization_id_registration),
+    so this uses work orders instead, which have no equivalent constraint
+    and are already proven ambiguity-capable by
+    test_resolve_work_order_ambiguous.
+    """
     org_id = uuid.uuid4()
     user_id = _create_user(db_session, org_id).id
-    aircraft_service.create_aircraft(
+    aircraft = aircraft_service.create_aircraft(
         db_session,
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="VT-AMB", msn="MSN-A1", aircraft_type="A320"),
     )
-    aircraft_service.create_aircraft(
-        db_session,
-        organization_id=org_id,
-        payload=AircraftCreateRequest(registration="VT-AMB", msn="MSN-A2", aircraft_type="B737"),
-    )
+    for _ in range(2):
+        work_order_service.create_work_order(
+            db_session,
+            organization_id=org_id,
+            created_by_user_id=None,
+            payload=WorkOrderCreateRequest(aircraft_id=aircraft.id, work_order_number="WO-AMB"),
+        )
     resolution = resolve_message(
-        db_session, organization_id=org_id, user_id=user_id, question="Why is VT-AMB AOG?"
+        db_session, organization_id=org_id, user_id=user_id, question="Why is WO-AMB blocked?"
     )
     assert resolution.needs_clarification
     assert resolution.ambiguous is not None
@@ -201,42 +210,56 @@ def test_message_resolution_reset_phrase_clears_context(db_session):
 
 def test_message_resolution_resolves_bare_uuid_from_ambiguity_candidate(db_session):
     """Regression test for a real defect found during the 5b9c2bf QA pass:
-    Lisa surfaces a real UUID as a disambiguation option (e.g. "VT-DUP —
-    Aircraft <uuid>") but had no way to resolve that same UUID if the user
-    replied with it — extract_explicit_identifiers only matched WO-/PO-/
-    registration-shaped tokens, never a bare UUID. A user could never
-    actually select the aircraft Lisa just offered them.
+    Lisa surfaces a real UUID as a disambiguation option (e.g. "WO-DUP —
+    Work Order <uuid>") but had no way to resolve that same UUID if the
+    user replied with it — extract_explicit_identifiers only matched
+    WO-/PO-/registration-shaped tokens, never a bare UUID. A user could
+    never actually select the record Lisa just offered them.
+
+    Uses work orders (not aircraft) to construct the ambiguity: a
+    database-level uniqueness constraint on aircraft registration
+    (uq_aircraft_organization_id_registration) now makes duplicate aircraft
+    registrations impossible, but work orders have no equivalent
+    constraint, so they still reproduce the ambiguous-candidate scenario
+    this regression guards.
     """
     org_id = uuid.uuid4()
     user_id = _create_user(db_session, org_id).id
-    first = aircraft_service.create_aircraft(
+    aircraft = aircraft_service.create_aircraft(
         db_session,
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="VT-UID", msn="MSN-U1", aircraft_type="A320"),
     )
-    aircraft_service.create_aircraft(
+    first = work_order_service.create_work_order(
         db_session,
         organization_id=org_id,
-        payload=AircraftCreateRequest(registration="VT-UID", msn="MSN-U2", aircraft_type="B737"),
+        created_by_user_id=None,
+        payload=WorkOrderCreateRequest(aircraft_id=aircraft.id, work_order_number="WO-UID"),
+    )
+    work_order_service.create_work_order(
+        db_session,
+        organization_id=org_id,
+        created_by_user_id=None,
+        payload=WorkOrderCreateRequest(aircraft_id=aircraft.id, work_order_number="WO-UID"),
     )
 
     ambiguous = resolve_message(
-        db_session, organization_id=org_id, user_id=user_id, question="Why is VT-UID AOG?"
+        db_session, organization_id=org_id, user_id=user_id, question="Why is WO-UID blocked?"
     )
     assert ambiguous.needs_clarification
 
     # The user replies with the exact UUID Lisa surfaced, embedded in a
-    # normal sentence — this must resolve to that specific aircraft.
+    # normal sentence — this must resolve to that specific work order.
     resolution = resolve_message(
         db_session,
         organization_id=org_id,
         user_id=user_id,
-        question=f"I mean aircraft {first.id}.",
+        question=f"I mean work order {first.id}.",
     )
     assert not resolution.needs_clarification
     assert resolution.resolved
     assert resolution.resolved[0].entity_id == str(first.id)
-    assert str(resolution.context.current_aircraft_id) == str(first.id)
+    assert str(resolution.context.current_work_order_id) == str(first.id)
 
 
 def test_message_resolution_bare_uuid_from_other_tenant_does_not_resolve(db_session):

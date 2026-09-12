@@ -1,9 +1,10 @@
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
 from app.models.aircraft import Aircraft
 from app.schemas.aircraft import AircraftCreateRequest
 
@@ -19,7 +20,18 @@ def create_aircraft(
         status=payload.status,
     )
     db.add(aircraft)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Backstops the application-level duplicate checks (regular create
+        # and the bulk import validator) against a genuine race — two
+        # concurrent creates for the same registration can both pass an
+        # in-memory uniqueness check before either commits.
+        db.rollback()
+        raise ConflictError(
+            f"Aircraft registration {payload.registration!r} already exists in this organization",
+            code="duplicate_registration",
+        ) from exc
     db.refresh(aircraft)
     return aircraft
 

@@ -43,10 +43,19 @@ def create_part(
     return part
 
 
-def get_part(db: Session, *, organization_id: uuid.UUID, part_id: uuid.UUID) -> Part:
-    part = db.execute(
-        select(Part).where(Part.id == part_id, Part.organization_id == organization_id)
-    ).scalar_one_or_none()
+def get_part(
+    db: Session, *, organization_id: uuid.UUID, part_id: uuid.UUID, for_update: bool = False
+) -> Part:
+    """for_update=True takes a row lock (SELECT ... FOR UPDATE) — required
+    before any read-modify-write of quantity_on_hand/reserved/quarantined
+    (see inventory_transaction_service) so two concurrent reservations
+    against the same part serialize instead of both reading the same stale
+    quantity and independently deciding a reservation fits.
+    """
+    query = select(Part).where(Part.id == part_id, Part.organization_id == organization_id)
+    if for_update:
+        query = query.with_for_update()
+    part = db.execute(query).scalar_one_or_none()
     if part is None:
         raise NotFoundError("Part not found")
     return part

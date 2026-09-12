@@ -81,30 +81,60 @@ def test_ask_falls_through_to_provider_for_non_operational_question(client):
     assert ask_resp.json()["error"]["code"] == "ai_not_configured"
 
 
-def test_ask_returns_clarification_for_ambiguous_aircraft_without_calling_provider(client):
+def test_duplicate_aircraft_registration_is_rejected_so_lisa_never_sees_ambiguity(client):
+    """Two aircraft sharing a registration within one tenant used to be
+    possible (and Lisa's entity resolution had a defensive AmbiguousMatch
+    branch for exactly that) — a database-level uniqueness constraint
+    (uq_aircraft_organization_id_registration) now rejects it outright, so
+    this asserts the rejection directly instead of asserting the ambiguity
+    that can no longer occur for aircraft specifically.
+
+    Deliberately does NOT also exercise /lisa/ask in this same test: the
+    duplicate-create's IntegrityError-recovery db.rollback() rolls back
+    this test fixture's single flat transaction (not a savepoint — see
+    app/services/aircraft_service.py), which would silently discard the
+    org/user/aircraft this test already "committed" earlier in the same
+    session. That a real per-request session in production doesn't share
+    this problem is covered separately by
+    test_ask_resolves_single_aircraft_with_no_ambiguity below.
+    """
     token = _register(client, org_name="Lisa Ambiguity Airline", email="ambig-admin@lisatest.com")
     headers = {"Authorization": f"Bearer {token}"}
 
-    for msn in ("MSN-DUP-1", "MSN-DUP-2"):
-        resp = client.post(
-            "/api/v1/aircraft",
-            json={"registration": "VT-DUP2", "msn": msn, "aircraft_type": "A320"},
-            headers=headers,
-        )
-        assert resp.status_code == 201
+    first = client.post(
+        "/api/v1/aircraft",
+        json={"registration": "VT-DUP2", "msn": "MSN-DUP-1", "aircraft_type": "A320"},
+        headers=headers,
+    )
+    assert first.status_code == 201
+
+    duplicate = client.post(
+        "/api/v1/aircraft",
+        json={"registration": "VT-DUP2", "msn": "MSN-DUP-2", "aircraft_type": "A320"},
+        headers=headers,
+    )
+    assert duplicate.status_code == 409
+
+
+def test_ask_resolves_single_aircraft_with_no_ambiguity(client):
+    token = _register(client, org_name="Lisa Single Airline", email="single-admin@lisatest.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = client.post(
+        "/api/v1/aircraft",
+        json={"registration": "VT-SOLO", "msn": "MSN-SOLO-1", "aircraft_type": "A320"},
+        headers=headers,
+    )
+    assert created.status_code == 201
 
     ask_resp = client.post(
         "/api/v1/lisa/ask",
-        json={"question": "Why is VT-DUP2 AOG?"},
+        json={"question": "Why is VT-SOLO AOG?"},
         headers=headers,
     )
-    # Ambiguous match short-circuits BEFORE the provider call, so this
-    # succeeds (200) even with no AI provider configured.
     assert ask_resp.status_code == 200
     body = ask_resp.json()
-    assert body["confidenceState"] == "AMBIGUOUS"
-    assert body["actionCategory"] == "CLARIFICATION_NEEDED"
-    assert len(body["whatIFound"]) == 2
+    assert body["confidenceState"] != "AMBIGUOUS"
 
 
 def test_lisa_context_reset_clears_active_entities(client):

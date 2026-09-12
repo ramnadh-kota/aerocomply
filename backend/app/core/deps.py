@@ -10,6 +10,7 @@ from app.core.permissions import Permission, permissions_for_roles
 from app.core.request_context import bind_request_identity
 from app.core.security import InvalidTokenError, decode_token
 from app.db.session import get_db
+from app.models.organization import Organization, OrganizationStatus
 from app.schemas.auth import CurrentUser
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -21,9 +22,18 @@ def get_db_session() -> Generator[Session, None, None]:
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db_session),
 ) -> CurrentUser:
     """Decode and validate the bearer token. This is the ONLY place org_id is
     trusted from — never from a request body/query param (see FOUNDATION.md §8).
+
+    Also re-checks the caller's organization status on every request (a
+    single indexed lookup) rather than trusting the JWT's roles/org_id for
+    the lifetime of the token — otherwise an access token issued before an
+    organization was suspended would keep working, at full privilege, for
+    the rest of its TTL. Login/refresh already refuse a suspended org
+    (app/services/auth_service.py); this closes the same gap for tokens
+    already in a client's hands.
     """
     if credentials is None:
         raise UnauthorizedError("Missing bearer token")
@@ -36,13 +46,17 @@ def get_current_user(
     if payload.get("type") != "access":
         raise UnauthorizedError("Token is not an access token")
 
-    bind_request_identity(
-        organization_id=payload["organization_id"], user_id=payload["sub"]
-    )
+    organization_id = uuid.UUID(payload["organization_id"])
+
+    org = db.get(Organization, organization_id)
+    if org is not None and org.status == OrganizationStatus.SUSPENDED:
+        raise UnauthorizedError("This organization has been suspended")
+
+    bind_request_identity(organization_id=payload["organization_id"], user_id=payload["sub"])
 
     return CurrentUser(
         id=uuid.UUID(payload["sub"]),
-        organization_id=uuid.UUID(payload["organization_id"]),
+        organization_id=organization_id,
         email=payload.get("email", ""),
         full_name=payload.get("full_name", ""),
         roles=payload.get("roles", []),
