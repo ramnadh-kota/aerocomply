@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
@@ -14,8 +17,223 @@ import { findingsForWorkOrder } from "@/lib/mock/findings";
 import { getInspectorReviewForWorkOrder } from "@/lib/mock/inspectorReviews";
 import { certificatesForPart } from "@/lib/mock/partTraceability";
 import { PLATFORM_NAME, MODULE_AEROCOMPLY_NAME, MODULE_AEROCOMPLY_TAGLINE } from "@/lib/brand";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
+import {
+  regulatoryRequirementsApi,
+  complianceAssessmentsApi,
+  type BackendRegulatoryRequirement,
+  type BackendComplianceAssessment,
+} from "@/lib/api/compliance";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 
-export default function CompliancePage() {
+// Statuses recorded by ComplianceAssessment (backend/app/models/compliance.py)
+// that count as an "open gap" needing human attention.
+const GAP_STATUSES = new Set(["NON_COMPLIANT", "REVIEW_REQUIRED", "UNKNOWN"]);
+
+function badgeKindForStatus(status: string): Parameters<typeof StatusBadge>[0]["status"] {
+  return status === "COMPLIANT" || status === "NON_COMPLIANT" || status === "REVIEW_REQUIRED" || status === "UNKNOWN"
+    ? status
+    : "UNKNOWN";
+}
+
+/**
+ * Honesty banner shown on every REAL-mode compliance view. The backend's own
+ * tool layer (backend/app/services/ai/tools.py) documents that regulatory
+ * applicability condition-tree evaluation is NOT backend-resident — every
+ * status below is a manually recorded assessment (and optional human
+ * override), never the output of an automated applicability engine.
+ */
+function ManualAssessmentNotice() {
+  return (
+    <div className="ac-card" style={{ padding: "var(--ac-space-3)", borderColor: "var(--ac-status-review)" }}>
+      <p className="ac-text-sm" style={{ margin: 0 }}>
+        <strong>Manually recorded, not automated.</strong> Statuses below are compliance
+        determinations entered (and, where noted, overridden) by your organization&apos;s
+        staff. Aerocomply does not currently run an automated regulatory
+        applicability engine — no AD/SB condition tree is evaluated by the
+        backend on your behalf. Treat every status as a human record, not a
+        system-verified guarantee of FAA/EASA/Part 145 compliance.
+      </p>
+    </div>
+  );
+}
+
+interface RealRow {
+  requirement: BackendRegulatoryRequirement;
+  assessments: (BackendComplianceAssessment & { aircraftRegistration: string | null })[];
+}
+
+function RealCompliancePage() {
+  const { apiBaseUrl } = useDataMode();
+  const { accessToken, isAuthenticated } = useSession();
+  const [aircraftList, setAircraftList] = useState<BackendAircraft[]>([]);
+  const [requirements, setRequirements] = useState<BackendRegulatoryRequirement[]>([]);
+  const [assessments, setAssessments] = useState<BackendComplianceAssessment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([aircraftApi.list(accessToken), regulatoryRequirementsApi.list(accessToken)])
+      .then(async ([acList, reqList]) => {
+        if (cancelled) return;
+        setAircraftList(acList);
+        setRequirements(reqList);
+        // No "list all assessments" endpoint exists — assessments are only
+        // exposed per-aircraft, so they're fetched per-aircraft and merged
+        // client-side (no client-side recomputation of status, only display).
+        const perAircraft = await Promise.all(
+          acList.map((a) => complianceAssessmentsApi.listForAircraft(accessToken, a.id))
+        );
+        if (cancelled) return;
+        setAssessments(perAircraft.flat());
+      })
+      .catch((err) => {
+        if (!cancelled) setError(normalizeApiError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isAuthenticated]);
+
+  const registrationFor = (aircraftId: string) =>
+    aircraftList.find((a) => a.id === aircraftId)?.registration ?? null;
+
+  const counts: Record<string, number> = {};
+  for (const a of assessments) counts[a.status] = (counts[a.status] ?? 0) + 1;
+
+  const openGaps = assessments
+    .filter((a) => GAP_STATUSES.has(a.status))
+    .sort((a, b) => b.evaluated_at.localeCompare(a.evaluated_at));
+
+  const rows: RealRow[] = requirements.map((requirement) => ({
+    requirement,
+    assessments: assessments
+      .filter((a) => a.requirement_id === requirement.id)
+      .map((a) => ({ ...a, aircraftRegistration: registrationFor(a.aircraft_id) })),
+  }));
+
+  return (
+    <div>
+      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Compliance" }]} />
+      <div className="ac-section-header">
+        <div>
+          <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{PLATFORM_NAME}</p>
+          <h1 className="ac-h1">{MODULE_AEROCOMPLY_NAME}</h1>
+          <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
+        </div>
+        <div className="ac-flex ac-gap-2">
+          <Link href="/compliance/regulatory-register" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Regulatory Register →</Link>
+        </div>
+      </div>
+
+      {!isAuthenticated ? (
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <p className="ac-text-sm" style={{ margin: 0 }}>
+            REAL data mode requires signing in. <Link href="/login">Sign in →</Link>
+          </p>
+        </div>
+      ) : (
+        <RealDataPanel
+          loading={loading}
+          error={error}
+          isEmpty={requirements.length === 0}
+          emptyMessage="No regulatory requirements are recorded for this organization yet."
+        >
+          <section className="ac-section">
+            <ManualAssessmentNotice />
+          </section>
+
+          <section className="ac-section">
+            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Assessment Distribution</h2>
+            <div className="ac-card">
+              <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+                <StatusBadge status="COMPLIANT" label={`Compliant: ${counts.COMPLIANT ?? 0}`} />
+                <StatusBadge status="NON_COMPLIANT" label={`Non-Compliant: ${counts.NON_COMPLIANT ?? 0}`} />
+                <StatusBadge status="REVIEW_REQUIRED" label={`Review Required: ${counts.REVIEW_REQUIRED ?? 0}`} />
+                <StatusBadge status="UNKNOWN" label={`Unknown: ${counts.UNKNOWN ?? 0}`} />
+              </div>
+              <p className="ac-text-sm ac-text-muted" style={{ marginTop: 8 }}>
+                Counts reflect only the {assessments.length} assessment record(s) that exist
+                today across {aircraftList.length} aircraft — an aircraft/requirement pair with
+                no recorded assessment is not counted here at all (it is neither compliant nor
+                non-compliant; it is simply not yet assessed).
+              </p>
+            </div>
+          </section>
+
+          <section className="ac-section">
+            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Open Gaps — Human Review Needed</h2>
+            <div className="ac-card" style={{ padding: 0 }}>
+              {openGaps.length === 0 ? (
+                <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>No open gaps recorded.</p>
+              ) : (
+                <table className="ac-table">
+                  <thead><tr><th>Requirement</th><th>Aircraft</th><th>Status</th><th>Evaluated</th></tr></thead>
+                  <tbody>
+                    {openGaps.slice(0, 20).map((a) => {
+                      const req = requirements.find((r) => r.id === a.requirement_id);
+                      return (
+                        <tr key={a.id}>
+                          <td className="ac-mono">{req?.requirement_number ?? a.requirement_id}</td>
+                          <td className="ac-mono">{registrationFor(a.aircraft_id) ?? a.aircraft_id}</td>
+                          <td><StatusBadge status={badgeKindForStatus(a.status)} /></td>
+                          <td className="ac-text-sm">{a.evaluated_at}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </section>
+
+          <section className="ac-section">
+            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Regulatory Requirements</h2>
+            <div className="ac-card" style={{ padding: 0 }}>
+              <table className="ac-table">
+                <thead><tr><th>Requirement</th><th>Authority</th><th>Compliance Time</th><th>Assessments</th></tr></thead>
+                <tbody>
+                  {rows.map(({ requirement, assessments: reqAssessments }) => (
+                    <tr key={requirement.id}>
+                      <td className="ac-mono">{requirement.requirement_number}<div className="ac-text-sm ac-text-muted">{requirement.title}</div></td>
+                      <td>{requirement.authority}</td>
+                      <td className="ac-text-sm">{requirement.compliance_time ?? "—"}</td>
+                      <td className="ac-text-sm">
+                        {reqAssessments.length === 0
+                          ? "Not yet assessed"
+                          : reqAssessments.map((a, i) => (
+                              <span key={a.id}>
+                                {i > 0 && ", "}
+                                {a.aircraftRegistration ?? a.aircraft_id}: <StatusBadge status={badgeKindForStatus(a.status)} />
+                              </span>
+                            ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </RealDataPanel>
+      )}
+    </div>
+  );
+}
+
+function DemoCompliancePage() {
   const analytics = getComplianceAnalytics();
 
   const allAssessments = aircraft.flatMap((a) => assessmentsForAircraft(a.id));
@@ -309,4 +527,10 @@ export default function CompliancePage() {
       </section>
     </div>
   );
+}
+
+export default function CompliancePage() {
+  const { isReal, hydrated } = useDataMode();
+  if (!hydrated) return null;
+  return isReal ? <RealCompliancePage /> : <DemoCompliancePage />;
 }
