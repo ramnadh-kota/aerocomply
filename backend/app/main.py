@@ -26,6 +26,15 @@ if settings.environment != "development" and settings.jwt_secret_key == "CHANGE_
         "environment. Set a real secret before starting AeroComply."
     )
 
+_DEFAULT_LOCAL_DATABASE_URL = "postgresql+psycopg://aerocomply:aerocomply@localhost:5432/aerocomply"
+if settings.environment != "development" and settings.database_url == _DEFAULT_LOCAL_DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is still the default local-development placeholder outside a "
+        "development environment. Set a real production DATABASE_URL before "
+        "starting AeroComply — otherwise it would silently try to reach a "
+        "localhost Postgres that does not exist in production."
+    )
+
 app = FastAPI(
     title=settings.app_name,
     description="AeroComply — Aviation Compliance Intelligence Platform API",

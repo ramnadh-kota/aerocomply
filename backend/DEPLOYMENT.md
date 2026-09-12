@@ -22,9 +22,19 @@ result.
 | `DATABASE_URL` | yes | `postgresql+psycopg://user:pass@host:5432/dbname` |
 | `JWT_SECRET_KEY` | yes | Long random secret. Rotating it invalidates all sessions. |
 | `CORS_ALLOW_ORIGINS` | yes | JSON array of allowed origins, e.g. `["https://aerocomply.vercel.app"]` (see `.env.example`). |
-| `ENVIRONMENT` | recommended | `production` |
+| `ENVIRONMENT` | **required in practice** | `production` — see fail-fast guards below. |
 | `DEBUG` | recommended | `false` |
 | `AI_PROVIDER` / `AI_BASE_URL` / `AI_MODEL` / `ANTHROPIC_API_KEY` | optional | Only if provider-backed Lisa reasoning is wanted. Deterministic Lisa (entity/reference resolution, orchestration, all MRO/Assessment tools) works with none of these set — it is not gated on an AI provider. |
+
+**Fail-fast production guards** (`app/main.py`): when `ENVIRONMENT` is set to
+anything other than `development`, the app refuses to start (raises at
+import time, before binding a port) if `JWT_SECRET_KEY` is still the
+default placeholder, or if `DATABASE_URL` is still the default
+local-development value — either would mean a misconfigured deploy
+silently signs tokens with a public secret, or tries to reach a localhost
+Postgres that doesn't exist in production. Leaving `ENVIRONMENT` unset (or
+`development`) is what makes zero-config local dev work; this is also why
+it is effectively required in any real deployment.
 
 ## 3. Build and deploy
 
