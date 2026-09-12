@@ -29,6 +29,7 @@ import { tasksApi, type BackendTask } from "@/lib/api/tasks";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { RealTaskGatePanel } from "@/components/evidence/RealTaskGatePanel";
+import { RealReleaseReadinessPanel } from "@/components/evidence/RealReleaseReadinessPanel";
 
 function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
   const { apiBaseUrl } = useDataMode();
@@ -100,7 +101,8 @@ function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
                 <p><strong>Aircraft ID:</strong> <span className="ac-mono">{wo.aircraft_id}</span></p>
                 <p><strong>Created:</strong> {new Date(wo.created_at).toLocaleString()}</p>
               </div>
-              <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>Tasks ({tasks.length})</h2>
+              <RealReleaseReadinessPanel workOrderId={workOrderId} />
+              <h2 className="ac-eyebrow" style={{ marginTop: 16, marginBottom: 10 }}>Tasks ({tasks.length})</h2>
               {tasks.length === 0 ? (
                 <div className="ac-card"><p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No tasks recorded on this work order yet.</p></div>
               ) : (
