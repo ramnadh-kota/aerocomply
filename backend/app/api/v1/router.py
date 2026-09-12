@@ -26,6 +26,7 @@ from app.api.v1 import (
     release_readiness,
     tat,
     technicians,
+    users,
     vendor_part_availability,
     vendors,
     warehouses,
@@ -58,6 +59,7 @@ api_router.include_router(control_center.router)
 api_router.include_router(proactive.router)
 api_router.include_router(warehouses.router)
 api_router.include_router(technicians.router)
+api_router.include_router(users.router)
 api_router.include_router(lisa.router)
 api_router.include_router(assessments.router)
 api_router.include_router(platform.router)

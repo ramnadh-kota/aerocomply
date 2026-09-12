@@ -1,18 +1,126 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, workOrderStatusBadge, priorityBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, workOrderStatusBadge, priorityBadge, genericStatusBadge } from "@/components/status/StatusBadge";
 import { getTechnicianById, isOnShiftNow } from "@/lib/mock/technicians";
 import { workOrdersForTechnician, isOverdue, MOCK_TODAY } from "@/lib/mock/workOrders";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getChecklistByWorkOrderId } from "@/lib/mock/checklists";
 import { getPartById } from "@/lib/mock/parts";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useSession } from "@/lib/auth/SessionContext";
+import { usersApi, technicianQualificationsApi, type BackendOrganizationUser, type BackendTechnicianQualification } from "@/lib/api/technicians";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+
+function RealTechnicianDetail({ userId }: { userId: string }) {
+  const { accessToken, isAuthenticated } = useSession();
+  const [user, setUser] = useState<BackendOrganizationUser | null>(null);
+  const [qualifications, setQualifications] = useState<BackendTechnicianQualification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([usersApi.list(accessToken), technicianQualificationsApi.list(accessToken, userId)])
+      .then(([users, quals]) => {
+        if (cancelled) return;
+        setUser(users.find((u) => u.id === userId) ?? null);
+        setQualifications(quals);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(normalizeApiError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isAuthenticated, userId]);
+
+  if (!isAuthenticated) {
+    return (
+      <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+        <p className="ac-text-sm" style={{ margin: 0 }}>
+          REAL data mode requires signing in. <Link href="/login">Sign in →</Link>
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <RealDataPanel loading={loading} error={error} isEmpty={!loading && !error && !user} emptyMessage="No user found with this ID in your organization.">
+      {user && (
+        <div>
+          <div className="ac-section-header">
+            <div>
+              <h1 className="ac-h1">{user.full_name}</h1>
+              <p className="ac-subtitle">{user.email} · {user.roles.join(", ") || "No roles"}</p>
+            </div>
+            <StatusBadge status={user.is_active ? "ACTIVE" : "STORED"} label={user.is_active ? "Active" : "Inactive"} />
+          </div>
+          <h2 className="ac-h2" style={{ marginBottom: 10 }}>Technician Qualifications</h2>
+          {qualifications.length === 0 ? (
+            <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+              <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                No qualifications are on record for this person yet.
+              </p>
+            </div>
+          ) : (
+            <div className="ac-flex ac-flex-col ac-gap-3">
+              {qualifications.map((q) => (
+                <div key={q.id} className="ac-card">
+                  <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 6 }}>
+                    <span style={{ fontWeight: 600 }}>{q.aircraft_type} — {q.qualification_type}</span>
+                    <StatusBadge {...genericStatusBadge(q.revoked ? "REVOKED" : "ACTIVE")} />
+                  </div>
+                  <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                    Granted {new Date(q.granted_at).toLocaleDateString()}
+                    {q.expires_at ? ` · Expires ${new Date(q.expires_at).toLocaleDateString()}` : " · No expiry on record"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </RealDataPanel>
+  );
+}
 
 export default function TechnicianWorkbenchPage({ params }: { params: { id: string } }) {
-  const technician = getTechnicianById(params.id);
+  const { isReal, hydrated } = useDataMode();
+  if (!hydrated) return null;
+  return isReal ? (
+    <div>
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Maintenance", href: "/maintenance/projects" },
+          { label: "Technicians", href: "/maintenance/technicians" },
+          { label: "Detail" },
+        ]}
+      />
+      <RealTechnicianDetail userId={params.id} />
+    </div>
+  ) : (
+    <DemoTechnicianWorkbenchPage id={params.id} />
+  );
+}
+
+function DemoTechnicianWorkbenchPage({ id }: { id: string }) {
+  const technician = getTechnicianById(id);
   if (!technician) notFound();
   const { submissions } = useMroState();
 
