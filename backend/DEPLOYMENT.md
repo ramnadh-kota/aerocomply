@@ -156,3 +156,24 @@ afterthought.
   on the `import_jobs` row, not the original file.
 - No sticky sessions — JWTs are stateless; any number of replicas behind a
   load balancer work with no additional configuration.
+
+## 11. Known limitations (go-live scope, not deployment bugs)
+
+These are product/feature gaps, tracked in `docs/BUILD_BACKLOG.md` and
+`docs/FULL_SYSTEM_AUDIT.md` — listed here so they aren't mistaken for
+deployment issues:
+
+- **Evidence file storage**: no object-storage-backed evidence attachment
+  pipeline yet (S3 settings exist in config but are unused by any endpoint
+  today).
+- **Regulatory applicability engine**: not implemented — regulatory
+  documents are stored/served but not automatically matched to fleet/ops
+  profiles.
+- **BL-16**: no task-completion endpoint.
+- **BL-17**: RII `inspector_user_id` bug (see `docs/BUILD_BACKLOG.md`).
+- **No monitoring/observability platform** is configured — the app emits
+  structured logs only (`app/core/logging.py`); no APM, error tracking, or
+  metrics exporter is wired up.
+- **No domain/DNS** configured — deployment will use the hosting
+  platform's generated hostname (e.g. `*.onrender.com`, `*.up.railway.app`)
+  until a custom domain is set up.
