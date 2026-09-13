@@ -153,7 +153,11 @@ function RealPlatformOrganizations() {
   };
 
   const columns: Column<BackendPlatformOrganization>[] = [
-    { key: "name", header: "Organization", render: (o) => o.name },
+    {
+      key: "name",
+      header: "Organization",
+      render: (o) => <Link href={`/platform/organizations/${o.id}`}>{o.name}</Link>,
+    },
     { key: "status", header: "Status", render: (o) => <StatusBadge {...genericStatusBadge(o.status)} /> },
     { key: "users", header: "Users", render: (o) => o.user_count },
     { key: "aircraft", header: "Aircraft", render: (o) => o.aircraft_count },
@@ -220,7 +224,7 @@ function RealPlatformOrganizations() {
           >
             <div className="ac-card" style={{ padding: 0 }}>
               <div className="ac-table-desktop">
-                <DataTable columns={columns} rows={orgs} />
+                <DataTable columns={columns} rows={orgs} getRowHref={(o) => `/platform/organizations/${o.id}`} />
               </div>
               {/* Below 640px, columns (Created / Actions) are replaced with
                   stacked cards so every field and action stays reachable
@@ -230,7 +234,9 @@ function RealPlatformOrganizations() {
                   <div className="ac-row-card" key={o.id}>
                     <div className="ac-row-card-field">
                       <span className="ac-row-card-field-label">Organization</span>
-                      <strong>{o.name}</strong>
+                      <strong>
+                        <Link href={`/platform/organizations/${o.id}`}>{o.name}</Link>
+                      </strong>
                     </div>
                     <div className="ac-row-card-field">
                       <span className="ac-row-card-field-label">Status</span>
