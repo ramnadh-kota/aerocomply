@@ -614,4 +614,60 @@ evaluation engine and Lisa call-site checks are built. Nothing in
 
 ---
 
-*Document produced as architecture/repository analysis for §§1–21; §22 documents an actual implementation completed and committed on 2026-09-13.*
+## 23. M2 — Effective entitlement resolution service (2026-09-13)
+
+`app/services/entitlement_service.py::resolve_entitlements(db, *,
+organization_id, as_of=None)` is the first (and, as of this addendum, only)
+code in this codebase that answers "is feature X enabled for organization
+Y" from the M1 tables. It is read-only: no writes, no billing, no usage
+metering, no RBAC/user permission checks (it takes only `organization_id`).
+
+Algorithm, matching §22.10's list of what M1 deliberately left undone:
+
+1. **Tenant status short-circuit** — `Organization.status == SUSPENDED`
+   returns a `SUSPENDED` result immediately, without inspecting
+   subscriptions at all.
+2. **Subscription selection** — a subscription is a candidate if its status
+   is one of `TRIALING`/`ACTIVE`/`PAST_DUE` and `starts_at <= as_of` and
+   (`ends_at IS NULL` or `ends_at > as_of`). `CANCELED` and `SCHEDULED` never
+   count, regardless of date overlap. Zero candidates → `NO_SUBSCRIPTION`.
+   **More than one candidate → `AMBIGUOUS`**, per §22.3's documented,
+   deliberately-unenforced "at most one ACTIVE subscription per org"
+   invariant: the service refuses to guess which one wins.
+3. **PAST_DUE decision**: PAST_DUE is treated as a *current, granting*
+   status (a grace-period convention) — a lapsed invoice does not instantly
+   evict a tenant from their own compliance data. This is a judgment call
+   with no billing/dunning system in this codebase to confirm or refute it.
+4. **Plan resolution + INACTIVE_PLAN decision**: an existing subscription
+   whose `Plan.is_active` is false still resolves with its real feature map,
+   under a new `INACTIVE_PLAN` status distinct from `ACTIVE` — consistent
+   with §22.10 treating "inactive" as "no new subscriptions", not "existing
+   subscribers instantly lose access". A subscription referencing a
+   genuinely missing plan (defensive only; the RESTRICT FK should prevent
+   this) resolves `INVALID`.
+5. **Feature resolution** — `PlanFeature` rows seed a `{feature_key: bool}`
+   map; non-expired `TenantFeatureOverride` rows (per §22.3, also
+   deliberately unenforced against duplicates) are applied on top, override
+   wins, expired ignored. No authorization of who wrote an override is
+   performed here — that remains unimplemented, per task scope.
+6. **Usage limits** — `TenantUsageLimit` rows are surfaced as
+   `UsageLimitConfiguration` (feature_key, limit_key, limit_value,
+   is_unlimited) — configuration only, never "enforced" or "remaining",
+   since no consumption counter exists anywhere in this codebase.
+7. `LISA` is treated as an ordinary `feature_key` throughout — no
+   special-casing exists anywhere in this module (tested explicitly).
+
+Not implemented (still future work, unchanged from §22.10): API endpoints
+calling this service, any UI, billing, usage metering/enforcement,
+DB-level uniqueness on "one current subscription"/"one active override",
+and any authorization of who may write overrides or usage limits.
+
+See `backend/app/services/entitlement_service.py` module docstring for the
+full, more detailed rationale, and
+`backend/tests/integration/test_entitlement_resolution.py` for the 22
+scenario tests (including cross-tenant isolation, deterministic repeated
+resolution, and the RBAC-import-absence structural test).
+
+---
+
+*Document produced as architecture/repository analysis for §§1–21; §22 documents an actual implementation completed and committed on 2026-09-13. §23 documents the M2 entitlement-resolution service, also completed 2026-09-13.*
