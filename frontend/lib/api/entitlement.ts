@@ -46,6 +46,65 @@ export interface TenantFeatureOverrideResponse {
   created_at: string;
 }
 
+export interface TenantFeatureOverrideCreateRequest {
+  feature_key: string;
+  enabled: boolean;
+  reason?: string | null;
+  expires_at?: string | null;
+}
+
+export interface TenantFeatureOverrideUpdateRequest {
+  enabled?: boolean | null;
+  reason?: string | null;
+  expires_at?: string | null;
+}
+
+export interface TenantUsageLimitResponse {
+  id: string;
+  organization_id: string;
+  feature_key: string;
+  limit_key: string;
+  limit_value: number | null;
+  is_unlimited: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TenantUsageLimitCreateRequest {
+  feature_key: string;
+  limit_key: string;
+  limit_value?: number | null;
+  is_unlimited?: boolean;
+}
+
+export interface TenantUsageLimitUpdateRequest {
+  limit_value?: number | null;
+  is_unlimited?: boolean | null;
+}
+
+export type ExpirationState = "PERMANENT" | "ACTIVE" | "EXPIRING_SOON" | "EXPIRED";
+
+export function getOverrideExpirationState(
+  override: TenantFeatureOverrideResponse,
+  now: Date = new Date()
+): { state: ExpirationState; label: string; isApplicable: boolean } {
+  if (!override.expires_at) {
+    return { state: "PERMANENT", label: "Permanent (No Expiry)", isApplicable: true };
+  }
+  const expires = new Date(override.expires_at);
+  if (Number.isNaN(expires.getTime())) {
+    return { state: "EXPIRED", label: "Invalid Expiration", isApplicable: false };
+  }
+  const diffMs = expires.getTime() - now.getTime();
+  if (diffMs <= 0) {
+    return { state: "EXPIRED", label: "Expired", isApplicable: false };
+  }
+  if (diffMs <= 24 * 60 * 60 * 1000) {
+    return { state: "EXPIRING_SOON", label: "Expires Soon", isApplicable: true };
+  }
+  return { state: "ACTIVE", label: "Active", isApplicable: true };
+}
+
 export const entitlementApi = {
   getEntitlements: (accessToken: string, organizationId: string) =>
     apiRequest<EntitlementResolutionResponse>(
@@ -57,5 +116,93 @@ export const entitlementApi = {
     apiRequest<TenantFeatureOverrideResponse[]>(
       `/platform/organizations/${organizationId}/feature-overrides`,
       { accessToken }
+    ),
+
+  createFeatureOverride: (
+    accessToken: string,
+    organizationId: string,
+    payload: TenantFeatureOverrideCreateRequest
+  ) =>
+    apiRequest<TenantFeatureOverrideResponse>(
+      `/platform/organizations/${organizationId}/feature-overrides`,
+      {
+        accessToken,
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    ),
+
+  updateFeatureOverride: (
+    accessToken: string,
+    organizationId: string,
+    featureKey: string,
+    payload: TenantFeatureOverrideUpdateRequest
+  ) =>
+    apiRequest<TenantFeatureOverrideResponse>(
+      `/platform/organizations/${organizationId}/feature-overrides/${encodeURIComponent(featureKey)}`,
+      {
+        accessToken,
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      }
+    ),
+
+  removeFeatureOverride: (accessToken: string, organizationId: string, featureKey: string) =>
+    apiRequest<void>(
+      `/platform/organizations/${organizationId}/feature-overrides/${encodeURIComponent(featureKey)}`,
+      {
+        accessToken,
+        method: "DELETE",
+      }
+    ),
+
+  listUsageLimits: (accessToken: string, organizationId: string) =>
+    apiRequest<TenantUsageLimitResponse[]>(
+      `/platform/organizations/${organizationId}/usage-limits`,
+      { accessToken }
+    ),
+
+  createUsageLimit: (
+    accessToken: string,
+    organizationId: string,
+    payload: TenantUsageLimitCreateRequest
+  ) =>
+    apiRequest<TenantUsageLimitResponse>(
+      `/platform/organizations/${organizationId}/usage-limits`,
+      {
+        accessToken,
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    ),
+
+  updateUsageLimit: (
+    accessToken: string,
+    organizationId: string,
+    featureKey: string,
+    limitKey: string,
+    payload: TenantUsageLimitUpdateRequest
+  ) =>
+    apiRequest<TenantUsageLimitResponse>(
+      `/platform/organizations/${organizationId}/usage-limits/${encodeURIComponent(featureKey)}/${encodeURIComponent(limitKey)}`,
+      {
+        accessToken,
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      }
+    ),
+
+  removeUsageLimit: (
+    accessToken: string,
+    organizationId: string,
+    featureKey: string,
+    limitKey: string
+  ) =>
+    apiRequest<void>(
+      `/platform/organizations/${organizationId}/usage-limits/${encodeURIComponent(featureKey)}/${encodeURIComponent(limitKey)}`,
+      {
+        accessToken,
+        method: "DELETE",
+      }
     ),
 };
