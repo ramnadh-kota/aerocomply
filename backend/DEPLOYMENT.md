@@ -12,6 +12,20 @@ Use the host's managed Postgres (Render Postgres, Railway Postgres, RDS,
 Supabase, Neon, etc.) — never point production at the local dev instance
 under `.local-tools/`. Note the resulting connection string.
 
+**Status (2026-09-13): done.** A Neon project (`bitter-tooth-52841705`,
+branch `production`, region `aws-us-east-2`) has been provisioned and the
+full Alembic chain (`0001`→`0023`, 40 tables) has been applied to it and
+verified reachable — `/health/ready` and a full register→login→`/auth/me`
+round trip succeeded against it directly. The connection string is held
+only by whoever provisioned it (never committed to this repo); no
+application backend host has been chosen yet (see the top-level note above
+about choosing Render/Railway/Fly/ECS/etc.) — once one is, set
+`DATABASE_URL` there to the Neon connection string via that platform's
+own secret manager, per Section 2 below. Note: Neon's serverless compute
+has a cold-start delay after idling (observed ~5s on the first request in
+this pass) — factor that into any tight readiness-probe timeout on
+whichever host is chosen.
+
 ## 2. Environment variables
 
 Copy `.env.example` and set real production values. Never commit the
