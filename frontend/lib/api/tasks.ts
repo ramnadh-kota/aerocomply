@@ -17,4 +17,9 @@ export interface BackendTask {
 export const tasksApi = {
   listForWorkOrder: (accessToken: string, workOrderId: string) =>
     apiRequest<BackendTask[]>(`/work-orders/${workOrderId}/tasks`, { accessToken }),
+  complete: (accessToken: string, workOrderId: string, taskId: string) =>
+    apiRequest<BackendTask>(`/work-orders/${workOrderId}/tasks/${taskId}/complete`, {
+      method: "POST",
+      accessToken,
+    }),
 };

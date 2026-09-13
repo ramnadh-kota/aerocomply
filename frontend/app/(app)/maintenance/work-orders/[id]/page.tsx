@@ -21,7 +21,7 @@ import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { getChecklistByWorkOrderId } from "@/lib/mock/checklists";
 import { auditEventsForObjectLabelContains } from "@/lib/mock/audit";
 import { Timeline } from "@/components/timeline/Timeline";
-import { useEffect, useState as useReactState } from "react";
+import { useCallback, useEffect, useState as useReactState } from "react";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
 import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
@@ -38,32 +38,52 @@ function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
   const [tasks, setTasks] = useReactState<BackendTask[]>([]);
   const [loading, setLoading] = useReactState(true);
   const [error, setError] = useReactState<NormalizedApiError | null>(null);
+  const [taskActionError, setTaskActionError] = useReactState<string | null>(null);
+  const [busyTaskId, setBusyTaskId] = useReactState<string | null>(null);
+  // Bumped after a task completion to force RealReleaseReadinessPanel to
+  // remount and refetch — it has no externally callable refresh, so a key
+  // change is the simplest "refetch both" mechanism consistent with this
+  // page's existing plain-useEffect data loading (no shared cache layer).
+  const [readinessRefreshKey, setReadinessRefreshKey] = useReactState(0);
 
-  useEffect(() => {
+  const loadWorkOrderAndTasks = useCallback(() => {
     if (!isAuthenticated || !accessToken) {
       setLoading(false);
       return;
     }
-    let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([workOrdersApi.get(accessToken, workOrderId), tasksApi.listForWorkOrder(accessToken, workOrderId)])
+    return Promise.all([workOrdersApi.get(accessToken, workOrderId), tasksApi.listForWorkOrder(accessToken, workOrderId)])
       .then(([woData, taskData]) => {
-        if (!cancelled) {
-          setWo(woData);
-          setTasks(taskData);
-        }
+        setWo(woData);
+        setTasks(taskData);
       })
       .catch((err) => {
-        if (!cancelled) setError(normalizeApiError(err));
+        setError(normalizeApiError(err));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [accessToken, isAuthenticated, workOrderId]);
+
+  useEffect(() => {
+    loadWorkOrderAndTasks();
+  }, [loadWorkOrderAndTasks]);
+
+  const completeTask = async (taskId: string) => {
+    if (!accessToken || busyTaskId) return;
+    setTaskActionError(null);
+    setBusyTaskId(taskId);
+    try {
+      await tasksApi.complete(accessToken, workOrderId, taskId);
+      await loadWorkOrderAndTasks();
+      setReadinessRefreshKey((k) => k + 1);
+    } catch (err) {
+      setTaskActionError(normalizeApiError(err).message);
+    } finally {
+      setBusyTaskId(null);
+    }
+  };
 
   return (
     <div>
@@ -101,17 +121,33 @@ function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
                 <p><strong>Aircraft ID:</strong> <span className="ac-mono">{wo.aircraft_id}</span></p>
                 <p><strong>Created:</strong> {new Date(wo.created_at).toLocaleString()}</p>
               </div>
-              <RealReleaseReadinessPanel workOrderId={workOrderId} />
+              <RealReleaseReadinessPanel key={readinessRefreshKey} workOrderId={workOrderId} />
               <h2 className="ac-eyebrow" style={{ marginTop: 16, marginBottom: 10 }}>Tasks ({tasks.length})</h2>
+              {taskActionError && (
+                <div className="ac-card ac-section" style={{ borderColor: "var(--ac-status-noncompliant)", padding: "var(--ac-space-3)" }}>
+                  <p className="ac-text-sm" style={{ margin: 0 }}>{taskActionError}</p>
+                </div>
+              )}
               {tasks.length === 0 ? (
                 <div className="ac-card"><p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No tasks recorded on this work order yet.</p></div>
               ) : (
                 <div className="ac-flex ac-flex-col ac-gap-2">
                   {tasks.map((t) => (
                     <div key={t.id} className="ac-card">
-                      <div className="ac-flex ac-justify-between ac-items-center">
+                      <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 8 }}>
                         <span>{t.description}</span>
-                        <StatusBadge {...genericStatusBadge(t.execution_state)} />
+                        <div className="ac-flex ac-items-center ac-gap-2">
+                          <StatusBadge {...genericStatusBadge(t.execution_state)} />
+                          {t.execution_state !== "COMPLETED" && (
+                            <button
+                              className="ac-btn ac-btn-sm ac-btn-primary"
+                              disabled={busyTaskId === t.id}
+                              onClick={() => completeTask(t.id)}
+                            >
+                              {busyTaskId === t.id ? "Completing…" : "Complete Task"}
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <RealTaskGatePanel taskId={t.id} />
                     </div>

@@ -3,12 +3,22 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
 from app.models.task import Task
 from app.models.work_order import WorkOrder
 from app.schemas.task import TaskCreateRequest
 from app.schemas.work_order import WorkOrderCreateRequest
 from app.services import aircraft_service
+from app.services.audit_service import record_audit_event
+
+_TASK_TERMINAL_STATE = "COMPLETED"
+
+# States a task may legally complete from. A task with no recorded execution
+# yet (PENDING) or one actively being worked (IN_PROGRESS) may be marked
+# complete; COMPLETED itself is terminal (no duplicate completion), and there
+# is no other execution_state value in use today (see app/models/task.py —
+# execution_state is a free-form string with "PENDING" as the only default).
+_TASK_COMPLETABLE_FROM = {"PENDING", "IN_PROGRESS"}
 
 
 def create_work_order(
@@ -83,6 +93,39 @@ def get_task(db: Session, *, organization_id: uuid.UUID, task_id: uuid.UUID) -> 
     ).scalar_one_or_none()
     if task is None:
         raise NotFoundError("Task not found")
+    return task
+
+
+def complete_task(
+    db: Session, task: Task, *, actor_user_id: uuid.UUID | None
+) -> Task:
+    """Mark a task's execution_state COMPLETED.
+
+    This is deliberately narrow: it only records that the work itself was
+    executed. It never re-implements or short-circuits the separate
+    Evidence/Inspection gates that release_readiness_service checks — a
+    completed task does not by itself mean the aircraft is
+    airworthy/released, only that this one execution step is done.
+    """
+    if task.execution_state == _TASK_TERMINAL_STATE:
+        raise ConflictError("Task is already completed")
+    if task.execution_state not in _TASK_COMPLETABLE_FROM:
+        raise ConflictError(
+            f"Cannot complete task from execution_state={task.execution_state!r}"
+        )
+
+    task.execution_state = _TASK_TERMINAL_STATE
+    record_audit_event(
+        db,
+        organization_id=task.organization_id,
+        user_id=actor_user_id,
+        action="task.completed",
+        entity_type="Task",
+        entity_id=task.id,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
     return task
 
 

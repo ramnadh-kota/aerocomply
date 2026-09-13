@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db_session, require_permission
+from app.core.errors import NotFoundError
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.task import TaskCreateRequest, TaskResponse
@@ -63,6 +64,25 @@ def create_task(
     task = work_order_service.create_task(
         db, organization_id=current_user.organization_id, payload=payload
     )
+    return TaskResponse.model_validate(task)
+
+
+@router.post("/{work_order_id}/tasks/{task_id}/complete", response_model=TaskResponse)
+def complete_task(
+    work_order_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    # No distinct TASK_WRITE permission exists in the catalog (see
+    # app/core/permissions.py); AIRCRAFT_WRITE already gates task creation
+    # above, so it gates task completion too for the same reason.
+    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_WRITE)),
+) -> TaskResponse:
+    task = work_order_service.get_task(
+        db, organization_id=current_user.organization_id, task_id=task_id
+    )
+    if task.work_order_id != work_order_id:
+        raise NotFoundError("Task not found on this work order")
+    task = work_order_service.complete_task(db, task, actor_user_id=current_user.id)
     return TaskResponse.model_validate(task)
 
 
