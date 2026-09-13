@@ -22,7 +22,22 @@ from app.schemas.platform import (
     OrganizationCreateRequest,
     PlatformOrganizationResponse,
 )
-from app.services import plan_service, platform_service
+from app.schemas.subscription import (
+    SubscriptionCreateRequest,
+    SubscriptionResponse,
+    SubscriptionScheduleRequest,
+    SubscriptionUpdateRequest,
+)
+from app.schemas.tenant_entitlement import (
+    TenantFeatureOverrideCreateRequest,
+    TenantFeatureOverrideResponse,
+    TenantFeatureOverrideUpdateRequest,
+    TenantUsageLimitCreateRequest,
+    TenantUsageLimitResponse,
+    TenantUsageLimitUpdateRequest,
+)
+from app.services import plan_service, platform_service, subscription_service
+from app.services import tenant_entitlement_admin_service as tea_service
 from app.services.entitlement_service import resolve_entitlements
 
 router = APIRouter(prefix="/platform", tags=["platform"])
@@ -281,3 +296,285 @@ def update_plan_feature(
         enabled=payload.enabled,
     )
     return PlanFeatureResponse.model_validate(feature)
+
+
+# ---------------------------------------------------------------------------
+# M6: subscription administration. Baseline gate is PLATFORM_MANAGE; unlike
+# Plan/PlanFeature, Subscription rows carry a real organization_id already
+# (TenantScopedMixin), so audit attribution targets that organization -- see
+# app/services/subscription_service.py's module docstring.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/organizations/{organization_id}/subscriptions", response_model=list[SubscriptionResponse]
+)
+def list_org_subscriptions(
+    organization_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[SubscriptionResponse]:
+    subs = subscription_service.list_subscriptions_for_org(db, organization_id=organization_id)
+    return [SubscriptionResponse.model_validate(s) for s in subs]
+
+
+@router.post(
+    "/organizations/{organization_id}/subscriptions",
+    response_model=SubscriptionResponse,
+    status_code=201,
+)
+def create_org_subscription(
+    organization_id: uuid.UUID,
+    payload: SubscriptionCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> SubscriptionResponse:
+    sub = subscription_service.create_subscription(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        plan_id=payload.plan_id,
+        status=payload.status,
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+    )
+    return SubscriptionResponse.model_validate(sub)
+
+
+@router.post(
+    "/organizations/{organization_id}/subscriptions/schedule",
+    response_model=SubscriptionResponse,
+    status_code=201,
+)
+def schedule_org_subscription(
+    organization_id: uuid.UUID,
+    payload: SubscriptionScheduleRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> SubscriptionResponse:
+    sub = subscription_service.schedule_subscription(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        plan_id=payload.plan_id,
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+    )
+    return SubscriptionResponse.model_validate(sub)
+
+
+@router.get("/subscriptions/{subscription_id}", response_model=SubscriptionResponse)
+def get_subscription(
+    subscription_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> SubscriptionResponse:
+    sub = subscription_service.get_subscription(db, subscription_id=subscription_id)
+    return SubscriptionResponse.model_validate(sub)
+
+
+@router.patch("/subscriptions/{subscription_id}", response_model=SubscriptionResponse)
+def update_subscription(
+    subscription_id: uuid.UUID,
+    payload: SubscriptionUpdateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> SubscriptionResponse:
+    sub = subscription_service.update_subscription(
+        db,
+        actor_user_id=current_user.id,
+        subscription_id=subscription_id,
+        status=payload.status,
+        plan_id=payload.plan_id,
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+    )
+    return SubscriptionResponse.model_validate(sub)
+
+
+@router.post("/subscriptions/{subscription_id}/cancel", response_model=SubscriptionResponse)
+def cancel_subscription(
+    subscription_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> SubscriptionResponse:
+    sub = subscription_service.cancel_subscription(
+        db, actor_user_id=current_user.id, subscription_id=subscription_id
+    )
+    return SubscriptionResponse.model_validate(sub)
+
+
+# ---------------------------------------------------------------------------
+# M6: tenant feature-override administration. PLATFORM_MANAGE is the
+# baseline; an EXPANSIVE mutation (see
+# tenant_entitlement_admin_service.classify_feature_override) additionally
+# requires PLATFORM_ENTITLEMENT_OVERRIDE, checked at the service layer
+# against the caller's full permission set (not a second stacked Depends),
+# because whether a mutation is expansive can only be known after comparing
+# against the org's current resolved baseline.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/organizations/{organization_id}/feature-overrides",
+    response_model=list[TenantFeatureOverrideResponse],
+)
+def list_feature_overrides(
+    organization_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[TenantFeatureOverrideResponse]:
+    overrides = tea_service.list_feature_overrides(db, organization_id=organization_id)
+    return [TenantFeatureOverrideResponse.model_validate(o) for o in overrides]
+
+
+@router.post(
+    "/organizations/{organization_id}/feature-overrides",
+    response_model=TenantFeatureOverrideResponse,
+    status_code=201,
+)
+def create_feature_override(
+    organization_id: uuid.UUID,
+    payload: TenantFeatureOverrideCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> TenantFeatureOverrideResponse:
+    override = tea_service.create_feature_override(
+        db,
+        actor_user_id=current_user.id,
+        caller_roles=current_user.roles,
+        organization_id=organization_id,
+        feature_key=payload.feature_key,
+        enabled=payload.enabled,
+        reason=payload.reason,
+        expires_at=payload.expires_at,
+    )
+    return TenantFeatureOverrideResponse.model_validate(override)
+
+
+@router.patch(
+    "/organizations/{organization_id}/feature-overrides/{feature_key}",
+    response_model=TenantFeatureOverrideResponse,
+)
+def update_feature_override(
+    organization_id: uuid.UUID,
+    feature_key: str,
+    payload: TenantFeatureOverrideUpdateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> TenantFeatureOverrideResponse:
+    override = tea_service.update_feature_override(
+        db,
+        actor_user_id=current_user.id,
+        caller_roles=current_user.roles,
+        organization_id=organization_id,
+        feature_key=feature_key,
+        enabled=payload.enabled,
+        reason=payload.reason,
+        expires_at=payload.expires_at,
+    )
+    return TenantFeatureOverrideResponse.model_validate(override)
+
+
+@router.delete(
+    "/organizations/{organization_id}/feature-overrides/{feature_key}", status_code=204
+)
+def remove_feature_override(
+    organization_id: uuid.UUID,
+    feature_key: str,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> None:
+    tea_service.remove_feature_override(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        feature_key=feature_key,
+    )
+
+
+# ---------------------------------------------------------------------------
+# M6: tenant usage-limit administration (configuration only -- no metering).
+# Same PLATFORM_MANAGE / PLATFORM_ENTITLEMENT_OVERRIDE boundary as overrides.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/organizations/{organization_id}/usage-limits",
+    response_model=list[TenantUsageLimitResponse],
+)
+def list_usage_limits(
+    organization_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[TenantUsageLimitResponse]:
+    limits = tea_service.list_usage_limits(db, organization_id=organization_id)
+    return [TenantUsageLimitResponse.model_validate(limit) for limit in limits]
+
+
+@router.post(
+    "/organizations/{organization_id}/usage-limits",
+    response_model=TenantUsageLimitResponse,
+    status_code=201,
+)
+def create_usage_limit(
+    organization_id: uuid.UUID,
+    payload: TenantUsageLimitCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> TenantUsageLimitResponse:
+    limit = tea_service.create_usage_limit(
+        db,
+        actor_user_id=current_user.id,
+        caller_roles=current_user.roles,
+        organization_id=organization_id,
+        feature_key=payload.feature_key,
+        limit_key=payload.limit_key,
+        limit_value=payload.limit_value,
+        is_unlimited=payload.is_unlimited,
+    )
+    return TenantUsageLimitResponse.model_validate(limit)
+
+
+@router.patch(
+    "/organizations/{organization_id}/usage-limits/{feature_key}/{limit_key}",
+    response_model=TenantUsageLimitResponse,
+)
+def update_usage_limit(
+    organization_id: uuid.UUID,
+    feature_key: str,
+    limit_key: str,
+    payload: TenantUsageLimitUpdateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> TenantUsageLimitResponse:
+    limit = tea_service.update_usage_limit(
+        db,
+        actor_user_id=current_user.id,
+        caller_roles=current_user.roles,
+        organization_id=organization_id,
+        feature_key=feature_key,
+        limit_key=limit_key,
+        limit_value=payload.limit_value,
+        is_unlimited=payload.is_unlimited,
+    )
+    return TenantUsageLimitResponse.model_validate(limit)
+
+
+@router.delete(
+    "/organizations/{organization_id}/usage-limits/{feature_key}/{limit_key}", status_code=204
+)
+def remove_usage_limit(
+    organization_id: uuid.UUID,
+    feature_key: str,
+    limit_key: str,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> None:
+    tea_service.remove_usage_limit(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        feature_key=feature_key,
+        limit_key=limit_key,
+    )

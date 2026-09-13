@@ -52,6 +52,17 @@ class Permission(StrEnum):
     # audit events). Deliberately its own permission, never bundled into
     # ORG_ADMIN's grant set — an org admin manages their own tenant only.
     PLATFORM_MANAGE = "platform:manage"
+    # M6: narrower than PLATFORM_MANAGE. Ordinary platform administration
+    # (subscription CRUD, restrictive overrides/limits) only needs
+    # PLATFORM_MANAGE. Anything that would EXPAND a tenant's effective
+    # entitlements beyond what their plan already grants (see
+    # app/services/tenant_entitlement_admin_service.py's classification
+    # function) additionally requires this permission. Deliberately its own
+    # permission per M4's recommendation, so the code stays structurally
+    # correct even though today only PLATFORM_ADMIN holds it (see
+    # ROLE_PERMISSIONS below for why it is not yet a separately-grantable
+    # tier).
+    PLATFORM_ENTITLEMENT_OVERRIDE = "platform:entitlement_override"
 
 
 class Role(StrEnum):
@@ -197,8 +208,17 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     # implicitly gain any customer operational-data permission — a platform
     # admin who also needs to view a customer's MRO data would need a
     # separate, explicit grant within that tenant, same as any other user.
+    # M6: PLATFORM_ADMIN is still the only role with any platform authority
+    # at all, so it is granted both PLATFORM_MANAGE and
+    # PLATFORM_ENTITLEMENT_OVERRIDE -- there is no narrower "platform staff
+    # without expansion rights" role to withhold the latter from yet. The
+    # two permissions are still checked independently wherever entitlement
+    # expansion is possible, so the code is structurally correct today and a
+    # future milestone could introduce a second platform-staff tier (holding
+    # only PLATFORM_MANAGE) without any change to that enforcement logic.
     Role.PLATFORM_ADMIN: {
         Permission.PLATFORM_MANAGE,
+        Permission.PLATFORM_ENTITLEMENT_OVERRIDE,
     },
 }
 

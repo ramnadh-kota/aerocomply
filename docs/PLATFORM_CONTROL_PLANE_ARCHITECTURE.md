@@ -802,4 +802,120 @@ data.
 
 ---
 
-*Document produced as architecture/repository analysis for §§1–21; §22 documents an actual implementation completed and committed on 2026-09-13. §23 documents the M2 entitlement-resolution service, also completed 2026-09-13. §25 documents the M5 plan/plan-feature mutation layer, also completed 2026-09-13.*
+## 26. M6 — Subscription & tenant entitlement administration (2026-09-13)
+
+Adds mutation services for the three remaining M1 tables that M5 did not
+cover: `Subscription`, `TenantFeatureOverride`, `TenantUsageLimit`. Follows
+M5's exact create/flush/audit/commit transaction pattern. Zero changes to
+`app/services/entitlement_service.py` (M2).
+
+1. **Subscription administration**
+   (`app/services/subscription_service.py`): create/get/list-for-org/
+   update/cancel/schedule, with an explicit lifecycle transition table
+   (no `CANCELED` → anything, no skipping straight into an already-past
+   state) and service-level rejection of any create/update that would
+   produce two simultaneously-"current" subscriptions for the same
+   organization (per M2's own TRIALING/ACTIVE/PAST_DUE + date-range
+   candidacy rule) — M1 deliberately left this DB-unenforced, and M6 does
+   not silently resolve it by picking a winner; it rejects with a 409
+   (`ambiguous_subscription_state`) before the row is ever written.
+
+2. **Tenant feature-override / usage-limit administration**
+   (`app/services/tenant_entitlement_admin_service.py`): full CRUD
+   (create/list/update/remove) for both tables. Removal is a hard delete
+   (no soft-delete column exists on either table) and is always treated as
+   restrictive/neutral (it can only return a tenant to plan-default
+   behavior), so it never requires the expansion permission.
+
+3. **New permission: `Permission.PLATFORM_ENTITLEMENT_OVERRIDE`**
+   (`app/core/permissions.py`) — per M4's recommendation, narrower than
+   `PLATFORM_MANAGE`. Ordinary administration (subscription CRUD,
+   restrictive/neutral overrides and limits) only needs
+   `PLATFORM_MANAGE`; a mutation classified EXPANSIVE additionally
+   requires this permission. Granted to `Role.PLATFORM_ADMIN` alongside
+   `PLATFORM_MANAGE` in `ROLE_PERMISSIONS`, because `PLATFORM_ADMIN` is
+   still the only role with any platform authority at all — there is no
+   narrower "platform staff without expansion rights" tier to withhold it
+   from yet. Both permissions are checked independently at the service
+   layer (not just relying on the one role happening to hold both), so
+   the code is structurally correct today and a future milestone could
+   introduce a `PLATFORM_MANAGE`-only staff tier without touching this
+   enforcement logic. **Known limitation, stated honestly**: until that
+   second tier exists, every `PLATFORM_ADMIN` user can already perform
+   expansion operations — the permission split exists in code, not yet in
+   practice.
+
+4. **Restrictive vs. expansive classification** — deterministic, and does
+   NOT duplicate M2's algorithm. It calls `resolve_entitlements` to read
+   the organization's *current* effective feature map (the baseline) and
+   compares the proposed mutation against it:
+   - Feature override: enabling (`enabled=True`) a feature the baseline
+     does not already grant is EXPANSIVE; disabling, or enabling a feature
+     the baseline already grants, is RESTRICTIVE/NEUTRAL.
+   - Usage limit: setting `is_unlimited=True` from `False` is EXPANSIVE;
+     increasing `limit_value` beyond the currently configured value on an
+     existing row is EXPANSIVE; decreasing, holding constant, or
+     configuring a brand-new limit for the first time (there being no
+     prior ceiling to compare against) is RESTRICTIVE/NEUTRAL.
+   The permission check (`require_expansion_permission_if_needed`) is
+   applied at the service layer against the caller's full resolved
+   permission set — not as a second stacked `Depends` on the route —
+   because whether a mutation is expansive can only be determined after
+   comparing it to the org's live baseline.
+
+5. **Authorization boundary**: every `/platform/organizations/{id}/...`
+   route in this milestone is gated by `PLATFORM_MANAGE` at minimum,
+   exactly like M5's plan routes. `test_subscription_and_tenant_
+   entitlement_admin.py`'s M6-O regression proves the full boundary
+   end-to-end: an ordinary tenant `ORG_ADMIN` attempting an expansive
+   `POST .../feature-overrides` (`LISA: true`) receives 403; a
+   `PLATFORM_ADMIN` (holding both permissions) succeeds.
+
+6. **Audit attribution** — unlike Plan/PlanFeature (global catalog data
+   with no natural tenant subject, attributed in M5 to the acting
+   platform admin's own organization), every row in this milestone
+   already carries a real `organization_id` via `TenantScopedMixin`. Audit
+   events for subscription/override/usage-limit mutations are attributed
+   to *that* organization — the one being administered — which is simpler
+   and more natural than M5's problem, not a new convention.
+
+7. **Transaction safety** — same guarantee as M5: mutate, flush inside a
+   try/except that translates an `IntegrityError` into a clean
+   `ConflictError` *before* the audit event is added, then commit. A
+   rejected mutation (duplicate override, duplicate usage limit, ambiguous
+   subscription state, invalid lifecycle transition) can never leave a
+   partial row or an orphaned audit event. Verified with the same
+   raw-connection technique M5 used
+   (`test_duplicate_override_leaves_no_partial_row_or_orphan_audit`) to
+   stay immune to the test fixture's single-flat-transaction rollback
+   gotcha.
+
+8. **M2 remains canonical** — zero changes to
+   `app/services/entitlement_service.py`. Live read-after-write tests
+   prove the resolver sees every M6 mutation: a new subscription flips
+   `NO_SUBSCRIPTION` → `ACTIVE`; an expansive override flips a plan-false
+   feature to effectively-true and back on removal; an expired override
+   is ignored; cancellation flips `ACTIVE` → `NO_SUBSCRIPTION`; usage
+   limits are surfaced as configuration exactly as stored.
+
+9. **No metering, no billing** — usage limits remain configuration-only
+   (no consumption counter exists anywhere in this codebase); no billing
+   provider fields were added to `Subscription`.
+
+10. **No migration.** All three domains fit the existing M1 schema exactly
+    as designed; Alembic head remains `0024`.
+
+11. **New files**: `backend/app/services/subscription_service.py`,
+    `backend/app/services/tenant_entitlement_admin_service.py`,
+    `backend/app/schemas/subscription.py`,
+    `backend/app/schemas/tenant_entitlement.py`,
+    `backend/tests/integration/test_subscription_and_tenant_entitlement_admin.py`.
+    Routes added to the existing `backend/app/api/v1/platform.py`, same as
+    M5. `backend/tests/integration/test_platform_admin.py`'s
+    `test_platform_admin_role_grants_only_platform_manage` was updated
+    (not removed) to assert the new, deliberately-larger `PLATFORM_ADMIN`
+    grant set.
+
+---
+
+*Document produced as architecture/repository analysis for §§1–21; §22 documents an actual implementation completed and committed on 2026-09-13. §23 documents the M2 entitlement-resolution service, also completed 2026-09-13. §25 documents the M5 plan/plan-feature mutation layer, also completed 2026-09-13. §26 documents the M6 subscription and tenant entitlement administration layer, also completed 2026-09-13.*
