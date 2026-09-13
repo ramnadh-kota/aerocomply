@@ -23,6 +23,7 @@ from app.models.technician_qualification import TechnicianQualification
 from app.models.tenant_entitlement import TenantFeatureOverride, TenantUsageLimit
 from app.models.user import User, UserRole
 from app.models.vendor import Vendor
+from app.models.warehouse import Location, Warehouse
 from app.models.work_order import WorkOrder
 
 __all__ = [
@@ -57,4 +58,6 @@ __all__ = [
     "SubscriptionStatus",
     "TenantFeatureOverride",
     "TenantUsageLimit",
+    "Warehouse",
+    "Location",
 ]
