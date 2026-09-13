@@ -53,3 +53,28 @@ class AuditEventListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ComponentHealthResponse(BaseModel):
+    """One row of app.services.platform_health_service.ComponentHealth.
+    status is a plain string (HEALTHY/UNAVAILABLE/NOT_APPLICABLE/UNKNOWN)
+    rather than a strict enum on the wire, so a future status value doesn't
+    break API consumers.
+    """
+
+    name: str
+    status: str
+    detail: str
+    latency_ms: float | None = None
+
+
+class PlatformHealthResponse(BaseModel):
+    """M13: on-demand platform health snapshot. Never persisted -- every
+    call recomputes this from the live database check, same semantics as
+    GET /health/ready (app/api/v1/health.py), plus a deterministic
+    aggregation documented in platform_health_service.get_platform_health.
+    """
+
+    overall_status: str
+    checked_at: datetime
+    components: list[ComponentHealthResponse]

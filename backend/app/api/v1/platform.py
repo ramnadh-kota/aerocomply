@@ -21,8 +21,10 @@ from app.schemas.plan import (
 from app.schemas.platform import (
     AuditEventListResponse,
     AuditEventResponse,
+    ComponentHealthResponse,
     OrganizationAdminCreateRequest,
     OrganizationCreateRequest,
+    PlatformHealthResponse,
     PlatformOrganizationResponse,
 )
 from app.schemas.subscription import (
@@ -39,7 +41,13 @@ from app.schemas.tenant_entitlement import (
     TenantUsageLimitResponse,
     TenantUsageLimitUpdateRequest,
 )
-from app.services import audit_service, plan_service, platform_service, subscription_service
+from app.services import (
+    audit_service,
+    plan_service,
+    platform_health_service,
+    platform_service,
+    subscription_service,
+)
 from app.services import tenant_entitlement_admin_service as tea_service
 from app.services.entitlement_service import resolve_entitlements
 
@@ -621,4 +629,35 @@ def list_audit_events(
         total=total,
         limit=effective_limit,
         offset=max(0, offset),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M13: on-demand platform health snapshot. PLATFORM_MANAGE-gated, same
+# precedent as every other route in this file. Read-only: never writes
+# anything, never persists a health record -- every call recomputes the
+# snapshot live from app/services/platform_health_service.get_platform_health,
+# which itself reuses the readiness probe's exact DB check
+# (app/api/v1/health.py) rather than a second, possibly-inconsistent one.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/health", response_model=PlatformHealthResponse)
+def get_platform_health(
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> PlatformHealthResponse:
+    snapshot = platform_health_service.get_platform_health(db)
+    return PlatformHealthResponse(
+        overall_status=snapshot.overall_status.value,
+        checked_at=snapshot.checked_at,
+        components=[
+            ComponentHealthResponse(
+                name=c.name,
+                status=c.status.value,
+                detail=c.detail,
+                latency_ms=c.latency_ms,
+            )
+            for c in snapshot.components
+        ],
     )
