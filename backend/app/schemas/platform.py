@@ -24,3 +24,32 @@ class PlatformOrganizationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AuditEventResponse(BaseModel):
+    """M12.0: safe, explicit projection of AuditEvent for platform-level
+    audit reads. Deliberately excludes no columns beyond ORM internals --
+    every column on the model is already safe for a PLATFORM_MANAGE-gated
+    reader -- but is still hand-declared (never `from_attributes` on the
+    ORM class blindly re-exported) so a future column added to the model
+    doesn't leak here without a deliberate schema change.
+    """
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    created_at: datetime
+    user_id: uuid.UUID | None
+    action: str
+    entity_type: str
+    entity_id: uuid.UUID | None
+    event_metadata: dict
+
+    class Config:
+        from_attributes = True
+
+
+class AuditEventListResponse(BaseModel):
+    items: list[AuditEventResponse]
+    total: int
+    limit: int
+    offset: int

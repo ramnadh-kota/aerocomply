@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db_session, require_permission
@@ -18,6 +19,8 @@ from app.schemas.plan import (
     PlanUpdateRequest,
 )
 from app.schemas.platform import (
+    AuditEventListResponse,
+    AuditEventResponse,
     OrganizationAdminCreateRequest,
     OrganizationCreateRequest,
     PlatformOrganizationResponse,
@@ -36,7 +39,7 @@ from app.schemas.tenant_entitlement import (
     TenantUsageLimitResponse,
     TenantUsageLimitUpdateRequest,
 )
-from app.services import plan_service, platform_service, subscription_service
+from app.services import audit_service, plan_service, platform_service, subscription_service
 from app.services import tenant_entitlement_admin_service as tea_service
 from app.services.entitlement_service import resolve_entitlements
 
@@ -577,4 +580,45 @@ def remove_usage_limit(
         organization_id=organization_id,
         feature_key=feature_key,
         limit_key=limit_key,
+    )
+
+
+# ---------------------------------------------------------------------------
+# M12.0: platform-wide audit read. PLATFORM_MANAGE is the only gate -- same
+# precedent as GET /organizations/{organization_id}/entitlements above --
+# because a platform admin's whole purpose is cross-tenant visibility. When
+# organization_id is supplied it is just a WHERE clause on an already
+# platform-authorized request, not a second per-org authorization check.
+# Read-only: never writes an audit_events row of its own.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/audit", response_model=AuditEventListResponse)
+def list_audit_events(
+    organization_id: uuid.UUID | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = Query(default=audit_service.AUDIT_LIST_DEFAULT_LIMIT, ge=1),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> AuditEventListResponse:
+    events, total = audit_service.list_audit_events(
+        db,
+        organization_id=organization_id,
+        action=action,
+        entity_type=entity_type,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+    effective_limit = max(1, min(limit, audit_service.AUDIT_LIST_MAX_LIMIT))
+    return AuditEventListResponse(
+        items=[AuditEventResponse.model_validate(e) for e in events],
+        total=total,
+        limit=effective_limit,
+        offset=max(0, offset),
     )
