@@ -668,6 +668,53 @@ full, more detailed rationale, and
 scenario tests (including cross-tenant isolation, deterministic repeated
 resolution, and the RBAC-import-absence structural test).
 
+## 24. M3 — Entitlement API exposure (2026-09-13)
+
+A thin, RBAC-free-of-entitlement-logic REST layer over §23's
+`resolve_entitlements`. No new entitlement rules were added anywhere in
+this milestone — every route below only derives `organization_id`,
+calls the service, and serializes `EntitlementResolution`.
+
+1. `GET /api/v1/entitlements` (`backend/app/api/v1/entitlements.py`) —
+   tenant self-service. `organization_id` comes only from `CurrentUser`
+   (the authenticated JWT via `app.core.deps.get_current_user`), never a
+   query/path param. No entitlement-specific permission gate: this is
+   read-only self-information about the caller's own tenant, so any
+   authenticated user of that organization may call it — a deliberate
+   RBAC/entitlement separation (see §23 point on RBAC independence).
+   Always 200 for an authenticated caller; `resolution_status` in the body
+   carries ACTIVE/INACTIVE_PLAN/SUSPENDED/NO_SUBSCRIPTION/AMBIGUOUS/INVALID
+   exactly as the service returns it — none of these are treated as HTTP
+   errors.
+2. `GET /api/v1/platform/organizations/{organization_id}/entitlements`
+   (added to `backend/app/api/v1/platform.py`, mirroring that file's
+   existing route conventions) — platform-admin, any org. Gated by the
+   same `Depends(require_permission(Permission.PLATFORM_MANAGE))` used by
+   every other route in that file; 404 via the existing
+   `platform_service.get_organization` lookup if the org doesn't exist.
+3. Response schema: `backend/app/schemas/entitlement.py`,
+   `EntitlementResolutionResponse`/`UsageLimitConfigurationResponse`,
+   built via `from_resolution()`/`from_configuration()` classmethods since
+   the source is a frozen dataclass, not an ORM model. Carries an extra
+   `plan_name` field (a same-transaction secondary `Plan` lookup by the
+   already-resolved `plan_id` done in the route — enrichment, not new
+   entitlement logic) since M2's dataclass has `plan_code` but not a name.
+4. Known interaction with existing auth: `app.core.deps.get_current_user`
+   already rejects (401) any request — including to `/entitlements` —
+   from a user whose organization is currently `SUSPENDED`, re-checked on
+   every request. So a suspended tenant's own `/entitlements` call never
+   observably returns `resolution_status=SUSPENDED` over HTTP; that
+   signal is only reachable directly through
+   `entitlement_service.resolve_entitlements` (already covered in §23's
+   tests) or through the platform-admin endpoint, whose authorization does
+   not depend on the target org's status. Tested explicitly in
+   `backend/tests/integration/test_entitlement_api.py`.
+
+See `backend/tests/integration/test_entitlement_api.py` for the full API
+contract test suite (tenant isolation, platform-admin cross-org access, 403
+for ordinary tenant users on the platform endpoint, 404 for a nonexistent
+org, and response-shape checks for overrides/usage limits).
+
 ---
 
 *Document produced as architecture/repository analysis for §§1–21; §22 documents an actual implementation completed and committed on 2026-09-13. §23 documents the M2 entitlement-resolution service, also completed 2026-09-13.*

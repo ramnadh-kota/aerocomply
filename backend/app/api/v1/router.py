@@ -9,6 +9,7 @@ from app.api.v1 import (
     control_center,
     data_import,
     deferred_items,
+    entitlements,
     evidence,
     health,
     inspections,
@@ -64,3 +65,4 @@ api_router.include_router(lisa.router)
 api_router.include_router(assessments.router)
 api_router.include_router(platform.router)
 api_router.include_router(data_import.router)
+api_router.include_router(entitlements.router)

@@ -6,13 +6,16 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_db_session, require_permission
 from app.core.permissions import Permission
 from app.models.organization import OrganizationStatus
+from app.models.plan import Plan
 from app.schemas.auth import CurrentUser
+from app.schemas.entitlement import EntitlementResolutionResponse
 from app.schemas.platform import (
     OrganizationAdminCreateRequest,
     OrganizationCreateRequest,
     PlatformOrganizationResponse,
 )
 from app.services import platform_service
+from app.services.entitlement_service import resolve_entitlements
 
 router = APIRouter(prefix="/platform", tags=["platform"])
 
@@ -110,3 +113,21 @@ def create_organization_admin(
         password=payload.password,
     )
     return {"id": str(user.id), "email": user.email, "full_name": user.full_name}
+
+
+@router.get(
+    "/organizations/{organization_id}/entitlements",
+    response_model=EntitlementResolutionResponse,
+)
+def get_organization_entitlements(
+    organization_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> EntitlementResolutionResponse:
+    platform_service.get_organization(db, organization_id=organization_id)  # 404 if missing
+    result = resolve_entitlements(db, organization_id=organization_id)
+    plan_name: str | None = None
+    if result.plan_id is not None:
+        plan = db.get(Plan, result.plan_id)
+        plan_name = plan.name if plan is not None else None
+    return EntitlementResolutionResponse.from_resolution(result, plan_name=plan_name)
