@@ -12,6 +12,7 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
 import { StatusBadge, genericStatusBadge } from "@/components/status/StatusBadge";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { platformApi, type BackendPlatformOrganization } from "@/lib/api/platform";
@@ -90,6 +91,8 @@ function RealPlatformOrganizations() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmSuspendOrg, setConfirmSuspendOrg] = useState<BackendPlatformOrganization | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   const load = () => {
     if (!isAuthenticated || !accessToken) {
@@ -127,8 +130,26 @@ function RealPlatformOrganizations() {
 
   const toggleStatus = (org: BackendPlatformOrganization) => {
     if (!accessToken) return;
-    const action = org.status === "ACTIVE" ? platformApi.suspendOrganization : platformApi.activateOrganization;
-    action(accessToken, org.id).then(load).catch((err) => setError(normalizeApiError(err)));
+    if (org.status === "ACTIVE") {
+      // Suspending is destructive (locks out every user in the tenant) —
+      // require an explicit confirmation before firing the mutation.
+      setConfirmSuspendOrg(org);
+      return;
+    }
+    platformApi.activateOrganization(accessToken, org.id).then(load).catch((err) => setError(normalizeApiError(err)));
+  };
+
+  const confirmSuspend = () => {
+    if (!accessToken || !confirmSuspendOrg) return;
+    setActionBusy(true);
+    platformApi
+      .suspendOrganization(accessToken, confirmSuspendOrg.id)
+      .then(() => {
+        setConfirmSuspendOrg(null);
+        load();
+      })
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setActionBusy(false));
   };
 
   const columns: Column<BackendPlatformOrganization>[] = [
@@ -198,7 +219,46 @@ function RealPlatformOrganizations() {
             emptyMessage="No customer organizations exist yet. Create one above to begin onboarding."
           >
             <div className="ac-card" style={{ padding: 0 }}>
-              <DataTable columns={columns} rows={orgs} />
+              <div className="ac-table-desktop">
+                <DataTable columns={columns} rows={orgs} />
+              </div>
+              {/* Below 640px, columns (Created / Actions) are replaced with
+                  stacked cards so every field and action stays reachable
+                  without relying on horizontal table scroll. */}
+              <div className="ac-row-cards">
+                {orgs.map((o) => (
+                  <div className="ac-row-card" key={o.id}>
+                    <div className="ac-row-card-field">
+                      <span className="ac-row-card-field-label">Organization</span>
+                      <strong>{o.name}</strong>
+                    </div>
+                    <div className="ac-row-card-field">
+                      <span className="ac-row-card-field-label">Status</span>
+                      <StatusBadge {...genericStatusBadge(o.status)} />
+                    </div>
+                    <div className="ac-row-card-field">
+                      <span className="ac-row-card-field-label">Users</span>
+                      <span>{o.user_count}</span>
+                    </div>
+                    <div className="ac-row-card-field">
+                      <span className="ac-row-card-field-label">Aircraft</span>
+                      <span>{o.aircraft_count}</span>
+                    </div>
+                    <div className="ac-row-card-field">
+                      <span className="ac-row-card-field-label">Created</span>
+                      <span>{new Date(o.created_at).toLocaleDateString()}</span>
+                    </div>
+                    <div className="ac-row-card-actions">
+                      <button className="ac-btn" onClick={() => toggleStatus(o)}>
+                        {o.status === "ACTIVE" ? "Suspend" : "Activate"}
+                      </button>
+                      <button className="ac-btn" onClick={() => setExpandedId(expandedId === o.id ? null : o.id)}>
+                        {expandedId === o.id ? "Close" : "Create Admin"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
             {expandedId && (
               <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
@@ -209,6 +269,17 @@ function RealPlatformOrganizations() {
           </RealDataPanel>
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmSuspendOrg !== null}
+        title={`Suspend ${confirmSuspendOrg?.name ?? "organization"}?`}
+        body={`This immediately suspends "${confirmSuspendOrg?.name ?? ""}". Every user in this tenant loses normal access until the organization is reactivated. This is reversible at any time via Activate.`}
+        confirmLabel="Suspend Organization"
+        cancelLabel="Cancel"
+        busy={actionBusy}
+        onConfirm={confirmSuspend}
+        onCancel={() => setConfirmSuspendOrg(null)}
+      />
     </div>
   );
 }

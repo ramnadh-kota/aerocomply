@@ -675,6 +675,117 @@ button.ac-menu-toggle {
   color: var(--ac-text-secondary);
 }
 
+/* --- Responsive card list (fallback for data tables at narrow widths:
+   below the breakpoint, rows render as stacked cards instead of relying
+   solely on horizontal table scroll, so no column — especially trailing
+   action columns — can be pushed off-screen with no way to reach it) --- */
+
+.ac-table-scroll-hint {
+  display: none;
+}
+
+.ac-row-cards {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .ac-table-desktop {
+    display: none;
+  }
+
+  .ac-row-cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ac-space-3);
+    padding: var(--ac-space-4);
+  }
+
+  .ac-row-card {
+    border: 1px solid var(--ac-border-subtle);
+    border-radius: var(--ac-radius-md);
+    padding: var(--ac-space-3);
+  }
+
+  .ac-row-card-field {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--ac-space-3);
+    padding: 4px 0;
+    font-size: 13px;
+  }
+
+  .ac-row-card-field-label {
+    color: var(--ac-text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .ac-row-card-actions {
+    display: flex;
+    gap: var(--ac-space-2);
+    margin-top: var(--ac-space-2);
+    flex-wrap: wrap;
+  }
+
+  .ac-row-card-actions .ac-btn {
+    min-height: 44px;
+    flex: 1;
+  }
+}
+
+/* --- Confirm dialog (modal) --- */
+
+.ac-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(10, 15, 26, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ac-space-4);
+  animation: ac-fade-in 180ms ease;
+}
+
+.ac-modal {
+  background: var(--ac-bg-elevated);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-lg);
+  box-shadow: var(--ac-shadow-card);
+  max-width: 440px;
+  width: 100%;
+  padding: var(--ac-space-5);
+}
+
+.ac-modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 var(--ac-space-2);
+  color: var(--ac-text-primary);
+}
+
+.ac-modal-body {
+  font-size: 13px;
+  color: var(--ac-text-secondary);
+  margin: 0 0 var(--ac-space-4);
+}
+
+.ac-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ac-space-2);
+}
+
+.ac-modal-actions .ac-btn {
+  min-height: 40px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-modal-backdrop { animation: none; }
+}
+
 /* --- Status badges (never color alone: icon + label always present) --- */
 
 .ac-badge {
