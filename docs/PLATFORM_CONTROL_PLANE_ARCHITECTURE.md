@@ -715,6 +715,91 @@ contract test suite (tenant isolation, platform-admin cross-org access, 403
 for ordinary tenant users on the platform endpoint, 404 for a nonexistent
 org, and response-shape checks for overrides/usage limits).
 
+## 25. M5 — Plan / plan-feature administration (2026-09-13)
+
+The first entitlement *mutation* layer, establishing the canonical pattern
+for all future entitlement administration (M6+). Scope: CRUD and
+activate/deactivate for `Plan`, and CRUD/enable-disable for `PlanFeature`
+(both from §22's M1 schema) — global platform-catalog data, not tenant
+data.
+
+1. **Authorization boundary.** Every mutation route
+   (`backend/app/services/plan_service.py`, wired into
+   `backend/app/api/v1/platform.py` as `/platform/plans*`) is gated by the
+   same `Depends(require_permission(Permission.PLATFORM_MANAGE))` used by
+   every other route in that file. No new permission or role was added.
+   An M4 authorization review had recommended a narrower
+   `PLATFORM_ENTITLEMENT_OVERRIDE`-style permission, but explicitly scoped
+   that recommendation to *future* TENANT-specific entitlement-expansion
+   work (e.g. writing `TenantFeatureOverride` rows for one customer) — not
+   to this milestone's GLOBAL plan-catalog administration, which M4
+   concluded plain `PLATFORM_MANAGE` already correctly covers. That
+   narrower permission remains unimplemented and out of scope here;
+   tested explicitly in `test_tenant_org_admin_also_gets_403` (an
+   `ORG_ADMIN`-role tenant admin gets 403 same as any other tenant user —
+   tenant-admin status alone grants nothing on `/platform/*`).
+2. **Cross-org manipulation is structurally impossible.** `Plan` and
+   `PlanFeature` carry no `organization_id` column at all (per M1's
+   design, §22.5/§22.6) — there is no tenant scope to bypass in the first
+   place. Asserted directly against the model in
+   `test_plan_model_has_no_organization_id`.
+3. **Audit coverage.** Every mutation (plan created/updated/activated/
+   deactivated, plan-feature created/enabled/disabled) calls
+   `record_audit_event` in the same transaction as the mutation, before
+   commit, mirroring `platform_service.py`'s exact
+   flush-then-audit-then-commit pattern. Read operations (list/get) record
+   nothing. Since a plan mutation has no natural tenant subject,
+   `AuditEvent.organization_id` (NOT NULL, unchanged) is populated with
+   the *acting platform admin's own* `organization_id` — already
+   available from `CurrentUser`, already guaranteed non-null. This
+   milestone specifically checked whether a concrete, code-referenceable
+   "Platform Operations org" singleton exists to attribute to instead: it
+   does not. `backend/scripts/create_platform_admin.py` merely
+   get-or-creates an `Organization` by a configurable
+   `--organization-name` (default `"Platform Operations"`) as a one-time
+   bootstrap convenience, and every existing platform-admin test
+   (`test_platform_api.py`, `test_entitlement_api.py`) creates its own
+   arbitrarily-named organization for the admin user — there is no flag
+   column or fixed lookup anywhere in application code. Attributing to the
+   actor's own organization is therefore the accurate description of the
+   only mechanism that actually exists, not an invented alternative.
+4. **Transaction safety.** `create_plan`/`update_plan`/
+   `create_plan_feature` add the row and `db.flush()` inside a
+   try/except that translates the unique-constraint `IntegrityError`
+   (`uq_plans_code`, `uq_plan_features_plan_id_feature_key`, both from
+   M1's `0024` migration, unchanged) into a `ConflictError` *before* the
+   audit event is ever added — so a duplicate-code/duplicate-feature
+   conflict can never leave a partial row or an orphaned audit event; the
+   whole attempt rolls back together. Verified in
+   `test_duplicate_create_plan_leaves_no_partial_row_or_audit_event` using
+   a genuinely-committed seed row (via a separate raw connection) so the
+   assertion is immune to the test fixture's own single-flat-transaction
+   rollback semantics (the same gotcha documented in
+   `app/services/aircraft_service.py` and
+   `test_lisa_ask_context_integration.py`).
+5. **Deactivation never deletes.** `set_plan_active(..., is_active=False)`
+   only flips the column; it never deletes `Plan` or cascades to
+   `PlanFeature`/`Subscription` rows (the M1 `RESTRICT` FK already
+   guarantees this at the DB level, and the service simply never attempts
+   a delete). Verified end-to-end that an existing subscriber's
+   `resolve_entitlements` result moves from `ACTIVE` to `INACTIVE_PLAN`
+   with its real feature map intact, never to an empty one — exactly M2's
+   documented behavior (§23).
+6. **Zero changes to M2.** `app/services/entitlement_service.py` was not
+   touched. `test_m2_integration_live_read_after_write` proves live
+   read-after-write correctness through the real service layer alone:
+   create a plan with `PlanFeature(LISA, enabled=False)`, resolve
+   (`effective_features["LISA"] is False`), flip it via
+   `set_plan_feature_enabled`, resolve again with no other change
+   (`effective_features["LISA"] is True`).
+7. **New files:** `backend/app/services/plan_service.py`,
+   `backend/app/schemas/plan.py`,
+   `backend/tests/integration/test_plan_administration.py`. Routes added
+   to the existing `backend/app/api/v1/platform.py` (no new router file —
+   consistent with that file already hosting every other
+   `PLATFORM_MANAGE`-gated route). No migration; Alembic head remains
+   `0024`.
+
 ---
 
-*Document produced as architecture/repository analysis for §§1–21; §22 documents an actual implementation completed and committed on 2026-09-13. §23 documents the M2 entitlement-resolution service, also completed 2026-09-13.*
+*Document produced as architecture/repository analysis for §§1–21; §22 documents an actual implementation completed and committed on 2026-09-13. §23 documents the M2 entitlement-resolution service, also completed 2026-09-13. §25 documents the M5 plan/plan-feature mutation layer, also completed 2026-09-13.*
