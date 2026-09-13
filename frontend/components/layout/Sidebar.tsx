@@ -115,7 +115,10 @@ export function Sidebar() {
         ...NAV_GROUPS,
         {
           label: "Platform",
-          items: [{ href: "/platform/organizations", label: "Organizations", glyph: "⛨" }],
+          items: [
+            { href: "/platform/organizations", label: "Organizations", glyph: "⛨" },
+            { href: "/platform/plans", label: "Plans", glyph: "◈" },
+          ],
         },
       ]
     : NAV_GROUPS;
