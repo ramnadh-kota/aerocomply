@@ -264,6 +264,9 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
               <h1 className="ac-h1">{org?.name ?? "Organization"}</h1>
               <p className="ac-subtitle">Organization ID: {organizationId}</p>
             </div>
+            <Link className="ac-btn" href={`/platform/organizations/${organizationId}/subscriptions`}>
+              Manage Subscription
+            </Link>
           </div>
 
           {orgError && (
@@ -287,7 +290,12 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
           )}
 
           <section className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
-            <h2 className="ac-h2">Subscription</h2>
+            <div className="ac-flex ac-gap-2" style={{ justifyContent: "space-between", flexWrap: "wrap", alignItems: "center" }}>
+              <h2 className="ac-h2">Subscription</h2>
+              <Link className="ac-btn" href={`/platform/organizations/${organizationId}/subscriptions`}>
+                Subscription Administration
+              </Link>
+            </div>
             {entitlementsError ? (
               <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-non-compliant)" }}>
                 Subscription data failed to load: {entitlementsError.message}
@@ -295,7 +303,12 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
             ) : !entitlements ? (
               <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No data.</p>
             ) : entitlements.resolution_status === "NO_SUBSCRIPTION" ? (
-              <p className="ac-text-sm" style={{ margin: 0 }}>No Active Subscription</p>
+              <div className="ac-flex ac-gap-2" style={{ alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+                <p className="ac-text-sm" style={{ margin: 0 }}>No Active Subscription</p>
+                <Link className="ac-btn" href={`/platform/organizations/${organizationId}/subscriptions`}>
+                  Create Subscription →
+                </Link>
+              </div>
             ) : entitlements.resolution_status === "AMBIGUOUS" ? (
               <p className="ac-text-sm" style={{ margin: 0 }}>Subscription Configuration Ambiguous — {entitlements.reason}</p>
             ) : entitlements.subscription_status ? (
