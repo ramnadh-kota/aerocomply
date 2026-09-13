@@ -1,4 +1,11 @@
 from app.models.aircraft import Aircraft
+from app.models.approval_request import (
+    ALL_APPROVAL_REQUEST_TYPES,
+    ALL_APPROVAL_STATUSES,
+    ApprovalRequest,
+    ApprovalRequestStatus,
+    ApprovalRequestType,
+)
 from app.models.assessment import (
     Assessment,
     AssessmentFinding,
@@ -60,4 +67,9 @@ __all__ = [
     "TenantUsageLimit",
     "Warehouse",
     "Location",
+    "ApprovalRequest",
+    "ApprovalRequestStatus",
+    "ApprovalRequestType",
+    "ALL_APPROVAL_STATUSES",
+    "ALL_APPROVAL_REQUEST_TYPES",
 ]

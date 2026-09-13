@@ -2,7 +2,7 @@
 // icon-like glyph and a text label (see docs/ontology — "unknown is not
 // false" and the M0.5 accessibility requirement).
 
-type BadgeKind =
+export type BadgeKind =
   | "APPLICABLE"
   | "NOT_APPLICABLE"
   | "REVIEW_REQUIRED"

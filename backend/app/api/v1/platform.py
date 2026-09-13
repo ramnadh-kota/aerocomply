@@ -8,6 +8,12 @@ from app.core.deps import get_db_session, require_permission
 from app.core.permissions import Permission
 from app.models.organization import OrganizationStatus
 from app.models.plan import Plan
+from app.schemas.approval import (
+    ApprovalDecisionRequest,
+    ApprovalRequestCreateRequest,
+    ApprovalRequestListResponse,
+    ApprovalRequestResponse,
+)
 from app.schemas.auth import CurrentUser
 from app.schemas.entitlement import EntitlementResolutionResponse
 from app.schemas.plan import (
@@ -42,6 +48,7 @@ from app.schemas.tenant_entitlement import (
     TenantUsageLimitUpdateRequest,
 )
 from app.services import (
+    approval_service,
     audit_service,
     plan_service,
     platform_health_service,
@@ -661,3 +668,117 @@ def get_platform_health(
             for c in snapshot.components
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# M14: governance approval requests over EXPANSIVE tenant entitlement
+# mutations only (see app/services/approval_service.py's module docstring
+# for the full transaction/replay/self-approval reasoning). Creating and
+# listing/reviewing requests needs only PLATFORM_MANAGE -- approving one
+# additionally requires PLATFORM_ENTITLEMENT_OVERRIDE, enforced inside
+# approval_service.approve_approval_request by calling straight into the
+# same tenant_entitlement_admin_service.require_expansion_permission_if_needed
+# check M6 already uses, never a second bespoke authorization rule.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/approvals", response_model=ApprovalRequestListResponse)
+def list_approvals(
+    status: str | None = None,
+    organization_id: uuid.UUID | None = None,
+    limit: int = Query(default=approval_service.APPROVAL_LIST_DEFAULT_LIMIT, ge=1),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> ApprovalRequestListResponse:
+    items, total = approval_service.list_approval_requests(
+        db, status=status, organization_id=organization_id, limit=limit, offset=offset
+    )
+    effective_limit = max(1, min(limit, approval_service.APPROVAL_LIST_MAX_LIMIT))
+    return ApprovalRequestListResponse(
+        items=[ApprovalRequestResponse.model_validate(a) for a in items],
+        total=total,
+        limit=effective_limit,
+        offset=max(0, offset),
+    )
+
+
+@router.get("/approvals/{approval_id}", response_model=ApprovalRequestResponse)
+def get_approval(
+    approval_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> ApprovalRequestResponse:
+    approval = approval_service.get_approval_request(db, approval_id=approval_id)
+    return ApprovalRequestResponse.model_validate(approval)
+
+
+@router.post(
+    "/organizations/{organization_id}/approvals",
+    response_model=ApprovalRequestResponse,
+    status_code=201,
+)
+def create_approval(
+    organization_id: uuid.UUID,
+    payload: ApprovalRequestCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> ApprovalRequestResponse:
+    approval = approval_service.create_approval_request(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        request_type=payload.request_type,
+        feature_key=payload.feature_key,
+        reason=payload.reason,
+        requested_enabled=payload.requested_enabled,
+        limit_key=payload.limit_key,
+        requested_limit_value=payload.requested_limit_value,
+        requested_is_unlimited=payload.requested_is_unlimited,
+    )
+    return ApprovalRequestResponse.model_validate(approval)
+
+
+@router.post("/approvals/{approval_id}/approve", response_model=ApprovalRequestResponse)
+def approve_approval(
+    approval_id: uuid.UUID,
+    payload: ApprovalDecisionRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> ApprovalRequestResponse:
+    approval = approval_service.approve_approval_request(
+        db,
+        actor_user_id=current_user.id,
+        caller_roles=current_user.roles,
+        approval_id=approval_id,
+        decision_reason=payload.decision_reason,
+    )
+    return ApprovalRequestResponse.model_validate(approval)
+
+
+@router.post("/approvals/{approval_id}/reject", response_model=ApprovalRequestResponse)
+def reject_approval(
+    approval_id: uuid.UUID,
+    payload: ApprovalDecisionRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> ApprovalRequestResponse:
+    approval = approval_service.reject_approval_request(
+        db,
+        actor_user_id=current_user.id,
+        approval_id=approval_id,
+        decision_reason=payload.decision_reason,
+    )
+    return ApprovalRequestResponse.model_validate(approval)
+
+
+@router.post("/approvals/{approval_id}/cancel", response_model=ApprovalRequestResponse)
+def cancel_approval(
+    approval_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> ApprovalRequestResponse:
+    approval = approval_service.cancel_approval_request(
+        db, actor_user_id=current_user.id, approval_id=approval_id
+    )
+    return ApprovalRequestResponse.model_validate(approval)
