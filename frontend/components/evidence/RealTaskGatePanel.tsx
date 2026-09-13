@@ -28,7 +28,7 @@ function ErrorNote({ error }: { error: NormalizedApiError | null }) {
 }
 
 export function RealTaskGatePanel({ taskId }: { taskId: string }) {
-  const { accessToken } = useSession();
+  const { accessToken, user } = useSession();
   const [evidence, setEvidence] = useState<BackendEvidence | null>(null);
   const [inspection, setInspection] = useState<BackendInspectionRequirement | null>(null);
   const [evError, setEvError] = useState<NormalizedApiError | null>(null);
@@ -84,9 +84,12 @@ export function RealTaskGatePanel({ taskId }: { taskId: string }) {
       if (!inspection) return null;
       setInError(null);
       try {
+        // "Complete (as me)": omit inspector_user_id so the backend derives
+        // the inspector identity from the authenticated actor (BL-17) —
+        // this button never claims a different inspector's identity.
         setInspection(
           await inspectionsApi.transition(token, inspection.id, target, {
-            inspectorUserId: undefined,
+            inspectorUserId: target === "COMPLETED" ? user?.id : undefined,
           })
         );
       } catch (err) {

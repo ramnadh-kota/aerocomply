@@ -26,8 +26,24 @@ from sqlalchemy.orm import Session
 from app.core.errors import ConflictError, NotFoundError
 from app.models.evidence import Evidence
 from app.models.inspection_requirement import InspectionRequirement, InspectionRequirementStatus
+from app.models.user import User
 from app.services import work_order_service
 from app.services.audit_service import record_audit_event
+
+
+def _assert_user_in_organization(
+    db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    """A client-supplied inspector_user_id (e.g. a supervisor completing on
+    behalf of a named inspector) must belong to the caller's own
+    organization — otherwise this is a cross-tenant IDOR: an attacker could
+    attribute a completion to an arbitrary user id from another org.
+    """
+    exists = db.execute(
+        select(User.id).where(User.id == user_id, User.organization_id == organization_id)
+    ).scalar_one_or_none()
+    if exists is None:
+        raise ConflictError("inspector_user_id does not belong to this organization")
 
 _ALLOWED_TRANSITIONS: dict[InspectionRequirementStatus, set[InspectionRequirementStatus]] = {
     InspectionRequirementStatus.PENDING: {
@@ -119,7 +135,21 @@ def transition_inspection_requirement(
         )
 
     if target_status == InspectionRequirementStatus.COMPLETED:
-        effective_inspector = inspector_user_id or requirement.inspector_user_id
+        # inspector_user_id is client-supplied only to support a supervisor
+        # completing on behalf of a named inspector (e.g. the requirement
+        # list's inspector-select dropdown); when omitted — the common
+        # "Complete (as me)" case — the identity is derived server-side from
+        # the authenticated actor, exactly like organization_id is derived
+        # server-side everywhere else, rather than left to fall back to a
+        # stale prior value.
+        effective_inspector: uuid.UUID | None
+        if inspector_user_id is not None:
+            _assert_user_in_organization(
+                db, organization_id=requirement.organization_id, user_id=inspector_user_id
+            )
+            effective_inspector = inspector_user_id
+        else:
+            effective_inspector = actor_user_id
         _assert_independent_inspector(db, requirement, effective_inspector)
         requirement.inspector_user_id = effective_inspector
         requirement.rejection_reason = None
