@@ -984,6 +984,12 @@ button.ac-menu-toggle {
   gap: var(--ac-space-2);
   border-bottom: 1px solid var(--ac-border);
   margin-bottom: var(--ac-space-5);
+  /* On narrow viewports there isn't room for every tab in one row; scroll
+     the tab strip itself rather than letting it push out the page's own
+     width (which is what caused document-level horizontal overflow). */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .ac-tab {
@@ -993,6 +999,11 @@ button.ac-menu-toggle {
   color: var(--ac-text-secondary);
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
+  /* Keep each tab at its natural width instead of the flex default of
+     shrinking to fit — shrinking would wrap/clip label text; the row
+     scrolls instead (see .ac-tabs). */
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .ac-tab:hover {
