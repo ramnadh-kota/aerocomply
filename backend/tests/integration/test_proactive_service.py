@@ -212,6 +212,42 @@ def test_alerts_scoped_to_tenant(db_session):
     assert alerts_b == []
 
 
+def test_aog_event_with_unresolvable_aircraft_is_skipped_not_fatal(db_session):
+    """An AOG event whose aircraft record can no longer be resolved (e.g. a
+    stale/orphaned reference left behind by a deleted aircraft) must not
+    fail the whole alerts feed for the rest of the organization -- it
+    should be skipped, not raise NotFoundError."""
+    from app.models.aog_event import AogEvent
+
+    org_id = uuid.uuid4()
+    aircraft = _create_aircraft(db_session, org_id)
+    aog_service.declare_aog(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=None,
+        payload=AogEventCreateRequest(aircraft_id=aircraft.id, root_cause="Real aircraft"),
+    )
+    # Directly insert an AOG event referencing an aircraft_id that does not
+    # exist for this organization, bypassing declare_aog's own validation --
+    # this reproduces a stale/orphaned reference (e.g. the aircraft row was
+    # later removed) without the service layer having a chance to reject it.
+    orphaned_event = AogEvent(
+        organization_id=org_id,
+        aircraft_id=uuid.uuid4(),
+        status=AogEventStatus.DECLARED,
+        root_cause="Orphaned reference",
+    )
+    db_session.add(orphaned_event)
+    db_session.commit()
+
+    alerts = proactive_service.get_proactive_alerts(db_session, organization_id=org_id)
+    aog_alerts = [a for a in alerts if a.category == "AOG"]
+    # The real aircraft's alert still comes through; the orphaned one is
+    # skipped rather than raising and wiping out the whole alerts feed.
+    assert len(aog_alerts) == 1
+    assert "Real aircraft" in aog_alerts[0].message
+
+
 def test_daily_brief_counts_and_top_priorities(db_session):
     org_id = uuid.uuid4()
     aircraft = _create_aircraft(db_session, org_id)

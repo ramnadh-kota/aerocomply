@@ -19,6 +19,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from app.core.errors import NotFoundError
 from app.models.aog_event import AogEventStatus
 from app.models.compliance import ComplianceAssessmentStatus
 from app.models.deferred_item import DeferredItemStatus
@@ -53,9 +54,15 @@ def get_proactive_alerts(db: Session, *, organization_id: uuid.UUID) -> list[Pro
     for event in aog_service.list_aog_events(db, organization_id=organization_id):
         if event.status not in (AogEventStatus.DECLARED, AogEventStatus.IN_RECOVERY):
             continue
-        aircraft = aircraft_service.get_aircraft(
-            db, organization_id=organization_id, aircraft_id=event.aircraft_id
-        )
+        try:
+            aircraft = aircraft_service.get_aircraft(
+                db, organization_id=organization_id, aircraft_id=event.aircraft_id
+            )
+        except NotFoundError:
+            # An AOG event whose aircraft record can no longer be resolved
+            # (e.g. soft-deleted or orphaned) must not fail the whole alerts
+            # feed for the rest of the organization — skip just this alert.
+            continue
         alerts.append(
             ProactiveAlert(
                 id=f"aog-{event.id}",
