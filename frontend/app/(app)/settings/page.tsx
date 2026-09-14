@@ -238,8 +238,18 @@ export default function SettingsPage() {
                 label="Session"
                 value={
                   isAuthenticated ? (
-                    <span className="ac-flex ac-gap-2" style={{ alignItems: "center", justifyContent: "flex-end" }}>
-                      <span>{realUser?.email}</span>
+                    <span
+                      className="ac-flex ac-gap-2"
+                      style={{ alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", maxWidth: 260 }}
+                    >
+                      {/* A flex row defaults to flex-wrap: nowrap and its
+                          text child defaults to min-width: auto, so a long
+                          email refused to shrink or wrap and pushed this row
+                          (and the page) wider than the viewport at narrow
+                          widths — same class of bug as the Data Mode row
+                          above; fixed the same way (allow wrapping, bound
+                          the row's width, let the email itself break). */}
+                      <span style={{ wordBreak: "break-all", minWidth: 0 }}>{realUser?.email}</span>
                       <button
                         className="ac-btn"
                         style={{ fontSize: 12, padding: "4px 10px" }}
