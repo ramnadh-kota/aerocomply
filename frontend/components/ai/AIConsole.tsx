@@ -219,8 +219,9 @@ export function AIConsole({
 
   const [backendAlerts, setBackendAlerts] = useState<BackendProactiveAlert[] | null>(null);
   const [backendAlertsStatus, setBackendAlertsStatus] = useState<
-    "idle" | "loading" | "loaded" | "unavailable"
+    "idle" | "loading" | "loaded" | "unavailable" | "forbidden"
   >("idle");
+  const backendAlertsBlocked = backendAlertsStatus === "unavailable" || backendAlertsStatus === "forbidden";
 
   useEffect(() => {
     if (!isRealModeSession || !accessToken) {
@@ -237,10 +238,14 @@ export function AIConsole({
         setBackendAlerts(alerts);
         setBackendAlertsStatus("loaded");
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return;
         setBackendAlerts(null);
-        setBackendAlertsStatus("unavailable");
+        // A 403 means this identity genuinely lacks aircraft:read (e.g. a
+        // platform admin, who administers tenants rather than one
+        // customer's fleet) — that is not the backend being down, so it
+        // must not be reported as BACKEND_UNAVAILABLE.
+        setBackendAlertsStatus(err instanceof ApiError && err.status === 403 ? "forbidden" : "unavailable");
       });
     return () => {
       cancelled = true;
@@ -550,18 +555,34 @@ export function AIConsole({
             counts in their place.
           </p>
         )}
+        {isRealModeSession && backendAlertsStatus === "forbidden" && (
+          <p
+            className="ac-text-sm"
+            style={{
+              marginBottom: 8,
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: "1px solid var(--ac-status-review)",
+              background: "color-mix(in srgb, var(--ac-status-review) 10%, transparent)",
+            }}
+          >
+            PERMISSION_DENIED — this account does not have aircraft:read, so it cannot see one
+            customer&apos;s operational alerts (expected for a platform-administration identity).
+            Not showing demo counts in their place.
+          </p>
+        )}
         <div className="ac-kpi-grid">
           <Link href="/notifications" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">Critical</p>
             <p className="ac-kpi-value">
-              {isRealModeSession && backendAlertsStatus === "unavailable" ? "—" : criticalCount}
+              {isRealModeSession && backendAlertsBlocked ? "—" : criticalCount}
             </p>
             <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>alerts requiring attention</p>
           </Link>
           <Link href="/maintenance/control-center" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">AOG</p>
             <p className="ac-kpi-value">
-              {isRealModeSession && backendAlertsStatus === "unavailable" ? "—" : aogCount}
+              {isRealModeSession && backendAlertsBlocked ? "—" : aogCount}
             </p>
             <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>aircraft grounded</p>
           </Link>
@@ -575,7 +596,7 @@ export function AIConsole({
           <Link href="/maintenance/release-readiness" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">Release Blocked</p>
             <p className="ac-kpi-value">
-              {isRealModeSession && backendAlertsStatus === "unavailable" ? "—" : releaseBlockedCount}
+              {isRealModeSession && backendAlertsBlocked ? "—" : releaseBlockedCount}
             </p>
             <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>work orders awaiting release</p>
           </Link>

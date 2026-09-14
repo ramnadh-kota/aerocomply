@@ -23,13 +23,13 @@ import { useRouter } from "next/navigation";
 //      read-only "current configuration".
 //   2. Presents inert preference controls (AI toggle, notification
 //      toggles) clearly labeled as non-persisted preview UI.
-//   3. Distinguishes integration statuses precisely: authentication has a
-//      real, tested backend (backend/app/core/security.py,
-//      backend/app/services/auth_service.py) that is simply not running in
-//      this environment (no Postgres, no backend/.env), versus domain data
-//      (aircraft/work orders/evidence/regulatory/procurement) and storage,
-//      which have zero backend code at all — never implying a live
-//      connection that does not exist (see lib/apiClient.ts).
+//   3. Distinguishes integration statuses precisely: authentication and the
+//      in-house domain APIs (aircraft/work orders/evidence/procurement) have
+//      real, tested backends that are simply not reflected as a live
+//      connection on this specific screen; external regulatory-authority
+//      feeds and storage/email/messaging integrations have zero backend
+//      code at all — never implying a live connection that does not exist
+//      (see lib/apiClient.ts).
 
 const TABS = [
   "General",
@@ -75,23 +75,33 @@ const INTEGRATION_GROUPS: {
   },
   {
     group: "Domain Data",
-    items: (
-      [
-        "FAA Dynamic Regulatory System",
-        "EASA ADs & SIBs Feed",
-        "UK CAA Mandate Feed",
-        "DGCA CAR Notices Feed",
-        "CASA AD Feed",
-        "Aircraft / Fleet Data",
-        "Work Orders",
-        "Evidence Records",
-        "Procurement",
-      ] as const
-    ).map((name) => ({
-      name,
-      status: "not_configured" as const,
-      note: "No backend endpoints exist for this domain yet — only auth/org/user/audit are implemented.",
-    })),
+    items: [
+      ...(
+        [
+          "FAA Dynamic Regulatory System",
+          "EASA ADs & SIBs Feed",
+          "UK CAA Mandate Feed",
+          "DGCA CAR Notices Feed",
+          "CASA AD Feed",
+        ] as const
+      ).map((name) => ({
+        name,
+        status: "not_configured" as const,
+        note: "No external regulatory-feed integration exists yet — regulatory documents are stored/served but not auto-ingested from an authority feed.",
+      })),
+      ...(
+        [
+          "Aircraft / Fleet Data",
+          "Work Orders",
+          "Evidence Records",
+          "Procurement",
+        ] as const
+      ).map((name) => ({
+        name,
+        status: "backend_not_running" as const,
+        note: "Real implementation exists in the backend (aircraft.py, work_orders.py, evidence.py, procurement.py) and is wired into the REAL-mode frontend pages for this domain — this Settings screen just isn't itself connected to a live session with data for it.",
+      })),
+    ],
   },
   {
     group: "Storage",
