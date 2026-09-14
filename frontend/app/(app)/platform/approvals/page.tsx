@@ -79,7 +79,7 @@ function ReviewDialog({
   onClose: () => void;
   onDecided: (updated: ApprovalRequestResponse) => void;
 }) {
-  const { accessToken } = useSession();
+  const { accessToken, user } = useSession();
   const [decisionReason, setDecisionReason] = useState("");
   const [confirmAction, setConfirmAction] = useState<"approve" | "reject" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -111,7 +111,7 @@ function ReviewDialog({
     }
   };
 
-  const selfReviewPossible = Boolean(approval.requested_by_user_id);
+  const isOwnRequest = Boolean(user?.id && approval.requested_by_user_id === user.id);
 
   return (
     <div
@@ -171,11 +171,10 @@ function ReviewDialog({
 
           {approval.status === "PENDING" && (
             <>
-              {selfReviewPossible && (
+              {isOwnRequest && (
                 <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-                  Note: platform administration currently has a single role, so the same admin may
-                  both request and review a change. This is recorded plainly (requested by / reviewed
-                  by) rather than presented as independent review.
+                  Note: you requested this change, so you cannot approve or reject it yourself — a
+                  different platform reviewer is required.
                 </p>
               )}
               <div>
@@ -350,8 +349,8 @@ function RealApprovalsFeed() {
           <h1 className="ac-h1">Platform — Approvals</h1>
           <p className="ac-subtitle">
             Governance requests for entitlement changes that expand a tenant beyond its plan.
-            Requesting and reviewing both use the same platform-administrator authority today — see
-            the note in each request&apos;s detail view.
+            Whoever requested a change cannot also approve or reject it — a different platform
+            reviewer is required.
           </p>
         </div>
       </div>
