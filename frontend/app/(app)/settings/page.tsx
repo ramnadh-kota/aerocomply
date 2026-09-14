@@ -200,11 +200,17 @@ export default function SettingsPage() {
             <Row
               label="Data Mode"
               value={
-                <span className="ac-flex ac-gap-2" style={{ alignItems: "center", justifyContent: "flex-end" }}>
-                  <StatusBadge
-                    status={mode === "REAL" ? "ACTIVE" : "PENDING"}
-                    label={mode === "REAL" ? `REAL (connected to ${apiBaseUrl})` : "DEMO"}
-                  />
+                <span
+                  className="ac-flex ac-gap-2"
+                  style={{ alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", maxWidth: 260 }}
+                >
+                  {/* Badges are styled white-space: nowrap for short status
+                      labels — keep this one short ("REAL"/"DEMO") and put
+                      the (potentially long) backend URL in its own wrapped
+                      text below instead of inside the badge, so a long
+                      staging/production hostname can't force page-level
+                      horizontal overflow. */}
+                  <StatusBadge status={mode === "REAL" ? "ACTIVE" : "PENDING"} label={mode} />
                   <select
                     className="ac-input"
                     style={{ width: 120 }}
@@ -215,6 +221,14 @@ export default function SettingsPage() {
                     <option value="DEMO">DEMO</option>
                     <option value="REAL">REAL</option>
                   </select>
+                  {mode === "REAL" && (
+                    <span
+                      className="ac-text-sm ac-text-muted"
+                      style={{ width: "100%", textAlign: "right", wordBreak: "break-all" }}
+                    >
+                      connected to {apiBaseUrl}
+                    </span>
+                  )}
                 </span>
               }
               note="DEMO (default) uses this prototype's client-side mock data everywhere. REAL calls the local FastAPI backend and requires signing in with a real account — pages currently wired for REAL data are Aircraft and Work Orders."
