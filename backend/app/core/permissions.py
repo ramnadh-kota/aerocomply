@@ -79,6 +79,17 @@ class Role(StrEnum):
     # cross-tenant /platform/* endpoints that intentionally do not filter
     # by their own organization_id.
     PLATFORM_ADMIN = "PLATFORM_ADMIN"
+    # M15: the "PLATFORM_MANAGE-only staff tier" anticipated by M6/M14's
+    # comments (see ROLE_PERMISSIONS below). Can administer day-to-day
+    # tenant lifecycle (organizations, subscriptions, restrictive/neutral
+    # overrides and limits) and can FILE a governance ApprovalRequest for an
+    # expansive change, but cannot hold PLATFORM_ENTITLEMENT_OVERRIDE and so
+    # cannot directly execute an expansive mutation nor approve an
+    # ApprovalRequest that would (approval_service.approve_approval_request
+    # calls straight into tenant_entitlement_admin_service's existing
+    # require_expansion_permission_if_needed check, so this falls out of the
+    # existing enforcement with no new bespoke rule).
+    PLATFORM_STAFF = "PLATFORM_STAFF"
 
 
 ALL_PERMISSIONS = {p.value for p in Permission}
@@ -208,17 +219,23 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     # implicitly gain any customer operational-data permission — a platform
     # admin who also needs to view a customer's MRO data would need a
     # separate, explicit grant within that tenant, same as any other user.
-    # M6: PLATFORM_ADMIN is still the only role with any platform authority
-    # at all, so it is granted both PLATFORM_MANAGE and
-    # PLATFORM_ENTITLEMENT_OVERRIDE -- there is no narrower "platform staff
-    # without expansion rights" role to withhold the latter from yet. The
-    # two permissions are still checked independently wherever entitlement
-    # expansion is possible, so the code is structurally correct today and a
-    # future milestone could introduce a second platform-staff tier (holding
-    # only PLATFORM_MANAGE) without any change to that enforcement logic.
+    # M15: PLATFORM_ADMIN keeps both permissions -- it is the only platform
+    # role that can directly execute an expansive entitlement mutation or
+    # approve an ApprovalRequest for one.
     Role.PLATFORM_ADMIN: {
         Permission.PLATFORM_MANAGE,
         Permission.PLATFORM_ENTITLEMENT_OVERRIDE,
+    },
+    # M15: the narrower staff tier anticipated by M6/M14 -- PLATFORM_MANAGE
+    # only, deliberately without PLATFORM_ENTITLEMENT_OVERRIDE. A
+    # PLATFORM_STAFF user can administer ordinary platform/tenant-lifecycle
+    # concerns and can create an ApprovalRequest for an expansive change,
+    # but require_expansion_permission_if_needed
+    # (tenant_entitlement_admin_service.py) refuses them both a direct
+    # expansive mutation and an attempt to approve one -- no separate check
+    # was added for this, it falls out of the existing per-permission gate.
+    Role.PLATFORM_STAFF: {
+        Permission.PLATFORM_MANAGE,
     },
 }
 

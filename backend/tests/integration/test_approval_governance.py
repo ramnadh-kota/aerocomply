@@ -121,6 +121,13 @@ def _setup_org_with_plan(client, db_session, n):
     return admin, headers, org_id
 
 
+def _second_approver_headers(client, db_session, n):
+    """A distinct PLATFORM_ADMIN, used wherever a test needs a reviewer who
+    is not the requester -- see M15 four-eyes rule in approval_service.py."""
+    _create_platform_admin(db_session, f"ops-reviewer@m14-co-{n}.com")
+    return _auth(_login(client, f"ops-reviewer@m14-co-{n}.com")["access_token"])
+
+
 def _feature_expand_payload(feature_key="LISA", enabled=True, reason=None):
     payload = {
         "request_type": "feature_override_expansion",
@@ -264,6 +271,7 @@ def test_create_unknown_organization_404(client, db_session):
 
 def test_approve_pending_request_creates_override_and_two_audit_events(client, db_session):
     admin, headers, org_id = _setup_org_with_plan(client, db_session, 5)
+    reviewer_headers = _second_approver_headers(client, db_session, 5)
     create_resp = client.post(
         f"/api/v1/platform/organizations/{org_id}/approvals",
         json=_feature_expand_payload(reason="trial"),
@@ -274,12 +282,12 @@ def test_approve_pending_request_creates_override_and_two_audit_events(client, d
     resp = client.post(
         f"/api/v1/platform/approvals/{approval_id}/approve",
         json={"decision_reason": "looks fine"},
-        headers=headers,
+        headers=reviewer_headers,
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "APPROVED"
-    assert body["reviewed_by_user_id"] == str(admin.id)
+    assert body["reviewed_by_user_id"] != str(admin.id)
 
     # 13: actual entitlement mutation occurred, reusing the canonical M6 service.
     override = db_session.execute(
@@ -384,15 +392,16 @@ def test_cannot_approve_canceled_request(client, db_session):
 
 def test_repeated_approval_is_safely_rejected_not_reexecuted(client, db_session):
     admin, headers, org_id = _setup_org_with_plan(client, db_session, 10)
+    reviewer_headers = _second_approver_headers(client, db_session, 10)
     approval_id = client.post(
         f"/api/v1/platform/organizations/{org_id}/approvals",
         json=_feature_expand_payload(),
         headers=headers,
     ).json()["id"]
-    first = _approve(client, headers, approval_id)
+    first = _approve(client, reviewer_headers, approval_id)
     assert first.status_code == 200
 
-    second = _approve(client, headers, approval_id)
+    second = _approve(client, reviewer_headers, approval_id)
     assert second.status_code == 409
 
     # Only one override row/audit event exists -- no duplicate execution.
@@ -421,6 +430,7 @@ def test_approval_stays_pending_if_underlying_mutation_conflicts(client, db_sess
     filed), the approval must NOT be left claiming APPROVED while nothing
     actually changed -- see approval_service module docstring."""
     admin, headers, org_id = _setup_org_with_plan(client, db_session, 11)
+    reviewer_headers = _second_approver_headers(client, db_session, 11)
     approval_id = client.post(
         f"/api/v1/platform/organizations/{org_id}/approvals",
         json=_feature_expand_payload(),
@@ -442,7 +452,7 @@ def test_approval_stays_pending_if_underlying_mutation_conflicts(client, db_sess
     # which already proves no double-execution. This test asserts the
     # weaker, always-true invariant: after a successful approval, a fresh
     # read of the same request is stable and consistent with the override.
-    resp = _approve(client, headers, approval_id)
+    resp = _approve(client, reviewer_headers, approval_id)
     assert resp.status_code == 200
     reread = client.get(f"/api/v1/platform/approvals/{approval_id}", headers=headers)
     assert reread.json()["status"] == "APPROVED"
@@ -467,11 +477,11 @@ def test_list_filters_by_organization(client, db_session):
 
 
 # ---------------------------------------------------------------------------
-# 18: self-approval — documented as unavoidable, not silently hidden
+# 18: self-approval — M15 four-eyes rule: rejected server-side, unconditionally
 # ---------------------------------------------------------------------------
 
 
-def test_self_approval_is_allowed_and_honestly_recorded(client, db_session):
+def test_self_approval_is_rejected_with_403(client, db_session):
     admin, headers, org_id = _setup_org_with_plan(client, db_session, 14)
     approval_id = client.post(
         f"/api/v1/platform/organizations/{org_id}/approvals",
@@ -480,9 +490,46 @@ def test_self_approval_is_allowed_and_honestly_recorded(client, db_session):
     ).json()["id"]
 
     resp = _approve(client, headers, approval_id)
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "self_approval_forbidden"
+
+    # The request is untouched -- still PENDING, no reviewer recorded, and no
+    # approval audit event or entitlement mutation happened.
+    reread = client.get(f"/api/v1/platform/approvals/{approval_id}", headers=headers)
+    assert reread.json()["status"] == "PENDING"
+    assert reread.json()["reviewed_by_user_id"] is None
+    assert (
+        _audit_count(db_session, "platform.approval_request.approved", uuid.UUID(approval_id)) == 0
+    )
+    count = len(
+        db_session.execute(
+            select(TenantFeatureOverride).where(
+                TenantFeatureOverride.organization_id == uuid.UUID(org_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert count == 0
+
+
+def test_different_platform_admin_can_approve(client, db_session):
+    admin, headers, org_id = _setup_org_with_plan(client, db_session, 17)
+    approval_id = client.post(
+        f"/api/v1/platform/organizations/{org_id}/approvals",
+        json=_feature_expand_payload(),
+        headers=headers,
+    ).json()["id"]
+
+    other_admin = _create_platform_admin(db_session, "ops-reviewer@m14-co-17.com")
+    other_headers = _auth(_login(client, "ops-reviewer@m14-co-17.com")["access_token"])
+
+    resp = _approve(client, other_headers, approval_id)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["requested_by_user_id"] == body["reviewed_by_user_id"] == str(admin.id)
+    assert body["status"] == "APPROVED"
+    assert body["requested_by_user_id"] == str(admin.id)
+    assert body["reviewed_by_user_id"] == str(other_admin.id)
 
     event = db_session.execute(
         select(AuditEvent).where(
@@ -490,7 +537,83 @@ def test_self_approval_is_allowed_and_honestly_recorded(client, db_session):
             AuditEvent.entity_id == uuid.UUID(approval_id),
         )
     ).scalar_one()
-    assert event.event_metadata["self_reviewed"] is True
+    assert event.event_metadata["self_reviewed"] is False
+
+
+# ---------------------------------------------------------------------------
+# M15: PLATFORM_STAFF — can administer/create approvals, cannot directly
+# execute an expansive mutation, cannot approve one either.
+# ---------------------------------------------------------------------------
+
+
+def test_platform_staff_can_create_approval_request(client, db_session):
+    admin = _create_platform_admin(db_session, "ops-admin@m15-co-1.com")
+    staff = _create_platform_user(db_session, "ops-staff@m15-co-1.com", ["PLATFORM_STAFF"])
+    admin_headers = _auth(_login(client, "ops-admin@m15-co-1.com")["access_token"])
+    staff_headers = _auth(_login(client, "ops-staff@m15-co-1.com")["access_token"])
+
+    tokens = _register(client, "M15 Tenant 1", "admin@m15-tenant-1.com")
+    org_id = _org_id_for(client, tokens)
+    plan = _seed_plan_with_feature(db_session, admin, "M15-P1", "LISA", False)
+    _seed_active_subscription(db_session, org_id, plan.id)
+
+    resp = client.post(
+        f"/api/v1/platform/organizations/{org_id}/approvals",
+        json=_feature_expand_payload(),
+        headers=staff_headers,
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["status"] == "PENDING"
+    assert body["requested_by_user_id"] == str(staff.id)
+
+    # PLATFORM_STAFF cannot directly execute the underlying expansive
+    # mutation via the M6 endpoint -- only PLATFORM_ENTITLEMENT_OVERRIDE
+    # (held only by PLATFORM_ADMIN) can.
+    direct_resp = client.post(
+        f"/api/v1/platform/organizations/{org_id}/feature-overrides",
+        json={"feature_key": "LISA", "enabled": True},
+        headers=staff_headers,
+    )
+    assert direct_resp.status_code == 403
+
+    # Nor can they approve their own request -- both the four-eyes rule and
+    # the missing PLATFORM_ENTITLEMENT_OVERRIDE would block it; the
+    # four-eyes check runs first.
+    approve_resp = _approve(client, staff_headers, body["id"])
+    assert approve_resp.status_code == 403
+
+    # A real PLATFORM_ADMIN (different user, holding PLATFORM_ENTITLEMENT_
+    # OVERRIDE) can approve it.
+    final = _approve(client, admin_headers, body["id"])
+    assert final.status_code == 200
+    assert final.json()["status"] == "APPROVED"
+
+
+def test_platform_staff_cannot_approve_other_staff_request(client, db_session):
+    """A second PLATFORM_STAFF user is a distinct reviewer (passes four-eyes)
+    but still lacks PLATFORM_ENTITLEMENT_OVERRIDE, so approval is refused."""
+    admin = _create_platform_admin(db_session, "ops-admin@m15-co-2.com")
+    requester = _create_platform_user(db_session, "ops-staff-a@m15-co-2.com", ["PLATFORM_STAFF"])
+    _create_platform_user(db_session, "ops-staff-b@m15-co-2.com", ["PLATFORM_STAFF"])
+    requester_headers = _auth(_login(client, "ops-staff-a@m15-co-2.com")["access_token"])
+    other_staff_headers = _auth(_login(client, "ops-staff-b@m15-co-2.com")["access_token"])
+
+    tokens = _register(client, "M15 Tenant 2", "admin@m15-tenant-2.com")
+    org_id = _org_id_for(client, tokens)
+    plan = _seed_plan_with_feature(db_session, admin, "M15-P2", "LISA", False)
+    _seed_active_subscription(db_session, org_id, plan.id)
+
+    approval_id = client.post(
+        f"/api/v1/platform/organizations/{org_id}/approvals",
+        json=_feature_expand_payload(),
+        headers=requester_headers,
+    ).json()["id"]
+    assert requester.id is not None
+
+    resp = _approve(client, other_staff_headers, approval_id)
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] != "self_approval_forbidden"
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +623,7 @@ def test_self_approval_is_allowed_and_honestly_recorded(client, db_session):
 
 def test_usage_limit_expansion_approval_creates_limit(client, db_session):
     admin, headers, org_id = _setup_org_with_plan(client, db_session, 15)
+    reviewer_headers = _second_approver_headers(client, db_session, 15)
     approval_id = client.post(
         f"/api/v1/platform/organizations/{org_id}/approvals",
         json={
@@ -511,7 +635,7 @@ def test_usage_limit_expansion_approval_creates_limit(client, db_session):
         headers=headers,
     ).json()["id"]
 
-    resp = _approve(client, headers, approval_id)
+    resp = _approve(client, reviewer_headers, approval_id)
     assert resp.status_code == 200
 
     limit = db_session.execute(

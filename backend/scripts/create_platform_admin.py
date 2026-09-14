@@ -1,5 +1,5 @@
-"""One-time bootstrap: create the first PLATFORM_ADMIN user in a
-deployment.
+"""One-time bootstrap: create the first PLATFORM_ADMIN (or a PLATFORM_STAFF)
+user in a deployment.
 
 There is deliberately no public API endpoint for this (PLATFORM_MANAGE
 cannot be self-granted — see app/api/v1/platform.py), so the very first
@@ -15,6 +15,13 @@ Usage (reads DATABASE_URL from the environment, same as the app):
         --email ops@yourcompany.com \\
         --full-name "Platform Ops" \\
         --password 'a-strong-password'
+
+Pass ``--role PLATFORM_STAFF`` to create a M15 platform-staff user instead
+(PLATFORM_MANAGE only, no PLATFORM_ENTITLEMENT_OVERRIDE -- see
+app/core/permissions.py). Useful once at least one PLATFORM_ADMIN already
+exists, so that a four-eyes approval has a distinct requester/reviewer
+pair to work with (approval_service.approve_approval_request refuses a
+reviewer who is also the requester).
 
 Safe to re-run: if a user with that email already exists, the script
 reports it and exits without modifying anything.
@@ -44,6 +51,12 @@ def main() -> None:
         default="Platform Operations",
         help="Name of the internal organization the platform admin belongs to "
         "(created if it doesn't already exist). Default: 'Platform Operations'.",
+    )
+    parser.add_argument(
+        "--role",
+        default="PLATFORM_ADMIN",
+        choices=["PLATFORM_ADMIN", "PLATFORM_STAFF"],
+        help="Platform role to grant. Default: PLATFORM_ADMIN.",
     )
     args = parser.parse_args()
 
@@ -82,9 +95,9 @@ def main() -> None:
         )
         db.add(user)
         db.flush()
-        db.add(UserRole(user_id=user.id, role_name="PLATFORM_ADMIN", organization_id=org.id))
+        db.add(UserRole(user_id=user.id, role_name=args.role, organization_id=org.id))
         db.commit()
-        print(f"Created PLATFORM_ADMIN user {args.email!r} (id={user.id}).")
+        print(f"Created {args.role} user {args.email!r} (id={user.id}).")
     finally:
         db.close()
         engine.dispose()

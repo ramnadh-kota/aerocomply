@@ -47,21 +47,22 @@ arrives after the first call committed -- sees zero rows updated
 immediately. Either way, a second attempt raises ConflictError and the
 underlying mutation is never executed twice.
 
-SELF-APPROVAL (read before assuming this enforces "four-eyes" review):
-PLATFORM_ADMIN is currently the only platform role, and it holds both
-PLATFORM_MANAGE and PLATFORM_ENTITLEMENT_OVERRIDE (see
-app/core/permissions.py). There is therefore no way, today, to require a
-reviewer distinct from the requester without inventing a fake role split
-that the rest of the platform RBAC does not support -- and this milestone
-deliberately does NOT redesign platform RBAC to manufacture one. This
-module does NOT block a user from approving their own request. It records
-requested_by_user_id and reviewed_by_user_id as independent columns (see
-app/models/approval_request.py) and the approval response/audit event
-carry both, so a self-approval is always visible and honestly attributed
--- never hidden, never labeled as independently reviewed. M14 is a
-governance foundation (deliberate two-step request/approve action, full
-audit trail, snapshot-based deterministic review) rather than a full
-four-eyes control. Do not add UI or API copy that claims otherwise.
+SELF-APPROVAL / FOUR-EYES (M15): approve_approval_request rejects, with a
+403 ForbiddenError, any attempt where the reviewer is the same user as the
+requester (requested_by_user_id == actor_user_id) -- this is enforced
+server-side here, unconditionally, regardless of role: even two
+PLATFORM_ADMIN users are required, one to create and a *different* one to
+approve. This closed the M14 gap described in that milestone's own
+docstring (PLATFORM_ADMIN was then the only platform role, so there was no
+distinct approver role to require) once M15 introduced PLATFORM_STAFF
+(app/core/permissions.py) as a second platform tier. The check lives here,
+not just in the frontend, and applies before the atomic PENDING claim so a
+self-approval attempt never mutates the row. requested_by_user_id and
+reviewed_by_user_id remain independent columns (see
+app/models/approval_request.py) purely as an honest audit trail; they can
+still end up unrelated when requested_by_user_id is NULL (a request filed
+by a caller with no user id, e.g. a service actor), which is not
+self-approval and is intentionally still allowed.
 """
 
 import uuid
@@ -72,7 +73,7 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, ForbiddenError, NotFoundError
 from app.models.approval_request import (
     ALL_APPROVAL_REQUEST_TYPES,
     ApprovalRequest,
@@ -264,6 +265,20 @@ def approve_approval_request(
         raise ConflictError(
             f"Approval request {approval_id} is not PENDING (current status: {approval.status})",
             code="invalid_transition",
+        )
+
+    # M15 four-eyes rule: the reviewer must be a different user from the
+    # requester, unconditionally -- checked before the atomic PENDING claim
+    # so a rejected self-approval attempt never mutates the row. See module
+    # docstring's SELF-APPROVAL / FOUR-EYES section.
+    if (
+        approval.requested_by_user_id is not None
+        and actor_user_id is not None
+        and approval.requested_by_user_id == actor_user_id
+    ):
+        raise ForbiddenError(
+            "You cannot approve your own approval request; a different reviewer is required.",
+            code="self_approval_forbidden",
         )
 
     now = datetime.now(UTC)

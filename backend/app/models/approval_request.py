@@ -24,14 +24,12 @@ requested_limit_value/requested_is_unlimited/reason) are typed and
 validated at the service layer, not an arbitrary JSON blob -- the review
 must be deterministic from these columns alone.
 
-Self-approval note (see docs on approval_service.approve_approval_request):
-PLATFORM_ADMIN is currently the only platform role and it holds both
-PLATFORM_MANAGE and PLATFORM_ENTITLEMENT_OVERRIDE, so there is no distinct
-"approver" role to require separation from. This table does not attempt to
-fake that separation -- it records requested_by_user_id and
-reviewed_by_user_id as plain, independent columns (which happen to be equal
-when the same platform admin both requests and reviews) purely as an
-honest audit trail, not as proof of independent review.
+Four-eyes note (see docs on approval_service.approve_approval_request): as
+of M15, approval_service enforces requested_by_user_id != reviewer at
+approval time (403 if violated) -- requested_by_user_id and
+reviewed_by_user_id remain plain, independent columns here purely as an
+honest audit trail, but they can no longer end up equal for a real
+approval (both non-null and identical is now blocked server-side).
 """
 
 import uuid
