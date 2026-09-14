@@ -213,36 +213,42 @@ def test_alerts_scoped_to_tenant(db_session):
 
 
 def test_aog_event_with_unresolvable_aircraft_is_skipped_not_fatal(db_session):
-    """An AOG event whose aircraft record can no longer be resolved (e.g. a
-    stale/orphaned reference left behind by a deleted aircraft) must not
-    fail the whole alerts feed for the rest of the organization -- it
-    should be skipped, not raise NotFoundError."""
-    from app.models.aog_event import AogEvent
+    """An AOG event whose aircraft_id cannot be resolved *within that event's
+    own organization* (e.g. data drift, or an aircraft_id that belongs to a
+    different tenant) must not fail the whole alerts feed for the rest of
+    the organization -- it should be skipped, not raise NotFoundError.
+    aircraft_id has a DB-level FK to aircraft.id (any org), so the row must
+    genuinely exist -- just scoped to a different organization -- to
+    reproduce aircraft_service.get_aircraft's org-scoped NotFoundError."""
+    from app.models.aog_event import AogEvent, AogEventStatus
 
     org_id = uuid.uuid4()
+    other_org_id = uuid.uuid4()
     aircraft = _create_aircraft(db_session, org_id)
+    other_org_aircraft = _create_aircraft(db_session, other_org_id)
     aog_service.declare_aog(
         db_session,
         organization_id=org_id,
         actor_user_id=None,
         payload=AogEventCreateRequest(aircraft_id=aircraft.id, root_cause="Real aircraft"),
     )
-    # Directly insert an AOG event referencing an aircraft_id that does not
-    # exist for this organization, bypassing declare_aog's own validation --
-    # this reproduces a stale/orphaned reference (e.g. the aircraft row was
-    # later removed) without the service layer having a chance to reject it.
-    orphaned_event = AogEvent(
+    # Directly insert an AOG event under org_id that references an aircraft
+    # belonging to a different organization -- satisfies the DB-level FK
+    # (the aircraft row genuinely exists) while still being unresolvable via
+    # aircraft_service.get_aircraft(organization_id=org_id, ...), which is
+    # exactly the failure mode the try/except in proactive_service guards.
+    mismatched_event = AogEvent(
         organization_id=org_id,
-        aircraft_id=uuid.uuid4(),
+        aircraft_id=other_org_aircraft.id,
         status=AogEventStatus.DECLARED,
-        root_cause="Orphaned reference",
+        root_cause="Cross-tenant reference",
     )
-    db_session.add(orphaned_event)
+    db_session.add(mismatched_event)
     db_session.commit()
 
     alerts = proactive_service.get_proactive_alerts(db_session, organization_id=org_id)
     aog_alerts = [a for a in alerts if a.category == "AOG"]
-    # The real aircraft's alert still comes through; the orphaned one is
+    # The real aircraft's alert still comes through; the unresolvable one is
     # skipped rather than raising and wiping out the whole alerts feed.
     assert len(aog_alerts) == 1
     assert "Real aircraft" in aog_alerts[0].message
