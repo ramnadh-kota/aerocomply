@@ -1023,6 +1023,18 @@ button.ac-menu-toggle {
   gap: 6px;
   font-size: 13px;
   color: var(--ac-text-secondary);
+  /* A long segment (e.g. a UUID or long name used as a crumb label) can
+     exceed the viewport at narrow widths; scroll the breadcrumb itself
+     rather than letting it push the whole page wider (same pattern as
+     .ac-tabs). */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  white-space: nowrap;
+}
+
+.ac-breadcrumb > * {
+  flex-shrink: 0;
 }
 
 .ac-breadcrumb a:hover {
