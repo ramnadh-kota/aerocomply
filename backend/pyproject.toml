@@ -60,3 +60,12 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# M17.1: real_storage tests hit an actual S3-compatible HTTP server (not a
+# StorageService double) and require one to be running and reachable via
+# REAL_STORAGE_S3_ENDPOINT_URL -- see tests/real_storage/README.md. Excluded
+# by default so the ordinary test suite/CI never depends on that service
+# being available; run them explicitly with `pytest -m real_storage`.
+markers = [
+    "real_storage: requires a real, running S3-compatible endpoint (see tests/real_storage/README.md)",
+]
+addopts = "-m 'not real_storage'"
