@@ -162,12 +162,45 @@ def list_files_for_evidence(
     )
     return list(
         db.execute(
-            select(EvidenceFile).where(
+            select(EvidenceFile)
+            .where(
                 EvidenceFile.organization_id == organization_id,
                 EvidenceFile.evidence_id == evidence.id,
             )
+            # Deterministic ordering (created_at, then id as a tiebreaker for
+            # rows created in the same instant) rather than relying on
+            # Postgres's unspecified natural row order -- added here so M16.5
+            # (and any future caller) gets consistent list output without
+            # duplicating this query.
+            .order_by(EvidenceFile.created_at.asc(), EvidenceFile.id.asc())
         ).scalars().all()
     )
+
+
+def get_file_for_evidence(
+    db: Session, *, organization_id: uuid.UUID, evidence_id: uuid.UUID, evidence_file_id: uuid.UUID
+) -> EvidenceFile:
+    """Tenant- and parent-scoped lookup: resolves Evidence first (tenant-safe),
+    then requires the file to belong to both this organization AND this exact
+    Evidence. A file that exists but belongs to a different Evidence -- even
+    within the same organization -- is treated as not found here, exactly
+    like a cross-tenant file, so a request for
+    /evidence/{evidence_id}/files/{file_id} can never return a different
+    Evidence's file by mismatched parent/child ids.
+    """
+    evidence = evidence_service.get_evidence(
+        db, organization_id=organization_id, evidence_id=evidence_id
+    )
+    evidence_file = db.execute(
+        select(EvidenceFile).where(
+            EvidenceFile.id == evidence_file_id,
+            EvidenceFile.organization_id == organization_id,
+            EvidenceFile.evidence_id == evidence.id,
+        )
+    ).scalar_one_or_none()
+    if evidence_file is None:
+        raise NotFoundError("Evidence file not found")
+    return evidence_file
 
 
 def _transition_file(

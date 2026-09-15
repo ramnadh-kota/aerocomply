@@ -6,19 +6,21 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.deps import get_db_session, require_permission
-from app.core.errors import AeroComplyError
+from app.core.errors import AeroComplyError, ConflictError
 from app.core.logging import get_logger
 from app.core.permissions import Permission
-from app.models.evidence import EvidenceStatus
+from app.models.evidence import EvidenceFileStatus, EvidenceStatus
 from app.schemas.auth import CurrentUser
 from app.schemas.evidence import (
     EvidenceCreateRequest,
+    EvidenceFileDownloadResponse,
     EvidenceFileResponse,
     EvidenceResponse,
     EvidenceTransitionRequest,
 )
 from app.services import evidence_file_service, evidence_service
 from app.services.storage import (
+    StoragePresignError,
     StorageUploadError,
     build_object_key,
     get_storage_service,
@@ -220,3 +222,81 @@ async def upload_evidence_file(
         raise
 
     return EvidenceFileResponse.model_validate(evidence_file)
+
+
+@router.get("/{evidence_id}/files", response_model=list[EvidenceFileResponse])
+def list_evidence_files(
+    evidence_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    # Listing/reading file metadata is a read operation on Evidence, not a
+    # modification -- EVIDENCE_READ, not EVIDENCE_WRITE, matching the same
+    # read/write split already used by get_evidence above.
+    current_user: CurrentUser = Depends(require_permission(Permission.EVIDENCE_READ)),
+) -> list[EvidenceFileResponse]:
+    # list_files_for_evidence resolves Evidence via the caller's own tenant
+    # first (NotFoundError on a cross-tenant evidence_id, identical to a
+    # nonexistent one), then filters EvidenceFile by that same organization_id
+    # -- no direct EvidenceFile query is issued from this router.
+    files = evidence_file_service.list_files_for_evidence(
+        db, organization_id=current_user.organization_id, evidence_id=evidence_id
+    )
+    return [EvidenceFileResponse.model_validate(f) for f in files]
+
+
+@router.get("/{evidence_id}/files/{file_id}/download", response_model=EvidenceFileDownloadResponse)
+def download_evidence_file(
+    evidence_id: uuid.UUID,
+    file_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.EVIDENCE_READ)),
+) -> EvidenceFileDownloadResponse:
+    # get_file_for_evidence enforces both hops before this function ever sees
+    # a storage_key: (1) Evidence belongs to the caller's own organization,
+    # (2) the file belongs to that same organization AND that exact Evidence
+    # (not just "some evidence in this org") -- so
+    # /evidence/A/files/B/download can never return File B's URL if B
+    # actually belongs to Evidence C, even within the same tenant.
+    evidence_file = evidence_file_service.get_file_for_evidence(
+        db,
+        organization_id=current_user.organization_id,
+        evidence_id=evidence_id,
+        evidence_file_id=file_id,
+    )
+
+    if evidence_file.status != EvidenceFileStatus.STORED.value:
+        # Safe-failure convention: a file that isn't actually in storage yet
+        # (PENDING), failed to upload (FAILED), or has been soft-deleted
+        # (DELETED) is a real, named state -- not "not found" -- so this uses
+        # the same conflict semantics as evidence_file_service's own status
+        # transition guard (ConflictError, 409), never inventing a new code.
+        raise ConflictError(
+            f"Evidence file is not downloadable in status {evidence_file.status}"
+        )
+
+    storage_service = get_storage_service()
+    try:
+        # No expires_in is ever passed through from the request -- the
+        # endpoint has no query/body parameter for it at all, so there is no
+        # way for a client to request a longer-lived URL than
+        # s3_presigned_url_expire_seconds.
+        url = storage_service.presign_get(key=evidence_file.storage_key)
+    except StoragePresignError as exc:
+        logger.warning(
+            "evidence_file_presign_failed",
+            evidence_id=str(evidence_id),
+            evidence_file_id=str(file_id),
+            organization_id=str(current_user.organization_id),
+            error=str(exc),
+        )
+        raise AeroComplyError(
+            "Failed to generate a download URL for this evidence file",
+            code="evidence_file_presign_failed",
+            status_code=502,
+        ) from exc
+
+    # Deliberately no info-level "issued a download URL" log here containing
+    # the URL itself -- only the warning path above logs, and only
+    # evidence_id/evidence_file_id/organization_id, never the signed URL.
+    return EvidenceFileDownloadResponse(
+        url=url, expires_in=get_settings().s3_presigned_url_expire_seconds
+    )
