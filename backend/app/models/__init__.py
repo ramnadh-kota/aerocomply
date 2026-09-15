@@ -17,7 +17,7 @@ from app.models.assessment import (
     AssessmentSnapshot,
 )
 from app.models.audit_event import AuditEvent
-from app.models.evidence import Evidence, EvidenceStatus
+from app.models.evidence import Evidence, EvidenceFile, EvidenceFileStatus, EvidenceStatus
 from app.models.import_job import ImportDomain, ImportJob, ImportJobStatus
 from app.models.inspection_requirement import InspectionRequirement
 from app.models.lisa_conversation_context import LisaConversationContext
@@ -43,6 +43,8 @@ __all__ = [
     "Task",
     "Evidence",
     "EvidenceStatus",
+    "EvidenceFile",
+    "EvidenceFileStatus",
     "InspectionRequirement",
     "Part",
     "Vendor",
