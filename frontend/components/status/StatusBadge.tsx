@@ -237,3 +237,18 @@ const GENERIC_STATUS_MAP: Record<string, BadgeKind> = {
 export function genericStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: GENERIC_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
+
+// M16.7 — EvidenceFile physical storage state (backend/app/models/evidence.py
+// EvidenceFileStatus). DELETED deliberately maps to the neutral "Written Off"
+// visual (grey, not red) — a soft-deleted file is an intentional, successful
+// action, not a failure, and must stay visually distinct from FAILED.
+const EVIDENCE_FILE_STATUS_MAP: Record<string, BadgeKind> = {
+  PENDING: "PENDING",
+  STORED: "COMPLIANT",
+  FAILED: "NON_COMPLIANT",
+  DELETED: "WRITTEN_OFF",
+};
+
+export function evidenceFileStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: EVIDENCE_FILE_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}

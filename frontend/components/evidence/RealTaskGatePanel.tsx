@@ -15,6 +15,7 @@ import { useState } from "react";
 import { StatusBadge, genericStatusBadge } from "@/components/status/StatusBadge";
 import { useSession } from "@/lib/auth/SessionContext";
 import { evidenceApi, type BackendEvidence } from "@/lib/api/evidence";
+import { EvidenceFilesPanel } from "@/components/evidence/EvidenceFilesPanel";
 import { inspectionsApi, type BackendInspectionRequirement } from "@/lib/api/inspections";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 
@@ -181,6 +182,8 @@ export function RealTaskGatePanel({ taskId }: { taskId: string }) {
           </div>
         </div>
       </div>
+
+      {evidence && <EvidenceFilesPanel evidenceId={evidence.id} />}
     </div>
   );
 }
