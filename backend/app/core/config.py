@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # environment so a non-AWS S3-compatible provider can be used in any env.
     s3_force_path_style: bool = True
     s3_presigned_url_expire_seconds: int = 300
+    # Evidence uploads are expected to be inspection photos, scanned forms,
+    # and PDFs, not video or large archives — 10 MiB comfortably covers a
+    # high-resolution photo or a multi-page scanned PDF while keeping the
+    # M16.4 bounded in-memory read (StorageService.put() takes bytes, not a
+    # stream) a safe, deliberate choice rather than an unbounded one.
+    evidence_max_upload_bytes: int = 10 * 1024 * 1024
 
     # AI agent (Lisa). Absent/empty -> NotConfiguredProvider is used and the
     # /lisa/ask endpoint returns an honest 503 ai_not_configured error; the

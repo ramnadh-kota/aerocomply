@@ -25,3 +25,20 @@ class EvidenceResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class EvidenceFileResponse(BaseModel):
+    """Deliberately omits storage_key — that is server-internal object-storage
+    metadata, never exposed to a client. A download URL is M16.5's concern,
+    not this response."""
+
+    id: uuid.UUID
+    evidence_id: uuid.UUID
+    original_filename: str
+    content_type: str
+    size_bytes: int
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
