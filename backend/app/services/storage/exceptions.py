@@ -28,10 +28,22 @@ class StoragePresignError(StorageError):
     """Raised when generating a presigned URL for an object fails."""
 
 
+class StorageUnavailableError(StorageError):
+    """Raised by an existence check (M16.8 reconciliation) when the backing
+    store could not definitively answer whether an object exists --
+    permission denied, timeout, provider/network failure, or any other
+    ambiguous response. Deliberately distinct from a normal "the object does
+    not exist" result (which is not an error at all -- see
+    StorageService.object_exists returning False): callers must never treat
+    this exception as proof of absence, only as "unknown, try again later."
+    """
+
+
 __all__ = [
     "StorageError",
     "StorageNotConfiguredError",
     "StorageUploadError",
     "StorageDeleteError",
     "StoragePresignError",
+    "StorageUnavailableError",
 ]

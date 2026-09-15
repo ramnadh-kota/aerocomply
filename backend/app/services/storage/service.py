@@ -39,6 +39,7 @@ from app.services.storage.exceptions import (
     StorageDeleteError,
     StorageNotConfiguredError,
     StoragePresignError,
+    StorageUnavailableError,
     StorageUploadError,
 )
 
@@ -100,6 +101,39 @@ class StorageService:
             raise StoragePresignError(
                 f"Failed to generate a presigned URL for {key!r}: {exc}"
             ) from exc
+
+    def object_exists(self, *, key: str) -> bool:
+        """Return True if `key` exists, False if it definitively does not.
+
+        Used only by M16.8 reconciliation to compare recorded EvidenceFile
+        metadata against real object-storage state. This is a HEAD request
+        (no body transfer) -- it never downloads content and never returns a
+        presigned URL.
+
+        Critically, this method distinguishes "does not exist" from
+        "could not determine": a 404/NoSuchKey response is the only case
+        that returns False. Anything else -- wrong credentials, a timeout, a
+        provider/network failure, or any other ambiguous error -- raises
+        StorageUnavailableError instead. Callers (reconciliation) must never
+        treat that exception as proof the object is missing.
+        """
+        try:
+            self._client.head_object(Bucket=self._bucket, Key=key)
+        except ClientError as exc:
+            status_code = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            if status_code == 404 or error_code in ("404", "NoSuchKey", "NotFound"):
+                return False
+            logger.warning("storage_object_exists_check_failed", key=key, error=str(exc))
+            raise StorageUnavailableError(
+                f"Could not determine whether object {key!r} exists: {exc}"
+            ) from exc
+        except BotoCoreError as exc:
+            logger.warning("storage_object_exists_check_failed", key=key, error=str(exc))
+            raise StorageUnavailableError(
+                f"Could not determine whether object {key!r} exists: {exc}"
+            ) from exc
+        return True
 
     def delete(self, *, key: str) -> None:
         """Delete `key`. Raises StorageDeleteError on failure."""

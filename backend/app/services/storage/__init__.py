@@ -3,6 +3,7 @@ from app.services.storage.exceptions import (
     StorageError,
     StorageNotConfiguredError,
     StoragePresignError,
+    StorageUnavailableError,
     StorageUploadError,
 )
 from app.services.storage.keys import build_object_key, sanitize_filename
@@ -14,6 +15,7 @@ __all__ = [
     "StorageUploadError",
     "StorageDeleteError",
     "StoragePresignError",
+    "StorageUnavailableError",
     "build_object_key",
     "sanitize_filename",
     "StorageService",
