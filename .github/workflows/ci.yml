@@ -50,6 +50,18 @@ jobs:
           TEST_DATABASE_URL: postgresql+psycopg://aerocomply:aerocomply@localhost:5432/aerocomply_test
         run: pytest -v
 
+      # M17.2: dependency vulnerability visibility. Non-blocking
+      # (continue-on-error) because it calls an external advisory database
+      # (PyPI's OSV-backed index) that this repo's CI has no existing
+      # convention of depending on for pass/fail -- a transient network
+      # failure here must never fail the build. Findings are still visible
+      # in the job log/summary for a human to act on.
+      - name: Dependency vulnerability scan (pip-audit)
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --strict || true
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -76,3 +88,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # M17.2: same non-blocking visibility as the backend's pip-audit step
+      # above -- npm's own advisory database, informational only.
+      - name: Dependency vulnerability scan (npm audit)
+        continue-on-error: true
+        run: npm audit --audit-level=high

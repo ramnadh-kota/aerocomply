@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import ConflictError, UnauthorizedError
 from app.core.permissions import Role
 from app.core.security import (
+    DUMMY_PASSWORD_HASH,
     InvalidTokenError,
     create_access_token,
     create_refresh_token,
@@ -72,7 +73,14 @@ def register_organization(db: Session, payload: RegisterOrganizationRequest) -> 
 
 def authenticate(db: Session, email: str, password: str) -> TokenResponse:
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-    if user is None or not user.is_active or not verify_password(password, user.hashed_password):
+    # M17.2: always run a real argon2 verify, even when no such user exists,
+    # against a fixed dummy hash -- so a nonexistent email costs the same
+    # wall-clock time as a wrong password for a real one. Without this, the
+    # `user is None` short-circuit below would let response timing alone
+    # reveal whether a given email is registered, regardless of the
+    # response body already being identical either way.
+    password_ok = verify_password(password, user.hashed_password if user else DUMMY_PASSWORD_HASH)
+    if user is None or not user.is_active or not password_ok:
         raise UnauthorizedError("Invalid email or password")
 
     org = db.get(Organization, user.organization_id)

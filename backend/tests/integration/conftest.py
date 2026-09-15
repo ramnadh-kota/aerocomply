@@ -12,6 +12,7 @@ during tests, not just the ORM-visible columns.
 Each test runs inside a transaction that is rolled back afterward, so tests
 never leak state into each other and never require manual cleanup.
 """
+
 import os
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from sqlalchemy.orm import sessionmaker
 
 import app.models  # noqa: F401
 from app.core.deps import get_db_session
+from app.core.rate_limit import reset_rate_limits
 from app.main import app
 
 TEST_DATABASE_URL = os.environ.get(
@@ -32,6 +34,19 @@ TEST_DATABASE_URL = os.environ.get(
 )
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """M17.2's rate limiter (app/core/rate_limit.py) is a single process-wide
+    instance. Starlette's TestClient always presents the same fixed "IP"
+    (its host is always "testclient"), so without this reset, one test's
+    login/register/upload calls would count against a later, unrelated
+    test's budget across this whole long-lived test process -- a purely
+    test-infrastructure concern, never relevant in production where real
+    clients have real, distinct IPs. Production code never calls this."""
+    reset_rate_limits()
+    yield
 
 
 def _run_migrations(database_url: str, revision: str) -> None:

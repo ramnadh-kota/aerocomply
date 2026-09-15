@@ -9,6 +9,7 @@ from app.core.deps import get_db_session, require_permission
 from app.core.errors import AeroComplyError, ConflictError
 from app.core.logging import get_logger
 from app.core.permissions import Permission
+from app.core.rate_limit import rate_limit
 from app.models.evidence import EvidenceFileStatus, EvidenceStatus
 from app.schemas.auth import CurrentUser
 from app.schemas.evidence import (
@@ -99,7 +100,17 @@ def transition_evidence(
     return EvidenceResponse.model_validate(evidence)
 
 
-@router.post("/{evidence_id}/files", response_model=EvidenceFileResponse, status_code=201)
+@router.post(
+    "/{evidence_id}/files",
+    response_model=EvidenceFileResponse,
+    status_code=201,
+    # M17.2: uploads are the most expensive operation this router exposes
+    # (bounded read up to evidence_max_upload_bytes + a real storage PUT) --
+    # a generous per-IP budget that would never affect normal usage but
+    # blunts naive scripted abuse. See app/core/rate_limit.py for the
+    # process-local-only limitation.
+    dependencies=[Depends(rate_limit("evidence_upload", limit=60, window_seconds=60))],
+)
 async def upload_evidence_file(
     evidence_id: uuid.UUID,
     file: UploadFile,

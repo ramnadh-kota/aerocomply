@@ -20,6 +20,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+# M17.2: a precomputed dummy hash, verified against on a nonexistent-user
+# login attempt (see auth_service.authenticate) purely so that path costs
+# the same argon2 work as a real wrong-password attempt. Without this, a
+# nonexistent email short-circuits before ever calling verify_password,
+# while a real email always pays the full hashing cost -- a measurable
+# timing side-channel an attacker could use to enumerate valid email
+# addresses without ever seeing a different response body/status code.
+DUMMY_PASSWORD_HASH = hash_password("not-a-real-password-just-for-timing-parity")
+
+
 def _create_token(subject: str, extra_claims: dict[str, Any], expires_delta: timedelta) -> str:
     now = datetime.now(UTC)
     payload = {
