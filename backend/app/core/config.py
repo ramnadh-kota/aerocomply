@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     s3_access_key: str = "aerocomply"
     s3_secret_key: str = "aerocomply_dev_secret"
     s3_bucket: str = "aerocomply-evidence"
+    s3_region: str = "us-east-1"
+    # MinIO (local/dev) requires path-style addressing (http://host/bucket/key);
+    # real AWS S3 uses virtual-hosted-style by default. Kept separate from
+    # environment so a non-AWS S3-compatible provider can be used in any env.
+    s3_force_path_style: bool = True
+    s3_presigned_url_expire_seconds: int = 300
 
     # AI agent (Lisa). Absent/empty -> NotConfiguredProvider is used and the
     # /lisa/ask endpoint returns an honest 503 ai_not_configured error; the
