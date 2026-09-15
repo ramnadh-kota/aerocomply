@@ -11,13 +11,21 @@ for task_id.
 
 Scope (M16.3): metadata only. No StorageService/boto3/S3 call is made from
 here -- that begins in M16.4, which will call create_pending_file(),
-StorageService.put(), and then mark_stored()/mark_failed() in sequence. No
-audit events are recorded here (that starts once these operations represent
-real uploaded content, not just metadata bookkeeping). No router exposes any
-of this yet.
+StorageService.put(), and then mark_stored()/mark_failed() in sequence.
+
+M16.6 adds mark_deleted() (STORED -> DELETED), the first function in this
+module that records an audit event -- following the exact same
+same-transaction pattern as evidence_service.transition_evidence: the
+AuditEvent and the EvidenceFile status mutation are added to the session and
+committed together, so they are atomic with respect to each other (both land
+or neither does). This module still never calls StorageService directly;
+the router (app/api/v1/evidence.py) orchestrates
+resolve -> storage.delete() -> mark_deleted(), the same shape M16.4
+established for resolve -> storage.put() -> mark_stored()/mark_failed().
 """
 
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,14 +33,21 @@ from sqlalchemy.orm import Session
 from app.core.errors import AeroComplyError, ConflictError, NotFoundError
 from app.models.evidence import EvidenceFile, EvidenceFileStatus
 from app.services import evidence_service
+from app.services.audit_service import record_audit_event
 
-# The only transitions this milestone owns. STORED and FAILED are both
-# terminal from this service's point of view -- STORED -> DELETED belongs to
-# M16.6, and nothing here ever moves a file backwards (STORED/FAILED ->
-# PENDING) or sideways (STORED <-> FAILED).
+# STORED -> DELETED (M16.6) is a one-way soft-delete; nothing ever leaves
+# DELETED (it stays terminal, so a repeat delete attempt on an already
+# deleted file is rejected the same way any other illegal transition is --
+# via ConflictError -- rather than silently succeeding a second time or
+# calling StorageService.delete() again). FAILED -> DELETED is deliberately
+# NOT allowed: a FAILED file never has a real stored object (the M16.4
+# upload flow only calls mark_failed() when StorageService.put() itself
+# failed), so there is nothing for M16.6's delete flow to remove from
+# storage -- extending delete to FAILED rows is a metadata-cleanup concern
+# with different semantics, not something this milestone invents.
 _ALLOWED_TRANSITIONS: dict[EvidenceFileStatus, set[EvidenceFileStatus]] = {
     EvidenceFileStatus.PENDING: {EvidenceFileStatus.STORED, EvidenceFileStatus.FAILED},
-    EvidenceFileStatus.STORED: set(),
+    EvidenceFileStatus.STORED: {EvidenceFileStatus.DELETED},
     EvidenceFileStatus.FAILED: set(),
     EvidenceFileStatus.DELETED: set(),
 }
@@ -173,7 +188,9 @@ def list_files_for_evidence(
             # (and any future caller) gets consistent list output without
             # duplicating this query.
             .order_by(EvidenceFile.created_at.asc(), EvidenceFile.id.asc())
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -249,3 +266,56 @@ def mark_failed(
         evidence_file_id=evidence_file_id,
         target_status=EvidenceFileStatus.FAILED,
     )
+
+
+def mark_deleted(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    evidence_file_id: uuid.UUID,
+) -> EvidenceFile:
+    """STORED -> DELETED. The caller (the M16.6 delete endpoint) is
+    responsible for having already made the real StorageService.delete()
+    call succeed before invoking this -- exactly the same contract
+    mark_stored() has with StorageService.put(). Unlike mark_stored/
+    mark_failed, this DOES record an audit event, in the same DB transaction
+    as the status change (added to the session here, committed together
+    below) -- the same same-transaction pattern evidence_service.
+    transition_evidence already uses for evidence.rejected/evidence.accepted.
+    If db.commit() itself fails here, the object has already been removed
+    from storage but the row will not have moved to DELETED (this function
+    raises rather than swallowing) -- a genuine storage/DB desync that only
+    M16.8's reconciliation job can resolve; this function's job is only to
+    never falsely report the row as DELETED when that commit didn't happen.
+    """
+    evidence_file = get_file(db, organization_id=organization_id, evidence_file_id=evidence_file_id)
+    current = EvidenceFileStatus(evidence_file.status)
+    target = EvidenceFileStatus.DELETED
+    if not can_transition_file(current, target):
+        raise ConflictError(
+            f"Cannot transition evidence file from {current.value} to {target.value}"
+        )
+
+    evidence_file.status = target.value
+    evidence_file.deleted_at = datetime.now(UTC)
+
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=actor_user_id,
+        action="evidence_file.deleted",
+        entity_type="EvidenceFile",
+        entity_id=evidence_file.id,
+        metadata={
+            "evidence_id": str(evidence_file.evidence_id),
+            "original_filename": evidence_file.original_filename,
+            "previous_status": current.value,
+            "new_status": target.value,
+        },
+    )
+
+    db.add(evidence_file)
+    db.commit()
+    db.refresh(evidence_file)
+    return evidence_file

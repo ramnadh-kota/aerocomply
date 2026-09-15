@@ -20,6 +20,7 @@ from app.schemas.evidence import (
 )
 from app.services import evidence_file_service, evidence_service
 from app.services.storage import (
+    StorageDeleteError,
     StoragePresignError,
     StorageUploadError,
     build_object_key,
@@ -269,9 +270,7 @@ def download_evidence_file(
         # (DELETED) is a real, named state -- not "not found" -- so this uses
         # the same conflict semantics as evidence_file_service's own status
         # transition guard (ConflictError, 409), never inventing a new code.
-        raise ConflictError(
-            f"Evidence file is not downloadable in status {evidence_file.status}"
-        )
+        raise ConflictError(f"Evidence file is not downloadable in status {evidence_file.status}")
 
     storage_service = get_storage_service()
     try:
@@ -300,3 +299,84 @@ def download_evidence_file(
     return EvidenceFileDownloadResponse(
         url=url, expires_in=get_settings().s3_presigned_url_expire_seconds
     )
+
+
+@router.delete("/{evidence_id}/files/{file_id}", status_code=204)
+def delete_evidence_file(
+    evidence_id: uuid.UUID,
+    file_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    # Deletion is a mutation on Evidence's files -- EVIDENCE_WRITE, the same
+    # permission the upload endpoint above already requires, not a new
+    # EVIDENCE_FILE_DELETE grant.
+    current_user: CurrentUser = Depends(require_permission(Permission.EVIDENCE_WRITE)),
+) -> None:
+    """Soft-delete a stored evidence file: remove the object from storage,
+    then mark the EvidenceFile row DELETED (never hard-deleted). Follows the
+    same router-orchestrates-storage, service-owns-metadata split M16.4
+    established for upload: get_file_for_evidence() enforces tenant AND
+    parent/child scoping before this function ever sees a storage_key, this
+    function calls StorageService.delete() directly (never boto3), and
+    evidence_file_service.mark_deleted() owns the DB status transition +
+    audit event.
+    """
+    evidence_file = evidence_file_service.get_file_for_evidence(
+        db,
+        organization_id=current_user.organization_id,
+        evidence_id=evidence_id,
+        evidence_file_id=file_id,
+    )
+
+    if evidence_file.status != EvidenceFileStatus.STORED.value:
+        # Same safe-failure convention as the download endpoint above: a
+        # file that isn't actually STORED (PENDING/FAILED/already DELETED)
+        # is a named conflict, not "not found" -- and critically, rejecting
+        # here BEFORE any storage call means a repeat DELETE on an
+        # already-DELETED file, or a DELETE on a PENDING/FAILED row, never
+        # invokes StorageService.delete() a second time (or at all).
+        raise ConflictError(f"Evidence file cannot be deleted in status {evidence_file.status}")
+
+    storage_service = get_storage_service()
+    try:
+        storage_service.delete(key=evidence_file.storage_key)
+    except StorageDeleteError as exc:
+        # The object may still exist in storage. The row MUST NOT become
+        # DELETED -- no metadata mutation, no audit event, just a safe error
+        # (never the raw botocore/StorageDeleteError message).
+        logger.warning(
+            "evidence_file_storage_delete_failed",
+            evidence_id=str(evidence_id),
+            evidence_file_id=str(file_id),
+            organization_id=str(current_user.organization_id),
+            error=str(exc),
+        )
+        raise AeroComplyError(
+            "Failed to delete the stored evidence file",
+            code="evidence_file_storage_delete_failed",
+            status_code=502,
+        ) from exc
+
+    try:
+        evidence_file_service.mark_deleted(
+            db,
+            organization_id=current_user.organization_id,
+            actor_user_id=current_user.id,
+            evidence_file_id=evidence_file.id,
+        )
+    except Exception:
+        # The object has already been removed from storage, but the DB
+        # transition to DELETED (and its audit event) did not commit -- a
+        # genuine storage/DB desync. This must never be reported as a
+        # successful delete, and no false "deleted successfully" audit event
+        # may exist. This is exactly the partial-failure case M16.8's
+        # reconciliation job exists to find and resolve; M16.6 does not
+        # implement that job, only logs enough context to make it possible.
+        logger.error(
+            "evidence_file_mark_deleted_failed_after_successful_storage_delete",
+            evidence_id=str(evidence_id),
+            evidence_file_id=str(file_id),
+            organization_id=str(current_user.organization_id),
+        )
+        raise
+
+    return None

@@ -7,6 +7,7 @@ Real end-to-end coverage over the actual FastAPI app + real Postgres (the
 """
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -101,6 +102,7 @@ def _make_file(
     status=EvidenceFileStatus.STORED,
     filename="photo.jpg",
     storage_key=None,
+    created_at=None,
 ):
     evidence_file = EvidenceFile(
         organization_id=organization_id,
@@ -114,6 +116,17 @@ def _make_file(
         checksum_sha256="a" * 64,
         status=status.value,
     )
+    if created_at is not None:
+        # created_at is server_default=func.now() (see app/db/base.py's
+        # TimestampMixin), which returns the *transaction* start time in
+        # Postgres, not per-statement time -- and this whole test runs
+        # inside one outer transaction (see conftest.py's db_session
+        # fixture), so two rows created moments apart in test wall-clock
+        # time can otherwise get an identical created_at. Setting an
+        # explicit value here (only where a test needs genuinely distinct
+        # timestamps to exercise ORDER BY created_at) overrides that
+        # default, the same way any explicit column value does.
+        evidence_file.created_at = created_at
     db_session.add(evidence_file)
     db_session.commit()
     db_session.refresh(evidence_file)
@@ -195,12 +208,18 @@ class TestListFiles:
         org_id = _org_id(client, tokens["access_token"])
         evidence = _create_evidence_for_org(db_session, org_id)
         admin_id = _admin_id(db_session, org_id)
+        # Explicit, distinct created_at values: see _make_file's docstring --
+        # Postgres's func.now() is transaction-scoped, and this whole test
+        # runs inside one outer transaction, so two rows created via ordinary
+        # inserts here could otherwise tie on created_at.
+        base = datetime(2026, 1, 1, tzinfo=UTC)
         f1 = _make_file(
             db_session,
             organization_id=org_id,
             evidence_id=evidence.id,
             uploaded_by_user_id=admin_id,
             filename="a.jpg",
+            created_at=base,
         )
         f2 = _make_file(
             db_session,
@@ -208,6 +227,7 @@ class TestListFiles:
             evidence_id=evidence.id,
             uploaded_by_user_id=admin_id,
             filename="b.jpg",
+            created_at=base + timedelta(seconds=1),
         )
 
         resp1 = _list(client, evidence.id, tokens["access_token"])
