@@ -89,6 +89,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/organization", label: "Organization", glyph: "◫" },
       { href: "/organization/users", label: "Users", glyph: "◔" },
       { href: "/organization/roles", label: "Roles", glyph: "◈" },
+      { href: "/organization/plan", label: "Plan & Subscription", glyph: "◆" },
       { href: "/workspace", label: "Workspace", glyph: "▢" },
       { href: "/integrations", label: "Integrations", glyph: "◫" },
       { href: "/settings", label: "Settings", glyph: "⚙" },

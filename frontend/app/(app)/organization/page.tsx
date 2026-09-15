@@ -26,6 +26,7 @@ export default function OrganizationPage() {
       <div className="ac-flex ac-gap-2" style={{ marginBottom: 20 }}>
         <Link href="/organization/users" className="ac-btn">Users</Link>
         <Link href="/organization/roles" className="ac-btn">Roles</Link>
+        <Link href="/organization/plan" className="ac-btn">Plan & Subscription</Link>
         <Link href="/organization/usage" className="ac-btn">Usage Intelligence</Link>
         <Link href="/organization/readiness" className="ac-btn">Pilot Readiness</Link>
       </div>

@@ -106,6 +106,15 @@ export function getOverrideExpirationState(
 }
 
 export const entitlementApi = {
+  // M17.3: the tenant self-service counterpart to getEntitlements below.
+  // Backend: GET /api/v1/entitlements (app/api/v1/entitlements.py) — any
+  // authenticated user of the org may call this (no PLATFORM_MANAGE gate),
+  // since it only returns the caller's OWN organization's entitlement state,
+  // derived server-side from the JWT — there is no organization_id
+  // parameter for a client to supply or tamper with.
+  getMyEntitlements: (accessToken: string) =>
+    apiRequest<EntitlementResolutionResponse>("/entitlements", { accessToken }),
+
   getEntitlements: (accessToken: string, organizationId: string) =>
     apiRequest<EntitlementResolutionResponse>(
       `/platform/organizations/${organizationId}/entitlements`,
