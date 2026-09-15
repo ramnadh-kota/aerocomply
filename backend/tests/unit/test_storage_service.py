@@ -17,6 +17,7 @@ from app.services.storage.exceptions import (
     StorageDeleteError,
     StorageNotConfiguredError,
     StoragePresignError,
+    StorageUnavailableError,
     StorageUploadError,
 )
 from app.services.storage.service import StorageService
@@ -117,6 +118,95 @@ class TestPresignGet:
 
         with pytest.raises(StoragePresignError):
             service.presign_get(key="k")
+
+
+class TestObjectExists:
+    """M16.8's object_exists() was previously exercised only through the
+    reconciliation service's tests, via an in-test double that never
+    actually touched this method's own boto3-facing logic (404 detection,
+    StorageUnavailableError wrapping). Added during the M16.9 hardening
+    audit to close that real coverage gap directly at the StorageService
+    boundary."""
+
+    def test_object_exists_true_on_successful_head(self):
+        service, mock_client = _service_with_mock_client()
+        mock_client.head_object.return_value = {}
+
+        assert service.object_exists(key="evidence/org/res/file_a.pdf") is True
+        mock_client.head_object.assert_called_once_with(
+            Bucket="test-bucket", Key="evidence/org/res/file_a.pdf"
+        )
+
+    def test_object_exists_false_on_404_status_code(self):
+        service, mock_client = _service_with_mock_client()
+        mock_client.head_object.side_effect = ClientError(
+            error_response={
+                "Error": {"Code": "Unknown"},
+                "ResponseMetadata": {"HTTPStatusCode": 404},
+            },
+            operation_name="HeadObject",
+        )
+
+        assert service.object_exists(key="k") is False
+
+    def test_object_exists_false_on_no_such_key_error_code(self):
+        service, mock_client = _service_with_mock_client()
+        mock_client.head_object.side_effect = ClientError(
+            error_response={"Error": {"Code": "NoSuchKey"}},
+            operation_name="HeadObject",
+        )
+
+        assert service.object_exists(key="k") is False
+
+    def test_object_exists_false_on_not_found_error_code(self):
+        service, mock_client = _service_with_mock_client()
+        mock_client.head_object.side_effect = ClientError(
+            error_response={"Error": {"Code": "404"}},
+            operation_name="HeadObject",
+        )
+
+        assert service.object_exists(key="k") is False
+
+    def test_object_exists_raises_unavailable_on_permission_denied(self):
+        # A 403 must never be treated as "missing" -- it means the object's
+        # existence could not be determined, not that it doesn't exist.
+        service, mock_client = _service_with_mock_client()
+        mock_client.head_object.side_effect = ClientError(
+            error_response={
+                "Error": {"Code": "AccessDenied"},
+                "ResponseMetadata": {"HTTPStatusCode": 403},
+            },
+            operation_name="HeadObject",
+        )
+
+        with pytest.raises(StorageUnavailableError):
+            service.object_exists(key="k")
+
+    def test_object_exists_raises_unavailable_on_generic_client_error(self):
+        service, mock_client = _service_with_mock_client()
+        mock_client.head_object.side_effect = _client_error("HeadObject")
+
+        with pytest.raises(StorageUnavailableError):
+            service.object_exists(key="k")
+
+    def test_object_exists_raises_unavailable_on_botocore_error(self):
+        from botocore.exceptions import EndpointConnectionError
+
+        service, mock_client = _service_with_mock_client()
+        mock_client.head_object.side_effect = EndpointConnectionError(
+            endpoint_url="http://localhost:9000"
+        )
+
+        with pytest.raises(StorageUnavailableError):
+            service.object_exists(key="k")
+
+    def test_object_exists_exception_never_exposes_bucket_name(self):
+        service, mock_client = _service_with_mock_client()
+        mock_client.head_object.side_effect = _client_error("HeadObject")
+
+        with pytest.raises(StorageUnavailableError) as exc_info:
+            service.object_exists(key="k")
+        assert "test-bucket" not in str(exc_info.value)
 
 
 class TestDelete:
