@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, use } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -107,7 +107,8 @@ function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
   );
 }
 
-export default function AircraftDetailPage({ params }: { params: { id: string } }) {
+export default function AircraftDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const { isReal, hydrated } = useDataMode();
   // Wait for the persisted data-mode choice to load before picking a branch —
   // otherwise a REAL-only id trips the DEMO branch's notFound() on first

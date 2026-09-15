@@ -1,4 +1,5 @@
-"use client";
+"use client";;
+import { use } from "react";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -30,7 +31,8 @@ function actionRequiredFor(a: ApplicabilityAssessment): string {
   }
 }
 
-export default function RequirementDetailPage({ params }: { params: { id: string } }) {
+export default function RequirementDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const requirement = getRequirementById(params.id);
   if (!requirement) notFound();
 

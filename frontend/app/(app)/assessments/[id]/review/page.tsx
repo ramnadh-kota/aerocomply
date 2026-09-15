@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, use } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -21,7 +21,8 @@ const OPTIONS: { value: DecisionOption; label: string }[] = [
   { value: "OVERRIDE_WITH_JUSTIFICATION", label: "Override With Justification" },
 ];
 
-export default function AssessmentReviewPage({ params }: { params: { id: string } }) {
+export default function AssessmentReviewPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const assessment = getAssessmentById(params.id);
   if (!assessment) notFound();
 

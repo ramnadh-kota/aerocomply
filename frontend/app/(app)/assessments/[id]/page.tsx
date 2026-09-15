@@ -1,4 +1,5 @@
-"use client";
+"use client";;
+import { use } from "react";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -15,7 +16,8 @@ import { getEngineById } from "@/lib/mock/engines";
 import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { evaluateTree } from "@/lib/mock/kleene";
 
-export default function AssessmentDetailPage({ params }: { params: { id: string } }) {
+export default function AssessmentDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const assessment = getAssessmentById(params.id);
   if (!assessment) notFound();
 

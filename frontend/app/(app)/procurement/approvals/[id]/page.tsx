@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, use } from "react";
 import Link from "next/link";
 import { notFound, useRouter } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -22,7 +22,8 @@ function requesterName(id: string): string {
 // M11.5 — Procurement request detail + management decision. Client
 // Component (needs mutation buttons) — no DataTable here, so no
 // Server/Client boundary risk.
-export default function ProcurementRequestDetailPage({ params }: { params: { id: string } }) {
+export default function ProcurementRequestDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const [version, setVersion] = useState(0);
   const [rejectReason, setRejectReason] = useState("");
   const [clarificationNote, setClarificationNote] = useState("");

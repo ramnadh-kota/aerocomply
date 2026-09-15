@@ -1,4 +1,5 @@
-"use client";
+"use client";;
+import { use } from "react";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -16,7 +17,8 @@ function na(v: string | number | null | undefined): string {
   return v === null || v === undefined || v === "" ? "Insufficient source data." : String(v);
 }
 
-export default function VendorDetailPage({ params }: { params: { id: string } }) {
+export default function VendorDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const vendor = getVendorById(params.id);
   if (!vendor) notFound();
 

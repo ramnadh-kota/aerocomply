@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, use } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -17,7 +17,8 @@ const LEVEL_BADGE: Record<string, { status: "UNKNOWN" | "NOT_APPLICABLE" | "REVI
   APPROVE: { status: "COMPLIANT", label: "Approve" },
 };
 
-export default function RoleDetailPage({ params }: { params: { id: string } }) {
+export default function RoleDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const [version, setVersion] = useState(0);
   const [editing, setEditing] = useState(false);
   const { addAuditEvent } = useMroState();

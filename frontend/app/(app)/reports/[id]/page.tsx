@@ -3,7 +3,8 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { ReportView } from "@/components/reports/ReportView";
 import { buildReportData } from "@/lib/mock/reports";
 
-export default function ReportDetailPage({ params }: { params: { id: string } }) {
+export default async function ReportDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const report = buildReportData(params.id);
   if (!report) notFound();
 

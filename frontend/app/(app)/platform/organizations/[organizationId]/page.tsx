@@ -10,7 +10,7 @@
 // client-side. Overrides and usage limits are managed directly through M6 APIs,
 // triggering immediate re-fetch of effective state on mutation.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -1419,6 +1419,7 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
   );
 }
 
-export default function PlatformOrganizationDetailPage({ params }: { params: { organizationId: string } }) {
+export default function PlatformOrganizationDetailPage(props: { params: Promise<{ organizationId: string }> }) {
+  const params = use(props.params);
   return <RealOrganizationDetail organizationId={params.organizationId} />;
 }

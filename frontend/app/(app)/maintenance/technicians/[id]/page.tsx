@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -99,7 +99,8 @@ function RealTechnicianDetail({ userId }: { userId: string }) {
   );
 }
 
-export default function TechnicianWorkbenchPage({ params }: { params: { id: string } }) {
+export default function TechnicianWorkbenchPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const { isReal, hydrated } = useDataMode();
   if (!hydrated) return null;
   return isReal ? (

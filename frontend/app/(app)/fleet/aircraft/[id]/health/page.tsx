@@ -12,7 +12,8 @@ import { getRequirementById } from "@/lib/mock/regulations";
 import { maintenanceEventsForAircraft } from "@/lib/mock/maintenance";
 import { getAircraftAnalytics, getPartsAtRisk } from "@/lib/mock/ai/analytics";
 
-export default function AircraftHealthPage({ params }: { params: { id: string } }) {
+export default async function AircraftHealthPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const aircraft = getAircraftById(params.id);
   if (!aircraft) notFound();
 

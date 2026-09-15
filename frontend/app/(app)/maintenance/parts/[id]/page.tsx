@@ -1,4 +1,5 @@
-"use client";
+"use client";;
+import { use } from "react";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -29,7 +30,8 @@ function actorName(userId: string): string {
   return u ? u.name : userId;
 }
 
-export default function PartTraceabilityDetailPage({ params }: { params: { id: string } }) {
+export default function PartTraceabilityDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const part = getPartById(params.id);
   if (!part) notFound();
 

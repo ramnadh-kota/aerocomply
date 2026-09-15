@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, use } from "react";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Timeline, type TimelineEntry } from "@/components/timeline/Timeline";
@@ -16,7 +16,8 @@ function fmt(date: string): string {
   return new Date(date).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export default function ConfigurationTimelinePage({ params }: { params: { id: string } }) {
+export default function ConfigurationTimelinePage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const aircraft = getAircraftById(params.id);
   if (!aircraft) notFound();
 

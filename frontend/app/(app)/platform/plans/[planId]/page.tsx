@@ -14,7 +14,7 @@
 // No subscription data is shown here — that is explicitly out of scope for
 // M9 (see plan spec Phase 6).
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -459,6 +459,7 @@ function RealPlanDetail({ planId }: { planId: string }) {
   );
 }
 
-export default function PlatformPlanDetailPage({ params }: { params: { planId: string } }) {
+export default function PlatformPlanDetailPage(props: { params: Promise<{ planId: string }> }) {
+  const params = use(props.params);
   return <RealPlanDetail planId={params.planId} />;
 }

@@ -1,4 +1,5 @@
-"use client";
+"use client";;
+import { use } from "react";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -17,7 +18,8 @@ import { getProjectAnalytics, getPartsAtRisk } from "@/lib/mock/ai/analytics";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
 
-export default function ProjectIntelligencePage({ params }: { params: { id: string } }) {
+export default function ProjectIntelligencePage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const project = getProjectById(params.id);
   if (!project) notFound();
   const { submissions } = useMroState();

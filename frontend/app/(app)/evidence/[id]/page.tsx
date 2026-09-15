@@ -23,7 +23,8 @@ const TYPE_LABEL: Record<string, string> = {
   REGULATORY_DOCUMENT: "Regulatory Document",
 };
 
-export default function EvidenceDetailPage({ params }: { params: { id: string } }) {
+export default async function EvidenceDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const item = evidenceRepository.getById(params.id);
   if (!item) notFound();
 

@@ -1,4 +1,5 @@
-"use client";
+"use client";;
+import { use } from "react";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -13,7 +14,8 @@ import { regulatoryRequirements } from "@/lib/mock/regulations";
 import { maintenanceEventsForEngine } from "@/lib/mock/maintenance";
 import type { ApplicabilityAssessment, EngineInstallation } from "@/lib/mock/types";
 
-export default function EngineDetailPage({ params }: { params: { id: string } }) {
+export default function EngineDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const engine = getEngineById(params.id);
   if (!engine) notFound();
 

@@ -21,7 +21,7 @@ import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { getChecklistByWorkOrderId } from "@/lib/mock/checklists";
 import { auditEventsForObjectLabelContains } from "@/lib/mock/audit";
 import { Timeline } from "@/components/timeline/Timeline";
-import { useCallback, useEffect, useState as useReactState } from "react";
+import { useCallback, useEffect, useState as useReactState, use } from "react";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
 import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
@@ -162,7 +162,8 @@ function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
   );
 }
 
-export default function WorkOrderDetailPage({ params }: { params: { id: string } }) {
+export default function WorkOrderDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const { isReal, hydrated } = useDataMode();
   // See identical comment in app/(app)/aircraft/[id]/page.tsx — must wait
   // for hydration before choosing a branch to avoid an irrecoverable

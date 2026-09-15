@@ -203,7 +203,8 @@ function WorkOrderFinanceDetail({ workOrderId }: { workOrderId: string }) {
   );
 }
 
-export default function FinanceDetailPage({ params }: { params: { id: string } }) {
+export default async function FinanceDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (params.id.startsWith("ac-")) return <AircraftFinanceDetail aircraftId={params.id} />;
   if (params.id.startsWith("wo-")) return <WorkOrderFinanceDetail workOrderId={params.id} />;
   notFound();

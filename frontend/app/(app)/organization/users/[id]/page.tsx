@@ -16,7 +16,8 @@ const LEVEL_BADGE: Record<string, { status: "UNKNOWN" | "NOT_APPLICABLE" | "REVI
   APPROVE: { status: "COMPLIANT", label: "Approve" },
 };
 
-export default function UserDetailPage({ params }: { params: { id: string } }) {
+export default async function UserDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const user = getUserById(params.id);
   if (!user) notFound();
   const role = getRoleById(user.roleId);

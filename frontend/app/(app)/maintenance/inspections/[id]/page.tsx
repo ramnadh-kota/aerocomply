@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -454,7 +454,8 @@ function DemoInspectionDetailPage({ params }: { params: { id: string } }) {
   );
 }
 
-export default function InspectionDetailPage({ params }: { params: { id: string } }) {
+export default function InspectionDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const { isReal, hydrated } = useDataMode();
   if (!hydrated) return null;
   return isReal ? <RealInspectionDetail workOrderId={params.id} /> : <DemoInspectionDetailPage params={params} />;

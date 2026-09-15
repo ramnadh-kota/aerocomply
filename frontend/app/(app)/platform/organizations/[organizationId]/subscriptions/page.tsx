@@ -20,7 +20,7 @@
 // this page only links to the existing M8 Organization Detail page, which
 // reads them from the M2 resolver via the M3 API.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -573,10 +573,11 @@ function RealSubscriptionAdmin({ organizationId }: { organizationId: string }) {
   );
 }
 
-export default function PlatformOrganizationSubscriptionsPage({
-  params,
-}: {
-  params: { organizationId: string };
-}) {
+export default function PlatformOrganizationSubscriptionsPage(
+  props: {
+    params: Promise<{ organizationId: string }>;
+  }
+) {
+  const params = use(props.params);
   return <RealSubscriptionAdmin organizationId={params.organizationId} />;
 }

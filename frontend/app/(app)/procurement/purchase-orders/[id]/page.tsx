@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, use } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -29,7 +29,8 @@ function poStatusBadge(status: string): { status: Parameters<typeof StatusBadge>
   }
 }
 
-export default function PurchaseOrderDetailPage({ params }: { params: { id: string } }) {
+export default function PurchaseOrderDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const [version, setVersion] = useState(0);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const { addAuditEvent } = useMroState();

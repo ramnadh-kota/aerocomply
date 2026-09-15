@@ -1,4 +1,5 @@
-"use client";
+"use client";;
+import { use } from "react";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -15,7 +16,8 @@ import { regulatoryRequirements } from "@/lib/mock/regulations";
 import { maintenanceEventsForComponentInstance } from "@/lib/mock/maintenance";
 import type { ComponentInstallation } from "@/lib/mock/types";
 
-export default function ComponentDetailPage({ params }: { params: { id: string } }) {
+export default function ComponentDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const instance = getComponentInstance(params.id);
   if (!instance) notFound();
 
