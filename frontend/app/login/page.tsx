@@ -23,10 +23,14 @@ export default function LoginPage() {
     try {
       const tokens = await authApi.login(email, password);
       // MVP: token storage; production should move to httpOnly cookies.
-      await login(tokens);
+      const me = await login(tokens);
       // A successful real login is a strong signal the user wants REAL data mode.
       setMode("REAL");
-      router.push("/dashboard");
+      // Platform Admin/Staff operate the Platform Control Plane, never a
+      // tenant's operational dashboard (see components/layout/Sidebar.tsx) —
+      // land them on platform home instead of the tenant /dashboard.
+      const isPlatformUser = me.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
+      router.push(isPlatformUser ? "/platform/organizations" : "/dashboard");
     } catch (err) {
       setError(normalizeApiError(err).message);
     } finally {

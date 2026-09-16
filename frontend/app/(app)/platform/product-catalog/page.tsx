@@ -85,7 +85,6 @@ function RealProductCatalog() {
     <div>
       <Breadcrumbs
         items={[
-          { label: "Dashboard", href: "/dashboard" },
           { label: "Platform Admin", href: "/platform/organizations" },
           { label: "Product Catalog" },
         ]}

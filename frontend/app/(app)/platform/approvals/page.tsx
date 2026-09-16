@@ -339,7 +339,6 @@ function RealApprovalsFeed() {
     <div>
       <Breadcrumbs
         items={[
-          { label: "Dashboard", href: "/dashboard" },
           { label: "Platform Admin", href: "/platform/organizations" },
           { label: "Approvals" },
         ]}

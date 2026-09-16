@@ -208,7 +208,6 @@ function RealPlanDetail({ planId }: { planId: string }) {
     <div>
       <Breadcrumbs
         items={[
-          { label: "Dashboard", href: "/dashboard" },
           { label: "Platform Admin", href: "/platform/organizations" },
           { label: "Plans", href: "/platform/plans" },
           { label: plan?.name ?? planId },

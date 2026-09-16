@@ -97,6 +97,26 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+// KOTA AEROSPACE PLATFORM CONTROL PLANE — the exclusive navigation for
+// PLATFORM_ADMIN/PLATFORM_STAFF (see isPlatformUser below). Deliberately a
+// separate, flat list rather than tenant NAV_GROUPS + an appended
+// "Platform" section: a platform operator administers organizations,
+// product catalog, plans, and platform governance, never a specific
+// tenant's operational workflows (aircraft, maintenance, evidence, etc.).
+const PLATFORM_NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Platform Control Plane",
+    items: [
+      { href: "/platform/organizations", label: "Organizations", glyph: "⛨" },
+      { href: "/platform/product-catalog", label: "Product Catalog", glyph: "▤" },
+      { href: "/platform/plans", label: "Plans", glyph: "◈" },
+      { href: "/platform/audit", label: "Audit / Activity", glyph: "≡" },
+      { href: "/platform/approvals", label: "Approvals", glyph: "✓" },
+      { href: "/platform/monitoring", label: "Monitoring & Health", glyph: "♥" },
+    ],
+  },
+];
+
 function isActive(pathname: string, href: string): boolean {
   if (href === "/dashboard" || href === "/organization") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -107,33 +127,30 @@ export function Sidebar() {
   const { accessFor } = useRoleSim();
   const { open, close } = useSidebarDrawer();
   const { user } = useSession();
-  // Platform Admin is a real backend role (never a role-sim demo role) —
-  // this only hides the nav entry; the backend independently enforces
-  // PLATFORM_MANAGE on every /platform/* call regardless of what's shown.
-  const isPlatformAdmin = user?.roles?.includes("PLATFORM_ADMIN") ?? false;
-  const groups = isPlatformAdmin
-    ? [
-        ...NAV_GROUPS,
-        {
-          label: "Platform",
-          items: [
-            { href: "/platform/organizations", label: "Organizations", glyph: "⛨" },
-            { href: "/platform/plans", label: "Plans", glyph: "◈" },
-            { href: "/platform/product-catalog", label: "Product Catalog", glyph: "▤" },
-            { href: "/platform/audit", label: "Audit / Activity", glyph: "≡" },
-            { href: "/platform/approvals", label: "Approvals", glyph: "✓" },
-            { href: "/platform/monitoring", label: "Monitoring & Health", glyph: "♥" },
-          ],
-        },
-      ]
-    : NAV_GROUPS;
+  // Platform Admin / Platform Staff are real backend roles (never a
+  // role-sim demo role) that hold zero tenant permissions on the backend
+  // (see app/core/permissions.py's ROLE_PERMISSIONS) -- they can never act
+  // on tenant data no matter what this sidebar shows. This check only
+  // decides which nav *group* renders: a platform user sees the Platform
+  // Control Plane exclusively, not the tenant application nav appended
+  // alongside it, because a platform operator's job is administering the
+  // platform (organizations, product catalog, plans, audit), never
+  // operating a specific tenant's fleet/maintenance/compliance workflows.
+  // The backend independently enforces PLATFORM_MANAGE on every
+  // /platform/* call regardless of what's shown here.
+  const isPlatformUser = user?.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
+  const groups = isPlatformUser ? PLATFORM_NAV_GROUPS : NAV_GROUPS;
 
   return (
     <>
       <div className={`ac-sidebar-backdrop${open ? " open" : ""}`} onClick={close} aria-hidden="true" />
       <nav className={`ac-sidebar${open ? " open" : ""}`} aria-label="Primary navigation">
       <div style={{ padding: "18px 20px 12px" }}>
-        <Link href="/dashboard" style={{ display: "flex", alignItems: "center" }} onClick={close}>
+        <Link
+          href={isPlatformUser ? "/platform/organizations" : "/dashboard"}
+          style={{ display: "flex", alignItems: "center" }}
+          onClick={close}
+        >
           <Logo height={30} />
         </Link>
       </div>

@@ -184,7 +184,7 @@ function RealPlatformOrganizations() {
 
   return (
     <div>
-      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Platform Admin", href: "/platform/organizations" }, { label: "Organizations" }]} />
+      <Breadcrumbs items={[{ label: "Platform Admin", href: "/platform/organizations" }, { label: "Organizations" }]} />
       <div className="ac-section-header">
         <div>
           <h1 className="ac-h1">Platform — Organizations</h1>

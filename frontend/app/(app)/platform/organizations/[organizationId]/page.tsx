@@ -620,7 +620,6 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
     <div>
       <Breadcrumbs
         items={[
-          { label: "Dashboard", href: "/dashboard" },
           { label: "Platform Admin", href: "/platform/organizations" },
           { label: "Organizations", href: "/platform/organizations" },
           { label: org?.name ?? organizationId },
