@@ -1,4 +1,5 @@
 from app.models.aircraft import Aircraft
+from app.models.aircraft_detail import AircraftDetail
 from app.models.approval_request import (
     ALL_APPROVAL_REQUEST_TYPES,
     ALL_APPROVAL_STATUSES,
@@ -16,6 +17,7 @@ from app.models.assessment import (
     AssessmentRoadmapItem,
     AssessmentSnapshot,
 )
+from app.models.asset import Asset, AssetType
 from app.models.audit_event import AuditEvent
 from app.models.evidence import Evidence, EvidenceFile, EvidenceFileStatus, EvidenceStatus
 from app.models.import_job import ImportDomain, ImportJob, ImportJobStatus
@@ -39,6 +41,9 @@ __all__ = [
     "UserRole",
     "AuditEvent",
     "Aircraft",
+    "AircraftDetail",
+    "Asset",
+    "AssetType",
     "WorkOrder",
     "Task",
     "Evidence",
