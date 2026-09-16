@@ -119,6 +119,7 @@ export function Sidebar() {
           items: [
             { href: "/platform/organizations", label: "Organizations", glyph: "⛨" },
             { href: "/platform/plans", label: "Plans", glyph: "◈" },
+            { href: "/platform/product-catalog", label: "Product Catalog", glyph: "▤" },
             { href: "/platform/audit", label: "Audit / Activity", glyph: "≡" },
             { href: "/platform/approvals", label: "Approvals", glyph: "✓" },
             { href: "/platform/monitoring", label: "Monitoring & Health", glyph: "♥" },

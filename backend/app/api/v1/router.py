@@ -22,6 +22,7 @@ from app.api.v1 import (
     platform,
     proactive,
     procurement,
+    product_catalog,
     purchase_orders,
     receiving,
     regulatory,
@@ -66,5 +67,6 @@ api_router.include_router(users.router)
 api_router.include_router(lisa.router)
 api_router.include_router(assessments.router)
 api_router.include_router(platform.router)
+api_router.include_router(product_catalog.router)
 api_router.include_router(data_import.router)
 api_router.include_router(entitlements.router)

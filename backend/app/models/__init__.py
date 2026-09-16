@@ -26,6 +26,7 @@ from app.models.lisa_conversation_context import LisaConversationContext
 from app.models.organization import Organization
 from app.models.part import Part
 from app.models.plan import Plan, PlanFeature
+from app.models.product_catalog import ProductFeature, ProductModule, ProductPage, ProductSuite
 from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.task import Task
 from app.models.technician_qualification import TechnicianQualification
@@ -67,6 +68,10 @@ __all__ = [
     "ImportDomain",
     "ImportJobStatus",
     "Plan",
+    "ProductSuite",
+    "ProductModule",
+    "ProductPage",
+    "ProductFeature",
     "PlanFeature",
     "Subscription",
     "SubscriptionStatus",
