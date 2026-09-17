@@ -190,6 +190,9 @@ function RealPlatformOrganizations() {
           <h1 className="ac-h1">Platform — Organizations</h1>
           <p className="ac-subtitle">Cross-tenant administration. Not visible to customer users.</p>
         </div>
+        <Link className="ac-btn" href="/platform/organizations/provision">
+          + Provision Organization
+        </Link>
       </div>
 
       {!isAuthenticated ? (

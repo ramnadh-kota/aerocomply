@@ -184,3 +184,29 @@ def reset_password(
         db, email=payload.email, code=payload.code, new_password=payload.new_password
     )
     return MessageResponse(message="Password has been reset. You can now sign in.")
+
+
+@router.post(
+    "/onboarding/complete",
+    response_model=MessageResponse,
+    dependencies=[
+        Depends(
+            rate_limit(
+                "auth_onboarding_complete",
+                limit=_OTP_CONFIRM_RATE_LIMIT,
+                window_seconds=_OTP_CONFIRM_RATE_WINDOW_SECONDS,
+            )
+        )
+    ],
+)
+def complete_onboarding(
+    payload: ResetPasswordRequest, db: Session = Depends(get_db_session)
+) -> MessageResponse:
+    # Reuses ResetPasswordRequest's exact shape (email, code, new_password)
+    # -- completing platform-provisioned onboarding is the same primitive
+    # as a password reset (prove code ownership, then set a password), see
+    # auth_service.complete_account_onboarding's docstring.
+    auth_service.complete_account_onboarding(
+        db, email=payload.email, code=payload.code, new_password=payload.new_password
+    )
+    return MessageResponse(message="Account set up. You can now sign in.")

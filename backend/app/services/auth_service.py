@@ -297,3 +297,58 @@ def reset_password(db: Session, *, email: str, code: str, new_password: str) -> 
         entity_id=user.id,
     )
     db.commit()
+
+
+def request_account_onboarding(db: Session, *, user_id: uuid.UUID) -> None:
+    """Sent by platform tenant provisioning right after an invited admin
+    user is created (see app/services/provisioning_service.py) -- reuses
+    the exact same OTP machinery as email verification / password reset
+    under the ACCOUNT_ONBOARDING purpose (see VerificationPurpose's
+    docstring), not a new invitation system. Unlike
+    request_email_verification, this is called by the platform admin
+    (server-side), not the invited user themselves -- the invited user has
+    no access token yet, since their account starts with a random,
+    immediately-discarded password."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    code = _issue_code(db, user=user, purpose=VerificationPurpose.ACCOUNT_ONBOARDING)
+    record_audit_event(
+        db,
+        organization_id=user.organization_id,
+        user_id=user.id,
+        action="auth.onboarding_email_requested",
+        entity_type="User",
+        entity_id=user.id,
+    )
+    db.commit()
+    send_verification_code_email(to=user.email, code=code, purpose_label="Account setup")
+
+
+def complete_account_onboarding(db: Session, *, email: str, code: str, new_password: str) -> None:
+    """The invited admin's own confirmation step (public endpoint, no
+    bearer auth -- see app/api/v1/auth.py's /auth/onboarding/complete).
+    Completing this proves the admin controls the invited email address
+    (the same guarantee email_verification provides) AND lets them set
+    their own first real password in one step, rather than requiring two
+    separate OTP round trips for what is functionally one onboarding act
+    -- see VerificationPurpose.ACCOUNT_ONBOARDING's docstring."""
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if user is None or not user.is_active:
+        verify_password(code, DUMMY_PASSWORD_HASH)
+        raise UnauthorizedError("Invalid or expired code")
+
+    _consume_code(db, user=user, purpose=VerificationPurpose.ACCOUNT_ONBOARDING, code=code)
+    user.hashed_password = hash_password(new_password)
+    user.email_verified = True
+    db.add(user)
+    record_audit_event(
+        db,
+        organization_id=user.organization_id,
+        user_id=user.id,
+        action="auth.onboarding_completed",
+        entity_type="User",
+        entity_id=user.id,
+    )
+    db.commit()

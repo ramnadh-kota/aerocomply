@@ -49,4 +49,38 @@ export const platformApi = {
       `/platform/organizations/${organizationId}/admins`,
       { method: "POST", body: payload, accessToken }
     ),
+
+  provisionOrganization: (accessToken: string, payload: ProvisionOrganizationRequest) =>
+    apiRequest<ProvisionOrganizationResponse>("/platform/organizations/provision", {
+      method: "POST",
+      body: payload,
+      accessToken,
+    }),
+
+  resendAdminInvitation: (accessToken: string, userId: string) =>
+    apiRequest<{ message: string }>(`/platform/admins/${userId}/resend-invitation`, {
+      method: "POST",
+      accessToken,
+    }),
 };
+
+export interface ProvisionOrganizationRequest {
+  organization_name: string;
+  plan_id: string;
+  subscription_status: "TRIALING" | "ACTIVE";
+  admin_email: string;
+  admin_full_name: string;
+}
+
+export interface ProvisionOrganizationResponse {
+  organization_id: string;
+  organization_name: string;
+  organization_status: string;
+  plan_id: string;
+  subscription_id: string;
+  subscription_status: string;
+  admin_user_id: string;
+  admin_email: string;
+  admin_email_verified: boolean;
+  onboarding_email_sent: boolean;
+}

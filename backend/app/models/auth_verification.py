@@ -31,6 +31,16 @@ from app.db.base import Base, TimestampMixin, UUIDPKMixin
 class VerificationPurpose:
     EMAIL_VERIFICATION = "email_verification"
     PASSWORD_RESET = "password_reset"
+    # Phase 18.3: sent to an admin created via platform tenant provisioning
+    # (see app/services/provisioning_service.py), whose account starts with
+    # a random, immediately-discarded password (User.hashed_password is
+    # NOT NULL, so some value must exist -- see that module's docstring).
+    # Reuses the exact same _issue_code/_consume_code machinery as the two
+    # purposes above under a third purpose rather than a new OTP system;
+    # completing it (auth_service.complete_account_onboarding) both proves
+    # the admin controls the invited email AND lets them set their own
+    # first real password in one step.
+    ACCOUNT_ONBOARDING = "account_onboarding"
 
 
 class AuthVerificationCode(UUIDPKMixin, TimestampMixin, Base):

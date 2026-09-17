@@ -1,11 +1,39 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
 
 class OrganizationCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+
+
+class ProvisionOrganizationRequest(BaseModel):
+    """Phase 18.3: tenant provisioning. Only TRIALING/ACTIVE are accepted
+    here -- PAST_DUE/CANCELED/SCHEDULED describe states a subscription
+    reaches later (via app/services/subscription_service.py's own
+    lifecycle transitions), never a starting point for a brand-new
+    organization."""
+
+    organization_name: str = Field(min_length=1, max_length=255)
+    plan_id: uuid.UUID
+    subscription_status: Literal["TRIALING", "ACTIVE"] = "TRIALING"
+    admin_email: EmailStr
+    admin_full_name: str = Field(min_length=1, max_length=255)
+
+
+class ProvisionOrganizationResponse(BaseModel):
+    organization_id: uuid.UUID
+    organization_name: str
+    organization_status: str
+    plan_id: uuid.UUID
+    subscription_id: uuid.UUID
+    subscription_status: str
+    admin_user_id: uuid.UUID
+    admin_email: str
+    admin_email_verified: bool
+    onboarding_email_sent: bool
 
 
 class OrganizationAdminCreateRequest(BaseModel):

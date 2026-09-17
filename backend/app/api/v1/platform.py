@@ -14,7 +14,7 @@ from app.schemas.approval import (
     ApprovalRequestListResponse,
     ApprovalRequestResponse,
 )
-from app.schemas.auth import CurrentUser
+from app.schemas.auth import CurrentUser, MessageResponse
 from app.schemas.entitlement import EntitlementResolutionResponse
 from app.schemas.plan import (
     PlanCreateRequest,
@@ -32,6 +32,8 @@ from app.schemas.platform import (
     OrganizationCreateRequest,
     PlatformHealthResponse,
     PlatformOrganizationResponse,
+    ProvisionOrganizationRequest,
+    ProvisionOrganizationResponse,
 )
 from app.schemas.subscription import (
     SubscriptionCreateRequest,
@@ -50,9 +52,11 @@ from app.schemas.tenant_entitlement import (
 from app.services import (
     approval_service,
     audit_service,
+    auth_service,
     plan_service,
     platform_health_service,
     platform_service,
+    provisioning_service,
     subscription_service,
 )
 from app.services import tenant_entitlement_admin_service as tea_service
@@ -90,6 +94,47 @@ def create_organization(
 ) -> PlatformOrganizationResponse:
     org = platform_service.create_organization(db, actor_user_id=current_user.id, name=payload.name)
     return _to_response({"organization": org, "user_count": 0, "aircraft_count": 0})
+
+
+@router.post(
+    "/organizations/provision", response_model=ProvisionOrganizationResponse, status_code=201
+)
+def provision_organization(
+    payload: ProvisionOrganizationRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> ProvisionOrganizationResponse:
+    result = provisioning_service.provision_organization(
+        db,
+        actor_user_id=current_user.id,
+        organization_name=payload.organization_name,
+        plan_id=payload.plan_id,
+        subscription_status=payload.subscription_status,
+        admin_email=payload.admin_email,
+        admin_full_name=payload.admin_full_name,
+    )
+    return ProvisionOrganizationResponse(
+        organization_id=result.organization.id,
+        organization_name=result.organization.name,
+        organization_status=result.organization.status,
+        plan_id=result.subscription.plan_id,
+        subscription_id=result.subscription.id,
+        subscription_status=result.subscription.status,
+        admin_user_id=result.admin.id,
+        admin_email=result.admin.email,
+        admin_email_verified=result.admin.email_verified,
+        onboarding_email_sent=result.onboarding_email_sent,
+    )
+
+
+@router.post("/admins/{user_id}/resend-invitation", response_model=MessageResponse)
+def resend_admin_invitation(
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> MessageResponse:
+    auth_service.request_account_onboarding(db, user_id=user_id)
+    return MessageResponse(message="Invitation email resent.")
 
 
 @router.get("/organizations/{organization_id}", response_model=PlatformOrganizationResponse)
@@ -494,9 +539,7 @@ def update_feature_override(
     return TenantFeatureOverrideResponse.model_validate(override)
 
 
-@router.delete(
-    "/organizations/{organization_id}/feature-overrides/{feature_key}", status_code=204
-)
+@router.delete("/organizations/{organization_id}/feature-overrides/{feature_key}", status_code=204)
 def remove_feature_override(
     organization_id: uuid.UUID,
     feature_key: str,
