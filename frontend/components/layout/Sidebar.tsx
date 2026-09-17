@@ -43,6 +43,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/aircraft", label: "Aircraft", glyph: "✈" },
       { href: "/engines", label: "Engines", glyph: "◎" },
       { href: "/components", label: "Components", glyph: "▤" },
+      { href: "/facilities", label: "Facilities", glyph: "⌂" },
     ],
   },
   {

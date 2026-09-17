@@ -3,6 +3,7 @@
 Roles map to permission strings. Permission checks happen at the service layer
 (see app.core.deps.require_permission), never only in the frontend.
 """
+
 from enum import StrEnum
 
 
@@ -47,6 +48,13 @@ class Permission(StrEnum):
     # management-tier roles that hold COMPLIANCE_ASSESS/PROCUREMENT_APPROVE,
     # not to MAINTENANCE_ENGINEER/VIEWER.
     ASSESSMENT_WRITE = "assessment:write"
+    # Phase 18.4: general physical-site (hangar/workshop/office/store/...)
+    # management -- deliberately its own permission, not reused from
+    # PART_READ/PART_WRITE, because Facility is not an inventory concept
+    # (see app/models/facility.py's module docstring for why it is a
+    # separate table from Warehouse, which PART_* already gates).
+    FACILITY_READ = "facility:read"
+    FACILITY_WRITE = "facility:write"
     # Platform-level cross-tenant administration (create/activate/suspend
     # organizations, create a customer's first admin, view platform-wide
     # audit events). Deliberately its own permission, never bundled into
@@ -133,6 +141,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.TECHNICIAN_WRITE,
         Permission.ASSESSMENT_READ,
         Permission.ASSESSMENT_WRITE,
+        Permission.FACILITY_READ,
+        Permission.FACILITY_WRITE,
     },
     Role.COMPLIANCE_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -152,6 +162,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.TECHNICIAN_READ,
         Permission.ASSESSMENT_READ,
         Permission.ASSESSMENT_WRITE,
+        Permission.FACILITY_READ,
     },
     Role.CAMO_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -174,6 +185,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.TECHNICIAN_WRITE,
         Permission.ASSESSMENT_READ,
         Permission.ASSESSMENT_WRITE,
+        Permission.FACILITY_READ,
+        Permission.FACILITY_WRITE,
     },
     Role.QUALITY_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -189,6 +202,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.TECHNICIAN_READ,
         Permission.ASSESSMENT_READ,
         Permission.ASSESSMENT_WRITE,
+        Permission.FACILITY_READ,
     },
     Role.MAINTENANCE_ENGINEER: {
         Permission.AIRCRAFT_READ,
@@ -203,12 +217,14 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.TECHNICIAN_READ,
         Permission.TECHNICIAN_WRITE,
         Permission.ASSESSMENT_READ,
+        Permission.FACILITY_READ,
     },
     Role.VIEWER: {
         Permission.AIRCRAFT_READ,
         Permission.REGULATION_READ,
         Permission.EVIDENCE_READ,
         Permission.INSPECTION_READ,
+        Permission.FACILITY_READ,
         Permission.PART_READ,
         Permission.VENDOR_READ,
         Permission.PROCUREMENT_READ,

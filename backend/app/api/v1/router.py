@@ -12,6 +12,7 @@ from app.api.v1 import (
     deferred_items,
     entitlements,
     evidence,
+    facilities,
     health,
     inspections,
     inventory,
@@ -41,6 +42,7 @@ api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(aircraft.router)
 api_router.include_router(assets.router)
+api_router.include_router(facilities.router)
 api_router.include_router(aog.router)
 api_router.include_router(work_orders.router)
 api_router.include_router(evidence.router)

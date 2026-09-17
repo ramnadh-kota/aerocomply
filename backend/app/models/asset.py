@@ -1,7 +1,9 @@
+import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
@@ -49,3 +51,14 @@ class Asset(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
     acquired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Phase 18.4: optional, nullable -- an asset need not have a known
+    # facility yet (existing Phase 1A assets backfilled from Aircraft have
+    # none). RESTRICT (never CASCADE): deleting/archiving a facility must
+    # never silently orphan an asset's location reference -- see
+    # app/models/facility.py's own docstring. This is the ONE facility
+    # reference on Asset; do not add a second competing location field
+    # elsewhere (e.g. on AircraftDetail) -- see this column's migration
+    # docstring for the single-source-of-truth rationale.
+    facility_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("facilities.id", ondelete="RESTRICT"), nullable=True
+    )

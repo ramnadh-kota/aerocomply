@@ -21,6 +21,7 @@ from app.models.asset import Asset, AssetType
 from app.models.audit_event import AuditEvent
 from app.models.auth_verification import AuthVerificationCode, VerificationPurpose
 from app.models.evidence import Evidence, EvidenceFile, EvidenceFileStatus, EvidenceStatus
+from app.models.facility import Facility, FacilityStatus, FacilityType
 from app.models.import_job import ImportDomain, ImportJob, ImportJobStatus
 from app.models.inspection_requirement import InspectionRequirement
 from app.models.lisa_conversation_context import LisaConversationContext
@@ -53,6 +54,9 @@ __all__ = [
     "Evidence",
     "EvidenceStatus",
     "EvidenceFile",
+    "Facility",
+    "FacilityStatus",
+    "FacilityType",
     "EvidenceFileStatus",
     "InspectionRequirement",
     "Part",
