@@ -10,6 +10,7 @@ from app.api.v1 import (
     control_center,
     data_import,
     deferred_items,
+    drones,
     entitlements,
     evidence,
     facilities,
@@ -43,6 +44,7 @@ api_router.include_router(auth.router)
 api_router.include_router(aircraft.router)
 api_router.include_router(assets.router)
 api_router.include_router(facilities.router)
+api_router.include_router(drones.router)
 api_router.include_router(aog.router)
 api_router.include_router(work_orders.router)
 api_router.include_router(evidence.router)

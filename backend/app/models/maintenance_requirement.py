@@ -36,8 +36,10 @@ class MaintenanceRequirementApplicability(UUIDPKMixin, TenantScopedMixin, Timest
     requirement_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("maintenance_requirements.id"), nullable=False, index=True
     )
-    aircraft_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=False, index=True
+    # Phase 18.6 (migration 0032): loosened to nullable -- a Drone
+    # applicability has no Aircraft row. asset_id is canonical for those.
+    aircraft_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=True, index=True
     )
     # Phase 1B compatibility mapping (migration 0031) -- see
     # app/models/work_order.py's asset_id for the full rationale.
@@ -61,8 +63,10 @@ class MaintenanceAccomplishment(UUIDPKMixin, TenantScopedMixin, TimestampMixin, 
     requirement_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("maintenance_requirements.id"), nullable=False, index=True
     )
-    aircraft_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=False, index=True
+    # Phase 18.6 (migration 0032): loosened to nullable -- a Drone
+    # accomplishment has no Aircraft row. asset_id is canonical for those.
+    aircraft_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=True, index=True
     )
     # Phase 1B compatibility mapping (migration 0031) -- see
     # app/models/work_order.py's asset_id for the full rationale.

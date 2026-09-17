@@ -269,3 +269,49 @@ def get_fleet_maintenance_due(
             )
         )
     return items
+
+
+def has_overdue_maintenance_for_asset(
+    db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID
+) -> bool:
+    """Phase 18.6: read-only, asset_id-filtered variant for Deployment
+    Readiness -- reuses the exact same _due_status_for calculation as
+    get_maintenance_due_for_aircraft, just queried by
+    MaintenanceRequirementApplicability.asset_id (the Phase 1B compatibility
+    column) instead of aircraft_id, so a Drone (which has no Aircraft row)
+    can be evaluated too. No write path is added for asset-linked
+    applicability/accomplishment in this milestone -- a drone with no
+    applicable requirements yet honestly has no overdue maintenance,
+    which is what this returns (False), not a fabricated status."""
+    applicable_requirement_ids = (
+        db.execute(
+            select(MaintenanceRequirementApplicability.requirement_id).where(
+                MaintenanceRequirementApplicability.organization_id == organization_id,
+                MaintenanceRequirementApplicability.asset_id == asset_id,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for requirement_id in applicable_requirement_ids:
+        requirement = get_requirement(
+            db, organization_id=organization_id, requirement_id=requirement_id
+        )
+        latest = (
+            db.execute(
+                select(MaintenanceAccomplishment)
+                .where(
+                    MaintenanceAccomplishment.organization_id == organization_id,
+                    MaintenanceAccomplishment.requirement_id == requirement_id,
+                    MaintenanceAccomplishment.asset_id == asset_id,
+                )
+                .order_by(MaintenanceAccomplishment.accomplished_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+        last_date = latest.accomplished_at if latest else None
+        status, _due_date, _reason = _due_status_for(requirement, last_date)
+        if status == "OVERDUE":
+            return True
+    return False

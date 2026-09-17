@@ -19,6 +19,9 @@ from app.models.assessment import (
 )
 from app.models.asset import Asset, AssetType
 from app.models.audit_event import AuditEvent
+from app.models.battery import Battery, BatteryStatus
+from app.models.component import Component, ComponentStatus, ComponentType
+from app.models.flight import Flight
 from app.models.auth_verification import AuthVerificationCode, VerificationPurpose
 from app.models.evidence import Evidence, EvidenceFile, EvidenceFileStatus, EvidenceStatus
 from app.models.facility import Facility, FacilityStatus, FacilityType
@@ -43,6 +46,12 @@ __all__ = [
     "User",
     "UserRole",
     "AuditEvent",
+    "Battery",
+    "BatteryStatus",
+    "Component",
+    "ComponentStatus",
+    "ComponentType",
+    "Flight",
     "AuthVerificationCode",
     "VerificationPurpose",
     "Aircraft",

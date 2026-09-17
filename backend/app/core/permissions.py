@@ -55,6 +55,14 @@ class Permission(StrEnum):
     # separate table from Warehouse, which PART_* already gates).
     FACILITY_READ = "facility:read"
     FACILITY_WRITE = "facility:write"
+    # Phase 18.6: covers the whole drone operations vertical slice (drone,
+    # battery, component, flight, deployment readiness) under one grant,
+    # mirroring AIRCRAFT_READ/WRITE's role distribution -- not split into
+    # DRONE_READ/BATTERY_READ/FLIGHT_READ/etc, since all of it is the same
+    # "who operates this asset" authority (see app/api/v1/assets.py's own
+    # comment anticipating this: "revisit once a second AssetType is real").
+    DRONE_READ = "drone:read"
+    DRONE_WRITE = "drone:write"
     # Platform-level cross-tenant administration (create/activate/suspend
     # organizations, create a customer's first admin, view platform-wide
     # audit events). Deliberately its own permission, never bundled into
@@ -143,6 +151,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ASSESSMENT_WRITE,
         Permission.FACILITY_READ,
         Permission.FACILITY_WRITE,
+        Permission.DRONE_READ,
+        Permission.DRONE_WRITE,
     },
     Role.COMPLIANCE_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -163,6 +173,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ASSESSMENT_READ,
         Permission.ASSESSMENT_WRITE,
         Permission.FACILITY_READ,
+        Permission.DRONE_READ,
     },
     Role.CAMO_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -187,6 +198,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ASSESSMENT_WRITE,
         Permission.FACILITY_READ,
         Permission.FACILITY_WRITE,
+        Permission.DRONE_READ,
+        Permission.DRONE_WRITE,
     },
     Role.QUALITY_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -203,6 +216,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ASSESSMENT_READ,
         Permission.ASSESSMENT_WRITE,
         Permission.FACILITY_READ,
+        Permission.DRONE_READ,
     },
     Role.MAINTENANCE_ENGINEER: {
         Permission.AIRCRAFT_READ,
@@ -218,6 +232,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.TECHNICIAN_WRITE,
         Permission.ASSESSMENT_READ,
         Permission.FACILITY_READ,
+        Permission.DRONE_READ,
     },
     Role.VIEWER: {
         Permission.AIRCRAFT_READ,
@@ -225,6 +240,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.EVIDENCE_READ,
         Permission.INSPECTION_READ,
         Permission.FACILITY_READ,
+        Permission.DRONE_READ,
         Permission.PART_READ,
         Permission.VENDOR_READ,
         Permission.PROCUREMENT_READ,
