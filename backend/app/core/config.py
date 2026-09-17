@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +16,27 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     database_url: str = "postgresql+psycopg://aerocomply:aerocomply@localhost:5432/aerocomply"
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_database_url_driver(cls, v: str) -> str:
+        # This codebase depends on psycopg 3 (psycopg[binary], pyproject.toml)
+        # and never installs psycopg2. Managed Postgres providers (Neon,
+        # Render, etc.) commonly hand out connection strings with a bare
+        # "postgresql://" or "postgres://" scheme, which SQLAlchemy defaults
+        # to the psycopg2 dialect -- causing
+        # `ModuleNotFoundError: No module named 'psycopg2'` at engine-creation
+        # time if that string is set as DATABASE_URL verbatim. Normalize any
+        # scheme that would resolve to psycopg2 to the psycopg 3 dialect this
+        # app actually ships, so the operator-supplied string doesn't have to
+        # be hand-edited to include "+psycopg".
+        if v.startswith("postgres://"):
+            return "postgresql+psycopg://" + v[len("postgres://") :]
+        if v.startswith("postgresql://"):
+            return "postgresql+psycopg://" + v[len("postgresql://") :]
+        if v.startswith("postgresql+psycopg2://"):
+            return "postgresql+psycopg://" + v[len("postgresql+psycopg2://") :]
+        return v
 
     jwt_secret_key: str = "CHANGE_ME_IN_PRODUCTION"
     jwt_algorithm: str = "HS256"
