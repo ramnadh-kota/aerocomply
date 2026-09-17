@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { authApi, normalizeApiError } from "@/lib/apiClient";
 import { useSession } from "@/lib/auth/SessionContext";
@@ -72,6 +73,10 @@ export default function LoginPage() {
             style={inputStyle}
           />
         </label>
+
+        <p style={{ margin: "0 0 16px", fontSize: 13 }}>
+          <Link href="/forgot-password">Forgot password?</Link>
+        </p>
 
         {error && (
           <p role="alert" style={{ color: "var(--ac-status-non-compliant)", fontSize: 13, marginBottom: 12 }}>

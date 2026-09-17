@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -48,6 +49,7 @@ def create_access_token(
     roles: list[str],
     email: str = "",
     full_name: str = "",
+    email_verified: bool = False,
 ) -> str:
     return _create_token(
         subject=str(user_id),
@@ -57,6 +59,7 @@ def create_access_token(
             "roles": roles,
             "email": email,
             "full_name": full_name,
+            "email_verified": email_verified,
         },
         expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
     )
@@ -79,3 +82,11 @@ def decode_token(token: str) -> dict[str, Any]:
         return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     except JWTError as exc:
         raise InvalidTokenError(str(exc)) from exc
+
+
+def generate_otp_code() -> str:
+    """A 6-digit numeric one-time code for email verification / password
+    reset, via secrets.randbelow (CSPRNG) -- never `random`. Stored by the
+    caller as hash_password(code); the plaintext value is only ever held in
+    memory long enough to email it."""
+    return f"{secrets.randbelow(1_000_000):06d}"

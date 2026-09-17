@@ -158,6 +158,11 @@ export interface CurrentUser {
   email: string;
   full_name: string;
   roles: string[];
+  email_verified: boolean;
+}
+
+export interface MessageResponse {
+  message: string;
 }
 
 export const authApi = {
@@ -172,6 +177,21 @@ export const authApi = {
   }) => apiRequest<TokenResponse>("/auth/register-organization", { method: "POST", body: payload }),
 
   me: (accessToken: string) => apiRequest<CurrentUser>("/auth/me", { accessToken }),
+
+  requestEmailVerification: (accessToken: string) =>
+    apiRequest<MessageResponse>("/auth/verify-email/request", { method: "POST", accessToken }),
+
+  confirmEmailVerification: (accessToken: string, code: string) =>
+    apiRequest<MessageResponse>("/auth/verify-email/confirm", { method: "POST", body: { code }, accessToken }),
+
+  forgotPassword: (email: string) =>
+    apiRequest<MessageResponse>("/auth/forgot-password", { method: "POST", body: { email } }),
+
+  resetPassword: (email: string, code: string, new_password: string) =>
+    apiRequest<MessageResponse>("/auth/reset-password", {
+      method: "POST",
+      body: { email, code, new_password },
+    }),
 };
 
 // Local storage keys for JWT tokens — shared across the app (login page,

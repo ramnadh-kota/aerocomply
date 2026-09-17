@@ -13,6 +13,97 @@ import { COMPANY_NAME, AI_NAME, AI_DESCRIPTION, AI_DEMO_DATA_FOOTER } from "@/li
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
 import { useRouter } from "next/navigation";
+import { authApi, normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+
+// Real-backend email verification card (app/api/v1/auth.py's
+// /auth/verify-email/request + /auth/verify-email/confirm) -- unlike the
+// rest of this page's mock/demo content, this talks to the actual backend
+// via the real signed-in session, following the same pattern as the
+// platform admin pages (lib/api/plan.ts, lib/api/productCatalog.ts).
+function EmailVerificationCard() {
+  const { user, accessToken } = useSession();
+  const [requested, setRequested] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+
+  if (!user || !accessToken) return null;
+  if (user.email_verified) {
+    return (
+      <div className="ac-card" style={{ marginBottom: 16 }}>
+        <StatusBadge status="COMPLIANT" label="Email verified" />
+      </div>
+    );
+  }
+  if (confirmed) {
+    return (
+      <div className="ac-card" style={{ marginBottom: 16 }}>
+        <StatusBadge status="COMPLIANT" label="Email verified" />
+        <p className="ac-text-sm" style={{ margin: "8px 0 0", opacity: 0.8 }}>
+          Sign out and back in for this to be reflected everywhere in the app — your current session was
+          issued before verification completed (see backend/app/services/auth_service.py::_issue_tokens).
+        </p>
+      </div>
+    );
+  }
+
+  const requestCode = () => {
+    setBusy(true);
+    setError(null);
+    authApi
+      .requestEmailVerification(accessToken)
+      .then(() => setRequested(true))
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setBusy(false));
+  };
+
+  const confirmCode = () => {
+    if (!code.trim()) return;
+    setBusy(true);
+    setError(null);
+    authApi
+      .confirmEmailVerification(accessToken, code.trim())
+      .then(() => setConfirmed(true))
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="ac-card" style={{ marginBottom: 16 }}>
+      <p className="ac-text-sm" style={{ margin: "0 0 8px" }}>
+        <StatusBadge status="UNKNOWN" label="Email not verified" /> — {user.email}
+      </p>
+      {!requested ? (
+        <button className="ac-btn" onClick={requestCode} disabled={busy}>
+          {busy ? "Sending…" : "Send verification code"}
+        </button>
+      ) : (
+        <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap", marginTop: 8 }}>
+          <input
+            className="ac-input"
+            style={{ width: 140 }}
+            placeholder="6-digit code"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            aria-label="Verification code"
+          />
+          <button className="ac-btn" onClick={confirmCode} disabled={busy || code.length !== 6}>
+            {busy ? "Verifying…" : "Confirm"}
+          </button>
+          <button className="ac-btn" onClick={requestCode} disabled={busy}>
+            Resend code
+          </button>
+        </div>
+      )}
+      {error && (
+        <p className="ac-text-sm" style={{ margin: "8px 0 0", color: "var(--ac-status-non-compliant)" }}>
+          {error.message}
+        </p>
+      )}
+    </div>
+  );
+}
 
 // M0.5 — Settings. There is no persistence layer in this prototype (no
 // backend settings table, no auth-scoped tenant config), so this screen
@@ -412,6 +503,7 @@ export default function SettingsPage() {
       {tab === "Security" && (
         <section className="ac-section">
           <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>Security</h2>
+          <EmailVerificationCard />
           <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 12 }}>
             The role/user counts and role simulator below (<span className="ac-mono">lib/mock/roles.ts</span>,{" "}
             <span className="ac-mono">lib/role-sim</span>) are a presentation-only simulation in this frontend — they

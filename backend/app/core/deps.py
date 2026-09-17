@@ -61,6 +61,7 @@ def get_current_user(
         email=payload.get("email", ""),
         full_name=payload.get("full_name", ""),
         roles=payload.get("roles", []),
+        email_verified=payload.get("email_verified", False),
     )
 
 

@@ -27,6 +27,7 @@ function makeUser(roles: string[]): CurrentUser {
     id: "user-1",
     organization_id: "org-1",
     email: "u@example.com",
+    email_verified: true,
     full_name: "Test User",
     roles,
   };

@@ -23,6 +23,17 @@ class Settings(BaseSettings):
 
     cors_allow_origins: list[str] = ["http://localhost:3000"]
 
+    # Outbound email (forgot-password / email-verification OTP). Absent
+    # smtp_host -> ConsoleEmailSender (dev/CI safe, no real mail server
+    # required), matching the ai_provider "absent -> NotConfiguredProvider"
+    # convention below. Never hardcode real SMTP credentials here.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    smtp_from_address: str = ""
+
     log_level: str = "INFO"
 
     neo4j_uri: str = "bolt://localhost:7687"

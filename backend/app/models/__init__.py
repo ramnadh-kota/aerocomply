@@ -19,6 +19,7 @@ from app.models.assessment import (
 )
 from app.models.asset import Asset, AssetType
 from app.models.audit_event import AuditEvent
+from app.models.auth_verification import AuthVerificationCode, VerificationPurpose
 from app.models.evidence import Evidence, EvidenceFile, EvidenceFileStatus, EvidenceStatus
 from app.models.import_job import ImportDomain, ImportJob, ImportJobStatus
 from app.models.inspection_requirement import InspectionRequirement
@@ -41,6 +42,8 @@ __all__ = [
     "User",
     "UserRole",
     "AuditEvent",
+    "AuthVerificationCode",
+    "VerificationPurpose",
     "Aircraft",
     "AircraftDetail",
     "Asset",
