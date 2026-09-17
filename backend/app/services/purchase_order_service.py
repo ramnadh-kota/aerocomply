@@ -11,6 +11,7 @@ from app.schemas.purchase_order import (
     PurchaseOrderCreateRequest,
 )
 from app.services import aircraft_service, procurement_service, vendor_service
+from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
 _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
@@ -47,9 +48,7 @@ def _compute_totals(
     lines: list[PurchaseOrderLine], *, tax_cents: int | None, shipping_cents: int | None
 ) -> tuple[int, int]:
     subtotal = sum(
-        line.quantity * line.unit_price_cents
-        for line in lines
-        if line.unit_price_cents is not None
+        line.quantity * line.unit_price_cents for line in lines if line.unit_price_cents is not None
     )
     total = subtotal + (tax_cents or 0) + (shipping_cents or 0)
     return subtotal, total
@@ -63,12 +62,14 @@ def create_purchase_order(
     payload: PurchaseOrderCreateRequest,
 ) -> PurchaseOrder:
     vendor_service.get_vendor(db, organization_id=organization_id, vendor_id=payload.vendor_id)
+    asset_id = None
     if payload.aircraft_id is not None:
         # aircraft_id is optional, client-supplied data -- verify it belongs
         # to this organization (cross-tenant IDOR otherwise).
-        aircraft_service.get_aircraft(
+        aircraft = aircraft_service.get_aircraft(
             db, organization_id=organization_id, aircraft_id=payload.aircraft_id
         )
+        asset_id = resolve_asset_id(aircraft)
 
     linked_requests = []
     for line_payload in payload.lines:
@@ -105,6 +106,7 @@ def create_purchase_order(
         po_number=payload.po_number,
         vendor_id=payload.vendor_id,
         aircraft_id=payload.aircraft_id,
+        asset_id=asset_id,
         status=PurchaseOrderStatus.DRAFT,
         currency=payload.currency,
         subtotal_cents=subtotal,

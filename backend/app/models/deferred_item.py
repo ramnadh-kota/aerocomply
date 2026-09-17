@@ -45,6 +45,11 @@ class DeferredItem(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     aircraft_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=False, index=True
     )
+    # Phase 1B compatibility mapping (migration 0031) -- see
+    # app/models/work_order.py's asset_id for the full rationale.
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=True
     )
@@ -57,9 +62,7 @@ class DeferredItem(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     # null = UNKNOWN, never a guessed deadline — same rule the frontend type
     # documents (frontend/lib/mock/types.ts DeferredItem.dueAt).
     due_at: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default=DeferredItemStatus.OPEN
-    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=DeferredItemStatus.OPEN)
     deferral_basis: Mapped[str] = mapped_column(
         String(16), nullable=False, default=DeferredItemBasis.UNKNOWN
     )

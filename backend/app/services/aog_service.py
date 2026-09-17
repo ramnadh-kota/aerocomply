@@ -11,6 +11,7 @@ from app.schemas.aog_event import (
     AogEventUpdateRequest,
 )
 from app.services import aircraft_service
+from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
 _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
@@ -33,12 +34,13 @@ def declare_aog(
     actor_user_id: uuid.UUID | None,
     payload: AogEventCreateRequest,
 ) -> AogEvent:
-    aircraft_service.get_aircraft(
+    aircraft = aircraft_service.get_aircraft(
         db, organization_id=organization_id, aircraft_id=payload.aircraft_id
     )
     event = AogEvent(
         organization_id=organization_id,
         aircraft_id=payload.aircraft_id,
+        asset_id=resolve_asset_id(aircraft),
         work_order_id=payload.work_order_id,
         status=AogEventStatus.DECLARED,
         severity=payload.severity,
@@ -61,9 +63,7 @@ def declare_aog(
     return event
 
 
-def get_aog_event(
-    db: Session, *, organization_id: uuid.UUID, event_id: uuid.UUID
-) -> AogEvent:
+def get_aog_event(db: Session, *, organization_id: uuid.UUID, event_id: uuid.UUID) -> AogEvent:
     event = db.execute(
         select(AogEvent)
         .options(selectinload(AogEvent.blockers))

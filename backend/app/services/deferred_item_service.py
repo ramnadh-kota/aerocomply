@@ -15,6 +15,7 @@ from app.schemas.deferred_item import (
     DeferredItemUpdateRequest,
 )
 from app.services import aircraft_service, work_order_service
+from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
 
@@ -25,7 +26,7 @@ def create_deferred_item(
     actor_user_id: uuid.UUID | None,
     payload: DeferredItemCreateRequest,
 ) -> DeferredItem:
-    aircraft_service.get_aircraft(
+    aircraft = aircraft_service.get_aircraft(
         db, organization_id=organization_id, aircraft_id=payload.aircraft_id
     )
     # work_order_id is optional, client-supplied data -- verify it belongs to
@@ -43,6 +44,7 @@ def create_deferred_item(
     item = DeferredItem(
         organization_id=organization_id,
         aircraft_id=payload.aircraft_id,
+        asset_id=resolve_asset_id(aircraft),
         work_order_id=payload.work_order_id,
         mel_reference=payload.mel_reference,
         category=payload.category,
@@ -144,10 +146,7 @@ def close_deferred_item(
     item = get_deferred_item(db, organization_id=organization_id, item_id=item_id)
     if item.status == DeferredItemStatus.CLOSED:
         raise ConflictError("Deferred item is already closed", code="already_closed")
-    if (
-        item.approval_required
-        and item.approval_status != DeferredItemApprovalStatus.APPROVED
-    ):
+    if item.approval_required and item.approval_status != DeferredItemApprovalStatus.APPROVED:
         raise ConflictError(
             "Cannot close a deferred item that requires approval until it is approved",
             code="approval_required",

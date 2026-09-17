@@ -47,15 +47,16 @@ class AogEvent(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     aircraft_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=False, index=True
     )
+    # Phase 1B compatibility mapping (migration 0031) -- see
+    # app/models/work_order.py's asset_id for the full rationale.
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=True, index=True
     )
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=AogEventStatus.DECLARED
-    )
-    severity: Mapped[str] = mapped_column(
-        String(16), nullable=False, default=AogSeverity.CRITICAL
-    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=AogEventStatus.DECLARED)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default=AogSeverity.CRITICAL)
     root_cause: Mapped[str | None] = mapped_column(Text, nullable=True)
     declared_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True

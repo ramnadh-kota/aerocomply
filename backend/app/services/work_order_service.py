@@ -9,6 +9,7 @@ from app.models.work_order import WorkOrder
 from app.schemas.task import TaskCreateRequest
 from app.schemas.work_order import WorkOrderCreateRequest
 from app.services import aircraft_service
+from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
 _TASK_TERMINAL_STATE = "COMPLETED"
@@ -30,13 +31,14 @@ def create_work_order(
 ) -> WorkOrder:
     # aircraft_id is client-supplied; verify it belongs to this organization
     # before attaching a work order to it (cross-tenant IDOR otherwise).
-    aircraft_service.get_aircraft(
+    aircraft = aircraft_service.get_aircraft(
         db, organization_id=organization_id, aircraft_id=payload.aircraft_id
     )
 
     work_order = WorkOrder(
         organization_id=organization_id,
         aircraft_id=payload.aircraft_id,
+        asset_id=resolve_asset_id(aircraft),
         work_order_number=payload.work_order_number,
         status=payload.status,
         priority=payload.priority,
@@ -63,15 +65,13 @@ def get_work_order(
 
 def list_work_orders(db: Session, *, organization_id: uuid.UUID) -> list[WorkOrder]:
     return list(
-        db.execute(
-            select(WorkOrder).where(WorkOrder.organization_id == organization_id)
-        ).scalars().all()
+        db.execute(select(WorkOrder).where(WorkOrder.organization_id == organization_id))
+        .scalars()
+        .all()
     )
 
 
-def create_task(
-    db: Session, *, organization_id: uuid.UUID, payload: TaskCreateRequest
-) -> Task:
+def create_task(db: Session, *, organization_id: uuid.UUID, payload: TaskCreateRequest) -> Task:
     # Confirm the parent work order belongs to this tenant before creating the task.
     get_work_order(db, organization_id=organization_id, work_order_id=payload.work_order_id)
 
@@ -96,9 +96,7 @@ def get_task(db: Session, *, organization_id: uuid.UUID, task_id: uuid.UUID) -> 
     return task
 
 
-def complete_task(
-    db: Session, task: Task, *, actor_user_id: uuid.UUID | None
-) -> Task:
+def complete_task(db: Session, task: Task, *, actor_user_id: uuid.UUID | None) -> Task:
     """Mark a task's execution_state COMPLETED.
 
     This is deliberately narrow: it only records that the work itself was
@@ -110,9 +108,7 @@ def complete_task(
     if task.execution_state == _TASK_TERMINAL_STATE:
         raise ConflictError("Task is already completed")
     if task.execution_state not in _TASK_COMPLETABLE_FROM:
-        raise ConflictError(
-            f"Cannot complete task from execution_state={task.execution_state!r}"
-        )
+        raise ConflictError(f"Cannot complete task from execution_state={task.execution_state!r}")
 
     task.execution_state = _TASK_TERMINAL_STATE
     record_audit_event(
@@ -137,5 +133,7 @@ def list_tasks_for_work_order(
             select(Task).where(
                 Task.organization_id == organization_id, Task.work_order_id == work_order_id
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )

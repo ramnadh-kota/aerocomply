@@ -39,6 +39,11 @@ class MaintenanceRequirementApplicability(UUIDPKMixin, TenantScopedMixin, Timest
     aircraft_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=False, index=True
     )
+    # Phase 1B compatibility mapping (migration 0031) -- see
+    # app/models/work_order.py's asset_id for the full rationale.
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     requirement: Mapped[MaintenanceRequirement] = relationship(back_populates="applicabilities")
 
@@ -58,6 +63,11 @@ class MaintenanceAccomplishment(UUIDPKMixin, TenantScopedMixin, TimestampMixin, 
     )
     aircraft_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=False, index=True
+    )
+    # Phase 1B compatibility mapping (migration 0031) -- see
+    # app/models/work_order.py's asset_id for the full rationale.
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     accomplished_at: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(

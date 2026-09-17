@@ -12,6 +12,7 @@ from app.schemas.procurement_request import (
     ProcurementRequestRejectRequest,
 )
 from app.services import aircraft_service, part_service, vendor_service, work_order_service
+from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
 # Explicit transition table — a status change not listed here is rejected
@@ -63,7 +64,7 @@ def create_request(
     payload: ProcurementRequestCreateRequest,
 ) -> ProcurementRequest:
     # Confirm tenant-owned relationships before creating the request.
-    aircraft_service.get_aircraft(
+    aircraft = aircraft_service.get_aircraft(
         db, organization_id=organization_id, aircraft_id=payload.aircraft_id
     )
     if payload.preferred_vendor_id is not None:
@@ -85,6 +86,7 @@ def create_request(
     request = ProcurementRequest(
         organization_id=organization_id,
         aircraft_id=payload.aircraft_id,
+        asset_id=resolve_asset_id(aircraft),
         work_order_id=payload.work_order_id,
         task_id=payload.task_id,
         part_id=payload.part_id,
@@ -206,9 +208,7 @@ def approve_request(
         )
     selected_vendor_id = payload.selected_vendor_id or request.preferred_vendor_id
     if selected_vendor_id is not None:
-        vendor_service.get_vendor(
-            db, organization_id=organization_id, vendor_id=selected_vendor_id
-        )
+        vendor_service.get_vendor(db, organization_id=organization_id, vendor_id=selected_vendor_id)
     return _transition(
         db,
         organization_id=organization_id,

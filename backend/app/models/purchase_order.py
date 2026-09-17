@@ -36,6 +36,11 @@ class PurchaseOrder(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     aircraft_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=True
     )
+    # Phase 1B compatibility mapping (migration 0031) -- see
+    # app/models/work_order.py's asset_id for the full rationale.
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=PurchaseOrderStatus.DRAFT
     )

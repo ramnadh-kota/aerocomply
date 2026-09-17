@@ -11,6 +11,7 @@ from app.schemas.compliance import (
     RegulatoryRequirementCreateRequest,
 )
 from app.services import aircraft_service
+from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
 
@@ -61,9 +62,7 @@ def get_requirement(
     return requirement
 
 
-def list_requirements(
-    db: Session, *, organization_id: uuid.UUID
-) -> list[RegulatoryRequirement]:
+def list_requirements(db: Session, *, organization_id: uuid.UUID) -> list[RegulatoryRequirement]:
     return list(
         db.execute(
             select(RegulatoryRequirement).where(
@@ -82,7 +81,7 @@ def create_assessment(
     actor_user_id: uuid.UUID | None,
     payload: ComplianceAssessmentCreateRequest,
 ) -> ComplianceAssessment:
-    aircraft_service.get_aircraft(
+    aircraft = aircraft_service.get_aircraft(
         db, organization_id=organization_id, aircraft_id=payload.aircraft_id
     )
     get_requirement(db, organization_id=organization_id, requirement_id=payload.requirement_id)
@@ -90,6 +89,7 @@ def create_assessment(
     assessment = ComplianceAssessment(
         organization_id=organization_id,
         aircraft_id=payload.aircraft_id,
+        asset_id=resolve_asset_id(aircraft),
         requirement_id=payload.requirement_id,
         status=payload.status,
         evaluated_at=payload.evaluated_at,
@@ -161,9 +161,7 @@ def override_assessment(
     assessment_id: uuid.UUID,
     payload: ComplianceAssessmentOverrideRequest,
 ) -> ComplianceAssessment:
-    assessment = get_assessment(
-        db, organization_id=organization_id, assessment_id=assessment_id
-    )
+    assessment = get_assessment(db, organization_id=organization_id, assessment_id=assessment_id)
     previous_status = assessment.status
     assessment.status = payload.status
     assessment.override_reason = payload.override_reason

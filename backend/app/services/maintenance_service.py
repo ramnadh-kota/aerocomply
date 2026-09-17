@@ -19,6 +19,7 @@ from app.schemas.maintenance_requirement import (
     MaintenanceRequirementResponse,
 )
 from app.services import aircraft_service
+from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
 # A calendar-interval requirement is DUE_SOON inside this window — matches the
@@ -74,9 +75,7 @@ def get_requirement(
     return requirement
 
 
-def list_requirements(
-    db: Session, *, organization_id: uuid.UUID
-) -> list[MaintenanceRequirement]:
+def list_requirements(db: Session, *, organization_id: uuid.UUID) -> list[MaintenanceRequirement]:
     return list(
         db.execute(
             select(MaintenanceRequirement).where(
@@ -99,13 +98,14 @@ def add_applicability(
     requirement = get_requirement(
         db, organization_id=organization_id, requirement_id=requirement_id
     )
-    aircraft_service.get_aircraft(
+    aircraft = aircraft_service.get_aircraft(
         db, organization_id=organization_id, aircraft_id=payload.aircraft_id
     )
     applicability = MaintenanceRequirementApplicability(
         organization_id=organization_id,
         requirement_id=requirement.id,
         aircraft_id=payload.aircraft_id,
+        asset_id=resolve_asset_id(aircraft),
     )
     db.add(applicability)
     db.flush()
@@ -131,13 +131,14 @@ def record_accomplishment(
     payload: MaintenanceAccomplishmentCreateRequest,
 ) -> MaintenanceAccomplishment:
     get_requirement(db, organization_id=organization_id, requirement_id=requirement_id)
-    aircraft_service.get_aircraft(
+    aircraft = aircraft_service.get_aircraft(
         db, organization_id=organization_id, aircraft_id=payload.aircraft_id
     )
     accomplishment = MaintenanceAccomplishment(
         organization_id=organization_id,
         requirement_id=requirement_id,
         aircraft_id=payload.aircraft_id,
+        asset_id=resolve_asset_id(aircraft),
         accomplished_at=payload.accomplished_at,
         work_order_id=payload.work_order_id,
         notes=payload.notes,
@@ -161,15 +162,19 @@ def record_accomplishment(
 def _latest_accomplishment(
     db: Session, *, organization_id: uuid.UUID, requirement_id: uuid.UUID, aircraft_id: uuid.UUID
 ) -> MaintenanceAccomplishment | None:
-    return db.execute(
-        select(MaintenanceAccomplishment)
-        .where(
-            MaintenanceAccomplishment.organization_id == organization_id,
-            MaintenanceAccomplishment.requirement_id == requirement_id,
-            MaintenanceAccomplishment.aircraft_id == aircraft_id,
+    return (
+        db.execute(
+            select(MaintenanceAccomplishment)
+            .where(
+                MaintenanceAccomplishment.organization_id == organization_id,
+                MaintenanceAccomplishment.requirement_id == requirement_id,
+                MaintenanceAccomplishment.aircraft_id == aircraft_id,
+            )
+            .order_by(MaintenanceAccomplishment.accomplished_at.desc())
         )
-        .order_by(MaintenanceAccomplishment.accomplished_at.desc())
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 def _due_status_for(
@@ -198,9 +203,7 @@ def _due_status_for(
             "No accomplishment record exists yet — there is no baseline date to compute from.",
         )
 
-    due_date = last_accomplished_at + datetime.timedelta(
-        days=requirement.calendar_interval_days
-    )
+    due_date = last_accomplished_at + datetime.timedelta(days=requirement.calendar_interval_days)
     days_until_due = (due_date - datetime.date.today()).days
     due_str = due_date.isoformat()
     if days_until_due < 0:
@@ -215,12 +218,16 @@ def get_maintenance_due_for_aircraft(
 ) -> list[MaintenanceDueItem]:
     aircraft_service.get_aircraft(db, organization_id=organization_id, aircraft_id=aircraft_id)
 
-    applicable_requirement_ids = db.execute(
-        select(MaintenanceRequirementApplicability.requirement_id).where(
-            MaintenanceRequirementApplicability.organization_id == organization_id,
-            MaintenanceRequirementApplicability.aircraft_id == aircraft_id,
+    applicable_requirement_ids = (
+        db.execute(
+            select(MaintenanceRequirementApplicability.requirement_id).where(
+                MaintenanceRequirementApplicability.organization_id == organization_id,
+                MaintenanceRequirementApplicability.aircraft_id == aircraft_id,
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     items: list[MaintenanceDueItem] = []
     for requirement_id in applicable_requirement_ids:
