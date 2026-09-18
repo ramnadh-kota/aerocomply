@@ -3,7 +3,9 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-BlockerCategory = Literal["EVIDENCE", "INSPECTION", "TASK_EXECUTION"]
+BlockerCategory = Literal[
+    "EVIDENCE", "INSPECTION", "TASK_EXECUTION", "MATERIAL", "COMPLIANCE"
+]
 ReadinessStatus = Literal["READY", "BLOCKED", "UNKNOWN"]
 
 

@@ -19,6 +19,8 @@ const CATEGORY_LABEL: Record<string, string> = {
   EVIDENCE: "Evidence",
   INSPECTION: "Inspection",
   TASK_EXECUTION: "Task Execution",
+  MATERIAL: "Material",
+  COMPLIANCE: "Compliance",
 };
 
 export function RealReleaseReadinessPanel({ workOrderId }: { workOrderId: string }) {

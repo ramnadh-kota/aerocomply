@@ -1,10 +1,13 @@
+import datetime
 import uuid
 
 import pytest
 
 from app.core.errors import NotFoundError
+from app.models.compliance import ComplianceAssessment, ComplianceAssessmentStatus
 from app.models.evidence import Evidence, EvidenceStatus
 from app.models.inspection_requirement import InspectionRequirement, InspectionRequirementStatus
+from app.models.part_requirement import PartRequirement, PartRequirementStatus
 from app.models.task import Task
 from app.models.work_order import WorkOrder
 from app.services import release_readiness_service
@@ -66,12 +69,55 @@ def _task(org_id, wo_id, **overrides) -> Task:
         work_order_id=wo_id,
         description="Do the thing",
         execution_state="PENDING",
+        evidence_required=False,
     )
     defaults.update(overrides)
     task = Task()
     for key, value in defaults.items():
         setattr(task, key, value)
     return task
+
+
+def _part_requirement(org_id, wo_id, **overrides) -> PartRequirement:
+    defaults = dict(
+        id=uuid.uuid4(),
+        organization_id=org_id,
+        work_order_id=wo_id,
+        task_id=None,
+        part_id=uuid.uuid4(),
+        required_quantity=1,
+        fulfilled_quantity=0,
+        status=PartRequirementStatus.REQUIRED,
+        priority="NORMAL",
+        created_by_user_id=None,
+    )
+    defaults.update(overrides)
+    req = PartRequirement()
+    for key, value in defaults.items():
+        setattr(req, key, value)
+    return req
+
+
+def _assessment(org_id, asset_id, requirement_id=None, **overrides) -> ComplianceAssessment:
+    defaults = dict(
+        id=uuid.uuid4(),
+        organization_id=org_id,
+        aircraft_id=uuid.uuid4(),
+        asset_id=asset_id,
+        requirement_id=requirement_id or uuid.uuid4(),
+        status=ComplianceAssessmentStatus.COMPLIANT,
+        evaluated_at=datetime.date(2026, 1, 1),
+        created_at=datetime.datetime(2026, 1, 1),
+        evaluated_by_user_id=None,
+        notes=None,
+        override_reason=None,
+        overridden_by_user_id=None,
+    )
+    defaults.update(overrides)
+    assessment = ComplianceAssessment()
+    for key, value in defaults.items():
+        setattr(assessment, key, value)
+    return assessment
 
 
 def _evidence(org_id, task_id, **overrides) -> Evidence:
@@ -127,6 +173,7 @@ def test_zero_blockers_is_ready():
             _FakeExecResult(scalar=wo),
             _FakeExecResult(scalars_values=[]),  # tasks
             _FakeExecResult(scalars_values=[]),  # inspection requirements (no task_ids)
+            _FakeExecResult(scalars_values=[]),  # part requirements
         ]
     )
 
@@ -149,6 +196,7 @@ def test_task_execution_blocker_when_task_not_completed():
             _FakeExecResult(scalars_values=[task]),
             _FakeExecResult(scalars_values=[]),  # evidence
             _FakeExecResult(scalars_values=[]),  # inspections
+            _FakeExecResult(scalars_values=[]),  # part requirements
         ]
     )
 
@@ -173,6 +221,7 @@ def test_evidence_blocker_when_not_accepted():
             _FakeExecResult(scalars_values=[task]),
             _FakeExecResult(scalars_values=[evidence]),
             _FakeExecResult(scalars_values=[]),  # inspections
+            _FakeExecResult(scalars_values=[]),  # part requirements
         ]
     )
 
@@ -199,6 +248,7 @@ def test_inspection_blocker_when_not_completed_or_not_required():
             _FakeExecResult(scalars_values=[task]),
             _FakeExecResult(scalars_values=[]),  # evidence
             _FakeExecResult(scalars_values=[requirement]),
+            _FakeExecResult(scalars_values=[]),  # part requirements
         ]
     )
 
@@ -226,6 +276,7 @@ def test_accepted_evidence_and_completed_inspection_do_not_block():
             _FakeExecResult(scalars_values=[task]),
             _FakeExecResult(scalars_values=[evidence]),
             _FakeExecResult(scalars_values=[requirement]),
+            _FakeExecResult(scalars_values=[]),  # part requirements
         ]
     )
 
@@ -235,3 +286,332 @@ def test_accepted_evidence_and_completed_inspection_do_not_block():
 
     assert result.status == "READY"
     assert result.blockers == []
+
+
+def test_evidence_required_but_missing_blocks():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    task = _task(org_id, wo.id, execution_state="COMPLETED", evidence_required=True)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[task]),
+            _FakeExecResult(scalars_values=[]),  # evidence -- none submitted
+            _FakeExecResult(scalars_values=[]),  # inspections
+            _FakeExecResult(scalars_values=[]),  # part requirements
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "BLOCKED"
+    assert len(result.blockers) == 1
+    assert result.blockers[0].category == "EVIDENCE"
+    assert result.blockers[0].related_record_id == task.id
+
+
+def test_evidence_required_satisfied_by_accepted_evidence():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    task = _task(org_id, wo.id, execution_state="COMPLETED", evidence_required=True)
+    evidence = _evidence(org_id, task.id, status=EvidenceStatus.ACCEPTED.value)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[task]),
+            _FakeExecResult(scalars_values=[evidence]),
+            _FakeExecResult(scalars_values=[]),  # inspections
+            _FakeExecResult(scalars_values=[]),  # part requirements
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "READY"
+    assert result.blockers == []
+
+
+def test_evidence_not_required_and_missing_does_not_block():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    task = _task(org_id, wo.id, execution_state="COMPLETED", evidence_required=False)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[task]),
+            _FakeExecResult(scalars_values=[]),  # evidence
+            _FakeExecResult(scalars_values=[]),  # inspections
+            _FakeExecResult(scalars_values=[]),  # part requirements
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "READY"
+    assert result.blockers == []
+
+
+def test_material_blocker_when_short():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    part_req = _part_requirement(
+        org_id, wo.id, required_quantity=3, fulfilled_quantity=1, status=PartRequirementStatus.SHORT
+    )
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),  # tasks
+            _FakeExecResult(scalars_values=[]),  # inspections
+            _FakeExecResult(scalars_values=[part_req]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "BLOCKED"
+    assert len(result.blockers) == 1
+    assert result.blockers[0].category == "MATERIAL"
+    assert result.blockers[0].related_record_id == part_req.id
+
+
+def test_material_no_blocker_when_fulfilled_quantity_met():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    part_req = _part_requirement(
+        org_id,
+        wo.id,
+        required_quantity=2,
+        fulfilled_quantity=2,
+        status=PartRequirementStatus.RECEIVED,
+    )
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[part_req]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "READY"
+    assert result.blockers == []
+
+
+def test_material_no_blocker_when_cancelled_even_if_short():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    part_req = _part_requirement(
+        org_id,
+        wo.id,
+        required_quantity=5,
+        fulfilled_quantity=0,
+        status=PartRequirementStatus.CANCELLED,
+    )
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[part_req]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "READY"
+    assert result.blockers == []
+
+
+def test_material_multiple_outstanding_requirements_each_block():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    part_req_1 = _part_requirement(org_id, wo.id, required_quantity=2, fulfilled_quantity=0)
+    part_req_2 = _part_requirement(org_id, wo.id, required_quantity=1, fulfilled_quantity=0)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[part_req_1, part_req_2]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "BLOCKED"
+    assert len(result.blockers) == 2
+    assert {b.category for b in result.blockers} == {"MATERIAL"}
+
+
+def test_compliance_blocker_when_non_compliant():
+    org_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    wo = _work_order(org_id, asset_id=asset_id)
+    assessment = _assessment(org_id, asset_id, status=ComplianceAssessmentStatus.NON_COMPLIANT)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),  # tasks
+            _FakeExecResult(scalars_values=[]),  # inspections
+            _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[assessment]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "BLOCKED"
+    assert len(result.blockers) == 1
+    assert result.blockers[0].category == "COMPLIANCE"
+    assert result.blockers[0].related_record_id == assessment.id
+
+
+def test_compliance_no_blocker_when_compliant():
+    org_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    wo = _work_order(org_id, asset_id=asset_id)
+    assessment = _assessment(org_id, asset_id, status=ComplianceAssessmentStatus.COMPLIANT)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[assessment]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "READY"
+    assert result.blockers == []
+
+
+def test_compliance_pending_assessment_does_not_block():
+    org_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    wo = _work_order(org_id, asset_id=asset_id)
+    assessment = _assessment(org_id, asset_id, status=ComplianceAssessmentStatus.REVIEW_REQUIRED)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[assessment]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "READY"
+    assert result.blockers == []
+
+
+def test_compliance_historical_non_compliant_does_not_override_current_compliant():
+    org_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    requirement_id = uuid.uuid4()
+    wo = _work_order(org_id, asset_id=asset_id)
+    old_non_compliant = _assessment(
+        org_id,
+        asset_id,
+        requirement_id=requirement_id,
+        status=ComplianceAssessmentStatus.NON_COMPLIANT,
+        evaluated_at=datetime.date(2025, 1, 1),
+        created_at=datetime.datetime(2025, 1, 1),
+    )
+    newer_compliant = _assessment(
+        org_id,
+        asset_id,
+        requirement_id=requirement_id,
+        status=ComplianceAssessmentStatus.COMPLIANT,
+        evaluated_at=datetime.date(2026, 6, 1),
+        created_at=datetime.datetime(2026, 6, 1),
+    )
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[old_non_compliant, newer_compliant]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "READY"
+    assert result.blockers == []
+
+
+def test_compliance_not_evaluated_when_work_order_has_no_asset():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)  # no asset_id
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            # No fifth result: compliance query must not run without asset_id.
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "READY"
+    assert result.blockers == []
+
+
+def test_multiple_blocker_categories_coexist_and_are_independent():
+    org_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    wo = _work_order(org_id, asset_id=asset_id)
+    task = _task(org_id, wo.id, execution_state="PENDING")
+    part_req = _part_requirement(org_id, wo.id, required_quantity=1, fulfilled_quantity=0)
+    assessment = _assessment(org_id, asset_id, status=ComplianceAssessmentStatus.NON_COMPLIANT)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[task]),
+            _FakeExecResult(scalars_values=[]),  # evidence
+            _FakeExecResult(scalars_values=[]),  # inspections
+            _FakeExecResult(scalars_values=[part_req]),
+            _FakeExecResult(scalars_values=[assessment]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "BLOCKED"
+    categories = {b.category for b in result.blockers}
+    assert categories == {"TASK_EXECUTION", "MATERIAL", "COMPLIANCE"}

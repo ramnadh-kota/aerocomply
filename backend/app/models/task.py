@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,3 +18,11 @@ class Task(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     assigned_technician_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
     )
+    # M17.6A: requirement-level flag saying evidence must exist and be
+    # ACCEPTED for this task before release readiness can pass. Deliberately
+    # placed here rather than as a boolean on Evidence itself, since Evidence
+    # rows are created per-submission (and may not exist yet at all) while
+    # Task is the actual requirement/unit-of-work being asked for evidence.
+    # Defaults to False so every pre-existing task (and its readiness
+    # evaluation) is completely unaffected.
+    evidence_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
