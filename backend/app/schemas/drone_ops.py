@@ -120,6 +120,13 @@ class FlightResponse(BaseModel):
         from_attributes = True
 
 
+class FlightListResponse(BaseModel):
+    items: list[FlightResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 class UtilizationResponse(BaseModel):
     asset_id: uuid.UUID
     total_flights: int

@@ -12,6 +12,15 @@ class MaintenanceIntervalType:
     FLIGHT_HOURS = "FLIGHT_HOURS"
     FLIGHT_CYCLES = "FLIGHT_CYCLES"
     CALENDAR = "CALENDAR"
+    # M17.5A: battery/component life-limit metrics. Reuse the existing
+    # fc_interval/fh_interval integer columns below (no new interval
+    # columns) -- BATTERY_CYCLES and COMPONENT_CYCLES both read
+    # fc_interval, COMPONENT_HOURS reads fh_interval. Which column applies
+    # is determined entirely by interval_type, same as the FLIGHT_*
+    # pair already does for the asset-level path.
+    BATTERY_CYCLES = "BATTERY_CYCLES"
+    COMPONENT_HOURS = "COMPONENT_HOURS"
+    COMPONENT_CYCLES = "COMPONENT_CYCLES"
 
 
 class MaintenanceRequirement(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
@@ -46,6 +55,22 @@ class MaintenanceRequirementApplicability(UUIDPKMixin, TenantScopedMixin, Timest
     asset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    # M17.5A (migration 0034): a requirement applying to a specific
+    # serialized Battery/Component, not the asset it happens to be
+    # installed on right now. Exactly one of aircraft_id/asset_id/
+    # battery_id/component_id is set per row.
+    battery_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("batteries.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    component_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("components.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
     requirement: Mapped[MaintenanceRequirement] = relationship(back_populates="applicabilities")
 
@@ -72,6 +97,20 @@ class MaintenanceAccomplishment(UUIDPKMixin, TenantScopedMixin, TimestampMixin, 
     # app/models/work_order.py's asset_id for the full rationale.
     asset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    # M17.5A (migration 0034): see MaintenanceRequirementApplicability's
+    # battery_id/component_id docstring -- same pairing convention.
+    battery_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("batteries.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    component_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("components.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
     )
     accomplished_at: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(

@@ -279,3 +279,19 @@ export function lifecycleEventBadge(eventType: string): { status: Parameters<typ
     label: LIFECYCLE_EVENT_LABEL_MAP[eventType] ?? eventType.replace(/_/g, " "),
   };
 }
+
+// M17.4C — real backend maintenance due_status (backend
+// app/services/maintenance_service.py's _due_status_for /
+// _usage_due_status_for): OVERDUE | DUE_SOON | NOT_DUE | UNKNOWN. Reuses
+// this project's existing five-color vocabulary rather than a maintenance-
+// specific palette.
+const MAINTENANCE_DUE_STATUS_MAP: Record<string, BadgeKind> = {
+  NOT_DUE: "COMPLIANT",
+  DUE_SOON: "REVIEW_REQUIRED",
+  OVERDUE: "NON_COMPLIANT",
+  UNKNOWN: "INSUFFICIENT_DATA",
+};
+
+export function maintenanceDueStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: MAINTENANCE_DUE_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}

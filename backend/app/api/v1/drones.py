@@ -28,8 +28,15 @@ from app.schemas.drone_ops import (
     DroneResponse,
     DroneUpdateRequest,
     FlightCreateRequest,
+    FlightListResponse,
     FlightResponse,
     UtilizationResponse,
+)
+from app.schemas.maintenance_requirement import (
+    AssetMaintenanceAccomplishmentCreateRequest,
+    MaintenanceAccomplishmentResponse,
+    MaintenanceDueItem,
+    MaintenanceRequirementResponse,
 )
 from app.services import (
     battery_service,
@@ -37,6 +44,7 @@ from app.services import (
     drone_service,
     flight_service,
     installation_service,
+    maintenance_service,
     readiness_service,
 )
 
@@ -188,16 +196,40 @@ def attach_component(
     return ComponentResponse.model_validate(component)
 
 
-@router.get("/drones/{asset_id}/flights", response_model=list[FlightResponse])
+@router.get("/drones/{asset_id}/flights", response_model=FlightListResponse)
 def list_flights(
     asset_id: uuid.UUID,
+    limit: int = Query(default=flight_service.FLIGHT_HISTORY_DEFAULT_LIMIT, ge=1),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
-) -> list[FlightResponse]:
-    flights = flight_service.list_flights_for_asset(
-        db, organization_id=current_user.organization_id, asset_id=asset_id
+) -> FlightListResponse:
+    flights, total = flight_service.list_flights_for_asset(
+        db,
+        organization_id=current_user.organization_id,
+        asset_id=asset_id,
+        limit=limit,
+        offset=offset,
     )
-    return [FlightResponse.model_validate(f) for f in flights]
+    effective_limit = max(1, min(limit, flight_service.FLIGHT_HISTORY_MAX_LIMIT))
+    return FlightListResponse(
+        items=[FlightResponse.model_validate(f) for f in flights],
+        total=total,
+        limit=effective_limit,
+        offset=max(0, offset),
+    )
+
+
+@router.get("/flights/{flight_id}", response_model=FlightResponse)
+def get_flight(
+    flight_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> FlightResponse:
+    flight = flight_service.get_flight(
+        db, organization_id=current_user.organization_id, flight_id=flight_id
+    )
+    return FlightResponse.model_validate(flight)
 
 
 @router.post("/drones/{asset_id}/flights", response_model=FlightResponse, status_code=201)
@@ -349,4 +381,190 @@ def get_asset_lifecycle_history(
         total=total,
         limit=effective_limit,
         offset=max(0, offset),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M17.4A/B: usage-based maintenance for a drone. Extends the existing
+# MaintenanceRequirement/MaintenanceRequirementApplicability/
+# MaintenanceAccomplishment architecture (app/services/maintenance_service.py,
+# originally aircraft-only) rather than duplicating it -- these routes are
+# the asset(Drone)-scoped counterparts of the existing aircraft
+# applicability/accomplishment endpoints in app/api/v1/maintenance.py.
+# Same Permission.DRONE_READ/DRONE_WRITE gate as every other route here.
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/drones/{asset_id}/maintenance-requirements/{requirement_id}/applicability",
+    response_model=MaintenanceRequirementResponse,
+    status_code=201,
+)
+def add_maintenance_applicability(
+    asset_id: uuid.UUID,
+    requirement_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_WRITE)),
+) -> MaintenanceRequirementResponse:
+    requirement = maintenance_service.add_applicability_for_asset(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        requirement_id=requirement_id,
+        asset_id=asset_id,
+    )
+    return MaintenanceRequirementResponse.model_validate(requirement)
+
+
+@router.post(
+    "/drones/{asset_id}/maintenance-requirements/{requirement_id}/accomplishments",
+    response_model=MaintenanceAccomplishmentResponse,
+    status_code=201,
+)
+def record_maintenance_accomplishment(
+    asset_id: uuid.UUID,
+    requirement_id: uuid.UUID,
+    payload: AssetMaintenanceAccomplishmentCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_WRITE)),
+) -> MaintenanceAccomplishmentResponse:
+    accomplishment = maintenance_service.record_accomplishment_for_asset(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        requirement_id=requirement_id,
+        asset_id=asset_id,
+        payload=payload,
+    )
+    return MaintenanceAccomplishmentResponse.model_validate(accomplishment)
+
+
+@router.get("/drones/{asset_id}/maintenance-due", response_model=list[MaintenanceDueItem])
+def get_maintenance_due(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> list[MaintenanceDueItem]:
+    return maintenance_service.get_maintenance_due_for_asset(
+        db, organization_id=current_user.organization_id, asset_id=asset_id
+    )
+
+
+# ---------------------------------------------------------------------------
+# M17.5A/B: usage-based maintenance for a serialized Battery/Component,
+# reusing the exact same MaintenanceRequirement architecture and
+# Permission.DRONE_READ/DRONE_WRITE gate as the asset(Drone)-level routes
+# above -- no new permission, no second maintenance system.
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/batteries/{battery_id}/maintenance-requirements/{requirement_id}/applicability",
+    response_model=MaintenanceRequirementResponse,
+    status_code=201,
+)
+def add_battery_maintenance_applicability(
+    battery_id: uuid.UUID,
+    requirement_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_WRITE)),
+) -> MaintenanceRequirementResponse:
+    requirement = maintenance_service.add_applicability_for_battery(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        requirement_id=requirement_id,
+        battery_id=battery_id,
+    )
+    return MaintenanceRequirementResponse.model_validate(requirement)
+
+
+@router.post(
+    "/batteries/{battery_id}/maintenance-requirements/{requirement_id}/accomplishments",
+    response_model=MaintenanceAccomplishmentResponse,
+    status_code=201,
+)
+def record_battery_maintenance_accomplishment(
+    battery_id: uuid.UUID,
+    requirement_id: uuid.UUID,
+    payload: AssetMaintenanceAccomplishmentCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_WRITE)),
+) -> MaintenanceAccomplishmentResponse:
+    accomplishment = maintenance_service.record_accomplishment_for_battery(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        requirement_id=requirement_id,
+        battery_id=battery_id,
+        payload=payload,
+    )
+    return MaintenanceAccomplishmentResponse.model_validate(accomplishment)
+
+
+@router.get("/batteries/{battery_id}/maintenance-due", response_model=list[MaintenanceDueItem])
+def get_battery_maintenance_due(
+    battery_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> list[MaintenanceDueItem]:
+    return maintenance_service.get_maintenance_due_for_battery(
+        db, organization_id=current_user.organization_id, battery_id=battery_id
+    )
+
+
+@router.post(
+    "/components/{component_id}/maintenance-requirements/{requirement_id}/applicability",
+    response_model=MaintenanceRequirementResponse,
+    status_code=201,
+)
+def add_component_maintenance_applicability(
+    component_id: uuid.UUID,
+    requirement_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_WRITE)),
+) -> MaintenanceRequirementResponse:
+    requirement = maintenance_service.add_applicability_for_component(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        requirement_id=requirement_id,
+        component_id=component_id,
+    )
+    return MaintenanceRequirementResponse.model_validate(requirement)
+
+
+@router.post(
+    "/components/{component_id}/maintenance-requirements/{requirement_id}/accomplishments",
+    response_model=MaintenanceAccomplishmentResponse,
+    status_code=201,
+)
+def record_component_maintenance_accomplishment(
+    component_id: uuid.UUID,
+    requirement_id: uuid.UUID,
+    payload: AssetMaintenanceAccomplishmentCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_WRITE)),
+) -> MaintenanceAccomplishmentResponse:
+    accomplishment = maintenance_service.record_accomplishment_for_component(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        requirement_id=requirement_id,
+        component_id=component_id,
+        payload=payload,
+    )
+    return MaintenanceAccomplishmentResponse.model_validate(accomplishment)
+
+
+@router.get(
+    "/components/{component_id}/maintenance-due", response_model=list[MaintenanceDueItem]
+)
+def get_component_maintenance_due(
+    component_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> list[MaintenanceDueItem]:
+    return maintenance_service.get_maintenance_due_for_component(
+        db, organization_id=current_user.organization_id, component_id=component_id
     )
