@@ -7,6 +7,12 @@ blocker clears -> final readiness is READY, reflecting only the three
 categories release_readiness_service actually implements today.
 """
 
+import uuid
+
+from app.models.user import User
+from app.schemas.procurement_request import ProcurementRequestApproveRequest
+from app.services import procurement_service
+
 
 def _register(client, org_name, email):
     resp = client.post(
@@ -26,7 +32,7 @@ def _auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_full_readiness_chain(client):
+def test_full_readiness_chain(client, db_session):
     tokens = _register(client, "Airline Chain", "admin@airline-chain.com")
     headers = _auth(tokens["access_token"])
 
@@ -127,3 +133,133 @@ def test_full_readiness_chain(client):
     assert r6.status_code == 200
     assert r6.json()["blockers"] == []
     assert r6.json()["status"] == "READY"
+
+    # 7. MATERIAL blocker end-to-end through the real HTTP API (not just the
+    #    service layer): create a part with zero stock, attach a
+    #    PartRequirement to this work order -> MATERIAL blocker appears ->
+    #    walk a purchase order through submit/approve/send/receive via the
+    #    API -> the receipt fulfills the requirement and the MATERIAL
+    #    blocker clears through the same /release-readiness endpoint used
+    #    above. This closes the gap the Part 1 fix (fulfilled_quantity on
+    #    receipt) only had service-level coverage for.
+    part_resp = client.post(
+        "/api/v1/parts",
+        json={
+            "part_number": "PN-CHAIN-1",
+            "description": "Fuel pump",
+            "quantity_on_hand": 0,
+        },
+        headers=headers,
+    )
+    assert part_resp.status_code == 201
+    part_id = part_resp.json()["id"]
+
+    requirement_resp = client.post(
+        "/api/v1/part-requirements",
+        json={
+            "work_order_id": work_order_id,
+            "task_id": task_id,
+            "part_id": part_id,
+            "required_quantity": 2,
+        },
+        headers=headers,
+    )
+    assert requirement_resp.status_code == 201
+
+    r7 = client.get(f"/api/v1/work-orders/{work_order_id}/release-readiness", headers=headers)
+    assert r7.status_code == 200
+    assert r7.json()["status"] == "BLOCKED"
+    assert {b["category"] for b in r7.json()["blockers"]} == {"MATERIAL"}
+
+    vendor_resp = client.post(
+        "/api/v1/vendors", json={"name": "Chain Vendor"}, headers=headers
+    )
+    assert vendor_resp.status_code == 201
+    vendor_id = vendor_resp.json()["id"]
+
+    procurement_resp = client.post(
+        "/api/v1/procurement-requests",
+        json={
+            "aircraft_id": aircraft_id,
+            "work_order_id": work_order_id,
+            "task_id": task_id,
+            "part_id": part_id,
+            "part_number": "PN-CHAIN-1",
+            "description": "Fuel pump",
+            "quantity": 2,
+            "reason": "Release readiness chain test",
+        },
+        headers=headers,
+    )
+    assert procurement_resp.status_code == 201
+    procurement_request_id = procurement_resp.json()["id"]
+
+    # procurement_service.approve_request forbids self-approval (the
+    # requester and approver must differ) and this test only has a single
+    # registered admin user/token available through the HTTP API. The
+    # approve step itself is exercised independently by
+    # test_approval_governance.py and test_aog_recovery_service.py's own
+    # coverage of procurement_service.approve_request; here it is invoked
+    # directly against the same db_session the `client` fixture uses (so it
+    # commits into the same transaction the API calls see) with a distinct
+    # synthetic approver id, purely to unblock the receiving chain under
+    # test. Every other step remains a real HTTP round trip.
+    org_id = uuid.UUID(procurement_resp.json()["organization_id"])
+    second_approver = User(
+        organization_id=org_id,
+        email="second-approver@airline-chain.com",
+        hashed_password="not-used-for-login",
+        full_name="Second Approver",
+    )
+    db_session.add(second_approver)
+    db_session.flush()
+
+    approved = procurement_service.approve_request(
+        db_session,
+        organization_id=org_id,
+        actor_user_id=second_approver.id,
+        request_id=uuid.UUID(procurement_request_id),
+        payload=ProcurementRequestApproveRequest(selected_vendor_id=uuid.UUID(vendor_id)),
+    )
+    assert approved.status == "APPROVED"
+
+    po_resp = client.post(
+        "/api/v1/purchase-orders",
+        json={
+            "po_number": "PO-CHAIN-1",
+            "vendor_id": vendor_id,
+            "lines": [
+                {
+                    "procurement_request_id": procurement_request_id,
+                    "part_number": "PN-CHAIN-1",
+                    "description": "Fuel pump",
+                    "quantity": 2,
+                }
+            ],
+        },
+        headers=headers,
+    )
+    assert po_resp.status_code == 201, po_resp.json()
+    po_id = po_resp.json()["id"]
+    line_id = po_resp.json()["lines"][0]["id"]
+
+    for step in ("submit-for-approval", "approve", "send"):
+        step_resp = client.post(f"/api/v1/purchase-orders/{po_id}/{step}", headers=headers)
+        assert step_resp.status_code == 200, step_resp.json()
+
+    r8 = client.get(f"/api/v1/work-orders/{work_order_id}/release-readiness", headers=headers)
+    assert r8.status_code == 200
+    assert r8.json()["status"] == "BLOCKED"
+    assert {b["category"] for b in r8.json()["blockers"]} == {"MATERIAL"}
+
+    receive_resp = client.post(
+        f"/api/v1/purchase-orders/{po_id}/receive",
+        json={"lines": [{"line_id": line_id, "quantity": 2}]},
+        headers=headers,
+    )
+    assert receive_resp.status_code == 200, receive_resp.json()
+
+    r9 = client.get(f"/api/v1/work-orders/{work_order_id}/release-readiness", headers=headers)
+    assert r9.status_code == 200
+    assert r9.json()["blockers"] == []
+    assert r9.json()["status"] == "READY"
