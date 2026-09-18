@@ -28,7 +28,10 @@ class BatteryInstallation(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     )
 
     battery_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("batteries.id", ondelete="RESTRICT"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("batteries.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
     )
     asset_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False, index=True
