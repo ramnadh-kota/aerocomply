@@ -108,9 +108,10 @@ class TestBatteryLifecycle:
         db_battery = db_session.get(Battery, battery_id)
         assert db_battery.asset_id == asset_b
 
-        history = installation_service.list_battery_history(
+        history, total = installation_service.list_battery_history(
             db_session, organization_id=org_id, battery_id=battery_id
         )
+        assert total == 2
         assert len(history) == 2
         assert history[0].asset_id == asset_b
         assert history[0].removed_at is None
@@ -205,9 +206,10 @@ class TestComponentLifecycle:
         assert db_component.asset_id == asset_b
         assert db_component.status == "INSTALLED"
 
-        history = installation_service.list_component_history(
+        history, total = installation_service.list_component_history(
             db_session, organization_id=org_id, component_id=component_id
         )
+        assert total == 2
         assert len(history) == 2
         assert history[0].removed_at is None
         assert history[1].removed_at is not None
@@ -328,10 +330,11 @@ class TestCrossTenantSecurity:
             asset_id=asset_id,
         )
 
-        history = installation_service.list_battery_history(
+        history, total = installation_service.list_battery_history(
             db_session, organization_id=org_b_id, battery_id=battery_id
         )
         assert history == []
+        assert total == 0
 
 
 class TestTransactionIntegrity:
@@ -360,11 +363,12 @@ class TestTransactionIntegrity:
         )
         assert "battery.installed" in actions
 
-        history = installation_service.list_battery_history(
+        history, total = installation_service.list_battery_history(
             db_session, organization_id=org_id, battery_id=battery_id
         )
         db_battery = db_session.get(Battery, battery_id)
         assert len(history) == 1
+        assert total == 1
         assert db_battery.asset_id == asset_id
 
     def test_failed_duplicate_install_leaves_state_unchanged(self, client, db_session):
@@ -391,7 +395,8 @@ class TestTransactionIntegrity:
                 asset_id=asset_id,
             )
 
-        history = installation_service.list_battery_history(
+        history, total = installation_service.list_battery_history(
             db_session, organization_id=org_id, battery_id=battery_id
         )
         assert len(history) == 1
+        assert total == 1

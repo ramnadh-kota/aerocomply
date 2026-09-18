@@ -131,3 +131,78 @@ class DeploymentReadinessResponse(BaseModel):
     asset_id: uuid.UUID
     status: str  # READY | BLOCKED
     blockers: list[str]
+
+
+# M17.2B: lifecycle history response schemas. Hand-declared projections of
+# BatteryInstallation/ComponentInstallation (never `from_attributes` on the
+# ORM class blindly re-exported) so a future column doesn't leak here
+# without a deliberate schema change -- same convention as
+# app/schemas/platform.py's AuditEventResponse.
+
+
+class BatteryInstallationResponse(BaseModel):
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    battery_id: uuid.UUID
+    asset_id: uuid.UUID
+    installed_at: datetime
+    removed_at: datetime | None
+    installed_by: uuid.UUID | None
+    removed_by: uuid.UUID | None
+
+    class Config:
+        from_attributes = True
+
+
+class BatteryInstallationListResponse(BaseModel):
+    items: list[BatteryInstallationResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class ComponentInstallationResponse(BaseModel):
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    component_id: uuid.UUID
+    asset_id: uuid.UUID
+    installed_at: datetime
+    removed_at: datetime | None
+    installed_by: uuid.UUID | None
+    removed_by: uuid.UUID | None
+
+    class Config:
+        from_attributes = True
+
+
+class ComponentInstallationListResponse(BaseModel):
+    items: list[ComponentInstallationResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class AssetLifecycleEventResponse(BaseModel):
+    """One entry in an asset's unified battery+component lifecycle
+    timeline. event_type is one of the plain-string constants on
+    app.services.installation_service.LifecycleEventType -- deliberately
+    not a strict enum on the wire so a future event type doesn't break API
+    consumers (same convention as DeploymentReadinessResponse.status)."""
+
+    event_type: str
+    occurred_at: datetime
+    asset_id: uuid.UUID
+    installation_id: uuid.UUID
+    battery_id: uuid.UUID | None
+    component_id: uuid.UUID | None
+    actor_user_id: uuid.UUID | None
+
+    class Config:
+        from_attributes = True
+
+
+class AssetLifecycleHistoryResponse(BaseModel):
+    items: list[AssetLifecycleEventResponse]
+    total: int
+    limit: int
+    offset: int

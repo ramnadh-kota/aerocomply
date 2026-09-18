@@ -5,17 +5,23 @@ new permission per sub-resource."""
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.drone_ops import (
+    AssetLifecycleEventResponse,
+    AssetLifecycleHistoryResponse,
     BatteryCreateRequest,
+    BatteryInstallationListResponse,
+    BatteryInstallationResponse,
     BatteryResponse,
     BatteryUpdateRequest,
     ComponentCreateRequest,
+    ComponentInstallationListResponse,
+    ComponentInstallationResponse,
     ComponentResponse,
     DeploymentReadinessResponse,
     DroneCreateRequest,
@@ -30,6 +36,7 @@ from app.services import (
     component_service,
     drone_service,
     flight_service,
+    installation_service,
     readiness_service,
 )
 
@@ -236,3 +243,110 @@ def get_deployment_readiness(
         db, organization_id=current_user.organization_id, asset_id=asset_id
     )
     return DeploymentReadinessResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# M17.2B: battery/component lifecycle read APIs. Same Permission.DRONE_READ
+# gate as every other read route in this file (no new permission -- see
+# module docstring); reuses app.services.installation_service, which is
+# itself unchanged in its write semantics (install/remove) from M17.2A.
+# Read-only: none of these routes mutate Battery.asset_id/Component.asset_id
+# or the *_installations tables.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/batteries/{battery_id}", response_model=BatteryResponse)
+def get_battery(
+    battery_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> BatteryResponse:
+    battery = battery_service.get_battery(
+        db, organization_id=current_user.organization_id, battery_id=battery_id
+    )
+    return BatteryResponse.model_validate(battery)
+
+
+@router.get("/batteries/{battery_id}/history", response_model=BatteryInstallationListResponse)
+def get_battery_history(
+    battery_id: uuid.UUID,
+    limit: int = Query(default=installation_service.LIFECYCLE_HISTORY_DEFAULT_LIMIT, ge=1),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> BatteryInstallationListResponse:
+    # Confirms the battery belongs to this tenant before returning any
+    # history for it (cross-tenant IDOR/enumeration otherwise).
+    battery_service.get_battery(
+        db, organization_id=current_user.organization_id, battery_id=battery_id
+    )
+    items, total = installation_service.list_battery_history(
+        db, organization_id=current_user.organization_id, battery_id=battery_id,
+        limit=limit, offset=offset,
+    )
+    effective_limit = max(1, min(limit, installation_service.LIFECYCLE_HISTORY_MAX_LIMIT))
+    return BatteryInstallationListResponse(
+        items=[BatteryInstallationResponse.model_validate(i) for i in items],
+        total=total,
+        limit=effective_limit,
+        offset=max(0, offset),
+    )
+
+
+@router.get("/components/{component_id}", response_model=ComponentResponse)
+def get_component(
+    component_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> ComponentResponse:
+    component = component_service.get_component(
+        db, organization_id=current_user.organization_id, component_id=component_id
+    )
+    return ComponentResponse.model_validate(component)
+
+
+@router.get(
+    "/components/{component_id}/history", response_model=ComponentInstallationListResponse
+)
+def get_component_history(
+    component_id: uuid.UUID,
+    limit: int = Query(default=installation_service.LIFECYCLE_HISTORY_DEFAULT_LIMIT, ge=1),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> ComponentInstallationListResponse:
+    component_service.get_component(
+        db, organization_id=current_user.organization_id, component_id=component_id
+    )
+    items, total = installation_service.list_component_history(
+        db, organization_id=current_user.organization_id, component_id=component_id,
+        limit=limit, offset=offset,
+    )
+    effective_limit = max(1, min(limit, installation_service.LIFECYCLE_HISTORY_MAX_LIMIT))
+    return ComponentInstallationListResponse(
+        items=[ComponentInstallationResponse.model_validate(i) for i in items],
+        total=total,
+        limit=effective_limit,
+        offset=max(0, offset),
+    )
+
+
+@router.get("/drones/{asset_id}/lifecycle-history", response_model=AssetLifecycleHistoryResponse)
+def get_asset_lifecycle_history(
+    asset_id: uuid.UUID,
+    limit: int = Query(default=installation_service.LIFECYCLE_HISTORY_DEFAULT_LIMIT, ge=1),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> AssetLifecycleHistoryResponse:
+    events, total = installation_service.list_asset_lifecycle_history(
+        db, organization_id=current_user.organization_id, asset_id=asset_id,
+        limit=limit, offset=offset,
+    )
+    effective_limit = max(1, min(limit, installation_service.LIFECYCLE_HISTORY_MAX_LIMIT))
+    return AssetLifecycleHistoryResponse(
+        items=[AssetLifecycleEventResponse.model_validate(e) for e in events],
+        total=total,
+        limit=effective_limit,
+        offset=max(0, offset),
+    )

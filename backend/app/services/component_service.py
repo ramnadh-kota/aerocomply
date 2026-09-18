@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.errors import NotFoundError
 from app.models.component import Component
 from app.services import drone_service
 from app.services.audit_service import record_audit_event
@@ -46,6 +47,19 @@ def attach_component(
     )
     db.commit()
     db.refresh(component)
+    return component
+
+
+def get_component(
+    db: Session, *, organization_id: uuid.UUID, component_id: uuid.UUID
+) -> Component:
+    component = db.execute(
+        select(Component).where(
+            Component.id == component_id, Component.organization_id == organization_id
+        )
+    ).scalar_one_or_none()
+    if component is None:
+        raise NotFoundError("Component not found")
     return component
 
 
