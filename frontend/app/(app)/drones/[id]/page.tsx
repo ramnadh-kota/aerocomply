@@ -9,11 +9,16 @@ import { useParams } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { LifecycleHistoryList } from "@/components/lifecycle/LifecycleHistoryList";
+import { AssetLifecycleTimeline } from "@/components/lifecycle/AssetLifecycleTimeline";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import {
   dronesApi,
+  type AssetLifecycleEventResponse,
+  type BatteryInstallationResponse,
   type BatteryResponse,
+  type ComponentInstallationResponse,
   type ComponentResponse,
   type DeploymentReadinessResponse,
   type DroneResponse,
@@ -37,6 +42,9 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
   const [flights, setFlights] = useState<FlightResponse[]>([]);
   const [utilization, setUtilization] = useState<UtilizationResponse | null>(null);
   const [readiness, setReadiness] = useState<DeploymentReadinessResponse | null>(null);
+  const [batteryHistory, setBatteryHistory] = useState<Record<string, BatteryInstallationResponse[]>>({});
+  const [componentHistory, setComponentHistory] = useState<Record<string, ComponentInstallationResponse[]>>({});
+  const [lifecycleEvents, setLifecycleEvents] = useState<AssetLifecycleEventResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
 
@@ -58,14 +66,30 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
       dronesApi.listFlights(accessToken, assetId),
       dronesApi.getUtilization(accessToken, assetId),
       dronesApi.getDeploymentReadiness(accessToken, assetId),
+      dronesApi.getAssetLifecycleHistory(accessToken, assetId),
     ])
-      .then(([d, b, c, f, u, r]) => {
+      .then(async ([d, b, c, f, u, r, lifecycle]) => {
         setDrone(d);
         setBatteries(b);
         setComponents(c);
         setFlights(f);
         setUtilization(u);
         setReadiness(r);
+        setLifecycleEvents(lifecycle.items);
+
+        // One history call per battery/component currently on this asset --
+        // bounded by how many of each a single drone actually carries, not
+        // an unbounded fan-out.
+        const [batteryHistories, componentHistories] = await Promise.all([
+          Promise.all(b.map((battery) => dronesApi.getBatteryHistory(accessToken, battery.id))),
+          Promise.all(c.map((component) => dronesApi.getComponentHistory(accessToken, component.id))),
+        ]);
+        setBatteryHistory(
+          Object.fromEntries(b.map((battery, i) => [battery.id, batteryHistories[i].items]))
+        );
+        setComponentHistory(
+          Object.fromEntries(c.map((component, i) => [component.id, componentHistories[i].items]))
+        );
       })
       .catch((err) => setError(normalizeApiError(err)))
       .finally(() => setLoading(false));
@@ -146,14 +170,34 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
                     No battery assigned.
                   </p>
                 ) : (
-                  <div style={{ marginTop: 8 }}>
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: "var(--ac-space-4)" }}>
                     {batteries.map((b) => (
-                      <div key={b.id} className="ac-flex ac-gap-2" style={{ alignItems: "center" }}>
-                        <span className="ac-text-sm">{b.serial_number}</span>
-                        <StatusBadge {...statusBadge(b.status)} />
-                        <span className="ac-text-sm" style={{ opacity: 0.7 }}>
-                          {b.cycle_count} cycles{b.health_percent != null ? ` · ${b.health_percent}% health` : ""}
-                        </span>
+                      <div key={b.id}>
+                        <div className="ac-flex ac-gap-2" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                          <span className="ac-text-sm">{b.serial_number}</span>
+                          <StatusBadge {...statusBadge(b.status)} />
+                          <span className="ac-text-sm" style={{ opacity: 0.7 }}>
+                            {b.cycle_count} cycles{b.health_percent != null ? ` · ${b.health_percent}% health` : ""}
+                          </span>
+                        </div>
+                        <p className="ac-text-sm ac-text-muted" style={{ margin: "2px 0", wordBreak: "break-all" }}>
+                          Battery ID: <span className="ac-mono">{b.id}</span>
+                        </p>
+                        <p className="ac-text-sm ac-text-muted" style={{ margin: "6px 0" }}>
+                          Current assignment: {b.asset_id ? (
+                            <span className="ac-mono">{b.asset_id}</span>
+                          ) : (
+                            "Not currently installed"
+                          )}
+                        </p>
+                        <div style={{ marginTop: 6 }}>
+                          <span className="ac-text-sm ac-text-muted" style={{ fontWeight: 600 }}>
+                            Lifecycle History
+                          </span>
+                          <div style={{ marginTop: 6 }}>
+                            <LifecycleHistoryList installations={batteryHistory[b.id] ?? []} />
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -162,15 +206,46 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
 
               <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
                 <strong className="ac-text-sm">Components ({components.length})</strong>
-                {components.length > 0 && (
-                  <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+                {components.length === 0 ? (
+                  <p className="ac-text-sm" style={{ marginTop: 8, opacity: 0.7 }}>
+                    No components assigned.
+                  </p>
+                ) : (
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: "var(--ac-space-4)" }}>
                     {components.map((c) => (
-                      <li key={c.id} className="ac-text-sm">
-                        {c.name} ({c.component_type})
-                      </li>
+                      <div key={c.id}>
+                        <div className="ac-text-sm">
+                          {c.name} ({c.component_type})
+                        </div>
+                        <p className="ac-text-sm ac-text-muted" style={{ margin: "2px 0", wordBreak: "break-all" }}>
+                          Component ID: <span className="ac-mono">{c.id}</span>
+                        </p>
+                        <p className="ac-text-sm ac-text-muted" style={{ margin: "6px 0" }}>
+                          Current assignment: {c.asset_id ? (
+                            <span className="ac-mono">{c.asset_id}</span>
+                          ) : (
+                            "Not currently installed"
+                          )}
+                        </p>
+                        <div style={{ marginTop: 6 }}>
+                          <span className="ac-text-sm ac-text-muted" style={{ fontWeight: 600 }}>
+                            Lifecycle History
+                          </span>
+                          <div style={{ marginTop: 6 }}>
+                            <LifecycleHistoryList installations={componentHistory[c.id] ?? []} />
+                          </div>
+                        </div>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 )}
+              </div>
+
+              <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+                <strong className="ac-text-sm">Asset Lifecycle Timeline</strong>
+                <div style={{ marginTop: 10 }}>
+                  <AssetLifecycleTimeline events={lifecycleEvents} />
+                </div>
               </div>
 
               <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>

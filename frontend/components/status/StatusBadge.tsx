@@ -252,3 +252,30 @@ const EVIDENCE_FILE_STATUS_MAP: Record<string, BadgeKind> = {
 export function evidenceFileStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: EVIDENCE_FILE_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
+
+// M17.2C — Battery/Component lifecycle event types (backend
+// app/services/installation_service.py's LifecycleEventType, exposed via
+// GET /drones/{asset_id}/lifecycle-history). Installations render as the
+// neutral "Active" (still-in-service) look; removals as the non-compliant
+// look — matching the existing precedent of pairing every status color
+// with an explicit text label, never color alone.
+const LIFECYCLE_EVENT_STATUS_MAP: Record<string, BadgeKind> = {
+  BATTERY_INSTALLATION: "ACTIVE",
+  COMPONENT_INSTALLATION: "ACTIVE",
+  BATTERY_REMOVAL: "NON_COMPLIANT",
+  COMPONENT_REMOVAL: "NON_COMPLIANT",
+};
+
+const LIFECYCLE_EVENT_LABEL_MAP: Record<string, string> = {
+  BATTERY_INSTALLATION: "Battery Installed",
+  COMPONENT_INSTALLATION: "Component Installed",
+  BATTERY_REMOVAL: "Battery Removed",
+  COMPONENT_REMOVAL: "Component Removed",
+};
+
+export function lifecycleEventBadge(eventType: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return {
+    status: LIFECYCLE_EVENT_STATUS_MAP[eventType] ?? "UNKNOWN",
+    label: LIFECYCLE_EVENT_LABEL_MAP[eventType] ?? eventType.replace(/_/g, " "),
+  };
+}

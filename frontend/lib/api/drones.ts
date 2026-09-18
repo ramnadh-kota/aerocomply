@@ -73,6 +73,86 @@ export interface DeploymentReadinessResponse {
   blockers: string[];
 }
 
+// M17.2C: lifecycle history types, matching backend/app/schemas/drone_ops.py
+// exactly (added in M17.2B: backend/app/api/v1/drones.py). Battery.asset_id
+// / Component.asset_id above remain the ONLY current-state source of truth
+// -- these are purely historical/read-only records, never used to derive
+// current assignment.
+
+export interface BatteryInstallationResponse {
+  id: string;
+  organization_id: string;
+  battery_id: string;
+  asset_id: string;
+  installed_at: string;
+  removed_at: string | null;
+  installed_by: string | null;
+  removed_by: string | null;
+}
+
+export interface BatteryInstallationListResponse {
+  items: BatteryInstallationResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ComponentInstallationResponse {
+  id: string;
+  organization_id: string;
+  component_id: string;
+  asset_id: string;
+  installed_at: string;
+  removed_at: string | null;
+  installed_by: string | null;
+  removed_by: string | null;
+}
+
+export interface ComponentInstallationListResponse {
+  items: ComponentInstallationResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// Exactly the four values app/services/installation_service.py's
+// LifecycleEventType emits -- never invent an additional event value here.
+export type LifecycleEventType =
+  | "BATTERY_INSTALLATION"
+  | "BATTERY_REMOVAL"
+  | "COMPONENT_INSTALLATION"
+  | "COMPONENT_REMOVAL";
+
+export interface AssetLifecycleEventResponse {
+  event_type: LifecycleEventType;
+  occurred_at: string;
+  asset_id: string;
+  installation_id: string;
+  battery_id: string | null;
+  component_id: string | null;
+  actor_user_id: string | null;
+}
+
+export interface AssetLifecycleHistoryResponse {
+  items: AssetLifecycleEventResponse[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+interface LifecyclePageParams {
+  limit?: number;
+  offset?: number;
+}
+
+function lifecycleQuery(params?: LifecyclePageParams): string {
+  if (!params) return "";
+  const parts: string[] = [];
+  if (params.limit !== undefined) parts.push(`limit=${params.limit}`);
+  if (params.offset !== undefined) parts.push(`offset=${params.offset}`);
+  return parts.length > 0 ? `?${parts.join("&")}` : "";
+}
+
 export const dronesApi = {
   listDrones: (accessToken: string) => apiRequest<DroneResponse[]>("/drones", { accessToken }),
 
@@ -140,4 +220,32 @@ export const dronesApi = {
 
   getDeploymentReadiness: (accessToken: string, assetId: string) =>
     apiRequest<DeploymentReadinessResponse>(`/drones/${assetId}/deployment-readiness`, { accessToken }),
+
+  // M17.2C: lifecycle read APIs (backend/app/api/v1/drones.py, added M17.2B).
+  // organization_id is never sent by the client -- it is derived
+  // server-side from the bearer token, same as every other call here.
+
+  getBattery: (accessToken: string, batteryId: string) =>
+    apiRequest<BatteryResponse>(`/batteries/${batteryId}`, { accessToken }),
+
+  getBatteryHistory: (accessToken: string, batteryId: string, params?: LifecyclePageParams) =>
+    apiRequest<BatteryInstallationListResponse>(
+      `/batteries/${batteryId}/history${lifecycleQuery(params)}`,
+      { accessToken }
+    ),
+
+  getComponent: (accessToken: string, componentId: string) =>
+    apiRequest<ComponentResponse>(`/components/${componentId}`, { accessToken }),
+
+  getComponentHistory: (accessToken: string, componentId: string, params?: LifecyclePageParams) =>
+    apiRequest<ComponentInstallationListResponse>(
+      `/components/${componentId}/history${lifecycleQuery(params)}`,
+      { accessToken }
+    ),
+
+  getAssetLifecycleHistory: (accessToken: string, assetId: string, params?: LifecyclePageParams) =>
+    apiRequest<AssetLifecycleHistoryResponse>(
+      `/drones/${assetId}/lifecycle-history${lifecycleQuery(params)}`,
+      { accessToken }
+    ),
 };
