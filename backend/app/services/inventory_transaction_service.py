@@ -99,6 +99,15 @@ def _apply_transaction(
 
     # Any part-quantity change can flip an open requirement's SHORT/AVAILABLE
     # status — re-derive it immediately rather than leaving it stale.
+    # This never touches PartRequirement.fulfilled_quantity: an ad hoc stock
+    # receipt (or reserve/consume/adjust/quarantine) tells you a part is now
+    # AVAILABLE, not that any specific requirement has been FULFILLED --
+    # that distinction is real and already covered by an existing test
+    # (test_receiving_stock_flips_short_requirement_to_available). Actual
+    # fulfillment against a specific PartRequirement happens in
+    # receiving_service.receive_purchase_order, which knows which work
+    # order/task/part the receipt was actually ordered for (see
+    # part_requirement_service.fulfill_from_receipt).
     part_requirement_service.recompute_status_for_part(
         db, organization_id=organization_id, part_id=part.id
     )

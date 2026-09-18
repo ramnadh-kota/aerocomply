@@ -6,7 +6,12 @@ from app.core.errors import ConflictError
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderStatus
 from app.schemas.inventory_transaction import InventoryReceiveRequest
 from app.schemas.receiving import ReceivePurchaseOrderRequest
-from app.services import inventory_transaction_service, procurement_service, purchase_order_service
+from app.services import (
+    inventory_transaction_service,
+    part_requirement_service,
+    procurement_service,
+    purchase_order_service,
+)
 from app.services.audit_service import record_audit_event
 
 # States a PO must be in to accept a delivery. PARTIALLY_RECEIVED is included
@@ -79,6 +84,20 @@ def receive_purchase_order(
                         reference_id=line.id,
                         notes=payload.notes,
                     ),
+                )
+                # M17.6A: this receipt was ordered against a specific work
+                # order/task (via the ProcurementRequest), so it can fulfill
+                # the matching PartRequirement(s), not just raise general
+                # part availability -- see
+                # part_requirement_service.fulfill_from_receipt's docstring
+                # for why this is not done generically inside receive_part.
+                part_requirement_service.fulfill_from_receipt(
+                    db,
+                    organization_id=organization_id,
+                    part_id=request.part_id,
+                    work_order_id=request.work_order_id,
+                    task_id=request.task_id,
+                    received_quantity=line_receipt.quantity,
                 )
 
     all_fulfilled = all(line.received_quantity >= line.quantity for line in purchase_order.lines)

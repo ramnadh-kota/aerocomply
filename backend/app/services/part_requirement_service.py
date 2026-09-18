@@ -1,6 +1,7 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
@@ -8,6 +9,10 @@ from app.models.part_requirement import PartRequirement, PartRequirementStatus
 from app.schemas.part_requirement import PartRequirementCreateRequest, PartRequirementUpdateRequest
 from app.services import part_service, work_order_service
 from app.services.audit_service import record_audit_event
+
+# Statuses that mean the requirement is fully settled -- never touched by
+# fulfillment allocation or status re-derivation once reached.
+_SETTLED_STATUSES = (PartRequirementStatus.FULFILLED, PartRequirementStatus.CANCELLED)
 
 
 def _derive_status(requirement: PartRequirement, available_quantity: int) -> str:
@@ -148,6 +153,16 @@ def recompute_status_for_part(
     """Re-derive status for every open requirement against a part after its
     quantities change (e.g. a receiving or reservation event elsewhere). Only
     touches requirements still in this slice's own state set, per _derive_status.
+
+    Deliberately never touches fulfilled_quantity: an ad hoc stock change
+    (receive/reserve/consume/adjust) tells you a part is now AVAILABLE (or
+    not), not that any specific PartRequirement has been FULFILLED -- that
+    distinction is real and load-bearing (see
+    test_receiving_stock_flips_short_requirement_to_available, which expects
+    AVAILABLE, not FULFILLED, right after receiving exactly enough stock).
+    Actual fulfillment against a specific requirement is
+    fulfill_from_receipt below, called only from the PO-receiving flow that
+    actually knows which work order/task/part the receipt was for.
     """
     part = part_service.get_part(db, organization_id=organization_id, part_id=part_id)
     requirements = list(
@@ -171,4 +186,109 @@ def recompute_status_for_part(
         db.commit()
         for requirement in changed:
             db.refresh(requirement)
+    return requirements
+
+
+def fulfill_from_receipt(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    part_id: uuid.UUID,
+    work_order_id: uuid.UUID | None,
+    task_id: uuid.UUID | None,
+    received_quantity: int,
+) -> list[PartRequirement]:
+    """Applies an actual physical receipt (M17.6A) to whichever open
+    PartRequirement(s) it was ordered against, incrementing
+    PartRequirement.fulfilled_quantity -- the column
+    release_readiness_service's MATERIAL blocker reads directly
+    (app/services/release_readiness_service.py). Before this, nothing ever
+    advanced fulfilled_quantity off 0, so a fully-received part requirement
+    never cleared its MATERIAL blocker.
+
+    Called from receiving_service.receive_purchase_order, which knows the
+    work_order_id/task_id/part_id the receipt was ordered for (via the
+    linked ProcurementRequest) -- never from generic inventory receiving,
+    which has no such linkage and must not guess one (see
+    recompute_status_for_part's docstring).
+
+    Matching: requirements for this part_id, scoped to work_order_id (and to
+    task_id when the receipt is task-specific), oldest first, still open
+    (not FULFILLED/CANCELLED) and not yet fully covered. A receipt with no
+    work_order_id (e.g. a procurement request never linked to a work order)
+    has nothing to fulfill, so this is a no-op.
+
+    Concurrency: the increment is a single atomic UPDATE ... SET
+    fulfilled_quantity = LEAST(required_quantity, fulfilled_quantity +
+    delta), matching this codebase's existing convention of using
+    database-atomic operations for concurrent-safe counters (see
+    part_service.get_part's for_update=True docstring) instead of an
+    application-level read-modify-write: Postgres computes the new value
+    from whatever the current row value is at UPDATE time, so two concurrent
+    receipts against the same requirement serialize on the row instead of
+    one clobbering the other, and the LEAST(...) cap means fulfilled_quantity
+    can never be pushed past required_quantity.
+    """
+    if work_order_id is None or received_quantity <= 0:
+        return []
+
+    conditions = [
+        PartRequirement.organization_id == organization_id,
+        PartRequirement.part_id == part_id,
+        PartRequirement.work_order_id == work_order_id,
+    ]
+    if task_id is not None:
+        conditions.append(PartRequirement.task_id == task_id)
+
+    requirements = list(
+        db.execute(select(PartRequirement).where(*conditions).order_by(PartRequirement.created_at))
+        .scalars()
+        .all()
+    )
+
+    remaining_to_allocate = received_quantity
+    touched_ids: set[uuid.UUID] = set()
+    for requirement in requirements:
+        if remaining_to_allocate <= 0:
+            break
+        if requirement.status in _SETTLED_STATUSES:
+            continue
+        outstanding = requirement.required_quantity - requirement.fulfilled_quantity
+        if outstanding <= 0:
+            continue
+        delta = min(outstanding, remaining_to_allocate)
+        db.execute(
+            sa_update(PartRequirement)
+            .where(
+                PartRequirement.id == requirement.id,
+                PartRequirement.organization_id == organization_id,
+            )
+            .values(
+                fulfilled_quantity=func.least(
+                    PartRequirement.required_quantity,
+                    PartRequirement.fulfilled_quantity + delta,
+                )
+            )
+        )
+        remaining_to_allocate -= delta
+        touched_ids.add(requirement.id)
+
+    if not touched_ids:
+        return requirements
+
+    db.flush()
+    for requirement in requirements:
+        db.refresh(requirement)
+
+    part = part_service.get_part(db, organization_id=organization_id, part_id=part_id)
+    for requirement in requirements:
+        if requirement.id not in touched_ids:
+            continue
+        new_status = _derive_status(requirement, part.available_quantity)
+        if new_status != requirement.status:
+            requirement.status = new_status
+            db.add(requirement)
+    db.commit()
+    for requirement in requirements:
+        db.refresh(requirement)
     return requirements
