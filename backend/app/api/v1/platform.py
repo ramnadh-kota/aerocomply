@@ -139,6 +139,20 @@ def resend_admin_invitation(
     return MessageResponse(message="Invitation email resent.")
 
 
+@router.post("/admins/{user_id}/revoke-invitation", response_model=MessageResponse)
+def revoke_admin_invitation(
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> MessageResponse:
+    """M19.2: invalidate a still-pending invitation (see
+    auth_service.revoke_account_onboarding) so it can never be accepted.
+    Same PLATFORM_MANAGE gate as resend/invite -- only a platform admin can
+    revoke, matching who can invite in the first place."""
+    auth_service.revoke_account_onboarding(db, actor_user_id=current_user.id, user_id=user_id)
+    return MessageResponse(message="Invitation revoked.")
+
+
 @router.get("/organizations/{organization_id}", response_model=PlatformOrganizationResponse)
 def get_organization(
     organization_id: uuid.UUID,

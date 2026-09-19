@@ -773,3 +773,184 @@ class TestInviteAdminToExistingOrganization:
             headers=_auth(org_a_tokens["access_token"]),
         )
         assert org_b_entitlements.status_code == 403
+
+
+class TestRevokeInvitation:
+    """M19.2: POST /platform/admins/{user_id}/revoke-invitation -- invalidates
+    a still-pending ACCOUNT_ONBOARDING invitation by marking its underlying
+    AuthVerificationCode consumed without ever setting a password (see
+    auth_service.revoke_account_onboarding). No new table, no new token
+    system -- reuses exactly the primitive M19.1's invite-admin issues."""
+
+    def _make_org(self, client, tokens, name):
+        resp = client.post(
+            "/api/v1/platform/organizations", headers=_auth(tokens["access_token"]), json={"name": name}
+        )
+        assert resp.status_code == 201
+        return resp.json()["id"]
+
+    def _invite(self, client, tokens, org_id, email, full_name="Invitee"):
+        resp = client.post(
+            f"/api/v1/platform/organizations/{org_id}/invite-admin",
+            headers=_auth(tokens["access_token"]),
+            json={"email": email, "full_name": full_name},
+        )
+        assert resp.status_code == 201
+        return resp.json()["id"]
+
+    def test_only_platform_admin_can_revoke(self, client, db_session):
+        tenant = _register(client, "Revoke Guard Org", "revoke-guard-admin@example.com")
+        resp = client.post(
+            f"/api/v1/platform/admins/{uuid.uuid4()}/revoke-invitation",
+            headers=_auth(tenant["access_token"]),
+        )
+        assert resp.status_code == 403
+
+    def test_unauthenticated_rejected(self, client, db_session):
+        resp = client.post(f"/api/v1/platform/admins/{uuid.uuid4()}/revoke-invitation")
+        assert resp.status_code == 401
+
+    def test_org_admin_from_another_org_cannot_revoke(self, client, db_session, monkeypatch):
+        """A user from a different organization has no PLATFORM_MANAGE grant
+        at all (same enforcement point as M19.1's cross-org invite check),
+        so this is rejected at the permission layer, not by comparing
+        organization ids that a manipulated path parameter could bypass."""
+        captured: dict[str, list[str]] = {}
+        monkeypatch.setattr(
+            "app.services.auth_service.send_verification_code_email",
+            lambda *, to, code, purpose_label: captured.setdefault(to, []).append(code),
+        )
+        admin = _create_platform_admin(db_session, "revoke-cross-org-admin@example.com")
+        tokens = _login(client, admin.email)
+
+        org_a_id = self._make_org(client, tokens, "Revoke Org A")
+        org_b_id = self._make_org(client, tokens, "Revoke Org B")
+
+        target_user_id = self._invite(
+            client, tokens, org_a_id, "revoke-target-a@example.com"
+        )
+        outsider_email = "revoke-outsider-b@example.com"
+        self._invite(client, tokens, org_b_id, outsider_email)
+        outsider_code = captured[outsider_email][-1]
+        assert client.post(
+            "/api/v1/auth/onboarding/complete",
+            json={
+                "email": outsider_email,
+                "code": outsider_code,
+                "new_password": "outsider-chosen-password123",
+            },
+        ).status_code == 200
+        outsider_tokens = client.post(
+            "/api/v1/auth/login",
+            json={"email": outsider_email, "password": "outsider-chosen-password123"},
+        ).json()
+
+        resp = client.post(
+            f"/api/v1/platform/admins/{target_user_id}/revoke-invitation",
+            headers=_auth(outsider_tokens["access_token"]),
+        )
+        assert resp.status_code == 403
+
+    def test_nonexistent_user_404s(self, client, db_session):
+        admin = _create_platform_admin(db_session, "revoke-404-admin@example.com")
+        tokens = _login(client, admin.email)
+        resp = client.post(
+            f"/api/v1/platform/admins/{uuid.uuid4()}/revoke-invitation",
+            headers=_auth(tokens["access_token"]),
+        )
+        assert resp.status_code == 404
+
+    def test_revoke_then_accept_fails_and_does_not_crash(self, client, db_session, monkeypatch):
+        captured: dict[str, list[str]] = {}
+        monkeypatch.setattr(
+            "app.services.auth_service.send_verification_code_email",
+            lambda *, to, code, purpose_label: captured.setdefault(to, []).append(code),
+        )
+        admin = _create_platform_admin(db_session, "revoke-flow-admin@example.com")
+        tokens = _login(client, admin.email)
+        org_id = self._make_org(client, tokens, "Revoke Flow Org")
+        email = "revoke-flow-invitee@example.com"
+
+        user_id = self._invite(client, tokens, org_id, email)
+        code = captured[email][-1]
+
+        revoke_resp = client.post(
+            f"/api/v1/platform/admins/{user_id}/revoke-invitation",
+            headers=_auth(tokens["access_token"]),
+        )
+        assert revoke_resp.status_code == 200
+
+        events = db_session.execute(
+            select(AuditEvent).where(AuditEvent.organization_id == uuid.UUID(org_id))
+        ).scalars().all()
+        actions = {e.action for e in events}
+        assert "platform.organization.invitation_revoked" in actions
+
+        # Attempting to accept a revoked invitation fails safely (401, not a
+        # 500) and does not activate the account.
+        accept_resp = client.post(
+            "/api/v1/auth/onboarding/complete",
+            json={"email": email, "code": code, "new_password": "revoked-password123"},
+        )
+        assert accept_resp.status_code == 401
+
+        assert client.post(
+            "/api/v1/auth/login", json={"email": email, "password": "revoked-password123"}
+        ).status_code == 401
+
+    def test_revoke_twice_is_conflict_not_crash(self, client, db_session, monkeypatch):
+        captured: dict[str, list[str]] = {}
+        monkeypatch.setattr(
+            "app.services.auth_service.send_verification_code_email",
+            lambda *, to, code, purpose_label: captured.setdefault(to, []).append(code),
+        )
+        admin = _create_platform_admin(db_session, "revoke-twice-admin@example.com")
+        tokens = _login(client, admin.email)
+        org_id = self._make_org(client, tokens, "Revoke Twice Org")
+        email = "revoke-twice-invitee@example.com"
+        user_id = self._invite(client, tokens, org_id, email)
+
+        first = client.post(
+            f"/api/v1/platform/admins/{user_id}/revoke-invitation",
+            headers=_auth(tokens["access_token"]),
+        )
+        assert first.status_code == 200
+
+        second = client.post(
+            f"/api/v1/platform/admins/{user_id}/revoke-invitation",
+            headers=_auth(tokens["access_token"]),
+        )
+        assert second.status_code == 409
+
+    def test_cannot_revoke_an_already_accepted_invitation(self, client, db_session, monkeypatch):
+        """Revocation must never rewind an already-active account back to
+        pending -- accepting first, then attempting to revoke, is rejected
+        (nothing pending left to revoke) and the user remains fully active."""
+        captured: dict[str, list[str]] = {}
+        monkeypatch.setattr(
+            "app.services.auth_service.send_verification_code_email",
+            lambda *, to, code, purpose_label: captured.setdefault(to, []).append(code),
+        )
+        admin = _create_platform_admin(db_session, "revoke-accepted-admin@example.com")
+        tokens = _login(client, admin.email)
+        org_id = self._make_org(client, tokens, "Revoke Accepted Org")
+        email = "revoke-accepted-invitee@example.com"
+        user_id = self._invite(client, tokens, org_id, email)
+        code = captured[email][-1]
+
+        assert client.post(
+            "/api/v1/auth/onboarding/complete",
+            json={"email": email, "code": code, "new_password": "accepted-password123"},
+        ).status_code == 200
+
+        revoke_resp = client.post(
+            f"/api/v1/platform/admins/{user_id}/revoke-invitation",
+            headers=_auth(tokens["access_token"]),
+        )
+        assert revoke_resp.status_code == 409
+
+        # The now-real account can still log in normally -- revocation never
+        # touched an already-accepted user.
+        assert client.post(
+            "/api/v1/auth/login", json={"email": email, "password": "accepted-password123"}
+        ).status_code == 200

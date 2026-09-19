@@ -326,6 +326,53 @@ def request_account_onboarding(db: Session, *, user_id: uuid.UUID) -> None:
     send_verification_code_email(to=user.email, code=code, purpose_label="Account setup")
 
 
+def revoke_account_onboarding(db: Session, *, actor_user_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """M19.2: invalidate a still-pending ACCOUNT_ONBOARDING invitation so it
+    can never be accepted -- the natural revocation mechanism already
+    latent in AuthVerificationCode (see that model's docstring): marking
+    the most recent unconsumed code's consumed_at without ever setting a
+    password, exactly the state _consume_code already treats as
+    "Invalid or expired code" (row.consumed_at is not None). No new table,
+    no new token system -- reuses the exact same primitive M19.1 issues.
+
+    Idempotent-safe by construction, not by an explicit check: calling this
+    twice, or after the invitation was already accepted or has already
+    expired, is always a no-op from the caller's perspective (ConflictError
+    is only raised when there is genuinely nothing pending to revoke), and
+    never rewinds an already-accepted account back to a pending state."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    latest = db.execute(
+        select(AuthVerificationCode)
+        .where(
+            AuthVerificationCode.user_id == user_id,
+            AuthVerificationCode.purpose == VerificationPurpose.ACCOUNT_ONBOARDING,
+        )
+        .order_by(AuthVerificationCode.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+    if latest is None or latest.consumed_at is not None:
+        raise ConflictError(
+            "There is no pending invitation to revoke for this user.",
+            code="no_pending_invitation",
+        )
+
+    latest.consumed_at = datetime.now(UTC)
+    db.add(latest)
+    record_audit_event(
+        db,
+        organization_id=user.organization_id,
+        user_id=actor_user_id,
+        action="platform.organization.invitation_revoked",
+        entity_type="User",
+        entity_id=user.id,
+    )
+    db.commit()
+
+
 def complete_account_onboarding(db: Session, *, email: str, code: str, new_password: str) -> None:
     """The invited admin's own confirmation step (public endpoint, no
     bearer auth -- see app/api/v1/auth.py's /auth/onboarding/complete).

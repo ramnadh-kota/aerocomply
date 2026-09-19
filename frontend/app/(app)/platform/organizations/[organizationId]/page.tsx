@@ -194,9 +194,14 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<NormalizedApiError | null>(null);
   const [inviteResult, setInviteResult] = useState<{
+    id: string;
     email: string;
     onboarding_email_sent: boolean;
   } | null>(null);
+  const [revokeBusy, setRevokeBusy] = useState(false);
+  const [revokeError, setRevokeError] = useState<NormalizedApiError | null>(null);
+  const [revokeConfirming, setRevokeConfirming] = useState(false);
+  const [revoked, setRevoked] = useState(false);
 
   const loadAll = () => {
     if (!isAuthenticated || !accessToken) {
@@ -375,19 +380,40 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
     setInviteBusy(true);
     setInviteError(null);
     setInviteResult(null);
+    setRevoked(false);
+    setRevokeError(null);
+    setRevokeConfirming(false);
     platformApi
       .inviteOrganizationAdmin(accessToken, organizationId, {
         email: inviteEmail.trim(),
         full_name: inviteFullName.trim(),
       })
       .then((res) => {
-        setInviteResult({ email: res.email, onboarding_email_sent: res.onboarding_email_sent });
+        setInviteResult({ id: res.id, email: res.email, onboarding_email_sent: res.onboarding_email_sent });
         setInviteEmail("");
         setInviteFullName("");
         loadAll();
       })
       .catch((err) => setInviteError(normalizeApiError(err)))
       .finally(() => setInviteBusy(false));
+  };
+
+  // M19.2: revoke the just-issued pending invitation so it can never be
+  // accepted. Only offered right after a successful invite in this panel
+  // (not a full invitation-management list) -- the minimal addition the
+  // mission asked for.
+  const submitRevokeInvite = () => {
+    if (!accessToken || !inviteResult) return;
+    setRevokeBusy(true);
+    setRevokeError(null);
+    platformApi
+      .revokeAdminInvitation(accessToken, inviteResult.id)
+      .then(() => {
+        setRevoked(true);
+        setRevokeConfirming(false);
+      })
+      .catch((err) => setRevokeError(normalizeApiError(err)))
+      .finally(() => setRevokeBusy(false));
   };
 
   const confirmLimitAction = () => {
@@ -768,13 +794,23 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
                       {inviteError.message}
                     </p>
                   )}
-                  {inviteResult && (
+                  {inviteResult && !revoked && (
                     <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-compliant, #2a7)" }}>
                       Invitation {inviteResult.onboarding_email_sent ? "sent" : "created, but email delivery failed"}{" "}
                       to {inviteResult.email}.
                     </p>
                   )}
-                  <div>
+                  {revoked && (
+                    <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-non-compliant)" }}>
+                      Invitation to {inviteResult?.email} revoked. It can no longer be accepted.
+                    </p>
+                  )}
+                  {revokeError && (
+                    <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-non-compliant)" }}>
+                      {revokeError.message}
+                    </p>
+                  )}
+                  <div className="ac-flex ac-gap-2">
                     <button
                       className="ac-btn"
                       onClick={submitInviteAdmin}
@@ -782,6 +818,37 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
                     >
                       {inviteBusy ? "Sending Invitation…" : "Send Invitation"}
                     </button>
+                    {inviteResult && !revoked && (
+                      revokeConfirming ? (
+                        <>
+                          <span className="ac-text-sm">Revoke this invitation?</span>
+                          <button
+                            className="ac-btn"
+                            style={{ color: "var(--ac-status-non-compliant)" }}
+                            onClick={submitRevokeInvite}
+                            disabled={revokeBusy}
+                            aria-label="Confirm revoke invitation"
+                          >
+                            {revokeBusy ? "Revoking…" : "Confirm Revoke"}
+                          </button>
+                          <button
+                            className="ac-btn"
+                            onClick={() => setRevokeConfirming(false)}
+                            disabled={revokeBusy}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="ac-btn"
+                          onClick={() => setRevokeConfirming(true)}
+                          disabled={revokeBusy}
+                        >
+                          Revoke Invitation
+                        </button>
+                      )
+                    )}
                   </div>
                 </div>
               </div>

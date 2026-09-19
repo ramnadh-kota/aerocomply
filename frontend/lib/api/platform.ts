@@ -78,6 +78,12 @@ export const platformApi = {
       method: "POST",
       accessToken,
     }),
+
+  revokeAdminInvitation: (accessToken: string, userId: string) =>
+    apiRequest<{ message: string }>(`/platform/admins/${userId}/revoke-invitation`, {
+      method: "POST",
+      accessToken,
+    }),
 };
 
 export interface ProvisionOrganizationRequest {
