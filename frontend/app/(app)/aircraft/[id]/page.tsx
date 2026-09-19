@@ -36,6 +36,7 @@ import { useEffect, useState as useReactState } from "react";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
 import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
+import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
@@ -43,6 +44,153 @@ import { ataChapterToRegion, type AircraftRegion } from "@/lib/aircraft-visual/c
 
 const TABS = ["Overview", "Configuration", "Engines", "Components", "Regulatory", "Assessments", "Evidence", "Audit"] as const;
 type Tab = (typeof TABS)[number];
+
+function AircraftFindingsPanel({ aircraftId }: { aircraftId: string }) {
+  const { accessToken, isAuthenticated } = useSession();
+  const [findings, setFindings] = useReactState<BackendFinding[]>([]);
+  const [loading, setLoading] = useReactState(true);
+  const [error, setError] = useReactState<NormalizedApiError | null>(null);
+  const [showForm, setShowForm] = useReactState(false);
+  const [title, setTitle] = useReactState("");
+  const [description, setDescription] = useReactState("");
+  const [severity, setSeverity] = useReactState("MINOR");
+  const [submitting, setSubmitting] = useReactState(false);
+
+  const refresh = () => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    findingsApi
+      .listForAircraft(accessToken, aircraftId)
+      .then((data) => setFindings(data))
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(refresh, [accessToken, isAuthenticated, aircraftId]);
+
+  const submit = async () => {
+    if (!accessToken || !title.trim() || !description.trim()) return;
+    setSubmitting(true);
+    try {
+      await findingsApi.create(accessToken, { title, description, severity, aircraft_id: aircraftId });
+      setTitle("");
+      setDescription("");
+      setSeverity("MINOR");
+      setShowForm(false);
+      refresh();
+    } catch (err) {
+      setError(normalizeApiError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const close = async (findingId: string) => {
+    if (!accessToken) return;
+    try {
+      await findingsApi.close(accessToken, findingId);
+      refresh();
+    } catch (err) {
+      setError(normalizeApiError(err));
+    }
+  };
+
+  const dispose = async (findingId: string) => {
+    if (!accessToken) return;
+    try {
+      await findingsApi.addDisposition(accessToken, findingId, {
+        disposition_type: "NO_ACTION_REQUIRED",
+      });
+      refresh();
+    } catch (err) {
+      setError(normalizeApiError(err));
+    }
+  };
+
+  return (
+    <section className="ac-section">
+      <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
+        <h2 className="ac-h2" style={{ margin: 0 }}>Findings (live)</h2>
+        {isAuthenticated && (
+          <button className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "Raise Finding"}
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div className="ac-card" style={{ marginBottom: 10 }}>
+          <div className="ac-grid-2" style={{ gap: 8, marginBottom: 8 }}>
+            <input
+              className="ac-input"
+              placeholder="Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <select className="ac-input" value={severity} onChange={(e) => setSeverity(e.target.value)}>
+              <option value="OBSERVATION">Observation</option>
+              <option value="MINOR">Minor</option>
+              <option value="MAJOR">Major</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </div>
+          <textarea
+            className="ac-input"
+            placeholder="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            style={{ width: "100%", minHeight: 60, marginBottom: 8 }}
+          />
+          <button className="ac-btn ac-btn-primary" disabled={submitting} onClick={submit}>
+            {submitting ? "Submitting…" : "Submit Finding"}
+          </button>
+        </div>
+      )}
+
+      <RealDataPanel loading={loading} error={error} isEmpty={findings.length === 0} emptyMessage="No findings recorded for this aircraft yet.">
+        <div className="ac-card" style={{ padding: 0 }}>
+          <table className="ac-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>Discovered</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {findings.map((f) => (
+                <tr key={f.id}>
+                  <td className="ac-text-sm">{f.title}</td>
+                  <td><StatusBadge status={f.severity === "CRITICAL" || f.severity === "MAJOR" ? "NON_COMPLIANT" : "PENDING"} label={f.severity} /></td>
+                  <td><StatusBadge status={f.status === "CLOSED" ? "COMPLIANT" : f.status === "IN_PROGRESS" ? "REVIEW_REQUIRED" : "PENDING"} label={f.status.replace(/_/g, " ")} /></td>
+                  <td className="ac-text-sm">{new Date(f.discovered_at).toLocaleDateString()}</td>
+                  <td className="ac-text-sm">
+                    {f.status !== "CLOSED" && f.dispositions.length === 0 && (
+                      <button className="ac-btn" style={{ fontSize: 11, padding: "2px 8px", marginRight: 6 }} onClick={() => dispose(f.id)}>
+                        No Action Required
+                      </button>
+                    )}
+                    {f.status !== "CLOSED" && f.dispositions.length > 0 && (
+                      <button className="ac-btn ac-btn-primary" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => close(f.id)}>
+                        Close
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </RealDataPanel>
+    </section>
+  );
+}
 
 function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
   const { apiBaseUrl } = useDataMode();
@@ -103,6 +251,7 @@ function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
           )}
         </RealDataPanel>
       )}
+      {isAuthenticated && <AircraftFindingsPanel aircraftId={aircraftId} />}
     </div>
   );
 }

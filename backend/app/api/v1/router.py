@@ -14,6 +14,7 @@ from app.api.v1 import (
     entitlements,
     evidence,
     facilities,
+    findings,
     health,
     inspections,
     inventory,
@@ -49,6 +50,7 @@ api_router.include_router(aog.router)
 api_router.include_router(work_orders.router)
 api_router.include_router(evidence.router)
 api_router.include_router(inspections.router)
+api_router.include_router(findings.router)
 api_router.include_router(tat.router)
 api_router.include_router(release_readiness.router)
 api_router.include_router(parts.router)

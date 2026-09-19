@@ -24,6 +24,16 @@ from app.models.battery import Battery, BatteryStatus
 from app.models.component import Component, ComponentStatus, ComponentType
 from app.models.evidence import Evidence, EvidenceFile, EvidenceFileStatus, EvidenceStatus
 from app.models.facility import Facility, FacilityStatus, FacilityType
+from app.models.finding import (
+    ALL_DISPOSITION_TYPES,
+    ALL_FINDING_SEVERITIES,
+    ALL_FINDING_STATUSES,
+    DispositionType,
+    Finding,
+    FindingDisposition,
+    FindingSeverity,
+    FindingStatus,
+)
 from app.models.flight import Flight
 from app.models.import_job import ImportDomain, ImportJob, ImportJobStatus
 from app.models.inspection_requirement import InspectionRequirement
@@ -103,4 +113,12 @@ __all__ = [
     "ApprovalRequestType",
     "ALL_APPROVAL_STATUSES",
     "ALL_APPROVAL_REQUEST_TYPES",
+    "Finding",
+    "FindingDisposition",
+    "FindingSeverity",
+    "FindingStatus",
+    "DispositionType",
+    "ALL_FINDING_SEVERITIES",
+    "ALL_FINDING_STATUSES",
+    "ALL_DISPOSITION_TYPES",
 ]
