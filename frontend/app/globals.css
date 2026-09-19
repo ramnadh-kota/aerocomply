@@ -637,6 +637,77 @@ button.ac-menu-toggle {
   color: var(--ac-text-secondary);
 }
 
+/* --- Real-data KPI cards (dashboard, M20.1) --- */
+
+.ac-kpi-card-real {
+  background: var(--ac-bg-surface);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-lg);
+  padding: var(--ac-space-4) var(--ac-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ac-kpi-asof {
+  font-size: 11px;
+  color: var(--ac-text-muted);
+  margin: 4px 0 0;
+}
+
+.ac-illustrative-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ac-status-review);
+  background: var(--ac-status-review-bg);
+  border: 1px solid var(--ac-status-review);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* Simple CSS bar chart used for the real fleet-status and work-order
+   charts -- no charting library dependency added; see M20_1_REPORT.md for
+   why this was preferred over adding a new package for one chart. */
+
+.ac-chart-bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 48px;
+  align-items: center;
+  gap: var(--ac-space-3);
+  padding: 6px 0;
+}
+
+.ac-chart-bar-track {
+  height: 14px;
+  border-radius: 7px;
+  background: var(--ac-bg-elevated);
+  overflow: hidden;
+}
+
+.ac-chart-bar-fill {
+  height: 100%;
+  border-radius: 7px;
+  transition: width 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-chart-bar-fill {
+    transition: none;
+  }
+}
+
+.ac-chart-bar-count {
+  text-align: right;
+  font-size: 12px;
+  font-family: var(--ac-font-mono, monospace);
+  color: var(--ac-text-secondary);
+}
+
 /* --- Tables --- */
 
 .ac-table th {

@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CoreLoopDiagram } from "@/components/core-loop/CoreLoopDiagram";
 import { assessments } from "@/lib/mock/assessments";
@@ -18,14 +21,13 @@ import { FleetTatSummary } from "@/components/dashboard/FleetTatSummary";
 import { ViewingAsBadge } from "@/components/layout/ViewingAsBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
 import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
-
-const KPIS = [
-  { label: "Total Aircraft", value: "128", href: "/aircraft" },
-  { label: "Applicable Requirements", value: "1,846", href: "/regulations" },
-  { label: "Assessments Requiring Review", value: "14", href: "/assessments" },
-  { label: "Insufficient Data", value: "7", href: "/assessments" },
-  { label: "Critical Compliance Issues", value: "3", href: "/assessments" },
-];
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { useSession } from "@/lib/auth/SessionContext";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
+import { dronesApi, type DroneResponse } from "@/lib/api/drones";
+import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
+import { deferredItemsApi, type BackendDeferredItem } from "@/lib/api/deferred-items";
 
 const DISTRIBUTION = [
   { label: "Compliant", pct: 92, color: "var(--ac-status-compliant)" },
@@ -40,6 +42,172 @@ const ATTENTION_ITEMS = [
   { text: "1 component installation history has a missing removal date", href: "/components" },
   { text: "1 applicability condition cannot be resolved", href: "/assessments/asmt-1" },
 ];
+
+const WO_CLOSED_STATUSES = new Set(["COMPLETED", "CANCELLED", "CLOSED"]);
+
+function IllustrativeBadge() {
+  return <span className="ac-illustrative-badge">Illustrative Data</span>;
+}
+
+/** Real-data KPI + fleet/work-order charts, backed by the live backend
+ * (aircraft, drones, work orders, deferred items). Fetched client-side with
+ * the signed-in user's access token -- same pattern as /drones, /aircraft
+ * REAL-mode panels. No mock data is used inside this component. */
+function RealFleetPanel() {
+  const { accessToken, isAuthenticated } = useSession();
+  const [aircraft, setAircraft] = useState<BackendAircraft[]>([]);
+  const [drones, setDrones] = useState<DroneResponse[]>([]);
+  const [workOrders, setWorkOrders] = useState<BackendWorkOrder[]>([]);
+  const [deferredItems, setDeferredItems] = useState<BackendDeferredItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+  const [asOf, setAsOf] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      aircraftApi.list(accessToken),
+      dronesApi.listDrones(accessToken),
+      workOrdersApi.list(accessToken),
+      deferredItemsApi.listForFleet(accessToken, true),
+    ])
+      .then(([ac, dr, wo, di]) => {
+        setAircraft(ac);
+        setDrones(dr);
+        setWorkOrders(wo);
+        setDeferredItems(di);
+        setAsOf(new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
+      })
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setLoading(false));
+  }, [accessToken, isAuthenticated]);
+
+  const totalAssets = aircraft.length + drones.length;
+  const activeAssets = aircraft.filter((a) => a.status === "ACTIVE").length + drones.filter((d) => d.status === "ACTIVE").length;
+  const groundedAssets =
+    aircraft.filter((a) => a.status === "GROUNDED").length + drones.filter((d) => d.status === "GROUNDED").length;
+  const unknownAssets = totalAssets - activeAssets - groundedAssets;
+  const openWorkOrderCount = workOrders.filter((w) => !WO_CLOSED_STATUSES.has(w.status)).length;
+
+  const woByStatus = workOrders.reduce<Record<string, number>>((acc, w) => {
+    acc[w.status] = (acc[w.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const maxWoCount = Math.max(1, ...Object.values(woByStatus));
+
+  const statusColor = { ACTIVE: "var(--ac-status-compliant)", GROUNDED: "var(--ac-status-non-compliant)", UNKNOWN: "var(--ac-status-unknown)" } as const;
+
+  return (
+    <>
+      <section className="ac-section">
+        <div className="ac-section-header">
+          <div>
+            <h1 className="ac-h1">Fleet Overview</h1>
+            <p className="ac-subtitle">Live counts from the connected backend (aircraft + drone assets, work orders, MEL items)</p>
+          </div>
+          <ViewingAsBadge />
+        </div>
+
+        {!isAuthenticated ? (
+          <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+            <p className="ac-text-sm" style={{ margin: 0 }}>
+              Sign in to view live fleet data. <Link href="/login">Sign in →</Link>
+            </p>
+          </div>
+        ) : (
+          <RealDataPanel
+            loading={loading}
+            error={error}
+            isEmpty={!loading && !error && totalAssets === 0 && workOrders.length === 0}
+            emptyMessage="No aircraft, drones, or work orders exist for this organization yet."
+          >
+            <div className="ac-kpi-grid">
+              <div className="ac-kpi-card-real">
+                <p className="ac-kpi-label">Total Assets</p>
+                <p className="ac-kpi-value">{totalAssets}</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>{aircraft.length} aircraft · {drones.length} drones</p>
+              </div>
+              <div className="ac-kpi-card-real">
+                <p className="ac-kpi-label">Active Assets</p>
+                <p className="ac-kpi-value">{activeAssets}</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>status = ACTIVE</p>
+              </div>
+              <div className="ac-kpi-card-real">
+                <p className="ac-kpi-label">Grounded / Attention</p>
+                <p className="ac-kpi-value">{groundedAssets}</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>status = GROUNDED</p>
+              </div>
+              <div className="ac-kpi-card-real">
+                <p className="ac-kpi-label">Open Work Orders</p>
+                <p className="ac-kpi-value">{openWorkOrderCount}</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>of {workOrders.length} total</p>
+              </div>
+              <div className="ac-kpi-card-real">
+                <p className="ac-kpi-label">Open MEL / Deferred Items</p>
+                <p className="ac-kpi-value">{deferredItems.length}</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>fleet-wide, open only</p>
+              </div>
+            </div>
+            {asOf && <p className="ac-kpi-asof">As of {asOf} · live backend query, not a fabricated trend</p>}
+
+            <div className="ac-grid-2" style={{ marginTop: "var(--ac-space-5)" }}>
+              <div className="ac-card">
+                <p className="ac-eyebrow" style={{ marginBottom: 10 }}>Fleet Status Distribution</p>
+                {totalAssets === 0 ? (
+                  <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No aircraft or drone assets yet.</p>
+                ) : (
+                  [
+                    { label: "Active", count: activeAssets, color: statusColor.ACTIVE },
+                    { label: "Grounded", count: groundedAssets, color: statusColor.GROUNDED },
+                    { label: "Unknown", count: unknownAssets, color: statusColor.UNKNOWN },
+                  ].map((row) => (
+                    <div className="ac-chart-bar-row" key={row.label}>
+                      <span className="ac-text-sm">{row.label}</span>
+                      <div className="ac-chart-bar-track">
+                        <div
+                          className="ac-chart-bar-fill"
+                          style={{ width: `${totalAssets > 0 ? (row.count / totalAssets) * 100 : 0}%`, background: row.color }}
+                        />
+                      </div>
+                      <span className="ac-chart-bar-count">{row.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="ac-card">
+                <p className="ac-eyebrow" style={{ marginBottom: 10 }}>Work Order Status Breakdown</p>
+                {workOrders.length === 0 ? (
+                  <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No work orders yet.</p>
+                ) : (
+                  Object.entries(woByStatus)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([status, count]) => (
+                      <div className="ac-chart-bar-row" key={status}>
+                        <span className="ac-text-sm">{status.replace(/_/g, " ")}</span>
+                        <div className="ac-chart-bar-track">
+                          <div
+                            className="ac-chart-bar-fill"
+                            style={{ width: `${(count / maxWoCount) * 100}%`, background: "var(--ac-accent)" }}
+                          />
+                        </div>
+                        <span className="ac-chart-bar-count">{count}</span>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          </RealDataPanel>
+        )}
+      </section>
+    </>
+  );
+}
 
 export default function DashboardPage() {
   const recent = [...assessments].sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt)).slice(0, 6);
@@ -75,7 +243,13 @@ export default function DashboardPage() {
         <ViewingAsBadge />
       </div>
 
+      <RealFleetPanel />
+
       <section className="ac-section">
+        <div className="ac-section-header">
+          <h2 className="ac-h2" style={{ margin: 0 }}>Daily Brief, Priority Queue &amp; TAT Summary</h2>
+          <IllustrativeBadge />
+        </div>
         <DailyBriefCard />
       </section>
 
@@ -88,26 +262,21 @@ export default function DashboardPage() {
       </section>
 
       <section className="ac-section">
-        <div className="ac-kpi-grid">
-          {KPIS.map((kpi) => (
-            <Link key={kpi.label} href={kpi.href} className="ac-kpi-card" style={{ display: "block" }}>
-              <p className="ac-kpi-label">{kpi.label}</p>
-              <p className="ac-kpi-value">{kpi.value}</p>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section className="ac-section">
         <div className="ac-card">
-          <p className="ac-eyebrow" style={{ marginBottom: 10 }}>
-            The AeroComply Loop
-          </p>
+          <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
+            <p className="ac-eyebrow" style={{ margin: 0 }}>
+              The AeroComply Loop
+            </p>
+          </div>
           <CoreLoopDiagram />
         </div>
       </section>
 
       <section className="ac-section">
+        <div className="ac-section-header">
+          <h2 className="ac-h2" style={{ margin: 0 }}>Maintenance Operations Snapshot</h2>
+          <IllustrativeBadge />
+        </div>
         <div className="ac-kpi-grid">
           <Link href="/maintenance/projects" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">Active Maintenance Projects</p>
@@ -252,7 +421,9 @@ export default function DashboardPage() {
       <section className="ac-section">
         <div className="ac-section-header">
           <h2 className="ac-h2">Fleet Compliance Overview</h2>
-          <span className="ac-text-sm ac-text-muted">128 aircraft (demo scenario)</span>
+          <span className="ac-flex ac-items-center ac-gap-2 ac-text-sm ac-text-muted">
+            128 aircraft (demo scenario) <IllustrativeBadge />
+          </span>
         </div>
         <div className="ac-card">
           <div className="ac-flex" style={{ height: 10, borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
@@ -452,9 +623,10 @@ export default function DashboardPage() {
       </section>
 
       <section className="ac-section">
-        <h2 className="ac-h2" style={{ marginBottom: 12 }}>
-          Attention Required
-        </h2>
+        <div className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 12 }}>
+          <h2 className="ac-h2" style={{ margin: 0 }}>Attention Required</h2>
+          <IllustrativeBadge />
+        </div>
         <div className="ac-card">
           <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
             {ATTENTION_ITEMS.map((item) => (
