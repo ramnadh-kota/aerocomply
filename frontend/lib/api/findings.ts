@@ -66,6 +66,16 @@ export const findingsApi = {
   listForAircraft: (accessToken: string, aircraftId: string) =>
     apiRequest<BackendFinding[]>(`/findings?aircraft_id=${aircraftId}`, { accessToken }),
 
+  /** Org-wide findings (no aircraft_id/asset_id filter) -- server always
+   * scopes to the caller's organization_id regardless of filters. Used by
+   * the dashboard's real Findings widget. Optional status filter matches
+   * the backend's Finding.status values (OPEN / IN_PROGRESS / CLOSED). */
+  listForOrganization: (accessToken: string, status?: string) =>
+    apiRequest<BackendFinding[]>(
+      `/findings${status ? `?status=${encodeURIComponent(status)}` : ""}`,
+      { accessToken }
+    ),
+
   addDisposition: (
     accessToken: string,
     findingId: string,

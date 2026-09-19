@@ -28,6 +28,7 @@ import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
 import { dronesApi, type DroneResponse } from "@/lib/api/drones";
 import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
 import { deferredItemsApi, type BackendDeferredItem } from "@/lib/api/deferred-items";
+import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 
 const DISTRIBUTION = [
   { label: "Compliant", pct: 92, color: "var(--ac-status-compliant)" },
@@ -209,6 +210,89 @@ function RealFleetPanel() {
   );
 }
 
+/** Real Findings widget, backed by the M20.2 Finding/Disposition API
+ * (GET /findings, org-scoped server-side, no client-supplied org_id).
+ * Distinct from lib/mock/findings.ts, which stays confined to the
+ * already-illustrative-labelled "Maintenance Operations Snapshot" section
+ * below. This is the one Findings surface on the dashboard that is real. */
+function RealFindingsPanel() {
+  const { accessToken, isAuthenticated } = useSession();
+  const [openFindings, setOpenFindings] = useState<BackendFinding[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+  const [asOf, setAsOf] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    findingsApi
+      .listForOrganization(accessToken, "OPEN")
+      .then((f) => {
+        setOpenFindings(f);
+        setAsOf(new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
+      })
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setLoading(false));
+  }, [accessToken, isAuthenticated]);
+
+  if (!isAuthenticated) return null;
+
+  return (
+    <section className="ac-section">
+      <div className="ac-section-header">
+        <div>
+          <h2 className="ac-h2" style={{ margin: 0 }}>Open Findings</h2>
+          <p className="ac-subtitle">Live from the connected backend (Finding/Disposition model)</p>
+        </div>
+      </div>
+      <RealDataPanel
+        loading={loading}
+        error={error}
+        isEmpty={!loading && !error && openFindings.length === 0}
+        emptyMessage="No open findings for this organization."
+      >
+        <div className="ac-kpi-grid">
+          <div className="ac-kpi-card-real">
+            <p className="ac-kpi-label">Open Findings</p>
+            <p className="ac-kpi-value">{openFindings.length}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>status = OPEN, fleet-wide</p>
+          </div>
+        </div>
+        {asOf && <p className="ac-kpi-asof">As of {asOf} · live backend query</p>}
+
+        {openFindings.length > 0 && (
+          <div className="ac-card" style={{ marginTop: "var(--ac-space-5)" }}>
+            <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+              {openFindings.slice(0, 8).map((f) => (
+                <li key={f.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--ac-border-subtle)" }}>
+                  <div className="ac-flex ac-justify-between ac-items-center" style={{ gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{f.title}</p>
+                      <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                        Severity: {f.severity} · Discovered {new Date(f.discovered_at).toLocaleDateString()}
+                        {f.aircraft_id ? null : f.asset_id ? " · drone asset" : ""}
+                      </p>
+                    </div>
+                    {f.aircraft_id ? (
+                      <Link href={`/aircraft/${f.aircraft_id}`} className="ac-btn">View Asset →</Link>
+                    ) : (
+                      <span className="ac-text-sm ac-text-muted">No asset detail view yet</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </RealDataPanel>
+    </section>
+  );
+}
+
 export default function DashboardPage() {
   const recent = [...assessments].sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt)).slice(0, 6);
   const openReviews = assessments.filter((a) => a.humanDecision === "PENDING" || a.humanDecision === "REQUEST_MORE_EVIDENCE");
@@ -244,6 +328,8 @@ export default function DashboardPage() {
       </div>
 
       <RealFleetPanel />
+
+      <RealFindingsPanel />
 
       <section className="ac-section">
         <div className="ac-section-header">
