@@ -42,6 +42,25 @@ class OrganizationAdminCreateRequest(BaseModel):
     password: str = Field(min_length=8, max_length=255)
 
 
+class OrganizationAdminInviteRequest(BaseModel):
+    """Invite an ORG_ADMIN into an EXISTING organization by email -- no
+    password is ever supplied by the platform admin (see
+    provisioning_service.invite_organization_admin's docstring). Distinct
+    from OrganizationAdminCreateRequest above, which sets a caller-supplied
+    password directly and is kept for backward compatibility with existing
+    callers/tests; this is the real invitation-by-email path."""
+
+    email: EmailStr
+    full_name: str = Field(min_length=1, max_length=255)
+
+
+class OrganizationAdminInviteResponse(BaseModel):
+    id: uuid.UUID
+    email: str
+    full_name: str
+    onboarding_email_sent: bool
+
+
 class PlatformOrganizationResponse(BaseModel):
     id: uuid.UUID
     name: str

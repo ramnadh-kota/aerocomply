@@ -621,3 +621,155 @@ class TestOnboardingIntegration:
             headers=_auth(tenant["access_token"]),
         )
         assert resp.status_code == 403
+
+
+class TestInviteAdminToExistingOrganization:
+    """M19.1: POST /platform/organizations/{organization_id}/invite-admin --
+    the narrower invite-only-an-admin path for an organization that already
+    exists (as opposed to /organizations/provision, which creates the
+    organization + subscription + admin together). Exercises the full
+    mission slice: invite -> OTP email -> accept -> password set -> login ->
+    tenant-scoped access -> tenant isolation against a second org, plus the
+    documented edge cases (RBAC, duplicate email, nonexistent org)."""
+
+    def _make_org(self, client, tokens, name):
+        resp = client.post(
+            "/api/v1/platform/organizations", headers=_auth(tokens["access_token"]), json={"name": name}
+        )
+        assert resp.status_code == 201
+        return resp.json()["id"]
+
+    def test_only_platform_admin_can_invite(self, client, db_session):
+        tenant = _register(client, "Invite Guard Org", "invite-guard-admin@example.com")
+        resp = client.post(
+            f"/api/v1/platform/organizations/{uuid.uuid4()}/invite-admin",
+            headers=_auth(tenant["access_token"]),
+            json={"email": "someone@example.com", "full_name": "Someone"},
+        )
+        assert resp.status_code == 403
+
+    def test_unauthenticated_rejected(self, client, db_session):
+        resp = client.post(
+            f"/api/v1/platform/organizations/{uuid.uuid4()}/invite-admin",
+            json={"email": "someone@example.com", "full_name": "Someone"},
+        )
+        assert resp.status_code == 401
+
+    def test_nonexistent_organization_404s(self, client, db_session):
+        admin = _create_platform_admin(db_session, "invite-admin-404@example.com")
+        tokens = _login(client, admin.email)
+        resp = client.post(
+            f"/api/v1/platform/organizations/{uuid.uuid4()}/invite-admin",
+            headers=_auth(tokens["access_token"]),
+            json={"email": "ghost-org-admin@example.com", "full_name": "Ghost"},
+        )
+        assert resp.status_code == 404
+
+    def test_duplicate_email_rejected(self, client, db_session):
+        admin = _create_platform_admin(db_session, "invite-admin-dup@example.com")
+        tokens = _login(client, admin.email)
+        org_id = self._make_org(client, tokens, "Invite Dup Org")
+        email = "dup-invited-admin@example.com"
+
+        first = client.post(
+            f"/api/v1/platform/organizations/{org_id}/invite-admin",
+            headers=_auth(tokens["access_token"]),
+            json={"email": email, "full_name": "First"},
+        )
+        assert first.status_code == 201
+
+        # Same email again -- covers "already a member" / "existing user
+        # anywhere" edge cases; the underlying create_organization_admin
+        # rejects on global email uniqueness (see its own docstring).
+        second = client.post(
+            f"/api/v1/platform/organizations/{org_id}/invite-admin",
+            headers=_auth(tokens["access_token"]),
+            json={"email": email, "full_name": "Second"},
+        )
+        assert second.status_code == 409
+
+    def test_full_invite_to_login_flow_with_audit_and_tenant_isolation(
+        self, client, db_session, monkeypatch
+    ):
+        captured: dict[str, list[str]] = {}
+        monkeypatch.setattr(
+            "app.services.auth_service.send_verification_code_email",
+            lambda *, to, code, purpose_label: captured.setdefault(to, []).append(code),
+        )
+
+        admin = _create_platform_admin(db_session, "invite-admin-full@example.com")
+        tokens = _login(client, admin.email)
+
+        org_a_id = self._make_org(client, tokens, "Invite Org A")
+        org_b_id = self._make_org(client, tokens, "Invite Org B")
+
+        email_a = "invited-org-a-admin@example.com"
+        invite_resp = client.post(
+            f"/api/v1/platform/organizations/{org_a_id}/invite-admin",
+            headers=_auth(tokens["access_token"]),
+            json={"email": email_a, "full_name": "Org A Admin"},
+        )
+        assert invite_resp.status_code == 201
+        body = invite_resp.json()
+        assert body["email"] == email_a
+        assert body["onboarding_email_sent"] is True
+
+        # Invitee cannot log in until they accept (unusable random password).
+        assert client.post(
+            "/api/v1/auth/login", json={"email": email_a, "password": "anything123"}
+        ).status_code == 401
+
+        # Audit events recorded at each step.
+        events = db_session.execute(
+            select(AuditEvent).where(AuditEvent.organization_id == uuid.UUID(org_a_id))
+        ).scalars().all()
+        actions = {e.action for e in events}
+        assert "platform.organization.admin_created" in actions
+        assert "auth.onboarding_email_requested" in actions
+
+        code = captured[email_a][-1]
+        complete_resp = client.post(
+            "/api/v1/auth/onboarding/complete",
+            json={"email": email_a, "code": code, "new_password": "org-a-chosen-password123"},
+        )
+        assert complete_resp.status_code == 200
+
+        # Invitation is single-use: the same code cannot be replayed.
+        replay_resp = client.post(
+            "/api/v1/auth/onboarding/complete",
+            json={"email": email_a, "code": code, "new_password": "another-password456"},
+        )
+        assert replay_resp.status_code == 401
+
+        login_resp = client.post(
+            "/api/v1/auth/login", json={"email": email_a, "password": "org-a-chosen-password123"}
+        )
+        assert login_resp.status_code == 200
+        org_a_tokens = login_resp.json()
+
+        me = client.get("/api/v1/auth/me", headers=_auth(org_a_tokens["access_token"])).json()
+        assert me["organization_id"] == org_a_id
+        assert me["roles"] == ["ORG_ADMIN"]
+
+        # Tenant isolation: Org A's new admin can only ever see Org A's own
+        # user list via a real, tenant-scoped endpoint -- never Org B's.
+        users_resp = client.get(
+            "/api/v1/users", headers=_auth(org_a_tokens["access_token"])
+        )
+        assert users_resp.status_code == 200
+        seen_emails = {u["email"] for u in users_resp.json()}
+        assert seen_emails == {email_a}
+
+        # Platform routes remain rejected for the new tenant admin.
+        assert client.get(
+            "/api/v1/platform/organizations", headers=_auth(org_a_tokens["access_token"])
+        ).status_code == 403
+
+        # Org A's invitation/session can never touch Org B: manipulating the
+        # organization_id in a direct API call still resolves against the
+        # server-derived current_user.organization_id, not client input.
+        org_b_entitlements = client.get(
+            f"/api/v1/platform/organizations/{org_b_id}/entitlements",
+            headers=_auth(org_a_tokens["access_token"]),
+        )
+        assert org_b_entitlements.status_code == 403

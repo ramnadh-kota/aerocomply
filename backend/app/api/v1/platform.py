@@ -29,6 +29,8 @@ from app.schemas.platform import (
     AuditEventResponse,
     ComponentHealthResponse,
     OrganizationAdminCreateRequest,
+    OrganizationAdminInviteRequest,
+    OrganizationAdminInviteResponse,
     OrganizationCreateRequest,
     PlatformHealthResponse,
     PlatformOrganizationResponse,
@@ -199,6 +201,38 @@ def create_organization_admin(
         password=payload.password,
     )
     return {"id": str(user.id), "email": user.email, "full_name": user.full_name}
+
+
+@router.post(
+    "/organizations/{organization_id}/invite-admin",
+    response_model=OrganizationAdminInviteResponse,
+    status_code=201,
+)
+def invite_organization_admin(
+    organization_id: uuid.UUID,
+    payload: OrganizationAdminInviteRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> OrganizationAdminInviteResponse:
+    """M19.1: the real invite-by-email path for adding an ORG_ADMIN to an
+    already-provisioned organization -- no password ever passes through
+    this endpoint or its caller. organization_id comes only from the
+    server-verified path parameter (validated by
+    create_organization_admin, which 404s if it doesn't exist); it is
+    never inferred from anything else client-supplied."""
+    result = provisioning_service.invite_organization_admin(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        email=payload.email,
+        full_name=payload.full_name,
+    )
+    return OrganizationAdminInviteResponse(
+        id=result.admin.id,
+        email=result.admin.email,
+        full_name=result.admin.full_name,
+        onboarding_email_sent=result.onboarding_email_sent,
+    )
 
 
 @router.get(

@@ -187,6 +187,17 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<NormalizedApiError | null>(null);
 
+  // Invite Org Admin state (M19.1)
+  const [showInviteAdmin, setShowInviteAdmin] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteFullName, setInviteFullName] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState<NormalizedApiError | null>(null);
+  const [inviteResult, setInviteResult] = useState<{
+    email: string;
+    onboarding_email_sent: boolean;
+  } | null>(null);
+
   const loadAll = () => {
     if (!isAuthenticated || !accessToken) {
       setLoading(false);
@@ -357,6 +368,26 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
       is_unlimited: editLimitIsUnlimited,
       limit_value: editLimitIsUnlimited ? null : editLimitValue ? parseInt(editLimitValue, 10) : null,
     });
+  };
+
+  const submitInviteAdmin = () => {
+    if (!accessToken || !inviteEmail.trim() || !inviteFullName.trim()) return;
+    setInviteBusy(true);
+    setInviteError(null);
+    setInviteResult(null);
+    platformApi
+      .inviteOrganizationAdmin(accessToken, organizationId, {
+        email: inviteEmail.trim(),
+        full_name: inviteFullName.trim(),
+      })
+      .then((res) => {
+        setInviteResult({ email: res.email, onboarding_email_sent: res.onboarding_email_sent });
+        setInviteEmail("");
+        setInviteFullName("");
+        loadAll();
+      })
+      .catch((err) => setInviteError(normalizeApiError(err)))
+      .finally(() => setInviteBusy(false));
   };
 
   const confirmLimitAction = () => {
@@ -681,6 +712,81 @@ function RealOrganizationDetail({ organizationId }: { organizationId: string }) 
               </div>
             </section>
           )}
+
+          <section className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
+            <div className="ac-flex ac-gap-2" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+              <div>
+                <h2 className="ac-h2" style={{ margin: 0 }}>Invite Org Admin</h2>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>
+                  Sends a secure, single-use invitation email (via the existing account-onboarding flow) to set
+                  their own password and activate an ORG_ADMIN account for this organization. No password is set
+                  here.
+                </p>
+              </div>
+              <button className="ac-btn" onClick={() => setShowInviteAdmin(!showInviteAdmin)} aria-expanded={showInviteAdmin}>
+                {showInviteAdmin ? "Cancel" : "+ Invite Org Admin"}
+              </button>
+            </div>
+
+            {showInviteAdmin && (
+              <div
+                className="ac-card"
+                style={{
+                  margin: "var(--ac-space-3) 0 0",
+                  padding: "var(--ac-space-3)",
+                  background: "var(--ac-bg-secondary, rgba(255,255,255,0.03))",
+                }}
+              >
+                <div className="ac-flex ac-gap-2" style={{ flexDirection: "column" }}>
+                  <div>
+                    <label className="ac-text-sm" style={{ display: "block", marginBottom: 4 }}>
+                      Email <span style={{ color: "var(--ac-status-non-compliant)" }}>*</span>
+                    </label>
+                    <input
+                      type="email"
+                      className="ac-input"
+                      style={{ width: "100%", maxWidth: 400 }}
+                      placeholder="admin@customer.example"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="ac-text-sm" style={{ display: "block", marginBottom: 4 }}>
+                      Full Name <span style={{ color: "var(--ac-status-non-compliant)" }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="ac-input"
+                      style={{ width: "100%", maxWidth: 400 }}
+                      value={inviteFullName}
+                      onChange={(e) => setInviteFullName(e.target.value)}
+                    />
+                  </div>
+                  {inviteError && (
+                    <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-non-compliant)" }}>
+                      {inviteError.message}
+                    </p>
+                  )}
+                  {inviteResult && (
+                    <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-status-compliant, #2a7)" }}>
+                      Invitation {inviteResult.onboarding_email_sent ? "sent" : "created, but email delivery failed"}{" "}
+                      to {inviteResult.email}.
+                    </p>
+                  )}
+                  <div>
+                    <button
+                      className="ac-btn"
+                      onClick={submitInviteAdmin}
+                      disabled={inviteBusy || !inviteEmail.trim() || !inviteFullName.trim()}
+                    >
+                      {inviteBusy ? "Sending Invitation…" : "Send Invitation"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
 
           <section className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
             <div className="ac-flex ac-gap-2" style={{ justifyContent: "space-between", flexWrap: "wrap", alignItems: "center" }}>

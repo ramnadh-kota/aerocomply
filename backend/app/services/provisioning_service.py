@@ -70,6 +70,71 @@ class ProvisionOrganizationResult:
     onboarding_email_sent: bool
 
 
+@dataclass
+class InviteOrganizationAdminResult:
+    admin: User
+    onboarding_email_sent: bool
+
+
+def invite_organization_admin(
+    db: Session,
+    *,
+    actor_user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    email: str,
+    full_name: str,
+) -> InviteOrganizationAdminResult:
+    """M19.1: invite an ORG_ADMIN into an ALREADY-PROVISIONED organization
+    by email -- the narrower sibling of provision_organization above, for
+    the case where the organization (and its subscription) already exist
+    and the platform admin just needs to add/replace its admin.
+
+    Reuses exactly the same two composed calls provision_organization
+    already makes for its admin step -- platform_service.
+    create_organization_admin (random, immediately-discarded password;
+    never seen by the platform admin or this function's caller) followed
+    by auth_service.request_account_onboarding (the ACCOUNT_ONBOARDING OTP
+    email) -- rather than introducing a second invitation/token system.
+    create_organization_admin already enforces the safe edge cases this
+    slice needs: 404 if the organization doesn't exist, and a 409 Conflict
+    if a user with this email already exists anywhere (covers "existing
+    user with no org", "existing user in another org", and "already a
+    member of this org" -- all rejected the same way, matching the
+    existing convention rather than silently moving/merging accounts).
+
+    Email delivery failure does not roll back the created admin account,
+    mirroring provision_organization's own compensation rule: the account
+    is real once committed, and the platform admin can retry via the
+    existing POST /platform/admins/{user_id}/resend-invitation endpoint.
+    """
+    discarded_password = secrets.token_urlsafe(32)
+    admin = platform_service.create_organization_admin(
+        db,
+        actor_user_id=actor_user_id,
+        organization_id=organization_id,
+        email=email,
+        full_name=full_name,
+        password=discarded_password,
+    )
+
+    onboarding_email_sent = False
+    try:
+        auth_service.request_account_onboarding(db, user_id=admin.id)
+        onboarding_email_sent = True
+    except Exception:
+        record_audit_event(
+            db,
+            organization_id=organization_id,
+            user_id=actor_user_id,
+            action="platform.organization.onboarding_email_failed",
+            entity_type="User",
+            entity_id=admin.id,
+        )
+        db.commit()
+
+    return InviteOrganizationAdminResult(admin=admin, onboarding_email_sent=onboarding_email_sent)
+
+
 def _rollback_partial_provisioning(db: Session, *, organization_id: uuid.UUID) -> None:
     db.rollback()
     db.execute(delete(Subscription).where(Subscription.organization_id == organization_id))

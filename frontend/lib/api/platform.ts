@@ -50,6 +50,22 @@ export const platformApi = {
       { method: "POST", body: payload, accessToken }
     ),
 
+  inviteOrganizationAdmin: (
+    accessToken: string,
+    organizationId: string,
+    payload: { email: string; full_name: string }
+  ) =>
+    apiRequest<{
+      id: string;
+      email: string;
+      full_name: string;
+      onboarding_email_sent: boolean;
+    }>(`/platform/organizations/${organizationId}/invite-admin`, {
+      method: "POST",
+      body: payload,
+      accessToken,
+    }),
+
   provisionOrganization: (accessToken: string, payload: ProvisionOrganizationRequest) =>
     apiRequest<ProvisionOrganizationResponse>("/platform/organizations/provision", {
       method: "POST",
