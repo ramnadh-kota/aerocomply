@@ -277,11 +277,14 @@ function RealFindingsPanel() {
                         {f.aircraft_id ? null : f.asset_id ? " · drone asset" : ""}
                       </p>
                     </div>
-                    {f.aircraft_id ? (
-                      <Link href={`/aircraft/${f.aircraft_id}`} className="ac-btn">View Asset →</Link>
-                    ) : (
-                      <span className="ac-text-sm ac-text-muted">No asset detail view yet</span>
-                    )}
+                    <div className="ac-flex ac-gap-2">
+                      <Link href={`/findings/${f.id}`} className="ac-btn ac-btn-primary">View Finding →</Link>
+                      {f.aircraft_id ? (
+                        <Link href={`/aircraft/${f.aircraft_id}`} className="ac-btn">View Asset →</Link>
+                      ) : f.asset_id ? (
+                        <Link href={`/drones/${f.asset_id}`} className="ac-btn">View Asset →</Link>
+                      ) : null}
+                    </div>
                   </div>
                 </li>
               ))}
