@@ -7,44 +7,80 @@ import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
 import { Logo } from "@/components/branding/Logo";
 import { useSession } from "@/lib/auth/SessionContext";
 
-interface NavItem {
+export interface NavItem {
   href: string;
   label: string;
   glyph: string;
 }
 
-interface NavGroup {
+export interface NavGroup {
   label: string;
   items: NavItem[];
 }
 
-const NAV_GROUPS: NavGroup[] = [
+// M21.2 — regrouped from the prior 5 tenant groups (Overview/Fleet/
+// Compliance/Maintenance/Governance) into 7 groups that follow the real
+// aerospace operational workflow (Operations -> Assets -> MRO ->
+// Inspection & Evidence -> Compliance -> Resources -> Administration),
+// adapted to the routes that actually exist in this repo (per
+// docs/M21_PRODUCT_UI_UX_AUDIT.md §2/§6) rather than a generic template.
+// No routes were added or removed from the app; items were only moved
+// between groups (plus three previously-orphaned routes that had no nav
+// entry at all — see M21_2_REPORT.md §B — were given one). Dynamic detail
+// routes (/drones/[id], /aircraft/[id], /findings/[id], etc.) are
+// deliberately NOT listed here; they are reached contextually from their
+// list pages, per the same audit's Phase-2 guidance.
+export const NAV_GROUPS: NavGroup[] = [
   {
-    label: "Overview",
+    label: "Operations",
     items: [
       { href: "/dashboard", label: "Dashboard", glyph: "◧" },
+      { href: "/executive", label: "Executive", glyph: "◆" },
       { href: "/notifications", label: "Notifications", glyph: "🔔" },
       { href: "/pilot", label: "Pilot Workflow", glyph: "▶" },
-      { href: "/executive", label: "Executive", glyph: "◆" },
-      { href: "/finance", label: "MRO Finance", glyph: "$" },
-      { href: "/procurement", label: "Procurement", glyph: "◧" },
-      { href: "/procurement/parts", label: "Parts Search", glyph: "⛭" },
-      { href: "/procurement/cart", label: "My Cart", glyph: "▢" },
-      { href: "/procurement/approvals", label: "Approvals", glyph: "✓" },
-      { href: "/procurement/purchase-orders", label: "Purchase Orders", glyph: "🗎" },
-      { href: "/procurement/vendors", label: "Vendor Intelligence", glyph: "◫" },
+      { href: "/maintenance/control-center", label: "Maintenance Control Center", glyph: "◈" },
+      { href: "/maintenance/control-tower", label: "Control Tower", glyph: "◉" },
+      { href: "/maintenance/hangar", label: "Hangar Floor", glyph: "⛭" },
+      { href: "/automation", label: "Automation Queue", glyph: "⚙" },
       { href: "/ai", label: "AI Command Center", glyph: "✦" },
     ],
   },
   {
-    label: "Fleet",
+    label: "Assets",
     items: [
       { href: "/fleet/health", label: "Fleet Health", glyph: "♥" },
       { href: "/aircraft", label: "Aircraft", glyph: "✈" },
+      { href: "/drones", label: "Drones", glyph: "◆" },
       { href: "/engines", label: "Engines", glyph: "◎" },
       { href: "/components", label: "Components", glyph: "▤" },
       { href: "/facilities", label: "Facilities", glyph: "⌂" },
-      { href: "/drones", label: "Drones", glyph: "◆" },
+    ],
+  },
+  {
+    label: "MRO",
+    items: [
+      { href: "/maintenance/work-orders", label: "Work Orders", glyph: "☰" },
+      { href: "/maintenance/tasks", label: "Tasks", glyph: "☑" },
+      { href: "/maintenance/planning", label: "Planning", glyph: "◔" },
+      { href: "/maintenance/projects", label: "Projects", glyph: "◈" },
+      { href: "/maintenance/technicians", label: "Technicians", glyph: "👷" },
+      { href: "/maintenance/operations", label: "Maintenance Operations", glyph: "◪" },
+      { href: "/maintenance-program", label: "Maintenance Program", glyph: "▦" },
+      { href: "/maintenance/discrepancies", label: "Discrepancy Intelligence", glyph: "⚡" },
+      { href: "/maintenance/defects", label: "Defects", glyph: "⚠" },
+      { href: "/maintenance/deferred", label: "Deferred / MEL", glyph: "◑" },
+      { href: "/maintenance/parts", label: "Parts", glyph: "⛭" },
+      { href: "/maintenance/material-readiness", label: "Material Readiness", glyph: "▤" },
+      { href: "/maintenance/release-readiness", label: "Release Readiness", glyph: "✓" },
+      { href: "/maintenance/records", label: "Maintenance Records", glyph: "🗎" },
+    ],
+  },
+  {
+    label: "Inspection & Evidence",
+    items: [
+      { href: "/maintenance/inspections", label: "Inspections", glyph: "🔍" },
+      { href: "/evidence", label: "Evidence", glyph: "▣" },
+      { href: "/documents", label: "Documents", glyph: "🗎" },
     ],
   },
   {
@@ -52,46 +88,35 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/compliance", label: "AeroComply", glyph: "◆" },
       { href: "/regulations", label: "Regulations", glyph: "§" },
+      { href: "/compliance/regulatory-register", label: "Regulatory Register", glyph: "§" },
       { href: "/assessments", label: "Assessments", glyph: "✓" },
       { href: "/assessment-intelligence", label: "Assessment Intelligence", glyph: "◆" },
-      { href: "/data-import", label: "Data Import", glyph: "⇧" },
-      { href: "/evidence", label: "Evidence", glyph: "▣" },
-      { href: "/documents", label: "Documents", glyph: "🗎" },
-    ],
-  },
-  {
-    label: "Maintenance",
-    items: [
-      { href: "/maintenance/control-center", label: "Maintenance Control Center", glyph: "◈" },
-      { href: "/automation", label: "Automation Queue", glyph: "⚙" },
-      { href: "/maintenance-program", label: "Maintenance Program", glyph: "▦" },
-      { href: "/maintenance/control-tower", label: "Control Tower", glyph: "◉" },
-      { href: "/maintenance/discrepancies", label: "Discrepancy Intelligence", glyph: "⚡" },
-      { href: "/maintenance/operations", label: "Operations", glyph: "◪" },
-      { href: "/maintenance/hangar", label: "Hangar Floor", glyph: "⛭" },
-      { href: "/maintenance/planning", label: "Planning", glyph: "◔" },
-      { href: "/maintenance/material-readiness", label: "Material Readiness", glyph: "▤" },
-      { href: "/maintenance/projects", label: "Projects", glyph: "◈" },
-      { href: "/maintenance/work-orders", label: "Work Orders", glyph: "☰" },
-      { href: "/maintenance/release-readiness", label: "Release Readiness", glyph: "✓" },
-      { href: "/maintenance/inspections", label: "Inspections", glyph: "🔍" },
-      { href: "/maintenance/technicians", label: "Technicians", glyph: "👷" },
-      { href: "/maintenance/tasks", label: "Tasks", glyph: "☑" },
-      { href: "/maintenance/defects", label: "Defects", glyph: "⚠" },
-      { href: "/maintenance/deferred", label: "Deferred / MEL", glyph: "◑" },
-      { href: "/maintenance/parts", label: "Parts", glyph: "⛭" },
-      { href: "/maintenance/records", label: "Records", glyph: "🗎" },
-    ],
-  },
-  {
-    label: "Governance",
-    items: [
+      { href: "/compliance/pre-audit", label: "Pre-Audit", glyph: "✓" },
       { href: "/audit", label: "Audit Trail", glyph: "≡" },
-      { href: "/reports", label: "Reports", glyph: "▦" },
+      { href: "/data-import", label: "Data Import", glyph: "⇧" },
+    ],
+  },
+  {
+    label: "Resources",
+    items: [
+      { href: "/procurement", label: "Procurement", glyph: "◧" },
+      { href: "/procurement/parts", label: "Parts Search", glyph: "⛭" },
+      { href: "/procurement/cart", label: "My Cart", glyph: "▢" },
+      { href: "/procurement/approvals", label: "Approvals", glyph: "✓" },
+      { href: "/procurement/purchase-orders", label: "Purchase Orders", glyph: "🗎" },
+      { href: "/procurement/vendors", label: "Vendor Intelligence", glyph: "◫" },
+      { href: "/finance", label: "MRO Finance", glyph: "$" },
+    ],
+  },
+  {
+    label: "Administration",
+    items: [
       { href: "/organization", label: "Organization", glyph: "◫" },
       { href: "/organization/users", label: "Users", glyph: "◔" },
       { href: "/organization/roles", label: "Roles", glyph: "◈" },
       { href: "/organization/plan", label: "Plan & Subscription", glyph: "◆" },
+      { href: "/organization/readiness", label: "Pilot Readiness", glyph: "✓" },
+      { href: "/reports", label: "Reports", glyph: "▦" },
       { href: "/workspace", label: "Workspace", glyph: "▢" },
       { href: "/integrations", label: "Integrations", glyph: "◫" },
       { href: "/settings", label: "Settings", glyph: "⚙" },
@@ -105,7 +130,7 @@ const NAV_GROUPS: NavGroup[] = [
 // "Platform" section: a platform operator administers organizations,
 // product catalog, plans, and platform governance, never a specific
 // tenant's operational workflows (aircraft, maintenance, evidence, etc.).
-const PLATFORM_NAV_GROUPS: NavGroup[] = [
+export const PLATFORM_NAV_GROUPS: NavGroup[] = [
   {
     label: "Platform Control Plane",
     items: [
@@ -119,7 +144,7 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-function isActive(pathname: string, href: string): boolean {
+export function isActive(pathname: string, href: string): boolean {
   if (href === "/dashboard" || href === "/organization") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
