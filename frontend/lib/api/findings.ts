@@ -66,6 +66,13 @@ export const findingsApi = {
   listForAircraft: (accessToken: string, aircraftId: string) =>
     apiRequest<BackendFinding[]>(`/findings?aircraft_id=${aircraftId}`, { accessToken }),
 
+  /** Findings linked to a drone/asset (Finding.asset_id) -- mirrors
+   * listForAircraft, used by the drone detail page's DroneFindingsPanel
+   * (M20.6). Same GET /findings route, filtered server-side by the
+   * caller's organization_id as always -- asset_id is just a query filter. */
+  listForAsset: (accessToken: string, assetId: string) =>
+    apiRequest<BackendFinding[]>(`/findings?asset_id=${assetId}`, { accessToken }),
+
   /** Org-wide findings (no aircraft_id/asset_id filter) -- server always
    * scopes to the caller's organization_id regardless of filters. Used by
    * the dashboard's real Findings widget. Optional status filter matches

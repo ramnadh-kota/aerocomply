@@ -15,6 +15,7 @@ import { FlightHistoryTable } from "@/components/flights/FlightHistoryTable";
 import { MaintenanceSection } from "@/components/maintenance/MaintenanceSection";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 import {
   canRecordFlight,
   dronesApi,
@@ -38,6 +39,159 @@ function statusBadge(status: string) {
   if (status === "GROUNDED" || status === "CRITICAL" || status === "BLOCKED")
     return { status: "NON_COMPLIANT" as const, label: status };
   return { status: "UNKNOWN" as const, label: status };
+}
+
+// M20.6: Findings panel for the drone detail page, mirroring
+// AircraftFindingsPanel (frontend/app/(app)/aircraft/[id]/page.tsx) exactly
+// -- same findingsApi client, same RealDataPanel/StatusBadge usage, same
+// raise/disposition/close flow, substituting asset_id for aircraft_id. No
+// new backend route: reuses GET /findings?asset_id=, POST /findings,
+// POST /findings/{id}/dispositions, POST /findings/{id}/close.
+function DroneFindingsPanel({ droneId }: { droneId: string }) {
+  const { accessToken, isAuthenticated } = useSession();
+  const [findings, setFindings] = useState<BackendFinding[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [severity, setSeverity] = useState("MINOR");
+  const [submitting, setSubmitting] = useState(false);
+
+  const refresh = () => {
+    if (!isAuthenticated || !accessToken) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    findingsApi
+      .listForAsset(accessToken, droneId)
+      .then((data) => setFindings(data))
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(refresh, [accessToken, isAuthenticated, droneId]);
+
+  const submit = async () => {
+    if (!accessToken || !title.trim() || !description.trim()) return;
+    setSubmitting(true);
+    try {
+      await findingsApi.create(accessToken, { title, description, severity, asset_id: droneId });
+      setTitle("");
+      setDescription("");
+      setSeverity("MINOR");
+      setShowForm(false);
+      refresh();
+    } catch (err) {
+      setError(normalizeApiError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const close = async (findingId: string) => {
+    if (!accessToken) return;
+    try {
+      await findingsApi.close(accessToken, findingId);
+      refresh();
+    } catch (err) {
+      setError(normalizeApiError(err));
+    }
+  };
+
+  const dispose = async (findingId: string) => {
+    if (!accessToken) return;
+    try {
+      await findingsApi.addDisposition(accessToken, findingId, {
+        disposition_type: "NO_ACTION_REQUIRED",
+      });
+      refresh();
+    } catch (err) {
+      setError(normalizeApiError(err));
+    }
+  };
+
+  return (
+    <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+      <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
+        <strong className="ac-text-sm">Findings (live)</strong>
+        {isAuthenticated && (
+          <button className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }} onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "Raise Finding"}
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div className="ac-card" style={{ marginBottom: 10 }}>
+          <div className="ac-grid-2" style={{ gap: 8, marginBottom: 8 }}>
+            <input
+              className="ac-input"
+              placeholder="Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <select className="ac-input" value={severity} onChange={(e) => setSeverity(e.target.value)}>
+              <option value="OBSERVATION">Observation</option>
+              <option value="MINOR">Minor</option>
+              <option value="MAJOR">Major</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </div>
+          <textarea
+            className="ac-input"
+            placeholder="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            style={{ width: "100%", minHeight: 60, marginBottom: 8 }}
+          />
+          <button className="ac-btn ac-btn-primary" disabled={submitting} onClick={submit}>
+            {submitting ? "Submitting…" : "Submit Finding"}
+          </button>
+        </div>
+      )}
+
+      <RealDataPanel loading={loading} error={error} isEmpty={findings.length === 0} emptyMessage="No findings recorded for this drone yet.">
+        <div className="ac-card" style={{ padding: 0 }}>
+          <table className="ac-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>Discovered</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {findings.map((f) => (
+                <tr key={f.id}>
+                  <td className="ac-text-sm">{f.title}</td>
+                  <td><StatusBadge status={f.severity === "CRITICAL" || f.severity === "MAJOR" ? "NON_COMPLIANT" : "PENDING"} label={f.severity} /></td>
+                  <td><StatusBadge status={f.status === "CLOSED" ? "COMPLIANT" : f.status === "IN_PROGRESS" ? "REVIEW_REQUIRED" : "PENDING"} label={f.status.replace(/_/g, " ")} /></td>
+                  <td className="ac-text-sm">{new Date(f.discovered_at).toLocaleDateString()}</td>
+                  <td className="ac-text-sm">
+                    {f.status !== "CLOSED" && f.dispositions.length === 0 && (
+                      <button className="ac-btn" style={{ fontSize: 11, padding: "2px 8px", marginRight: 6 }} onClick={() => dispose(f.id)}>
+                        No Action Required
+                      </button>
+                    )}
+                    {f.status !== "CLOSED" && f.dispositions.length > 0 && (
+                      <button className="ac-btn ac-btn-primary" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => close(f.id)}>
+                        Close
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </RealDataPanel>
+    </div>
+  );
 }
 
 function RealDroneDetail({ assetId }: { assetId: string }) {
@@ -556,6 +710,8 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
                   )}
                 </div>
               </div>
+
+              <DroneFindingsPanel droneId={assetId} />
             </div>
           )}
         </RealDataPanel>
