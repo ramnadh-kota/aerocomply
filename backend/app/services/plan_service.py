@@ -42,7 +42,21 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
 from app.models.plan import Plan, PlanFeature
+from app.models.product_catalog import ProductSuite
 from app.services.audit_service import record_audit_event
+
+
+def _validate_suite_id(db: Session, *, suite_id: uuid.UUID | None) -> None:
+    """M21.4: a caller-supplied suite_id must reference a real ProductSuite
+    row, checked explicitly here (rather than only relying on the DB-level
+    RESTRICT FK) so a bad id 404s cleanly instead of surfacing as a raw
+    IntegrityError -- same "validate before flush" spirit as the rest of
+    this module's IntegrityError-to-ConflictError translation, just for a
+    missing-reference case instead of a duplicate one."""
+    if suite_id is None:
+        return
+    if db.get(ProductSuite, suite_id) is None:
+        raise NotFoundError("Product suite not found")
 
 
 def create_plan(
@@ -54,8 +68,12 @@ def create_plan(
     code: str,
     description: str | None = None,
     is_active: bool = True,
+    suite_id: uuid.UUID | None = None,
 ) -> Plan:
-    plan = Plan(name=name, code=code, description=description, is_active=is_active)
+    _validate_suite_id(db, suite_id=suite_id)
+    plan = Plan(
+        name=name, code=code, description=description, is_active=is_active, suite_id=suite_id
+    )
     db.add(plan)
     try:
         db.flush()
@@ -71,7 +89,7 @@ def create_plan(
         action="platform.plan.created",
         entity_type="Plan",
         entity_id=plan.id,
-        metadata={"code": code, "name": name},
+        metadata={"code": code, "name": name, "suite_id": str(suite_id) if suite_id else None},
     )
     db.commit()
     db.refresh(plan)
@@ -98,6 +116,7 @@ def update_plan(
     name: str | None = None,
     code: str | None = None,
     description: str | None = None,
+    suite_id: uuid.UUID | None = None,
 ) -> Plan:
     plan = get_plan(db, plan_id=plan_id)
 
@@ -111,6 +130,10 @@ def update_plan(
     if description is not None:
         plan.description = description
         updates["description"] = description
+    if suite_id is not None and suite_id != plan.suite_id:
+        _validate_suite_id(db, suite_id=suite_id)
+        plan.suite_id = suite_id
+        updates["suite_id"] = str(suite_id)
 
     db.add(plan)
     if updates:

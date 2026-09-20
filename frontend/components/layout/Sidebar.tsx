@@ -6,6 +6,8 @@ import { useRoleSim, NAV_MODULE_MAP } from "@/lib/role-sim/RoleSimContext";
 import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
 import { Logo } from "@/components/branding/Logo";
 import { useSession } from "@/lib/auth/SessionContext";
+import { useMyEntitlements } from "@/lib/entitlements/useMyEntitlements";
+import { isNavItemEntitlementGated } from "@/lib/entitlements/navFeatureMap";
 
 export interface NavItem {
   href: string;
@@ -167,6 +169,14 @@ export function Sidebar() {
   // /platform/* call regardless of what's shown here.
   const isPlatformUser = user?.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
   const groups = isPlatformUser ? PLATFORM_NAV_GROUPS : NAV_GROUPS;
+  // M21.4: entitlement-aware graying for the tenant nav only -- the Platform
+  // Control Plane nav (isPlatformUser) is never entitlement-gated, since
+  // platform administration isn't a tenant feature. See
+  // lib/entitlements/useMyEntitlements.ts / navFeatureMap.ts: this is a
+  // client-side UX affordance only, never a substitute for the backend's
+  // own PLATFORM_MANAGE/require_permission checks or any future
+  // require_feature() enforcement.
+  const { effectiveFeatures } = useMyEntitlements();
 
   return (
     <>
@@ -190,7 +200,15 @@ export function Sidebar() {
               {group.items.map((item) => {
                 const navModule = NAV_MODULE_MAP[item.href];
                 const level = navModule ? accessFor(navModule) : "APPROVE";
-                const denied = level === "NONE";
+                const roleSimDenied = level === "NONE";
+                const entitlementDenied =
+                  !isPlatformUser && isNavItemEntitlementGated(item.href, effectiveFeatures);
+                const denied = roleSimDenied || entitlementDenied;
+                const title = roleSimDenied
+                  ? "Not available for the simulated role (prototype only — not enforced)"
+                  : entitlementDenied
+                    ? "Not included in your organization's current plan"
+                    : undefined;
                 return (
                   <li key={item.href}>
                     <Link
@@ -198,7 +216,7 @@ export function Sidebar() {
                       className={`ac-nav-link${isActive(pathname, item.href) ? " active" : ""}`}
                       aria-current={isActive(pathname, item.href) ? "page" : undefined}
                       aria-disabled={denied || undefined}
-                      title={denied ? "Not available for the simulated role (prototype only — not enforced)" : undefined}
+                      title={title}
                       style={denied ? { opacity: 0.4 } : undefined}
                       onClick={(e) => {
                         if (denied) e.preventDefault();

@@ -9,6 +9,16 @@ class OrganizationCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
+class OrganizationIndustrySetRequest(BaseModel):
+    """M21.4. `industry=None` clears the classification back to unset --
+    matches app.models.organization.OrganizationIndustry's fixed value set
+    (DRONE_UAV/AIRCRAFT/HELICOPTER/EVTOL_AAM); not a strict Literal here so a
+    future fifth value doesn't require a schema change in lockstep with the
+    model, mirroring how AuditEventResponse.action stays a plain str."""
+
+    industry: str | None = None
+
+
 class ProvisionOrganizationRequest(BaseModel):
     """Phase 18.3: tenant provisioning. Only TRIALING/ACTIVE are accepted
     here -- PAST_DUE/CANCELED/SCHEDULED describe states a subscription
@@ -65,6 +75,7 @@ class PlatformOrganizationResponse(BaseModel):
     id: uuid.UUID
     name: str
     status: str
+    industry: str | None = None
     created_at: datetime
     user_count: int
     aircraft_count: int

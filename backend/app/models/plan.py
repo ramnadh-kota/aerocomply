@@ -26,6 +26,33 @@ class Plan(UUIDPKMixin, TimestampMixin, Base):
     code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # M21.4: optional link from the commercial Plan catalog (this file) to the
+    # platform PRODUCT catalog (app/models/product_catalog.py::ProductSuite).
+    # Nullable because every plan created before this column existed (and any
+    # future plan that legitimately bundles no specific suite, e.g. a
+    # platform-internal/testing plan) must keep working unchanged -- a
+    # fail-open default here would be wrong (Section 19 of
+    # docs/PLATFORM_CONTROL_PLANE_ARCHITECTURE.md warns against fail-open
+    # entitlement defaults), but this FK is deliberately NOT part of
+    # entitlement resolution (app/services/entitlement_service.py is
+    # untouched by this column) -- it is catalog metadata only, answering
+    # "which product suite is this plan for" for platform-admin UI/reporting,
+    # the same soft, non-authoritative role ProductFeature.code already plays
+    # relative to PlanFeature.feature_key (see product_catalog.py's module
+    # docstring). One suite per plan (not a many-to-many join table): every
+    # real plan surfaced by this codebase so far (STARTER/PROFESSIONAL/
+    # ENTERPRISE-style tiers per the architecture doc, Section 4) is a tier
+    # of ONE product line, not a bundle of several distinct suites -- a
+    # multi-suite bundle would be a different Plan row per suite (or a
+    # dedicated bundling concept) rather than overloading this FK, so a
+    # nullable single FK is the accurately-scoped choice, not a
+    # speculative join table for a multiplicity that doesn't exist yet.
+    suite_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("product_suites.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

@@ -15,12 +15,23 @@ class PlanCreateRequest(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     description: str | None = None
     is_active: bool = True
+    # M21.4: which app.models.product_catalog.ProductSuite this plan is for
+    # (optional -- see Plan.suite_id's docstring for why this is nullable
+    # and single-valued).
+    suite_id: uuid.UUID | None = None
 
 
 class PlanUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     code: str | None = Field(default=None, min_length=1, max_length=64)
     description: str | None = None
+    # M21.4. `...` (PydanticUndefined) sentinel isn't used here -- following
+    # this file's existing convention (name/code/description above) of
+    # "None means no change", which is why clearing suite_id back to
+    # unassigned isn't supported through this endpoint; that's an accepted,
+    # narrow limitation consistent with the rest of this schema, not an
+    # oversight.
+    suite_id: uuid.UUID | None = None
 
 
 class PlanResponse(BaseModel):
@@ -29,6 +40,7 @@ class PlanResponse(BaseModel):
     code: str
     description: str | None
     is_active: bool
+    suite_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 

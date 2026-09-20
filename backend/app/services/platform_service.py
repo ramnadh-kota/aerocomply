@@ -105,6 +105,30 @@ def set_organization_status(
     return org
 
 
+def set_organization_industry(
+    db: Session, *, actor_user_id: uuid.UUID | None, organization_id: uuid.UUID, industry: str | None
+) -> Organization:
+    """M21.4: set (or clear, with industry=None) an organization's
+    OrganizationIndustry classification. Purely a metadata tag -- never
+    consulted by entitlement_service.resolve_entitlements or by any
+    permission check; setting it neither grants nor revokes anything."""
+    org = get_organization(db, organization_id=organization_id)
+    org.industry = industry
+    db.add(org)
+    record_audit_event(
+        db,
+        organization_id=org.id,
+        user_id=actor_user_id,
+        action="platform.organization.industry_set",
+        entity_type="Organization",
+        entity_id=org.id,
+        metadata={"industry": industry},
+    )
+    db.commit()
+    db.refresh(org)
+    return org
+
+
 def create_organization_admin(
     db: Session,
     *,

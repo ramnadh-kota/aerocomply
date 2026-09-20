@@ -32,6 +32,7 @@ from app.schemas.platform import (
     OrganizationAdminInviteRequest,
     OrganizationAdminInviteResponse,
     OrganizationCreateRequest,
+    OrganizationIndustrySetRequest,
     PlatformHealthResponse,
     PlatformOrganizationResponse,
     ProvisionOrganizationRequest,
@@ -73,6 +74,7 @@ def _to_response(row: dict) -> PlatformOrganizationResponse:
         id=org.id,
         name=org.name,
         status=org.status,
+        industry=org.industry,
         created_at=org.created_at,
         user_count=row["user_count"],
         aircraft_count=row["aircraft_count"],
@@ -199,6 +201,28 @@ def suspend_organization(
     return _to_response(row)
 
 
+@router.post(
+    "/organizations/{organization_id}/industry", response_model=PlatformOrganizationResponse
+)
+def set_organization_industry(
+    organization_id: uuid.UUID,
+    payload: OrganizationIndustrySetRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> PlatformOrganizationResponse:
+    """M21.4: set or clear (industry=None) an organization's
+    OrganizationIndustry classification. Metadata only -- see
+    platform_service.set_organization_industry's docstring."""
+    platform_service.set_organization_industry(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        industry=payload.industry,
+    )
+    row = platform_service.get_organization_with_counts(db, organization_id=organization_id)
+    return _to_response(row)
+
+
 @router.post("/organizations/{organization_id}/admins", status_code=201)
 def create_organization_admin(
     organization_id: uuid.UUID,
@@ -297,6 +321,7 @@ def create_plan(
         code=payload.code,
         description=payload.description,
         is_active=payload.is_active,
+        suite_id=payload.suite_id,
     )
     return PlanResponse.model_validate(plan)
 
@@ -326,6 +351,7 @@ def update_plan(
         name=payload.name,
         code=payload.code,
         description=payload.description,
+        suite_id=payload.suite_id,
     )
     return PlanResponse.model_validate(plan)
 
