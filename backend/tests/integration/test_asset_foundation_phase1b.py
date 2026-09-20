@@ -351,8 +351,20 @@ class TestMigration0031Backfill:
             Session = sessionmaker(bind=engine, future=True)
             db = Session()
             try:
-                org = Organization(name="Migration 0031 Test Org")
-                db.add(org)
+                # Raw SQL, not the Organization ORM class: this checkpoint is
+                # pinned to revision 0030, which predates migration 0037's
+                # Organization.industry column. Inserting via the live ORM
+                # model (which maps that column) would fail against the
+                # older schema -- match the pattern already used below for
+                # assets/aircraft in this same test.
+                org_result = db.execute(
+                    text(
+                        "INSERT INTO organizations (id, name, status, created_at) "
+                        "VALUES (gen_random_uuid(), :name, 'ACTIVE', now()) RETURNING id"
+                    ),
+                    {"name": "Migration 0031 Test Org"},
+                )
+                org_id = org_result.scalar_one()
                 db.commit()
 
                 asset_result = db.execute(
@@ -361,7 +373,7 @@ class TestMigration0031Backfill:
                         "created_at) VALUES (gen_random_uuid(), :org_id, 'AIRCRAFT', "
                         "'ACTIVE', now()) RETURNING id"
                     ),
-                    {"org_id": str(org.id)},
+                    {"org_id": str(org_id)},
                 )
                 asset_id = asset_result.scalar_one()
                 db.commit()
@@ -373,7 +385,7 @@ class TestMigration0031Backfill:
                         "(gen_random_uuid(), :org_id, 'N60MIG', 'MSN-MIG', 'A320', "
                         "'ACTIVE', :asset_id, now()) RETURNING id"
                     ),
-                    {"org_id": str(org.id), "asset_id": str(asset_id)},
+                    {"org_id": str(org_id), "asset_id": str(asset_id)},
                 )
                 aircraft_id = aircraft_result.scalar_one()
 
@@ -384,7 +396,7 @@ class TestMigration0031Backfill:
                         "(gen_random_uuid(), :org_id, :aircraft_id, 'WO-MIG-1', 'OPEN', "
                         "'NORMAL', now()) RETURNING id"
                     ),
-                    {"org_id": str(org.id), "aircraft_id": str(aircraft_id)},
+                    {"org_id": str(org_id), "aircraft_id": str(aircraft_id)},
                 )
                 work_order_id = wo_result.scalar_one()
                 db.commit()
