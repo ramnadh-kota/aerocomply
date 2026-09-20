@@ -134,10 +134,23 @@ class UtilizationResponse(BaseModel):
     total_cycles: int
 
 
+class FindingBlocker(BaseModel):
+    """M21.1: explainable detail for an unresolved-Finding deployment-
+    readiness blocker. Mirrors the summary string already appended to
+    `blockers` below, but structured so the frontend can link directly to
+    the canonical /findings/{id} page instead of parsing free text."""
+
+    finding_id: uuid.UUID
+    title: str
+    severity: str
+    status: str
+
+
 class DeploymentReadinessResponse(BaseModel):
     asset_id: uuid.UUID
     status: str  # READY | BLOCKED
     blockers: list[str]
+    finding_blockers: list[FindingBlocker] = []
 
 
 # M17.2B: lifecycle history response schemas. Hand-declared projections of

@@ -77,10 +77,21 @@ export interface UtilizationResponse {
   total_cycles: number;
 }
 
+export interface FindingBlocker {
+  finding_id: string;
+  title: string;
+  severity: string;
+  status: string;
+}
+
 export interface DeploymentReadinessResponse {
   asset_id: string;
   status: "READY" | "BLOCKED";
   blockers: string[];
+  // M21.1: structured detail for unresolved-Finding blockers already
+  // summarized as plain strings in `blockers` above -- lets the UI link
+  // directly to the canonical /findings/{id} page instead of parsing text.
+  finding_blockers?: FindingBlocker[];
 }
 
 // M17.2C: lifecycle history types, matching backend/app/schemas/drone_ops.py

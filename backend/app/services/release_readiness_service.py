@@ -39,6 +39,16 @@ field:
     own. Work orders with no asset_id (e.g. drone-only work orders with
     neither aircraft_id nor asset_id set) simply have no COMPLIANCE
     blockers, since there is no asset to evaluate.
+  - FINDING (M21.1): a Finding (app/models/finding.py) whose status is not
+    CLOSED (i.e. OPEN or IN_PROGRESS) and that is linked to this work order
+    -- directly via Finding.work_order_id, or transitively via the same
+    asset the work order resolves to (Finding.asset_id == WorkOrder.asset_id
+    or Finding.aircraft_id == WorkOrder.aircraft_id). Severity is never used
+    to decide whether a Finding blocks (no existing precedent in this
+    codebase for a severity-based split); severity is only surfaced in the
+    blocker description for explainability. A CLOSED finding never blocks.
+    One blocker per unresolved Finding (never collapsed), fetched in a
+    single query -- no query-per-asset/per-task loop.
 
 Authorization sign-off is the one category the frontend mock
 (frontend/lib/mock/ai/analytics.ts) shows that this backend still does not
@@ -52,6 +62,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import NotFoundError
 from app.models.compliance import ComplianceAssessment, ComplianceAssessmentStatus
 from app.models.evidence import Evidence, EvidenceStatus
+from app.models.finding import Finding, FindingStatus
 from app.models.inspection_requirement import InspectionRequirement, InspectionRequirementStatus
 from app.models.part_requirement import PartRequirement, PartRequirementStatus
 from app.models.task import Task
@@ -238,6 +249,35 @@ def get_release_readiness_for_work_order(
                         related_record_id=assessment.id,
                     )
                 )
+
+    # FINDING blockers (M21.1): unresolved Findings linked to this work order
+    # directly, or via the same asset/aircraft the work order resolves to.
+    # Single query, no per-asset loop.
+    finding_conditions: list[ColumnElement[bool]] = [Finding.work_order_id == work_order_id]
+    if work_order.asset_id is not None:
+        finding_conditions.append(Finding.asset_id == work_order.asset_id)
+    if work_order.aircraft_id is not None:
+        finding_conditions.append(Finding.aircraft_id == work_order.aircraft_id)
+    findings = list(
+        db.execute(
+            select(Finding).where(
+                Finding.organization_id == organization_id,
+                Finding.status != FindingStatus.CLOSED,
+                or_(*finding_conditions),
+            )
+        ).scalars().all()
+    )
+    for finding in findings:
+        blockers.append(
+            Blocker(
+                category="FINDING",
+                description=(
+                    f"Unresolved finding ({finding.severity}): {finding.title!r} "
+                    f"(status={finding.status!r})"
+                ),
+                related_record_id=finding.id,
+            )
+        )
 
     status: ReadinessStatus = "BLOCKED" if blockers else "READY"
 

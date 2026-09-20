@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.battery import Battery, BatteryStatus
+from app.models.finding import Finding, FindingStatus
 from app.models.inspection_requirement import InspectionRequirement, InspectionRequirementStatus
 from app.models.work_order import WorkOrder
 from app.services import drone_service, maintenance_service
@@ -73,8 +74,37 @@ def evaluate_deployment_readiness(
     if failed_inspection is not None:
         blockers.append("Failed inspection")
 
+    # M21.1: unresolved Findings (status OPEN or IN_PROGRESS, i.e. not
+    # CLOSED) linked to this asset via Finding.asset_id -- reuses the
+    # existing Finding model/status vocabulary (app/models/finding.py)
+    # exactly as-is, no new severity scoring. Single query, one blocker per
+    # unresolved finding (never collapsed). Severity is surfaced for
+    # explainability only; it is never used to decide whether a finding
+    # blocks.
+    unresolved_findings = list(
+        db.execute(
+            select(Finding).where(
+                Finding.organization_id == organization_id,
+                Finding.asset_id == asset_id,
+                Finding.status != FindingStatus.CLOSED,
+            )
+        ).scalars().all()
+    )
+    finding_blockers = [
+        {
+            "finding_id": finding.id,
+            "title": finding.title,
+            "severity": finding.severity,
+            "status": finding.status,
+        }
+        for finding in unresolved_findings
+    ]
+    for finding in unresolved_findings:
+        blockers.append(f"Unresolved finding ({finding.severity}): {finding.title}")
+
     return {
         "asset_id": asset_id,
         "status": "BLOCKED" if blockers else "READY",
         "blockers": blockers,
+        "finding_blockers": finding_blockers,
     }

@@ -21,6 +21,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   TASK_EXECUTION: "Task Execution",
   MATERIAL: "Material",
   COMPLIANCE: "Compliance",
+  FINDING: "Finding",
 };
 
 export function RealReleaseReadinessPanel({ workOrderId }: { workOrderId: string }) {
@@ -82,7 +83,13 @@ export function RealReleaseReadinessPanel({ workOrderId }: { workOrderId: string
               {readiness.blockers.map((b, i) => (
                 <li key={i} className="ac-text-sm" style={{ marginBottom: 6 }}>
                   <strong>{CATEGORY_LABEL[b.category] ?? b.category}</strong>: {b.description}{" "}
-                  <span className="ac-text-muted ac-mono" style={{ fontSize: 12 }}>({b.related_record_id})</span>
+                  {b.category === "FINDING" ? (
+                    <a href={`/findings/${b.related_record_id}`} className="ac-text-muted ac-mono" style={{ fontSize: 12 }}>
+                      (view finding)
+                    </a>
+                  ) : (
+                    <span className="ac-text-muted ac-mono" style={{ fontSize: 12 }}>({b.related_record_id})</span>
+                  )}
                 </li>
               ))}
             </ul>

@@ -14,7 +14,8 @@ export type BackendBlockerCategory =
   | "INSPECTION"
   | "TASK_EXECUTION"
   | "MATERIAL"
-  | "COMPLIANCE";
+  | "COMPLIANCE"
+  | "FINDING";
 export type BackendReadinessStatus = "READY" | "BLOCKED" | "UNKNOWN";
 
 export interface BackendBlocker {

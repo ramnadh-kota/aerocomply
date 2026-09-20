@@ -400,11 +400,20 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
                     <StatusBadge {...statusBadge(readiness.status)} />
                     {readiness.blockers.length > 0 && (
                       <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-                        {readiness.blockers.map((b) => (
-                          <li key={b} className="ac-text-sm">
-                            {b}
-                          </li>
-                        ))}
+                        {readiness.blockers.map((b, i) => {
+                          // M21.1: if this string blocker has a matching
+                          // structured finding_blockers entry (same index
+                          // order as evaluate_deployment_readiness appends
+                          // both lists), link through to the canonical
+                          // /findings/{id} page instead of rendering plain text.
+                          const findingBlockers = readiness.finding_blockers ?? [];
+                          const finding = findingBlockers[i - (readiness.blockers.length - findingBlockers.length)];
+                          return (
+                            <li key={b + i} className="ac-text-sm">
+                              {finding ? <a href={`/findings/${finding.finding_id}`}>{b}</a> : b}
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </div>

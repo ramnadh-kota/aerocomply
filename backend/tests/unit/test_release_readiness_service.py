@@ -6,6 +6,7 @@ import pytest
 from app.core.errors import NotFoundError
 from app.models.compliance import ComplianceAssessment, ComplianceAssessmentStatus
 from app.models.evidence import Evidence, EvidenceStatus
+from app.models.finding import Finding, FindingSeverity, FindingStatus
 from app.models.inspection_requirement import InspectionRequirement, InspectionRequirementStatus
 from app.models.part_requirement import PartRequirement, PartRequirementStatus
 from app.models.task import Task
@@ -155,6 +156,28 @@ def _requirement(org_id, **overrides) -> InspectionRequirement:
     return req
 
 
+def _finding(org_id, **overrides) -> Finding:
+    defaults = dict(
+        id=uuid.uuid4(),
+        organization_id=org_id,
+        aircraft_id=None,
+        asset_id=None,
+        component_id=None,
+        inspection_requirement_id=None,
+        work_order_id=None,
+        task_id=None,
+        title="Cracked bracket",
+        description="Found during inspection",
+        severity=FindingSeverity.MAJOR,
+        status=FindingStatus.OPEN,
+    )
+    defaults.update(overrides)
+    finding = Finding()
+    for key, value in defaults.items():
+        setattr(finding, key, value)
+    return finding
+
+
 def test_not_found_when_work_order_missing():
     org_id = uuid.uuid4()
     db = _FakeSession([_FakeExecResult(scalar=None)])
@@ -174,6 +197,7 @@ def test_zero_blockers_is_ready():
             _FakeExecResult(scalars_values=[]),  # tasks
             _FakeExecResult(scalars_values=[]),  # inspection requirements (no task_ids)
             _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -197,6 +221,7 @@ def test_task_execution_blocker_when_task_not_completed():
             _FakeExecResult(scalars_values=[]),  # evidence
             _FakeExecResult(scalars_values=[]),  # inspections
             _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -222,6 +247,7 @@ def test_evidence_blocker_when_not_accepted():
             _FakeExecResult(scalars_values=[evidence]),
             _FakeExecResult(scalars_values=[]),  # inspections
             _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -249,6 +275,7 @@ def test_inspection_blocker_when_not_completed_or_not_required():
             _FakeExecResult(scalars_values=[]),  # evidence
             _FakeExecResult(scalars_values=[requirement]),
             _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -277,6 +304,7 @@ def test_accepted_evidence_and_completed_inspection_do_not_block():
             _FakeExecResult(scalars_values=[evidence]),
             _FakeExecResult(scalars_values=[requirement]),
             _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -299,6 +327,7 @@ def test_evidence_required_but_missing_blocks():
             _FakeExecResult(scalars_values=[]),  # evidence -- none submitted
             _FakeExecResult(scalars_values=[]),  # inspections
             _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -324,6 +353,7 @@ def test_evidence_required_satisfied_by_accepted_evidence():
             _FakeExecResult(scalars_values=[evidence]),
             _FakeExecResult(scalars_values=[]),  # inspections
             _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -346,6 +376,7 @@ def test_evidence_not_required_and_missing_does_not_block():
             _FakeExecResult(scalars_values=[]),  # evidence
             _FakeExecResult(scalars_values=[]),  # inspections
             _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -369,6 +400,7 @@ def test_material_blocker_when_short():
             _FakeExecResult(scalars_values=[]),  # tasks
             _FakeExecResult(scalars_values=[]),  # inspections
             _FakeExecResult(scalars_values=[part_req]),
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -398,6 +430,7 @@ def test_material_no_blocker_when_fulfilled_quantity_met():
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[part_req]),
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -425,6 +458,7 @@ def test_material_no_blocker_when_cancelled_even_if_short():
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[part_req]),
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -447,6 +481,7 @@ def test_material_multiple_outstanding_requirements_each_block():
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[part_req_1, part_req_2]),
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -471,6 +506,7 @@ def test_compliance_blocker_when_non_compliant():
             _FakeExecResult(scalars_values=[]),  # inspections
             _FakeExecResult(scalars_values=[]),  # part requirements
             _FakeExecResult(scalars_values=[assessment]),
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -496,6 +532,7 @@ def test_compliance_no_blocker_when_compliant():
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[assessment]),
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -519,6 +556,7 @@ def test_compliance_pending_assessment_does_not_block():
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[assessment]),
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -558,6 +596,7 @@ def test_compliance_historical_non_compliant_does_not_override_current_compliant
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[old_non_compliant, newer_compliant]),
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -579,6 +618,7 @@ def test_compliance_not_evaluated_when_work_order_has_no_asset():
             _FakeExecResult(scalars_values=[]),
             _FakeExecResult(scalars_values=[]),
             # No fifth result: compliance query must not run without asset_id.
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -605,6 +645,7 @@ def test_multiple_blocker_categories_coexist_and_are_independent():
             _FakeExecResult(scalars_values=[]),  # inspections
             _FakeExecResult(scalars_values=[part_req]),
             _FakeExecResult(scalars_values=[assessment]),
+            _FakeExecResult(scalars_values=[]),  # findings
         ]
     )
 
@@ -615,3 +656,138 @@ def test_multiple_blocker_categories_coexist_and_are_independent():
     assert result.status == "BLOCKED"
     categories = {b.category for b in result.blockers}
     assert categories == {"TASK_EXECUTION", "MATERIAL", "COMPLIANCE"}
+
+
+def test_finding_blocker_when_unresolved_and_linked_via_work_order_id():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    finding = _finding(org_id, work_order_id=wo.id, status=FindingStatus.OPEN)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),  # tasks
+            _FakeExecResult(scalars_values=[]),  # inspections
+            _FakeExecResult(scalars_values=[]),  # part requirements
+            _FakeExecResult(scalars_values=[finding]),  # findings
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "BLOCKED"
+    assert len(result.blockers) == 1
+    assert result.blockers[0].category == "FINDING"
+    assert result.blockers[0].related_record_id == finding.id
+
+
+def test_finding_blocker_when_linked_via_asset_id():
+    org_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+    wo = _work_order(org_id, asset_id=asset_id)
+    finding = _finding(org_id, asset_id=asset_id, status=FindingStatus.IN_PROGRESS)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),  # compliance (asset_id set)
+            _FakeExecResult(scalars_values=[finding]),  # findings
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "BLOCKED"
+    assert len(result.blockers) == 1
+    assert result.blockers[0].category == "FINDING"
+    assert result.blockers[0].related_record_id == finding.id
+
+
+def test_closed_finding_does_not_block():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            # The service filters Finding.status != CLOSED in the query
+            # itself, so a CLOSED finding never comes back here at all.
+            _FakeExecResult(scalars_values=[]),  # findings
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "READY"
+    assert result.blockers == []
+
+
+def test_multiple_unresolved_findings_each_produce_their_own_blocker():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    finding_1 = _finding(org_id, work_order_id=wo.id, title="Finding A")
+    finding_2 = _finding(org_id, work_order_id=wo.id, title="Finding B")
+    db = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[finding_1, finding_2]),
+        ]
+    )
+
+    result = release_readiness_service.get_release_readiness_for_work_order(
+        db, organization_id=org_id, work_order_id=wo.id
+    )
+
+    assert result.status == "BLOCKED"
+    assert len(result.blockers) == 2
+    assert {b.related_record_id for b in result.blockers} == {finding_1.id, finding_2.id}
+    assert {b.category for b in result.blockers} == {"FINDING"}
+
+
+def test_finding_lifecycle_transition_reflected_in_fresh_call():
+    org_id = uuid.uuid4()
+    wo = _work_order(org_id)
+    finding = _finding(org_id, work_order_id=wo.id, status=FindingStatus.OPEN)
+
+    db_open = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[finding]),
+        ]
+    )
+    result_open = release_readiness_service.get_release_readiness_for_work_order(
+        db_open, organization_id=org_id, work_order_id=wo.id
+    )
+    assert result_open.status == "BLOCKED"
+
+    # Finding closed -- the query itself excludes CLOSED, so a fresh call
+    # simply gets nothing back for it.
+    db_closed = _FakeSession(
+        [
+            _FakeExecResult(scalar=wo),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+            _FakeExecResult(scalars_values=[]),
+        ]
+    )
+    result_closed = release_readiness_service.get_release_readiness_for_work_order(
+        db_closed, organization_id=org_id, work_order_id=wo.id
+    )
+    assert result_closed.status == "READY"
+    assert result_closed.blockers == []

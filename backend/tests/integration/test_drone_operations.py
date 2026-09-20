@@ -521,6 +521,163 @@ class TestDeploymentReadiness:
         assert len(body["blockers"]) >= 2  # grounded + no battery
 
 
+class TestFindingReadinessIntegration:
+    """M21.1: unresolved Findings (app/models/finding.py) now contribute a
+    blocker to drone deployment-readiness (readiness_service.py), reusing
+    the existing Finding model/API end-to-end rather than any new engine."""
+
+    def _drone_with_good_battery(self, client, token):
+        drone = client.post("/api/v1/drones", headers=_auth(token), json=_drone_payload()).json()
+        client.post(
+            f"/api/v1/drones/{drone['id']}/batteries",
+            headers=_auth(token),
+            json={"serial_number": "BATT-READY"},
+        )
+        return drone
+
+    def _create_finding(self, client, token, asset_id, **overrides):
+        payload = {
+            "title": "Propeller nick observed",
+            "description": "Found during pre-flight inspection",
+            "severity": "MAJOR",
+            "asset_id": asset_id,
+        }
+        payload.update(overrides)
+        resp = client.post("/api/v1/findings", headers=_auth(token), json=payload)
+        assert resp.status_code == 201
+        return resp.json()
+
+    def test_no_findings_no_finding_blocker(self, client):
+        tokens = _register(client, "Finding Readiness Org 1", "finding-ready-1@example.com")
+        drone = self._drone_with_good_battery(client, tokens["access_token"])
+
+        resp = client.get(
+            f"/api/v1/drones/{drone['id']}/deployment-readiness",
+            headers=_auth(tokens["access_token"]),
+        )
+        body = resp.json()
+        assert body["status"] == "READY"
+        assert body.get("finding_blockers", []) == []
+
+    def test_unresolved_finding_produces_blocker(self, client):
+        tokens = _register(client, "Finding Readiness Org 2", "finding-ready-2@example.com")
+        drone = self._drone_with_good_battery(client, tokens["access_token"])
+        finding = self._create_finding(client, tokens["access_token"], drone["id"])
+
+        resp = client.get(
+            f"/api/v1/drones/{drone['id']}/deployment-readiness",
+            headers=_auth(tokens["access_token"]),
+        )
+        body = resp.json()
+        assert body["status"] == "BLOCKED"
+        assert any("Unresolved finding" in b for b in body["blockers"])
+        assert len(body["finding_blockers"]) == 1
+        assert body["finding_blockers"][0]["finding_id"] == finding["id"]
+        assert body["finding_blockers"][0]["severity"] == "MAJOR"
+        assert body["finding_blockers"][0]["status"] == "OPEN"
+
+    def test_closed_finding_produces_no_blocker(self, client):
+        tokens = _register(client, "Finding Readiness Org 3", "finding-ready-3@example.com")
+        drone = self._drone_with_good_battery(client, tokens["access_token"])
+        finding = self._create_finding(client, tokens["access_token"], drone["id"])
+
+        client.post(
+            f"/api/v1/findings/{finding['id']}/dispositions",
+            headers=_auth(tokens["access_token"]),
+            json={"disposition_type": "NO_ACTION_REQUIRED"},
+        )
+        close_resp = client.post(
+            f"/api/v1/findings/{finding['id']}/close", headers=_auth(tokens["access_token"])
+        )
+        assert close_resp.status_code == 200
+
+        resp = client.get(
+            f"/api/v1/drones/{drone['id']}/deployment-readiness",
+            headers=_auth(tokens["access_token"]),
+        )
+        body = resp.json()
+        assert body["status"] == "READY"
+        assert body.get("finding_blockers", []) == []
+
+    def test_multiple_findings_mixed_resolution_only_unresolved_block(self, client):
+        tokens = _register(client, "Finding Readiness Org 4", "finding-ready-4@example.com")
+        drone = self._drone_with_good_battery(client, tokens["access_token"])
+        open_finding = self._create_finding(
+            client, tokens["access_token"], drone["id"], title="Open finding"
+        )
+        closed_finding = self._create_finding(
+            client, tokens["access_token"], drone["id"], title="Closed finding"
+        )
+        client.post(
+            f"/api/v1/findings/{closed_finding['id']}/dispositions",
+            headers=_auth(tokens["access_token"]),
+            json={"disposition_type": "NO_ACTION_REQUIRED"},
+        )
+        client.post(
+            f"/api/v1/findings/{closed_finding['id']}/close", headers=_auth(tokens["access_token"])
+        )
+
+        resp = client.get(
+            f"/api/v1/drones/{drone['id']}/deployment-readiness",
+            headers=_auth(tokens["access_token"]),
+        )
+        body = resp.json()
+        assert body["status"] == "BLOCKED"
+        assert len(body["finding_blockers"]) == 1
+        assert body["finding_blockers"][0]["finding_id"] == open_finding["id"]
+
+    def test_finding_lifecycle_reflected_in_fresh_readiness_call(self, client):
+        tokens = _register(client, "Finding Readiness Org 5", "finding-ready-5@example.com")
+        drone = self._drone_with_good_battery(client, tokens["access_token"])
+
+        ready_before = client.get(
+            f"/api/v1/drones/{drone['id']}/deployment-readiness",
+            headers=_auth(tokens["access_token"]),
+        ).json()
+        assert ready_before["status"] == "READY"
+
+        finding = self._create_finding(client, tokens["access_token"], drone["id"])
+        blocked = client.get(
+            f"/api/v1/drones/{drone['id']}/deployment-readiness",
+            headers=_auth(tokens["access_token"]),
+        ).json()
+        assert blocked["status"] == "BLOCKED"
+
+        client.post(
+            f"/api/v1/findings/{finding['id']}/dispositions",
+            headers=_auth(tokens["access_token"]),
+            json={"disposition_type": "NO_ACTION_REQUIRED"},
+        )
+        client.post(
+            f"/api/v1/findings/{finding['id']}/close", headers=_auth(tokens["access_token"])
+        )
+        ready_after = client.get(
+            f"/api/v1/drones/{drone['id']}/deployment-readiness",
+            headers=_auth(tokens["access_token"]),
+        ).json()
+        assert ready_after["status"] == "READY"
+
+    def test_cross_org_finding_never_leaks_into_other_org_readiness(self, client):
+        org_a = _register(client, "Finding Readiness Org A", "finding-ready-a@example.com")
+        org_b = _register(client, "Finding Readiness Org B", "finding-ready-b@example.com")
+        drone_a = self._drone_with_good_battery(client, org_a["access_token"])
+        drone_b = self._drone_with_good_battery(client, org_b["access_token"])
+        self._create_finding(client, org_a["access_token"], drone_a["id"])
+
+        resp_a = client.get(
+            f"/api/v1/drones/{drone_a['id']}/deployment-readiness",
+            headers=_auth(org_a["access_token"]),
+        ).json()
+        assert resp_a["status"] == "BLOCKED"
+
+        resp_b = client.get(
+            f"/api/v1/drones/{drone_b['id']}/deployment-readiness",
+            headers=_auth(org_b["access_token"]),
+        ).json()
+        assert resp_b["status"] == "READY"
+        assert resp_b.get("finding_blockers", []) == []
+
+
 class TestAudit:
     def test_drone_and_battery_and_flight_record_audit_events(self, client, db_session):
         tokens = _register(client, "Audit Org 1", "drone-audit-admin1@example.com")
