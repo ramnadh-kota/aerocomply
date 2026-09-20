@@ -295,3 +295,40 @@ const MAINTENANCE_DUE_STATUS_MAP: Record<string, BadgeKind> = {
 export function maintenanceDueStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: MAINTENANCE_DUE_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
+
+// M21.3 -- extracted from independently hand-rolled local `statusBadge()`
+// helpers that had converged on the same asset-status mapping in both
+// frontend/app/(app)/drones/page.tsx and frontend/app/(app)/drones/[id]/page.tsx
+// (and a superset used for battery/component/readiness status strings on the
+// drone detail page: GOOD/READY treated as compliant, CRITICAL/BLOCKED as
+// non-compliant). Not a new status vocabulary -- same ACTIVE/GROUNDED/GOOD/
+// READY/CRITICAL/BLOCKED strings the backend already returns.
+const ASSET_STATUS_MAP: Record<string, BadgeKind> = {
+  ACTIVE: "COMPLIANT",
+  GOOD: "COMPLIANT",
+  READY: "COMPLIANT",
+  GROUNDED: "NON_COMPLIANT",
+  CRITICAL: "NON_COMPLIANT",
+  BLOCKED: "NON_COMPLIANT",
+};
+
+export function assetStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: ASSET_STATUS_MAP[status] ?? "UNKNOWN", label: status };
+}
+
+// M21.3 -- extracted from frontend/app/(app)/findings/[id]/page.tsx's local
+// `severityBadge()`/`statusBadge()` helpers. Preserves the exact prior
+// mapping (does not introduce or merge severity/status values): Finding
+// severity is CRITICAL/MAJOR/MINOR/OBSERVATION and Finding status is
+// OPEN/IN_PROGRESS/CLOSED, both real backend-persisted enums
+// (backend/app/models/finding.py) -- unchanged here.
+export function findingSeverityBadge(severity: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: severity === "CRITICAL" || severity === "MAJOR" ? "NON_COMPLIANT" : "PENDING", label: severity };
+}
+
+export function findingStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return {
+    status: status === "CLOSED" ? "COMPLIANT" : status === "IN_PROGRESS" ? "REVIEW_REQUIRED" : "PENDING",
+    label: status.replace(/_/g, " "),
+  };
+}

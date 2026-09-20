@@ -22,6 +22,7 @@ import { ViewingAsBadge } from "@/components/layout/ViewingAsBadge";
 import { PLATFORM_AI_NAME } from "@/lib/brand";
 import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
@@ -106,13 +107,11 @@ function RealFleetPanel() {
   return (
     <>
       <section className="ac-section">
-        <div className="ac-section-header">
-          <div>
-            <h1 className="ac-h1">Fleet Overview</h1>
-            <p className="ac-subtitle">Live counts from the connected backend (aircraft + drone assets, work orders, MEL items)</p>
-          </div>
-          <ViewingAsBadge />
-        </div>
+        <PageHeader
+          title="Fleet Overview"
+          subtitle="Live counts from the connected backend (aircraft + drone assets, work orders, MEL items)"
+          actions={<ViewingAsBadge />}
+        />
 
         {!isAuthenticated ? (
           <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
@@ -246,7 +245,7 @@ function RealFindingsPanel() {
       <div className="ac-section-header">
         <div>
           <h2 className="ac-h2" style={{ margin: 0 }}>Open Findings</h2>
-          <p className="ac-subtitle">Live from the connected backend (Finding/Disposition model)</p>
+          <p className="ac-subtitle" style={{ margin: 0 }}>Live from the connected backend (Finding/Disposition model)</p>
         </div>
       </div>
       <RealDataPanel
@@ -322,13 +321,11 @@ export default function DashboardPage() {
           pairing (same logic FleetContextLayer already uses on /aircraft)
           at the higher hero opacity tier, with the blueprint grid. */}
       <AircraftContextLayer showGrid />
-      <div className="ac-section-header">
-        <div>
-          <h1 className="ac-h1">Compliance Intelligence</h1>
-          <p className="ac-subtitle">Fleet regulatory applicability and assessment overview</p>
-        </div>
-        <ViewingAsBadge />
-      </div>
+      <PageHeader
+        title="Compliance Intelligence"
+        subtitle="Fleet regulatory applicability and assessment overview"
+        actions={<ViewingAsBadge />}
+      />
 
       <RealFleetPanel />
 

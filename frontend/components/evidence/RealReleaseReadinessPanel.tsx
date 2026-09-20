@@ -10,10 +10,10 @@
 // TASK_EXECUTION).
 
 import { useCallback, useEffect, useState } from "react";
-import { StatusBadge } from "@/components/status/StatusBadge";
 import { useSession } from "@/lib/auth/SessionContext";
 import { releaseReadinessApi, type BackendReleaseReadiness } from "@/lib/api/release-readiness";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { ReadinessIndicator, type ReadinessBlocker } from "@/components/readiness/ReadinessIndicator";
 
 const CATEGORY_LABEL: Record<string, string> = {
   EVIDENCE: "Evidence",
@@ -67,36 +67,22 @@ export function RealReleaseReadinessPanel({ workOrderId }: { workOrderId: string
       )}
 
       {!loading && !error && readiness && (
-        <>
-          <div className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 10 }}>
-            <StatusBadge
-              status={readiness.status === "READY" ? "COMPLIANT" : readiness.status === "BLOCKED" ? "NON_COMPLIANT" : "INSUFFICIENT_DATA"}
-              label={readiness.status}
-            />
-            <span className="ac-text-sm ac-text-muted">
-              {readiness.blockers.length} blocker{readiness.blockers.length === 1 ? "" : "s"}
-            </span>
-          </div>
-
-          {readiness.blockers.length > 0 && (
-            <ul style={{ margin: "0 0 10px", paddingLeft: 18 }}>
-              {readiness.blockers.map((b, i) => (
-                <li key={i} className="ac-text-sm" style={{ marginBottom: 6 }}>
-                  <strong>{CATEGORY_LABEL[b.category] ?? b.category}</strong>: {b.description}{" "}
-                  {b.category === "FINDING" ? (
-                    <a href={`/findings/${b.related_record_id}`} className="ac-text-muted ac-mono" style={{ fontSize: 12 }}>
-                      (view finding)
-                    </a>
-                  ) : (
-                    <span className="ac-text-muted ac-mono" style={{ fontSize: 12 }}>({b.related_record_id})</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>{readiness.data_completeness}</p>
-        </>
+        <ReadinessIndicator
+          status={readiness.status}
+          footer={readiness.data_completeness}
+          blockers={readiness.blockers.map((b, i): ReadinessBlocker => ({
+            key: `${b.category}-${i}`,
+            label: (
+              <>
+                <strong>{CATEGORY_LABEL[b.category] ?? b.category}</strong>: {b.description}{" "}
+                {b.category !== "FINDING" && (
+                  <span className="ac-text-muted ac-mono" style={{ fontSize: 12 }}>({b.related_record_id})</span>
+                )}
+              </>
+            ),
+            href: b.category === "FINDING" ? `/findings/${b.related_record_id}` : undefined,
+          }))}
+        />
       )}
     </div>
   );

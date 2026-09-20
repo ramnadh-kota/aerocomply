@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import {
   getFleetDeferredItems,
@@ -119,13 +119,11 @@ function RealDeferredItemsList() {
 
   return (
     <div>
-      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Maintenance", href: "/maintenance/control-tower" }, { label: "Deferred / MEL" }]} />
-      <div className="ac-section-header">
-        <div>
-          <h1 className="ac-h1">Deferred Items / MEL Operations</h1>
-          <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
-        </div>
-      </div>
+      <PageHeader
+        breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Maintenance", href: "/maintenance/control-tower" }, { label: "Deferred / MEL" }]}
+        title="Deferred Items / MEL Operations"
+        subtitle={`REAL data mode — connected to ${apiBaseUrl}`}
+      />
 
       {!isAuthenticated ? (
         <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
@@ -286,16 +284,11 @@ function DemoDeferredItemsPage() {
 
   return (
     <div>
-      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Maintenance", href: "/maintenance/control-tower" }, { label: "Deferred / MEL" }]} />
-      <div className="ac-section-header">
-        <div>
-          <h1 className="ac-h1">Deferred Items / MEL Operations</h1>
-          <p className="ac-subtitle">
-            Fleet-wide view of every deferred item, its operational status, and closure readiness. Closure is human-gated — it
-            never happens merely because a linked work order is completed, and it never implies an airworthiness determination.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Maintenance", href: "/maintenance/control-tower" }, { label: "Deferred / MEL" }]}
+        title="Deferred Items / MEL Operations"
+        subtitle="Fleet-wide view of every deferred item, its operational status, and closure readiness. Closure is human-gated — it never happens merely because a linked work order is completed, and it never implies an airworthiness determination."
+      />
 
       <section className="ac-section">
         <div className="ac-kpi-grid">

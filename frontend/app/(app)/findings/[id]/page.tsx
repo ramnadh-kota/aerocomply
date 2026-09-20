@@ -10,29 +10,20 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, findingSeverityBadge, findingStatusBadge } from "@/components/status/StatusBadge";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 
 function severityBadge(severity: string) {
-  return (
-    <StatusBadge
-      status={severity === "CRITICAL" || severity === "MAJOR" ? "NON_COMPLIANT" : "PENDING"}
-      label={severity}
-    />
-  );
+  return <StatusBadge {...findingSeverityBadge(severity)} />;
 }
 
 function statusBadge(status: string) {
-  return (
-    <StatusBadge
-      status={status === "CLOSED" ? "COMPLIANT" : status === "IN_PROGRESS" ? "REVIEW_REQUIRED" : "PENDING"}
-      label={status.replace(/_/g, " ")}
-    />
-  );
+  return <StatusBadge {...findingStatusBadge(status)} />;
 }
 
 export default function FindingDetailPage(props: { params: Promise<{ id: string }> }) {
@@ -83,12 +74,9 @@ export default function FindingDetailPage(props: { params: Promise<{ id: string 
 
   return (
     <div>
-      <Breadcrumbs
-        items={[
-          { label: "Dashboard", href: "/dashboard" },
-          { label: "Finding" },
-        ]}
-      />
+      {(!finding || loading || error) && (
+        <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Finding" }]} />
+      )}
 
       {!isAuthenticated ? (
         <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
@@ -105,22 +93,27 @@ export default function FindingDetailPage(props: { params: Promise<{ id: string 
         >
           {finding && (
             <>
-              <div className="ac-section-header">
-                <div>
-                  <p className="ac-eyebrow" style={{ margin: 0 }}>FINDING</p>
-                  <h1 className="ac-h1">{finding.title}</h1>
-                  <div className="ac-flex ac-gap-2" style={{ marginTop: 6 }}>
+              <PageHeader
+                breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Finding" }]}
+                eyebrow="FINDING"
+                title={finding.title}
+                subtitle={
+                  <span className="ac-flex ac-gap-2" style={{ marginTop: 6 }}>
                     {statusBadge(finding.status)}
                     {severityBadge(finding.severity)}
-                  </div>
-                </div>
-                {finding.status !== "CLOSED" && finding.dispositions.length === 0 && (
-                  <button className="ac-btn" onClick={dispose}>No Action Required</button>
-                )}
-                {finding.status !== "CLOSED" && finding.dispositions.length > 0 && (
-                  <button className="ac-btn ac-btn-primary" onClick={close}>Close Finding</button>
-                )}
-              </div>
+                  </span>
+                }
+                actions={
+                  <>
+                    {finding.status !== "CLOSED" && finding.dispositions.length === 0 && (
+                      <button className="ac-btn" onClick={dispose}>No Action Required</button>
+                    )}
+                    {finding.status !== "CLOSED" && finding.dispositions.length > 0 && (
+                      <button className="ac-btn ac-btn-primary" onClick={close}>Close Finding</button>
+                    )}
+                  </>
+                }
+              />
 
               {actionError && (
                 <div className="ac-card" style={{ padding: "var(--ac-space-3)", marginBottom: "var(--ac-space-4)" }}>

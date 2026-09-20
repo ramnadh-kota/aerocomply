@@ -6,9 +6,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge } from "@/components/status/StatusBadge";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { StatusBadge, assetStatusBadge as statusBadge } from "@/components/status/StatusBadge";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { ReadinessIndicator, type ReadinessBlocker } from "@/components/readiness/ReadinessIndicator";
 import { LifecycleHistoryList } from "@/components/lifecycle/LifecycleHistoryList";
 import { AssetLifecycleTimeline } from "@/components/lifecycle/AssetLifecycleTimeline";
 import { FlightHistoryTable } from "@/components/flights/FlightHistoryTable";
@@ -32,14 +33,6 @@ import {
 } from "@/lib/api/drones";
 
 const FLIGHT_HISTORY_PAGE_SIZE = 10;
-
-function statusBadge(status: string) {
-  if (status === "ACTIVE" || status === "GOOD" || status === "READY")
-    return { status: "COMPLIANT" as const, label: status };
-  if (status === "GROUNDED" || status === "CRITICAL" || status === "BLOCKED")
-    return { status: "NON_COMPLIANT" as const, label: status };
-  return { status: "UNKNOWN" as const, label: status };
-}
 
 // M20.6: Findings panel for the drone detail page, mirroring
 // AircraftFindingsPanel (frontend/app/(app)/aircraft/[id]/page.tsx) exactly
@@ -367,21 +360,15 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
 
   return (
     <div>
-      <Breadcrumbs
-        items={[
+      <PageHeader
+        breadcrumbs={[
           { label: "Dashboard", href: "/dashboard" },
           { label: "Drones", href: "/drones" },
           { label: drone?.registration ?? "Drone" },
         ]}
+        title={drone?.registration ?? "Drone"}
+        subtitle={`${drone?.manufacturer ?? "—"} ${drone?.model ?? ""}`}
       />
-      <div className="ac-section-header">
-        <div>
-          <h1 className="ac-h1">{drone?.registration ?? "Drone"}</h1>
-          <p className="ac-subtitle">
-            {drone?.manufacturer ?? "—"} {drone?.model ?? ""}
-          </p>
-        </div>
-      </div>
 
       {!isAuthenticated ? (
         <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
@@ -397,25 +384,23 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
                 <strong className="ac-text-sm">Deployment Readiness</strong>
                 {readiness && (
                   <div style={{ marginTop: 8 }}>
-                    <StatusBadge {...statusBadge(readiness.status)} />
-                    {readiness.blockers.length > 0 && (
-                      <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-                        {readiness.blockers.map((b, i) => {
-                          // M21.1: if this string blocker has a matching
-                          // structured finding_blockers entry (same index
-                          // order as evaluate_deployment_readiness appends
-                          // both lists), link through to the canonical
-                          // /findings/{id} page instead of rendering plain text.
-                          const findingBlockers = readiness.finding_blockers ?? [];
-                          const finding = findingBlockers[i - (readiness.blockers.length - findingBlockers.length)];
-                          return (
-                            <li key={b + i} className="ac-text-sm">
-                              {finding ? <a href={`/findings/${finding.finding_id}`}>{b}</a> : b}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
+                    <ReadinessIndicator
+                      status={readiness.status}
+                      blockers={readiness.blockers.map((b, i): ReadinessBlocker => {
+                        // M21.1: if this string blocker has a matching
+                        // structured finding_blockers entry (same index
+                        // order as evaluate_deployment_readiness appends
+                        // both lists), link through to the canonical
+                        // /findings/{id} page instead of rendering plain text.
+                        const findingBlockers = readiness.finding_blockers ?? [];
+                        const finding = findingBlockers[i - (readiness.blockers.length - findingBlockers.length)];
+                        return {
+                          key: `${b}-${i}`,
+                          label: b,
+                          href: finding ? `/findings/${finding.finding_id}` : undefined,
+                        };
+                      })}
+                    />
                   </div>
                 )}
               </div>

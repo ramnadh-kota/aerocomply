@@ -6,19 +6,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { DataTable, type Column } from "@/components/tables/DataTable";
-import { StatusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, assetStatusBadge as statusBadge } from "@/components/status/StatusBadge";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { dronesApi, type DroneResponse } from "@/lib/api/drones";
-
-function statusBadge(status: string) {
-  if (status === "ACTIVE") return { status: "COMPLIANT" as const, label: "Active" };
-  if (status === "GROUNDED") return { status: "NON_COMPLIANT" as const, label: "Grounded" };
-  return { status: "UNKNOWN" as const, label: status };
-}
 
 function RealDrones() {
   const { accessToken, isAuthenticated } = useSession();
@@ -86,13 +80,11 @@ function RealDrones() {
 
   return (
     <div>
-      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Drones" }]} />
-      <div className="ac-section-header">
-        <div>
-          <h1 className="ac-h1">Drones</h1>
-          <p className="ac-subtitle">Drone assets, batteries, components, flights, and deployment readiness.</p>
-        </div>
-      </div>
+      <PageHeader
+        breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Drones" }]}
+        title="Drones"
+        subtitle="Drone assets, batteries, components, flights, and deployment readiness."
+      />
 
       {!isAuthenticated ? (
         <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
