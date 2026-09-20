@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import get_db_session, require_feature, require_permission
 from app.core.errors import NotFoundError
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
@@ -34,6 +34,7 @@ def create_work_order(
 def list_work_orders(
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+    _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> list[WorkOrderResponse]:
     work_orders = work_order_service.list_work_orders(
         db, organization_id=current_user.organization_id
@@ -46,6 +47,7 @@ def get_work_order(
     work_order_id: uuid.UUID,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+    _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> WorkOrderResponse:
     work_order = work_order_service.get_work_order(
         db, organization_id=current_user.organization_id, work_order_id=work_order_id

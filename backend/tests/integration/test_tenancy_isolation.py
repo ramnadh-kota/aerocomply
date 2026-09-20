@@ -12,8 +12,37 @@ NotFoundError, which the global error handler maps to HTTP 404 -- never a
 403, since 403 would confirm the record's existence to an unauthorized org.
 """
 import uuid
+from datetime import UTC, datetime, timedelta
+
+from app.models.plan import Plan, PlanFeature
+from app.models.subscription import Subscription, SubscriptionStatus
 
 NOT_FOUND = 404
+
+
+def _entitle(db_session, org_id, feature_key):
+    """M21.5 test-fixture maintenance: GET /api/v1/work-orders/{id} is now
+    additionally gated by require_feature("work_order_management") (see
+    app/api/v1/work_orders.py). Without a subscription, that check denies
+    with 403 before the tenant-isolation NotFoundError(404) this test is
+    actually about is ever reached -- so entitle the calling org exactly
+    like a real customer would be, leaving the isolation assertion itself
+    untouched."""
+    plan = Plan(name=f"Iso-Plan-{org_id}", code=f"iso-plan-{org_id}", is_active=True)
+    db_session.add(plan)
+    db_session.commit()
+    db_session.refresh(plan)
+    db_session.add(PlanFeature(plan_id=plan.id, feature_key=feature_key, enabled=True))
+    db_session.add(
+        Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+            ends_at=None,
+        )
+    )
+    db_session.commit()
 
 
 def _register(client, org_name, email):
@@ -113,8 +142,10 @@ def test_cross_tenant_cannot_get_aircraft(client):
     assert own.status_code == 200
 
 
-def test_cross_tenant_cannot_get_work_order(client):
+def test_cross_tenant_cannot_get_work_order(client, db_session):
     auth_a, auth_b = _two_tenants(client, "wo")
+    org_a_id = uuid.UUID(client.get("/api/v1/auth/me", headers=auth_a).json()["organization_id"])
+    _entitle(db_session, org_a_id, "work_order_management")
     aircraft_b = _create_aircraft(client, auth_b, "N002BB")
     wo_b = _create_work_order(client, auth_b, aircraft_b["id"], "WO-B-1")
 

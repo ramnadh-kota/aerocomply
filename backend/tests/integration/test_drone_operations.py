@@ -9,7 +9,7 @@ battery critical, failed inspection, and multiple blockers combined).
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -21,8 +21,39 @@ from app.models.maintenance_requirement import (
     MaintenanceRequirement,
     MaintenanceRequirementApplicability,
 )
+from app.models.plan import Plan, PlanFeature
+from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.user import User, UserRole
 from app.models.work_order import WorkOrder
+
+
+def _entitle_drone_ops(db_session, org_id):
+    """M21.5: GET /api/v1/drones and GET /api/v1/drones/{id} are now gated
+    by require_feature("drone_fleet_management") in addition to
+    Permission.DRONE_READ (see app/api/v1/drones.py). Pre-existing tests in
+    this file registered organizations with no subscription at all, which
+    require_feature correctly denies -- this helper is test-fixture
+    maintenance, not a product behavior change, giving the org a real
+    ACTIVE subscription on a plan that includes the feature so the tests
+    keep exercising what they always meant to exercise (RBAC/tenancy on the
+    drone endpoints), not the newly-added entitlement gate."""
+    plan = Plan(name=f"Drone-Test-Plan-{org_id}", code=f"drone-test-{org_id}", is_active=True)
+    db_session.add(plan)
+    db_session.commit()
+    db_session.refresh(plan)
+    db_session.add(
+        PlanFeature(plan_id=plan.id, feature_key="drone_fleet_management", enabled=True)
+    )
+    db_session.add(
+        Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+            ends_at=None,
+        )
+    )
+    db_session.commit()
 
 
 def _auth(token):
@@ -69,8 +100,14 @@ def _drone_payload(*, registration="DRN-001"):
 
 
 class TestDroneCRUD:
-    def test_create_get_list_drone(self, client):
+    def test_create_get_list_drone(self, client, db_session):
         tokens = _register(client, "Drone Org 1", "drone-admin1@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()[
+                "organization_id"
+            ]
+        )
+        _entitle_drone_ops(db_session, org_id)
         create = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         )
@@ -102,8 +139,14 @@ class TestDroneCRUD:
         assert resp.status_code == 200
         assert resp.json()["status"] == "GROUNDED"
 
-    def test_existing_aircraft_asset_not_listed_as_drone(self, client):
+    def test_existing_aircraft_asset_not_listed_as_drone(self, client, db_session):
         tokens = _register(client, "Drone Org 3", "drone-admin3@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()[
+                "organization_id"
+            ]
+        )
+        _entitle_drone_ops(db_session, org_id)
         client.post(
             "/api/v1/aircraft",
             headers=_auth(tokens["access_token"]),
@@ -130,6 +173,7 @@ class TestDroneTenantIsolationAndPermissions:
                 "organization_id"
             ]
         )
+        _entitle_drone_ops(db_session, org_id)
         viewer = _add_viewer(db_session, org_id, "drone-viewer@example.com")
         viewer_tokens = _login(client, viewer.email)
 
@@ -146,9 +190,15 @@ class TestDroneTenantIsolationAndPermissions:
             == 403
         )
 
-    def test_cross_tenant_get_drone_returns_404(self, client):
+    def test_cross_tenant_get_drone_returns_404(self, client, db_session):
         org_a = _register(client, "Drone Isolation Org A", "drone-iso-a@example.com")
         org_b = _register(client, "Drone Isolation Org B", "drone-iso-b@example.com")
+        org_b_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(org_b["access_token"])).json()[
+                "organization_id"
+            ]
+        )
+        _entitle_drone_ops(db_session, org_b_id)
         created = client.post(
             "/api/v1/drones", headers=_auth(org_a["access_token"]), json=_drone_payload()
         )

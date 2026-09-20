@@ -8,7 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import get_db_session, require_feature, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.drone_ops import (
@@ -55,6 +55,7 @@ router = APIRouter(tags=["drones"])
 def list_drones(
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+    _entitled: CurrentUser = Depends(require_feature("drone_fleet_management")),
 ) -> list[DroneResponse]:
     drones = drone_service.list_drones(db, organization_id=current_user.organization_id)
     return [DroneResponse.model_validate(d) for d in drones]
@@ -84,6 +85,7 @@ def get_drone(
     asset_id: uuid.UUID,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+    _entitled: CurrentUser = Depends(require_feature("drone_fleet_management")),
 ) -> DroneResponse:
     drone = drone_service.get_drone(
         db, organization_id=current_user.organization_id, asset_id=asset_id

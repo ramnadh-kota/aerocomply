@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import get_db_session, require_feature, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.procurement_request import (
@@ -38,6 +38,7 @@ def list_requests(
     status: str | None = None,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.PROCUREMENT_READ)),
+    _entitled: CurrentUser = Depends(require_feature("procurement_management")),
 ) -> list[ProcurementRequestResponse]:
     requests = procurement_service.list_requests(
         db, organization_id=current_user.organization_id, status=status
@@ -50,6 +51,7 @@ def get_request(
     request_id: uuid.UUID,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.PROCUREMENT_READ)),
+    _entitled: CurrentUser = Depends(require_feature("procurement_management")),
 ) -> ProcurementRequestResponse:
     request = procurement_service.get_request(
         db, organization_id=current_user.organization_id, request_id=request_id
