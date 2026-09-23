@@ -38,7 +38,7 @@ def upgrade() -> None:
     # 2. Create missions table
     op.create_table(
         "missions",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False, server_default=sa.text("gen_random_uuid()")),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("asset_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("pilot_user_id", postgresql.UUID(as_uuid=True), nullable=True),
