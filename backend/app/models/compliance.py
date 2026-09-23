@@ -52,11 +52,11 @@ class ComplianceAssessmentStatus:
 class ComplianceAssessment(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     __tablename__ = "compliance_assessments"
 
-    aircraft_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=False, index=True
+    aircraft_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("aircraft.id"), nullable=True, index=True
     )
-    # Phase 1B compatibility mapping (migration 0031) -- see
-    # app/models/work_order.py's asset_id for the full rationale.
+    # Phase 1B / M1.5 compatibility mapping (migration 0031, 0038) -- supports
+    # either aircraft_id (aircraft assessments) or asset_id (generic / drone asset assessments).
     asset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True, index=True
     )

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GlobalSearch } from "@/components/search/GlobalSearch";
@@ -14,6 +14,8 @@ import { PLATFORM_AI_NAME } from "@/lib/brand";
 import { HelpPanel } from "@/components/onboarding/HelpPanel";
 import { getProactiveAlerts, type AlertSeverity } from "@/lib/mock/ai/proactive";
 import { useAlertState } from "@/lib/mock/ai/alertState";
+import { useSession } from "@/lib/auth/SessionContext";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
 
 // Same five-color status vocabulary as StatusBadge (components/status/
 // StatusBadge.tsx) — never a second color mapping. Severity maps to the
@@ -31,8 +33,13 @@ export function Topbar() {
   const { roleId, setRoleId } = useRoleSim();
   const { addAuditEvent } = useMroState();
   const { toggle: toggleSidebar } = useSidebarDrawer();
+  const { user, logout, isAuthenticated, sessionType, isReal, organizationName } = useSession();
+  const { mode } = useDataMode();
   const activeRole = getRoleById(roleId);
   const router = useRouter();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement | null>(null);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
   // Computed fresh per render from live mock data — no separate
   // notifications store, so this can never drift from what Lisa reports
   // elsewhere (dashboard Daily Brief, AI console "Lisa noticed…" strip).
@@ -52,9 +59,36 @@ export function Topbar() {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setNotifOpen(false);
     }
+    function onPointerDown(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    }
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onPointerDown);
+    };
   }, [notifOpen]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setUserMenuOpen(false);
+    }
+    function onPointerDown(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [userMenuOpen]);
 
   function changeRole(nextRoleId: string) {
     const nextRole = getRoleById(nextRoleId);
@@ -74,6 +108,20 @@ export function Topbar() {
     setNotifOpen(false);
     router.push(href);
   }
+
+  function handleSignOut() {
+    setUserMenuOpen(false);
+    logout();
+    router.push("/login");
+  }
+
+  const displayName = user?.full_name || (sessionType === "DEMO" ? "KOTA Aerospace Demo User" : "Authenticated User");
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "AU";
 
   return (
     <header className="ac-topbar">
@@ -130,7 +178,7 @@ export function Topbar() {
 
         <HelpPanel />
 
-        <div style={{ position: "relative" }}>
+        <div ref={notifRef} style={{ position: "relative" }}>
           <button
             className="ac-btn"
             aria-label="Notifications"
@@ -237,25 +285,82 @@ export function Topbar() {
           )}
         </div>
 
-        <div className="ac-flex ac-items-center ac-gap-2">
-          <span
-            aria-hidden="true"
+        <div ref={userMenuRef} style={{ position: "relative" }}>
+          <button
+            type="button"
+            className="ac-flex ac-items-center ac-gap-2"
+            aria-label="User menu"
+            aria-expanded={userMenuOpen}
+            aria-haspopup="menu"
+            onClick={() => setUserMenuOpen((v) => !v)}
             style={{
-              width: 28,
-              height: 28,
-              borderRadius: "50%",
-              background: "var(--ac-bg-surface-hover)",
+              background: "transparent",
               border: "1px solid var(--ac-border)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 12,
-              fontWeight: 600,
+              borderRadius: "999px",
+              padding: "6px 10px",
+              cursor: "pointer",
+              color: "var(--ac-text-primary)",
             }}
           >
-            PN
-          </span>
-          <span className="ac-text-sm">Priya Nair</span>
+            <span
+              aria-hidden="true"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: "var(--ac-bg-surface-hover)",
+                border: "1px solid var(--ac-border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              {initials}
+            </span>
+            <span className="ac-text-sm">{displayName}</span>
+            <span aria-hidden="true" style={{ fontSize: 11 }}>▼</span>
+          </button>
+
+          {userMenuOpen && (
+            <div
+              className="ac-card"
+              role="menu"
+              aria-label="User account menu"
+              style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", minWidth: 220, zIndex: 60, padding: 0 }}
+            >
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/settings"); }}>
+                Profile
+              </button>
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/settings"); }}>
+                My Preferences
+              </button>
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/organization"); }}>
+                Organization Settings
+              </button>
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/settings"); }}>
+                Security
+              </button>
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/workspace"); }}>
+                Workspace / Organization
+              </button>
+              <div style={{ borderTop: "1px solid var(--ac-border)", marginTop: 4 }} />
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left", color: "var(--ac-status-non-compliant)" }} onClick={handleSignOut}>
+                Sign Out
+              </button>
+              {isAuthenticated && (
+                <div className="ac-text-sm ac-text-muted" style={{ padding: "8px 12px 10px", borderTop: "1px solid var(--ac-border)", textTransform: "uppercase", letterSpacing: 0.5, fontSize: 11 }}>
+                  <div>{isReal ? "REAL ENVIRONMENT · LIVE API DATA" : "DEMO ENVIRONMENT · SYNTHETIC DATA"}</div>
+                  {organizationName && (
+                    <div style={{ textTransform: "none", marginTop: 4, fontWeight: 600, color: "var(--ac-text-primary)" }}>
+                      {organizationName}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </header>

@@ -20,6 +20,7 @@ from app.api.v1 import (
     inventory,
     lisa,
     maintenance,
+    missions,
     part_requirements,
     parts,
     platform,
@@ -32,6 +33,7 @@ from app.api.v1 import (
     release_readiness,
     tat,
     technicians,
+    tenant,
     users,
     vendor_part_availability,
     vendors,
@@ -46,6 +48,7 @@ api_router.include_router(aircraft.router)
 api_router.include_router(assets.router)
 api_router.include_router(facilities.router)
 api_router.include_router(drones.router)
+api_router.include_router(missions.router)
 api_router.include_router(aog.router)
 api_router.include_router(work_orders.router)
 api_router.include_router(evidence.router)
@@ -76,3 +79,4 @@ api_router.include_router(platform.router)
 api_router.include_router(product_catalog.router)
 api_router.include_router(data_import.router)
 api_router.include_router(entitlements.router)
+api_router.include_router(tenant.router)

@@ -3,14 +3,14 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError
+from app.core.errors import AeroComplyError, NotFoundError
 from app.models.compliance import ComplianceAssessment, RegulatoryRequirement
 from app.schemas.compliance import (
     ComplianceAssessmentCreateRequest,
     ComplianceAssessmentOverrideRequest,
     RegulatoryRequirementCreateRequest,
 )
-from app.services import aircraft_service
+from app.services import aircraft_service, asset_service
 from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
@@ -81,15 +81,27 @@ def create_assessment(
     actor_user_id: uuid.UUID | None,
     payload: ComplianceAssessmentCreateRequest,
 ) -> ComplianceAssessment:
-    aircraft = aircraft_service.get_aircraft(
-        db, organization_id=organization_id, aircraft_id=payload.aircraft_id
-    )
+    if payload.aircraft_id is None and payload.asset_id is None:
+        raise AeroComplyError("Either aircraft_id or asset_id must be provided for a compliance assessment")
+
+    aircraft_id = payload.aircraft_id
+    asset_id = payload.asset_id
+
+    if aircraft_id is not None:
+        aircraft = aircraft_service.get_aircraft(
+            db, organization_id=organization_id, aircraft_id=aircraft_id
+        )
+        if asset_id is None:
+            asset_id = resolve_asset_id(aircraft)
+    elif asset_id is not None:
+        asset_service.get_asset(db, organization_id=organization_id, asset_id=asset_id)
+
     get_requirement(db, organization_id=organization_id, requirement_id=payload.requirement_id)
 
     assessment = ComplianceAssessment(
         organization_id=organization_id,
-        aircraft_id=payload.aircraft_id,
-        asset_id=resolve_asset_id(aircraft),
+        aircraft_id=aircraft_id,
+        asset_id=asset_id,
         requirement_id=payload.requirement_id,
         status=payload.status,
         evaluated_at=payload.evaluated_at,
@@ -153,6 +165,21 @@ def list_assessments_for_aircraft(
     )
 
 
+def list_assessments_for_asset(
+    db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID
+) -> list[ComplianceAssessment]:
+    return list(
+        db.execute(
+            select(ComplianceAssessment).where(
+                ComplianceAssessment.organization_id == organization_id,
+                ComplianceAssessment.asset_id == asset_id,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 def override_assessment(
     db: Session,
     *,
@@ -188,13 +215,22 @@ def override_assessment(
 def get_compliance_analytics(
     db: Session, *, organization_id: uuid.UUID, aircraft_id: uuid.UUID
 ) -> dict[str, int]:
-    """Aggregate assessment counts by status for one aircraft — the honest,
-    directly-countable version of getComplianceAnalytics; this slice does not
-    attempt the frontend's fuller analytics (which also factor in condition-
-    tree confidence scores that have no backend equivalent yet).
-    """
+    """Aggregate assessment counts by status for one aircraft."""
     assessments = list_assessments_for_aircraft(
         db, organization_id=organization_id, aircraft_id=aircraft_id
+    )
+    counts: dict[str, int] = {}
+    for assessment in assessments:
+        counts[assessment.status] = counts.get(assessment.status, 0) + 1
+    return counts
+
+
+def get_compliance_analytics_for_asset(
+    db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID
+) -> dict[str, int]:
+    """Aggregate assessment counts by status for one asset."""
+    assessments = list_assessments_for_asset(
+        db, organization_id=organization_id, asset_id=asset_id
     )
     counts: dict[str, int] = {}
     for assessment in assessments:

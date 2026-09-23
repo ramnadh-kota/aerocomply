@@ -203,8 +203,13 @@ def test_cross_tenant_cannot_get_assessment(client):
     assert resp.status_code == NOT_FOUND
 
 
-def test_cross_tenant_cannot_get_evidence_for_foreign_task(client):
+def test_cross_tenant_cannot_get_evidence_for_foreign_task(client, db_session):
     auth_a, auth_b = _two_tenants(client, "evidence")
+    # M21.5 fixture maintenance: POST /work-orders now requires
+    # work_order_management. Entitle only Org B (the work-order creator)
+    # with the minimum required feature so the isolation assertion is reached.
+    org_b_id = uuid.UUID(client.get("/api/v1/auth/me", headers=auth_b).json()["organization_id"])
+    _entitle(db_session, org_b_id, "work_order_management")
     aircraft_b = _create_aircraft(client, auth_b, "N004DD")
     wo_b = _create_work_order(client, auth_b, aircraft_b["id"], "WO-B-2")
     task_b = _create_task(client, auth_b, wo_b["id"])
@@ -219,12 +224,16 @@ def test_cross_tenant_cannot_get_evidence_for_foreign_task(client):
     assert get_resp.status_code == NOT_FOUND
 
 
-def test_cross_tenant_cannot_create_evidence_against_foreign_task(client):
+def test_cross_tenant_cannot_create_evidence_against_foreign_task(client, db_session):
     """Nested-ID attack: tenant A submits evidence naming a task_id that
     belongs to tenant B. The create path must not silently attach the
     evidence to tenant B's task under tenant A's organization_id -- it must
     reject the foreign reference entirely."""
     auth_a, auth_b = _two_tenants(client, "evidence-nested")
+    # M21.5 fixture maintenance: POST /work-orders now requires
+    # work_order_management. Entitle only Org B (the work-order creator).
+    org_b_id = uuid.UUID(client.get("/api/v1/auth/me", headers=auth_b).json()["organization_id"])
+    _entitle(db_session, org_b_id, "work_order_management")
     aircraft_b = _create_aircraft(client, auth_b, "N005EE")
     wo_b = _create_work_order(client, auth_b, aircraft_b["id"], "WO-B-3")
     task_b = _create_task(client, auth_b, wo_b["id"])

@@ -1,15 +1,13 @@
 "use client";
 
-// Demo/Real data-mode switch. DEMO (default) is the existing, unchanged
-// client-side mock-data experience the rest of this prototype was built on.
-// REAL calls the actual FastAPI backend (see frontend/lib/apiClient.ts and
-// frontend/lib/api/*) running locally on NEXT_PUBLIC_API_BASE_URL.
-//
-// Persisted to this browser's localStorage only, exactly like the alert
-// state / welcome-tour "seen" flag patterns elsewhere in this app — never
-// synced to a backend or another device.
+// Demo/Real data-mode.
+// When an authenticated session is active:
+// - DEMO session -> DEMO mode (synthetic data)
+// - REAL session -> REAL mode (FastAPI backend)
+// Real users cannot cross-switch into demo data; demo sessions cannot call real APIs.
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSession } from "@/lib/auth/SessionContext";
 
 export const DATA_MODE_STORAGE_KEY = "aerocomply-data-mode";
 
@@ -21,14 +19,6 @@ interface DataModeContextValue {
   isReal: boolean;
   /** The backend base URL REAL mode talks to — for display only. */
   apiBaseUrl: string;
-  /**
-   * True once the persisted mode has been read from localStorage. Pages that
-   * call notFound() on a mock-data miss (e.g. [id] detail routes) must wait
-   * for this before evaluating DEMO-branch lookups — otherwise a REAL-only id
-   * on first paint (mode still defaulted to DEMO) trips notFound()
-   * irrecoverably, since Next's not-found boundary doesn't un-throw when
-   * mode flips a moment later.
-   */
   hydrated: boolean;
 }
 
@@ -44,19 +34,29 @@ function loadStoredMode(): DataMode {
 }
 
 export function DataModeProvider({ children }: { children: ReactNode }) {
-  // Default DEMO on both server and first client render to avoid a
-  // hydration mismatch; the persisted choice (if any) is applied right
-  // after mount, client-only.
-  const [mode, setModeState] = useState<DataMode>("DEMO");
+  let sessionType: "REAL" | "DEMO" | null = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const session = useSession();
+    sessionType = session.sessionType;
+  } catch {
+    // Standalone tests or unmounted SessionProvider
+    sessionType = null;
+  }
+
+  const [storedMode, setStoredModeState] = useState<DataMode>("DEMO");
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    setModeState(loadStoredMode());
+    setStoredModeState(loadStoredMode());
     setHydrated(true);
   }, []);
 
   const setMode = (next: DataMode) => {
-    setModeState(next);
+    // If in an active session, lock mode to the session boundary
+    if (sessionType === "REAL" && next !== "REAL") return;
+    if (sessionType === "DEMO" && next !== "DEMO") return;
+    setStoredModeState(next);
     try {
       window.localStorage.setItem(DATA_MODE_STORAGE_KEY, next);
     } catch {
@@ -64,15 +64,21 @@ export function DataModeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const effectiveMode: DataMode = useMemo(() => {
+    if (sessionType === "REAL") return "REAL";
+    if (sessionType === "DEMO") return "DEMO";
+    return storedMode;
+  }, [sessionType, storedMode]);
+
   const value = useMemo<DataModeContextValue>(
     () => ({
-      mode,
+      mode: effectiveMode,
       setMode,
-      isReal: mode === "REAL",
+      isReal: effectiveMode === "REAL",
       apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1",
       hydrated,
     }),
-    [mode, hydrated]
+    [effectiveMode, hydrated]
   );
 
   return <DataModeContext.Provider value={value}>{children}</DataModeContext.Provider>;

@@ -57,10 +57,10 @@ describe("Sidebar NAV_GROUPS (M21.2 IA regrouping)", () => {
     expect(hrefs).toContain("/compliance/regulatory-register");
   });
 
-  it("places core asset routes (Aircraft, Drones) in the Assets group, not scattered across Fleet/Overview", () => {
+  it("places core asset routes (Fleet Registry, Aircraft, Drones) in the Assets group, not scattered across Fleet/Overview", () => {
     const assets = NAV_GROUPS.find((g) => g.label === "Assets")!;
     const hrefs = assets.items.map((i) => i.href);
-    expect(hrefs).toEqual(expect.arrayContaining(["/aircraft", "/drones", "/engines", "/components", "/facilities"]));
+    expect(hrefs).toEqual(expect.arrayContaining(["/assets", "/aircraft", "/drones", "/engines", "/components", "/facilities"]));
   });
 
   it("places Inspections and Evidence together in a dedicated Inspection & Evidence group", () => {
@@ -70,21 +70,49 @@ describe("Sidebar NAV_GROUPS (M21.2 IA regrouping)", () => {
     expect(hrefs).toContain("/evidence");
   });
 
-  it("keeps the total number of tenant nav items unchanged aside from the 3 newly-linked orphan routes (53 -> 56)", () => {
-    // Pre-M21.2 flat NAV_GROUPS had 53 items across 5 groups (12+6+7+19+9).
-    // This session added nav entries for 3 previously-unreachable routes
-    // (/organization/readiness, /compliance/pre-audit,
-    // /compliance/regulatory-register) and moved every other item without
-    // adding or removing any route.
-    expect(allHrefs(NAV_GROUPS).length).toBe(56);
+  it("includes all M3 tenant administration routes in the Administration group", () => {
+    const adminGroup = NAV_GROUPS.find((g) => g.label === "Administration")!;
+    const hrefs = adminGroup.items.map((i) => i.href);
+    expect(hrefs).toContain("/tenant/dashboard");
+    expect(hrefs).toContain("/tenant/profile");
+    expect(hrefs).toContain("/tenant/users");
+    expect(hrefs).toContain("/tenant/roles");
+    expect(hrefs).toContain("/tenant/invitations");
+    expect(hrefs).toContain("/tenant/teams");
+    expect(hrefs).toContain("/tenant/facilities");
+    expect(hrefs).toContain("/tenant/fleet");
+    expect(hrefs).toContain("/tenant/subscription");
+    expect(hrefs).toContain("/tenant/entitlements");
+    expect(hrefs).toContain("/tenant/usage");
+    expect(hrefs).toContain("/tenant/audit");
+    expect(hrefs).toContain("/tenant/settings");
+  });
+
+  it("has exactly 65 total tenant nav items across all 7 groups (including M4 /assets)", () => {
+    expect(allHrefs(NAV_GROUPS).length).toBe(65);
   });
 });
 
-describe("PLATFORM_NAV_GROUPS (untouched by M21.2)", () => {
-  it("still has exactly one 'Platform Control Plane' group with its original 6 items", () => {
+describe("PLATFORM_NAV_GROUPS (M2 Platform Control Plane)", () => {
+  it("has exactly one 'Platform Control Plane' group with 14 control plane items", () => {
     expect(PLATFORM_NAV_GROUPS).toHaveLength(1);
     expect(PLATFORM_NAV_GROUPS[0].label).toBe("Platform Control Plane");
-    expect(PLATFORM_NAV_GROUPS[0].items).toHaveLength(6);
+    expect(PLATFORM_NAV_GROUPS[0].items).toHaveLength(14);
+    const hrefs = PLATFORM_NAV_GROUPS[0].items.map((i) => i.href);
+    expect(hrefs).toContain("/platform/dashboard");
+    expect(hrefs).toContain("/platform/organizations");
+    expect(hrefs).toContain("/platform/users");
+    expect(hrefs).toContain("/platform/subscriptions");
+    expect(hrefs).toContain("/platform/plans");
+    expect(hrefs).toContain("/platform/features");
+    expect(hrefs).toContain("/platform/product-catalog");
+    expect(hrefs).toContain("/platform/entitlements");
+    expect(hrefs).toContain("/platform/provisioning");
+    expect(hrefs).toContain("/platform/usage");
+    expect(hrefs).toContain("/platform/audit");
+    expect(hrefs).toContain("/platform/approvals");
+    expect(hrefs).toContain("/platform/monitoring");
+    expect(hrefs).toContain("/platform/settings");
   });
 });
 
@@ -107,9 +135,13 @@ describe("isActive() active-route matching", () => {
     expect(isActive("/aircraft-types", "/aircraft")).toBe(false);
   });
 
-  it("treats /dashboard and /organization as exact-only (no accidental sub-route match)", () => {
+  it("treats /dashboard, /platform/dashboard, /tenant/dashboard, and /organization as exact-only (no accidental sub-route match)", () => {
     expect(isActive("/dashboard", "/dashboard")).toBe(true);
     expect(isActive("/dashboard/widgets", "/dashboard")).toBe(false);
+    expect(isActive("/platform/dashboard", "/platform/dashboard")).toBe(true);
+    expect(isActive("/platform/dashboard/stats", "/platform/dashboard")).toBe(false);
+    expect(isActive("/tenant/dashboard", "/tenant/dashboard")).toBe(true);
+    expect(isActive("/tenant/dashboard/kpis", "/tenant/dashboard")).toBe(false);
     expect(isActive("/organization", "/organization")).toBe(true);
     expect(isActive("/organization/users", "/organization")).toBe(false);
   });

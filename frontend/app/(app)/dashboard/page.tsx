@@ -31,6 +31,12 @@ import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
 import { deferredItemsApi, type BackendDeferredItem } from "@/lib/api/deferred-items";
 import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 
+import {
+  DEMO_DRONES,
+  DEMO_FINDINGS,
+  getDemoFleetStatistics,
+} from "@/lib/demo/demoDrones";
+
 const DISTRIBUTION = [
   { label: "Compliant", pct: 92, color: "var(--ac-status-compliant)" },
   { label: "Review Required", pct: 5, color: "var(--ac-status-review)" },
@@ -51,12 +57,10 @@ function IllustrativeBadge() {
   return <span className="ac-illustrative-badge">Illustrative Data</span>;
 }
 
-/** Real-data KPI + fleet/work-order charts, backed by the live backend
- * (aircraft, drones, work orders, deferred items). Fetched client-side with
- * the signed-in user's access token -- same pattern as /drones, /aircraft
- * REAL-mode panels. No mock data is used inside this component. */
+/** Fleet overview KPI panel: uses live backend APIs in REAL mode, and deterministic
+ * synthetic fleet data in DEMO mode. */
 function RealFleetPanel() {
-  const { accessToken, isAuthenticated } = useSession();
+  const { accessToken, isAuthenticated, sessionType } = useSession();
   const [aircraft, setAircraft] = useState<BackendAircraft[]>([]);
   const [drones, setDrones] = useState<DroneResponse[]>([]);
   const [workOrders, setWorkOrders] = useState<BackendWorkOrder[]>([]);
@@ -66,10 +70,26 @@ function RealFleetPanel() {
   const [asOf, setAsOf] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || !accessToken) {
+    if (!isAuthenticated) {
       setLoading(false);
       return;
     }
+
+    if (sessionType === "DEMO") {
+      setAircraft([]);
+      setDrones(DEMO_DRONES);
+      setWorkOrders([]);
+      setDeferredItems([]);
+      setAsOf("Demo Environment (Deterministic Synthetic Fleet)");
+      setLoading(false);
+      return;
+    }
+
+    if (!accessToken) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     Promise.all([
@@ -87,10 +107,11 @@ function RealFleetPanel() {
       })
       .catch((err) => setError(normalizeApiError(err)))
       .finally(() => setLoading(false));
-  }, [accessToken, isAuthenticated]);
+  }, [accessToken, isAuthenticated, sessionType]);
 
   const totalAssets = aircraft.length + drones.length;
-  const activeAssets = aircraft.filter((a) => a.status === "ACTIVE").length + drones.filter((d) => d.status === "ACTIVE").length;
+  const activeAssets =
+    aircraft.filter((a) => a.status === "ACTIVE").length + drones.filter((d) => d.status === "ACTIVE").length;
   const groundedAssets =
     aircraft.filter((a) => a.status === "GROUNDED").length + drones.filter((d) => d.status === "GROUNDED").length;
   const unknownAssets = totalAssets - activeAssets - groundedAssets;
@@ -102,14 +123,22 @@ function RealFleetPanel() {
   }, {});
   const maxWoCount = Math.max(1, ...Object.values(woByStatus));
 
-  const statusColor = { ACTIVE: "var(--ac-status-compliant)", GROUNDED: "var(--ac-status-non-compliant)", UNKNOWN: "var(--ac-status-unknown)" } as const;
+  const statusColor = {
+    ACTIVE: "var(--ac-status-compliant)",
+    GROUNDED: "var(--ac-status-non-compliant)",
+    UNKNOWN: "var(--ac-status-unknown)",
+  } as const;
 
   return (
     <>
       <section className="ac-section">
         <PageHeader
           title="Fleet Overview"
-          subtitle="Live counts from the connected backend (aircraft + drone assets, work orders, MEL items)"
+          subtitle={
+            sessionType === "DEMO"
+              ? "Synthetic drone operations fleet overview (KOTA Aerospace Demo Tenant)"
+              : "Live counts from the connected backend (aircraft + drone assets, work orders, MEL items)"
+          }
           actions={<ViewingAsBadge />}
         />
 
@@ -130,36 +159,50 @@ function RealFleetPanel() {
               <div className="ac-kpi-card-real">
                 <p className="ac-kpi-label">Total Assets</p>
                 <p className="ac-kpi-value">{totalAssets}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>{aircraft.length} aircraft · {drones.length} drones</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                  {aircraft.length} aircraft · {drones.length} drones
+                </p>
               </div>
               <div className="ac-kpi-card-real">
                 <p className="ac-kpi-label">Active Assets</p>
                 <p className="ac-kpi-value">{activeAssets}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>status = ACTIVE</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                  status = ACTIVE
+                </p>
               </div>
               <div className="ac-kpi-card-real">
                 <p className="ac-kpi-label">Grounded / Attention</p>
                 <p className="ac-kpi-value">{groundedAssets}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>status = GROUNDED</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                  status = GROUNDED
+                </p>
               </div>
               <div className="ac-kpi-card-real">
                 <p className="ac-kpi-label">Open Work Orders</p>
                 <p className="ac-kpi-value">{openWorkOrderCount}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>of {workOrders.length} total</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                  of {workOrders.length} total
+                </p>
               </div>
               <div className="ac-kpi-card-real">
                 <p className="ac-kpi-label">Open MEL / Deferred Items</p>
                 <p className="ac-kpi-value">{deferredItems.length}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>fleet-wide, open only</p>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                  fleet-wide, open only
+                </p>
               </div>
             </div>
-            {asOf && <p className="ac-kpi-asof">As of {asOf} · live backend query, not a fabricated trend</p>}
+            {asOf && <p className="ac-kpi-asof">{asOf}</p>}
 
             <div className="ac-grid-2" style={{ marginTop: "var(--ac-space-5)" }}>
               <div className="ac-card">
-                <p className="ac-eyebrow" style={{ marginBottom: 10 }}>Fleet Status Distribution</p>
+                <p className="ac-eyebrow" style={{ marginBottom: 10 }}>
+                  Fleet Status Distribution
+                </p>
                 {totalAssets === 0 ? (
-                  <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No aircraft or drone assets yet.</p>
+                  <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                    No aircraft or drone assets yet.
+                  </p>
                 ) : (
                   [
                     { label: "Active", count: activeAssets, color: statusColor.ACTIVE },
@@ -171,7 +214,10 @@ function RealFleetPanel() {
                       <div className="ac-chart-bar-track">
                         <div
                           className="ac-chart-bar-fill"
-                          style={{ width: `${totalAssets > 0 ? (row.count / totalAssets) * 100 : 0}%`, background: row.color }}
+                          style={{
+                            width: `${totalAssets > 0 ? (row.count / totalAssets) * 100 : 0}%`,
+                            background: row.color,
+                          }}
                         />
                       </div>
                       <span className="ac-chart-bar-count">{row.count}</span>
@@ -181,9 +227,13 @@ function RealFleetPanel() {
               </div>
 
               <div className="ac-card">
-                <p className="ac-eyebrow" style={{ marginBottom: 10 }}>Work Order Status Breakdown</p>
+                <p className="ac-eyebrow" style={{ marginBottom: 10 }}>
+                  Work Order Status Breakdown
+                </p>
                 {workOrders.length === 0 ? (
-                  <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No work orders yet.</p>
+                  <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                    {sessionType === "DEMO" ? "No work orders in current demo batch." : "No work orders yet."}
+                  </p>
                 ) : (
                   Object.entries(woByStatus)
                     .sort((a, b) => b[1] - a[1])
@@ -209,23 +259,31 @@ function RealFleetPanel() {
   );
 }
 
-/** Real Findings widget, backed by the M20.2 Finding/Disposition API
- * (GET /findings, org-scoped server-side, no client-supplied org_id).
- * Distinct from lib/mock/findings.ts, which stays confined to the
- * already-illustrative-labelled "Maintenance Operations Snapshot" section
- * below. This is the one Findings surface on the dashboard that is real. */
 function RealFindingsPanel() {
-  const { accessToken, isAuthenticated } = useSession();
+  const { accessToken, isAuthenticated, sessionType } = useSession();
   const [openFindings, setOpenFindings] = useState<BackendFinding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
   const [asOf, setAsOf] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || !accessToken) {
+    if (!isAuthenticated) {
       setLoading(false);
       return;
     }
+
+    if (sessionType === "DEMO") {
+      setOpenFindings(DEMO_FINDINGS.filter((f) => f.status === "OPEN"));
+      setAsOf("Demo Environment (Deterministic Findings)");
+      setLoading(false);
+      return;
+    }
+
+    if (!accessToken) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     findingsApi
@@ -236,7 +294,7 @@ function RealFindingsPanel() {
       })
       .catch((err) => setError(normalizeApiError(err)))
       .finally(() => setLoading(false));
-  }, [accessToken, isAuthenticated]);
+  }, [accessToken, isAuthenticated, sessionType]);
 
   if (!isAuthenticated) return null;
 
@@ -244,8 +302,14 @@ function RealFindingsPanel() {
     <section className="ac-section">
       <div className="ac-section-header">
         <div>
-          <h2 className="ac-h2" style={{ margin: 0 }}>Open Findings</h2>
-          <p className="ac-subtitle" style={{ margin: 0 }}>Live from the connected backend (Finding/Disposition model)</p>
+          <h2 className="ac-h2" style={{ margin: 0 }}>
+            Open Findings
+          </h2>
+          <p className="ac-subtitle" style={{ margin: 0 }}>
+            {sessionType === "DEMO"
+              ? "Open findings from synthetic demo drone fleet"
+              : "Live from the connected backend (Finding/Disposition model)"}
+          </p>
         </div>
       </div>
       <RealDataPanel

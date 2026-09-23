@@ -61,11 +61,18 @@ export function DataTable<T>({ columns, rows, getRowHref, onRowClick, emptyMessa
                 key={col.key}
                 style={{ width: col.width }}
                 className={col.sortValue ? "ac-th-sortable" : undefined}
-                onClick={() => handleSort(col)}
                 aria-sort={sortKey === col.key ? (sortDir === "asc" ? "ascending" : "descending") : undefined}
               >
-                {col.header}
-                {col.sortValue && sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                {col.sortValue ? (
+                  <button
+                    type="button"
+                    onClick={() => handleSort(col)}
+                    style={{ background: "none", border: 0, padding: 0, font: "inherit", color: "inherit", cursor: "pointer" }}
+                  >
+                    {col.header}
+                    {sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  </button>
+                ) : col.header}
               </th>
             ))}
           </tr>
@@ -87,7 +94,8 @@ export function DataTable<T>({ columns, rows, getRowHref, onRowClick, emptyMessa
                 className={clickable ? "ac-row-clickable" : undefined}
                 tabIndex={clickable ? 0 : undefined}
                 role={clickable ? "link" : undefined}
-                onClick={() => {
+                onClick={(event) => {
+                  if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return;
                   if (href) router.push(href);
                   else onRowClick?.(row);
                 }}

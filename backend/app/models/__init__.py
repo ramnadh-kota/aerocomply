@@ -39,6 +39,7 @@ from app.models.import_job import ImportDomain, ImportJob, ImportJobStatus
 from app.models.inspection_requirement import InspectionRequirement
 from app.models.installation_history import BatteryInstallation, ComponentInstallation
 from app.models.lisa_conversation_context import LisaConversationContext
+from app.models.mission import Mission, MissionStatus
 from app.models.organization import Organization
 from app.models.part import Part
 from app.models.plan import Plan, PlanFeature
@@ -58,6 +59,8 @@ __all__ = [
     "UserRole",
     "AuditEvent",
     "Battery",
+    "Mission",
+    "MissionStatus",
     "BatteryStatus",
     "Component",
     "ComponentStatus",

@@ -35,6 +35,8 @@ from app.schemas.platform import (
     OrganizationIndustrySetRequest,
     PlatformHealthResponse,
     PlatformOrganizationResponse,
+    PlatformUserResponse,
+    PlatformDashboardStatsResponse,
     ProvisionOrganizationRequest,
     ProvisionOrganizationResponse,
 )
@@ -78,6 +80,31 @@ def _to_response(row: dict) -> PlatformOrganizationResponse:
         created_at=org.created_at,
         user_count=row["user_count"],
         aircraft_count=row["aircraft_count"],
+        drone_count=row.get("drone_count", 0),
+    )
+
+
+@router.get("/dashboard/stats", response_model=PlatformDashboardStatsResponse)
+def get_platform_dashboard_stats(
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> PlatformDashboardStatsResponse:
+    """Live aggregated platform control plane statistics across all tenants.
+    Answers: 'What is happening across KOTA Aerospace?'
+    Gated by PLATFORM_MANAGE: customer tenant users receive a 403."""
+    stats = platform_service.get_platform_dashboard_stats(db)
+    return PlatformDashboardStatsResponse(
+        total_organizations=stats["total_organizations"],
+        active_organizations=stats["active_organizations"],
+        suspended_organizations=stats["suspended_organizations"],
+        pending_provisioning=stats["pending_provisioning"],
+        active_subscriptions=stats["active_subscriptions"],
+        trial_subscriptions=stats["trial_subscriptions"],
+        total_users=stats["total_users"],
+        total_aircraft=stats["total_aircraft"],
+        total_drones=stats["total_drones"],
+        organizations_by_plan=stats["organizations_by_plan"],
+        recent_activity=[AuditEventResponse.model_validate(e) for e in stats["recent_activity"]],
     )
 
 
@@ -97,7 +124,7 @@ def create_organization(
     current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
 ) -> PlatformOrganizationResponse:
     org = platform_service.create_organization(db, actor_user_id=current_user.id, name=payload.name)
-    return _to_response({"organization": org, "user_count": 0, "aircraft_count": 0})
+    return _to_response({"organization": org, "user_count": 0, "aircraft_count": 0, "drone_count": 0})
 
 
 @router.post(
@@ -289,6 +316,41 @@ def get_organization_entitlements(
         plan = db.get(Plan, result.plan_id)
         plan_name = plan.name if plan is not None else None
     return EntitlementResolutionResponse.from_resolution(result, plan_name=plan_name)
+
+
+@router.get(
+    "/organizations/{organization_id}/users",
+    response_model=list[PlatformUserResponse],
+)
+def list_organization_users(
+    organization_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[PlatformUserResponse]:
+    """Inspect tenant users within a specific organization without cross-tenant leakage.
+    Gated by PLATFORM_MANAGE: customer tenant users receive a 403."""
+    users = platform_service.list_organization_users(db, organization_id=organization_id)
+    return [PlatformUserResponse.model_validate(u) for u in users]
+
+
+@router.get(
+    "/users",
+    response_model=list[PlatformUserResponse],
+)
+def list_platform_users(
+    organization_id: uuid.UUID | None = None,
+    role: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[PlatformUserResponse]:
+    """Cross-tenant user directory for platform administrators.
+    Allows filtering by organization and role with server-side pagination."""
+    users = platform_service.list_platform_users(
+        db, organization_id=organization_id, role=role, limit=limit, offset=offset
+    )
+    return [PlatformUserResponse.model_validate(u) for u in users]
 
 
 # ---------------------------------------------------------------------------

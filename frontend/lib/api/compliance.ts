@@ -29,7 +29,8 @@ export interface BackendRegulatoryRequirement {
 export interface BackendComplianceAssessment {
   id: string;
   organization_id: string;
-  aircraft_id: string;
+  aircraft_id: string | null;
+  asset_id: string | null;
   requirement_id: string;
   status: string;
   evaluated_at: string;
@@ -40,7 +41,8 @@ export interface BackendComplianceAssessment {
 }
 
 export interface ComplianceAssessmentCreateRequest {
-  aircraft_id: string;
+  aircraft_id?: string | null;
+  asset_id?: string | null;
   requirement_id: string;
   status?: string;
   evaluated_at: string;
@@ -69,12 +71,19 @@ export const complianceAssessmentsApi = {
       { accessToken }
     ),
 
-  /** Aggregate assessment counts by status for one aircraft, computed server-side
-   * from directly-countable ComplianceAssessment rows only (see compliance_service
-   * docstring — this is deliberately not the fuller "condition-tree confidence"
-   * analytics the demo/mock layer shows, because no backend equivalent exists). */
+  listForAsset: (accessToken: string, assetId: string) =>
+    apiRequest<BackendComplianceAssessment[]>(
+      `/assets/${assetId}/compliance-assessments`,
+      { accessToken }
+    ),
+
   analyticsForAircraft: (accessToken: string, aircraftId: string) =>
     apiRequest<Record<string, number>>(`/aircraft/${aircraftId}/compliance-analytics`, {
+      accessToken,
+    }),
+
+  analyticsForAsset: (accessToken: string, assetId: string) =>
+    apiRequest<Record<string, number>>(`/assets/${assetId}/compliance-analytics`, {
       accessToken,
     }),
 

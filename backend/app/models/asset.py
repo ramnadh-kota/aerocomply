@@ -10,16 +10,44 @@ from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
 
 
 class AssetType(StrEnum):
-    """Discriminator for the generic Asset foundation (Phase 1A).
-
-    Only AIRCRAFT is backed by a detail table today (AircraftDetail) and only
-    AIRCRAFT assets exist in the database as of this phase -- DRONE is added
-    here only so future phases can extend AssetType without another schema
-    change to this column. See docs/ARCHITECTURE_ASSET_FOUNDATION.md.
+    """Discriminator for the generic Asset foundation (M4 Common Domain).
+    
+    Supports Fixed-Wing Aircraft, Drone UAVs, Rotorcraft/Helicopters, and
+    extensible future eVTOL/AAM airframes.
     """
 
     AIRCRAFT = "AIRCRAFT"
     DRONE = "DRONE"
+    HELICOPTER = "HELICOPTER"
+    EVTOL = "EVTOL"
+    AAM = "AAM"
+    OTHER = "OTHER"
+
+
+class AssetLifecycleStatus(StrEnum):
+    """Standardized aerospace asset lifecycle status states."""
+
+    PLANNED = "PLANNED"
+    ACTIVE = "ACTIVE"
+    IN_SERVICE = "IN_SERVICE"
+    MAINTENANCE = "MAINTENANCE"
+    INSPECTION = "INSPECTION"
+    GROUNDED = "GROUNDED"
+    RETIRED = "RETIRED"
+    ARCHIVED = "ARCHIVED"
+
+
+class AssetOperationalStatus(StrEnum):
+    """Standardized operational dispatch status states, separate from lifecycle,
+    compliance, and readiness."""
+
+    READY = "READY"
+    STANDBY = "STANDBY"
+    DISPATCHED = "DISPATCHED"
+    IN_FLIGHT = "IN_FLIGHT"
+    MAINTENANCE = "MAINTENANCE"
+    GROUNDED = "GROUNDED"
+
 
 
 class Asset(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):

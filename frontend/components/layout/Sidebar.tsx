@@ -6,6 +6,7 @@ import { useRoleSim, NAV_MODULE_MAP } from "@/lib/role-sim/RoleSimContext";
 import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
 import { Logo } from "@/components/branding/Logo";
 import { useSession } from "@/lib/auth/SessionContext";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useMyEntitlements } from "@/lib/entitlements/useMyEntitlements";
 import { isNavItemEntitlementGated } from "@/lib/entitlements/navFeatureMap";
 
@@ -50,6 +51,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Assets",
     items: [
+      { href: "/assets", label: "Fleet Registry", glyph: "◫" },
       { href: "/fleet/health", label: "Fleet Health", glyph: "♥" },
       { href: "/aircraft", label: "Aircraft", glyph: "✈" },
       { href: "/drones", label: "Drones", glyph: "◆" },
@@ -113,22 +115,30 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Administration",
     items: [
-      { href: "/organization", label: "Organization", glyph: "◫" },
-      { href: "/organization/users", label: "Users", glyph: "◔" },
-      { href: "/organization/roles", label: "Roles", glyph: "◈" },
-      { href: "/organization/plan", label: "Plan & Subscription", glyph: "◆" },
+      { href: "/tenant/dashboard", label: "Tenant Dashboard", glyph: "◧" },
+      { href: "/tenant/profile", label: "Organization Profile", glyph: "◫" },
+      { href: "/tenant/users", label: "Personnel Directory", glyph: "👥" },
+      { href: "/tenant/roles", label: "Roles & Permissions", glyph: "◈" },
+      { href: "/tenant/invitations", label: "Invitations", glyph: "✉" },
+      { href: "/tenant/teams", label: "Workforce Teams", glyph: "◔" },
+      { href: "/tenant/facilities", label: "Facilities & Sites", glyph: "⌂" },
+      { href: "/tenant/fleet", label: "Fleet & Assets", glyph: "✈" },
+      { href: "/tenant/subscription", label: "Plan & Subscription", glyph: "◆" },
+      { href: "/tenant/entitlements", label: "Feature Access", glyph: "🔒" },
+      { href: "/tenant/usage", label: "Resource Usage", glyph: "📊" },
+      { href: "/tenant/audit", label: "Organization Audit", glyph: "≡" },
+      { href: "/tenant/settings", label: "Tenant Settings", glyph: "⚙" },
       { href: "/organization/readiness", label: "Pilot Readiness", glyph: "✓" },
       { href: "/reports", label: "Reports", glyph: "▦" },
       { href: "/workspace", label: "Workspace", glyph: "▢" },
       { href: "/integrations", label: "Integrations", glyph: "◫" },
-      { href: "/settings", label: "Settings", glyph: "⚙" },
     ],
   },
 ];
 
 // KOTA AEROSPACE PLATFORM CONTROL PLANE — the exclusive navigation for
 // PLATFORM_ADMIN/PLATFORM_STAFF (see isPlatformUser below). Deliberately a
-// separate, flat list rather than tenant NAV_GROUPS + an appended
+// separate, dedicated list rather than tenant NAV_GROUPS + an appended
 // "Platform" section: a platform operator administers organizations,
 // product catalog, plans, and platform governance, never a specific
 // tenant's operational workflows (aircraft, maintenance, evidence, etc.).
@@ -136,18 +146,32 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
   {
     label: "Platform Control Plane",
     items: [
+      { href: "/platform/dashboard", label: "Dashboard", glyph: "◧" },
       { href: "/platform/organizations", label: "Organizations", glyph: "⛨" },
-      { href: "/platform/product-catalog", label: "Product Catalog", glyph: "▤" },
+      { href: "/platform/users", label: "Users & Staff", glyph: "👥" },
+      { href: "/platform/subscriptions", label: "Subscriptions", glyph: "💳" },
       { href: "/platform/plans", label: "Plans", glyph: "◈" },
+      { href: "/platform/features", label: "Features Registry", glyph: "▤" },
+      { href: "/platform/product-catalog", label: "Product Catalog", glyph: "▦" },
+      { href: "/platform/entitlements", label: "Entitlements", glyph: "🔒" },
+      { href: "/platform/provisioning", label: "Provisioning", glyph: "⚡" },
+      { href: "/platform/usage", label: "Usage & Limits", glyph: "📊" },
       { href: "/platform/audit", label: "Audit / Activity", glyph: "≡" },
       { href: "/platform/approvals", label: "Approvals", glyph: "✓" },
       { href: "/platform/monitoring", label: "Monitoring & Health", glyph: "♥" },
+      { href: "/platform/settings", label: "Settings", glyph: "⚙" },
     ],
   },
 ];
 
 export function isActive(pathname: string, href: string): boolean {
-  if (href === "/dashboard" || href === "/organization") return pathname === href;
+  if (
+    href === "/dashboard" ||
+    href === "/platform/dashboard" ||
+    href === "/tenant/dashboard" ||
+    href === "/organization"
+  )
+    return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -156,6 +180,7 @@ export function Sidebar() {
   const { accessFor } = useRoleSim();
   const { open, close } = useSidebarDrawer();
   const { user } = useSession();
+  const { mode } = useDataMode();
   // Platform Admin / Platform Staff are real backend roles (never a
   // role-sim demo role) that hold zero tenant permissions on the backend
   // (see app/core/permissions.py's ROLE_PERMISSIONS) -- they can never act
@@ -184,7 +209,7 @@ export function Sidebar() {
       <nav className={`ac-sidebar${open ? " open" : ""}`} aria-label="Primary navigation">
       <div style={{ padding: "18px 20px 12px" }}>
         <Link
-          href={isPlatformUser ? "/platform/organizations" : "/dashboard"}
+          href={isPlatformUser ? "/platform/dashboard" : "/dashboard"}
           style={{ display: "flex", alignItems: "center" }}
           onClick={close}
         >
@@ -243,7 +268,7 @@ export function Sidebar() {
 
       <div className="ac-prototype-banner" role="note">
         <span aria-hidden="true">⚠</span>
-M0.6 Prototype · Mock Data
+        {mode === "REAL" ? "REAL ENVIRONMENT · LIVE API DATA" : "DEMO ENVIRONMENT · SYNTHETIC DATA"}
       </div>
       </nav>
     </>

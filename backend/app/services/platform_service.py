@@ -17,9 +17,68 @@ from app.core.errors import ConflictError, NotFoundError
 from app.core.permissions import Role
 from app.core.security import hash_password
 from app.models.aircraft import Aircraft
+from app.models.asset import Asset, AssetType
+from app.models.audit_event import AuditEvent
 from app.models.organization import Organization, OrganizationStatus
+from app.models.plan import Plan
+from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.user import User, UserRole
 from app.services.audit_service import record_audit_event
+
+
+def get_platform_dashboard_stats(db: Session) -> dict:
+    total_orgs = db.execute(select(func.count(Organization.id))).scalar_one()
+    active_orgs = db.execute(
+        select(func.count(Organization.id)).where(Organization.status == OrganizationStatus.ACTIVE)
+    ).scalar_one()
+    suspended_orgs = db.execute(
+        select(func.count(Organization.id)).where(Organization.status == OrganizationStatus.SUSPENDED)
+    ).scalar_one()
+
+    active_subs = db.execute(
+        select(func.count(Subscription.id)).where(Subscription.status == SubscriptionStatus.ACTIVE)
+    ).scalar_one()
+    trial_subs = db.execute(
+        select(func.count(Subscription.id)).where(Subscription.status == SubscriptionStatus.TRIALING)
+    ).scalar_one()
+
+    total_users = db.execute(select(func.count(User.id))).scalar_one()
+    total_aircraft = db.execute(select(func.count(Aircraft.id))).scalar_one()
+    total_drones = db.execute(
+        select(func.count(Asset.id)).where(Asset.asset_type == AssetType.DRONE.value)
+    ).scalar_one()
+
+    plan_rows = db.execute(
+        select(Plan.code, Plan.name, func.count(Subscription.id))
+        .join(Subscription, Plan.id == Subscription.plan_id)
+        .where(Subscription.status.in_([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING]))
+        .group_by(Plan.code, Plan.name)
+        .order_by(func.count(Subscription.id).desc())
+    ).all()
+    orgs_by_plan = [
+        {"plan_code": code, "plan_name": name, "count": count}
+        for code, name, count in plan_rows
+    ]
+
+    recent_events = list(
+        db.execute(
+            select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(10)
+        ).scalars().all()
+    )
+
+    return {
+        "total_organizations": total_orgs,
+        "active_organizations": active_orgs,
+        "suspended_organizations": suspended_orgs,
+        "pending_provisioning": 0,
+        "active_subscriptions": active_subs,
+        "trial_subscriptions": trial_subs,
+        "total_users": total_users,
+        "total_aircraft": total_aircraft,
+        "total_drones": total_drones,
+        "organizations_by_plan": orgs_by_plan,
+        "recent_activity": recent_events,
+    }
 
 
 def list_organizations(db: Session) -> list[dict]:
@@ -38,11 +97,19 @@ def list_organizations(db: Session) -> list[dict]:
             )
         ).all()  # type: ignore[arg-type]
     )
+    drone_counts: dict[uuid.UUID, int] = dict(
+        db.execute(
+            select(Asset.organization_id, func.count(Asset.id))
+            .where(Asset.asset_type == AssetType.DRONE.value)
+            .group_by(Asset.organization_id)
+        ).all()  # type: ignore[arg-type]
+    )
     return [
         {
             "organization": org,
             "user_count": user_counts.get(org.id, 0),
             "aircraft_count": aircraft_counts.get(org.id, 0),
+            "drone_count": drone_counts.get(org.id, 0),
         }
         for org in orgs
     ]
@@ -63,7 +130,93 @@ def get_organization_with_counts(db: Session, *, organization_id: uuid.UUID) -> 
     aircraft_count = db.execute(
         select(func.count(Aircraft.id)).where(Aircraft.organization_id == org.id)
     ).scalar_one()
-    return {"organization": org, "user_count": user_count, "aircraft_count": aircraft_count}
+    drone_count = db.execute(
+        select(func.count(Asset.id)).where(
+            Asset.organization_id == org.id,
+            Asset.asset_type == AssetType.DRONE.value,
+        )
+    ).scalar_one()
+    return {
+        "organization": org,
+        "user_count": user_count,
+        "aircraft_count": aircraft_count,
+        "drone_count": drone_count,
+    }
+
+
+def list_organization_users(db: Session, *, organization_id: uuid.UUID) -> list[dict]:
+    get_organization(db, organization_id=organization_id)
+    users = list(
+        db.execute(
+            select(User)
+            .where(User.organization_id == organization_id)
+            .order_by(User.created_at.asc())
+        ).scalars().all()
+    )
+    roles_by_user: dict[uuid.UUID, list[str]] = {}
+    for user_id, role_name in db.execute(
+        select(UserRole.user_id, UserRole.role_name).where(
+            UserRole.organization_id == organization_id
+        )
+    ).all():
+        roles_by_user.setdefault(user_id, []).append(role_name)
+
+    return [
+        {
+            "id": user.id,
+            "organization_id": user.organization_id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "is_active": user.is_active,
+            "roles": roles_by_user.get(user.id, []),
+            "created_at": user.created_at,
+        }
+        for user in users
+    ]
+
+
+def list_platform_users(
+    db: Session,
+    *,
+    organization_id: uuid.UUID | None = None,
+    role: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    stmt = (
+        select(User, Organization.name.label("org_name"))
+        .join(Organization, User.organization_id == Organization.id)
+        .order_by(User.created_at.desc())
+    )
+    if organization_id is not None:
+        stmt = stmt.where(User.organization_id == organization_id)
+    if role is not None:
+        stmt = stmt.join(UserRole, User.id == UserRole.user_id).where(UserRole.role_name == role)
+
+    stmt = stmt.limit(limit).offset(offset)
+    rows = db.execute(stmt).all()
+    user_ids = [r[0].id for r in rows]
+
+    roles_by_user: dict[uuid.UUID, list[str]] = {}
+    if user_ids:
+        for uid, role_name in db.execute(
+            select(UserRole.user_id, UserRole.role_name).where(UserRole.user_id.in_(user_ids))
+        ).all():
+            roles_by_user.setdefault(uid, []).append(role_name)
+
+    return [
+        {
+            "id": user.id,
+            "organization_id": user.organization_id,
+            "organization_name": org_name,
+            "email": user.email,
+            "full_name": user.full_name,
+            "is_active": user.is_active,
+            "roles": roles_by_user.get(user.id, []),
+            "created_at": user.created_at,
+        }
+        for user, org_name in rows
+    ]
 
 
 def create_organization(

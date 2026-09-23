@@ -108,8 +108,8 @@ function RealCompliancePage() {
     };
   }, [accessToken, isAuthenticated]);
 
-  const registrationFor = (aircraftId: string) =>
-    aircraftList.find((a) => a.id === aircraftId)?.registration ?? null;
+  const registrationFor = (aircraftId: string | null) =>
+    aircraftId ? (aircraftList.find((a) => a.id === aircraftId)?.registration ?? null) : null;
 
   const counts: Record<string, number> = {};
   for (const a of assessments) counts[a.status] = (counts[a.status] ?? 0) + 1;

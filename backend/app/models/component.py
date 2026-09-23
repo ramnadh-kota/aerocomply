@@ -9,21 +9,35 @@ from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
 
 
 class ComponentType:
-    """Small closed vocabulary, plain string constants (matches
-    ProductSuite.code / FacilityType's precedent) -- ONE generic Component
-    identity with a type discriminator, not a separate table per component
-    kind (Motor/ESC/GPS/...), per the milestone's explicit instruction."""
+    """Standardized aerospace component type vocabulary.
+    
+    Covers propulsion, avionics, flight controls, structures, and systems
+    across Fixed-Wing Aircraft, Drone UAVs, and Rotorcraft/Helicopters.
+    """
 
+    # Aircraft & Rotorcraft primary systems
+    ENGINE = "ENGINE"
+    AVIONICS = "AVIONICS"
+    TRANSMISSION = "TRANSMISSION"
+    ROTOR = "ROTOR"
+    APU = "APU"
+    ACTUATOR = "ACTUATOR"
+    HYDRAULIC = "HYDRAULIC"
+    LANDING_GEAR = "LANDING_GEAR"
+
+    # Drone & electric propulsion systems
     MOTOR = "MOTOR"
     ESC = "ESC"
     PROPELLER = "PROPELLER"
     FLIGHT_CONTROLLER = "FLIGHT_CONTROLLER"
+    BATTERY = "BATTERY"
+
+    # Avionics, sensors & payloads
     GPS = "GPS"
     CAMERA = "CAMERA"
     GIMBAL = "GIMBAL"
     RADIO = "RADIO"
     PAYLOAD = "PAYLOAD"
-    LANDING_GEAR = "LANDING_GEAR"
     NAVIGATION = "NAVIGATION"
     SENSOR = "SENSOR"
     OTHER = "OTHER"
@@ -32,6 +46,9 @@ class ComponentType:
 class ComponentStatus:
     INSTALLED = "INSTALLED"
     REMOVED = "REMOVED"
+    IN_MAINTENANCE = "IN_MAINTENANCE"
+    QUARANTINED = "QUARANTINED"
+    SCRAPPED = "SCRAPPED"
 
 
 class Component(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):

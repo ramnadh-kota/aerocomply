@@ -102,6 +102,7 @@ class FlightCreateRequest(BaseModel):
     duration_minutes: int = Field(gt=0)
     cycles: int = Field(default=1, gt=0)
     pilot_user_id: uuid.UUID | None = None
+    mission_id: uuid.UUID | None = None
     notes: str | None = None
 
 
@@ -109,6 +110,7 @@ class FlightResponse(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     asset_id: uuid.UUID
+    mission_id: uuid.UUID | None = None
     flown_at: datetime
     duration_minutes: int
     cycles: int

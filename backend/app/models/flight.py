@@ -24,6 +24,9 @@ class Flight(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     asset_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    mission_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("missions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     flown_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     cycles: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

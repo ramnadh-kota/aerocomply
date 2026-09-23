@@ -17,6 +17,8 @@ import { MaintenanceSection } from "@/components/maintenance/MaintenanceSection"
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { findingsApi, type BackendFinding } from "@/lib/api/findings";
+import { missionsApi, type BackendMission } from "@/lib/api/missions";
+import { complianceAssessmentsApi, type BackendComplianceAssessment } from "@/lib/api/compliance";
 import {
   canRecordFlight,
   dronesApi,
@@ -31,6 +33,18 @@ import {
   type MaintenanceDueItem,
   type UtilizationResponse,
 } from "@/lib/api/drones";
+import {
+  getDemoDroneById,
+  getDemoBatteryForDrone,
+  getDemoComponentsForDrone,
+  getDemoFlightsForDrone,
+  getDemoUtilizationForDrone,
+  getDemoFindingsForDrone,
+  getDemoMaintenanceForDrone,
+  getDemoMissionsForDrone,
+  getDemoDeploymentReadiness,
+  getDemoComplianceForDrone,
+} from "@/lib/demo/demoDrones";
 
 const FLIGHT_HISTORY_PAGE_SIZE = 10;
 
@@ -215,11 +229,59 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
   const [maintenanceLoading, setMaintenanceLoading] = useState(true);
   const [maintenanceError, setMaintenanceError] = useState<NormalizedApiError | null>(null);
 
+  const [missions, setMissions] = useState<BackendMission[]>([]);
+  const [missionsLoading, setMissionsLoading] = useState(true);
+  const [missionsError, setMissionsError] = useState<NormalizedApiError | null>(null);
+  const [authorizingMissionId, setAuthorizingMissionId] = useState<string | null>(null);
+
+  const [compliance, setCompliance] = useState<BackendComplianceAssessment[]>([]);
+  const [complianceLoading, setComplianceLoading] = useState(true);
+  const [complianceError, setComplianceError] = useState<NormalizedApiError | null>(null);
+
   // M17.5C: per-battery/per-component maintenance, keyed by id -- same
   // "bounded by how many this drone actually has" fan-out as
   // batteryHistory/componentHistory below, not a second unbounded call.
   const [batteryMaintenance, setBatteryMaintenance] = useState<Record<string, MaintenanceDueItem[]>>({});
   const [componentMaintenance, setComponentMaintenance] = useState<Record<string, MaintenanceDueItem[]>>({});
+  const [batteryMaintenanceLoading, setBatteryMaintenanceLoading] = useState<Record<string, boolean>>({});
+  const [componentMaintenanceLoading, setComponentMaintenanceLoading] = useState<Record<string, boolean>>({});
+  const [batteryMaintenanceErrors, setBatteryMaintenanceErrors] = useState<Record<string, NormalizedApiError | null>>({});
+  const [componentMaintenanceErrors, setComponentMaintenanceErrors] = useState<Record<string, NormalizedApiError | null>>({});
+
+  const loadMissions = () => {
+    if (!accessToken) return;
+    setMissionsLoading(true);
+    setMissionsError(null);
+    missionsApi
+      .listMissions(accessToken, { asset_id: assetId })
+      .then((res) => setMissions(res.items))
+      .catch((err) => setMissionsError(normalizeApiError(err)))
+      .finally(() => setMissionsLoading(false));
+  };
+
+  const loadCompliance = () => {
+    if (!accessToken) return;
+    setComplianceLoading(true);
+    setComplianceError(null);
+    complianceAssessmentsApi
+      .listForAsset(accessToken, assetId)
+      .then(setCompliance)
+      .catch((err) => setComplianceError(normalizeApiError(err)))
+      .finally(() => setComplianceLoading(false));
+  };
+
+  const handleAuthorizeMission = async (missionId: string) => {
+    if (!accessToken) return;
+    setAuthorizingMissionId(missionId);
+    try {
+      await missionsApi.authorizeMission(accessToken, missionId);
+      loadMissions();
+    } catch (err) {
+      setMissionsError(normalizeApiError(err));
+    } finally {
+      setAuthorizingMissionId(null);
+    }
+  };
 
   // Maintenance status is fetched separately for the same reason flight
   // history is: recording a maintenance rule/accomplishment (or a new
@@ -238,16 +300,24 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
 
   const loadBatteryMaintenance = (batteryId: string) => {
     if (!accessToken) return Promise.resolve();
+    setBatteryMaintenanceLoading((prev) => ({ ...prev, [batteryId]: true }));
+    setBatteryMaintenanceErrors((prev) => ({ ...prev, [batteryId]: null }));
     return dronesApi
       .getBatteryMaintenanceDue(accessToken, batteryId)
-      .then((items) => setBatteryMaintenance((prev) => ({ ...prev, [batteryId]: items })));
+      .then((items) => setBatteryMaintenance((prev) => ({ ...prev, [batteryId]: items })))
+      .catch((err) => setBatteryMaintenanceErrors((prev) => ({ ...prev, [batteryId]: normalizeApiError(err) })))
+      .finally(() => setBatteryMaintenanceLoading((prev) => ({ ...prev, [batteryId]: false })));
   };
 
   const loadComponentMaintenance = (componentId: string) => {
     if (!accessToken) return Promise.resolve();
+    setComponentMaintenanceLoading((prev) => ({ ...prev, [componentId]: true }));
+    setComponentMaintenanceErrors((prev) => ({ ...prev, [componentId]: null }));
     return dronesApi
       .getComponentMaintenanceDue(accessToken, componentId)
-      .then((items) => setComponentMaintenance((prev) => ({ ...prev, [componentId]: items })));
+      .then((items) => setComponentMaintenance((prev) => ({ ...prev, [componentId]: items })))
+      .catch((err) => setComponentMaintenanceErrors((prev) => ({ ...prev, [componentId]: normalizeApiError(err) })))
+      .finally(() => setComponentMaintenanceLoading((prev) => ({ ...prev, [componentId]: false })));
   };
 
   // Flight history is fetched separately from the rest of the drone detail
@@ -316,6 +386,8 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
       .finally(() => setLoading(false));
     loadFlights(0);
     loadMaintenance();
+    loadMissions();
+    loadCompliance();
   };
 
   useEffect(() => {
@@ -368,6 +440,11 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
         ]}
         title={drone?.registration ?? "Drone"}
         subtitle={`${drone?.manufacturer ?? "—"} ${drone?.model ?? ""}`}
+        actions={
+          <Link href={`/maintenance/work-orders?asset_id=${assetId}`} className="ac-btn">
+            Maintenance / Work Orders →
+          </Link>
+        }
       />
 
       {!isAuthenticated ? (
@@ -381,7 +458,10 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
           {drone && (
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--ac-space-4)" }}>
               <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
-                <strong className="ac-text-sm">Deployment Readiness</strong>
+                <strong className="ac-text-sm">Deployment Readiness Signals</strong>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>
+                  Operational signals from the connected drone record. This is not an inspection, evidence, compliance, or release authorization decision.
+                </p>
                 {readiness && (
                   <div style={{ marginTop: 8 }}>
                     <ReadinessIndicator
@@ -401,6 +481,204 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
                         };
                       })}
                     />
+                  </div>
+                )}
+              </div>
+
+              {/* Real Mission Operations & Internal Authorization */}
+              <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+                <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
+                  <div>
+                    <strong className="ac-text-sm">Assigned Missions & Pre-Flight</strong>
+                    <p className="ac-text-xs ac-text-muted" style={{ margin: "2px 0 0" }}>
+                      Internal operational mission dispatch. Does not constitute regulatory airspace authorization.
+                    </p>
+                  </div>
+                  <StatusBadge
+                    status={missions.length > 0 ? "REVIEW_REQUIRED" : "NOT_APPLICABLE"}
+                    label={`${missions.length} Missions`}
+                  />
+                </div>
+
+                {missionsError && (
+                  <p className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)" }}>
+                    {missionsError.message}
+                  </p>
+                )}
+
+                {missionsLoading ? (
+                  <p className="ac-text-sm ac-text-muted">Loading missions…</p>
+                ) : missions.length === 0 ? (
+                  <p className="ac-text-sm ac-text-muted">No missions scheduled for this drone yet.</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+                    {missions.map((m) => (
+                      <div
+                        key={m.id}
+                        style={{
+                          background: "var(--ac-bg-subtle, rgba(255,255,255,0.03))",
+                          border: "1px solid var(--ac-border)",
+                          borderRadius: 6,
+                          padding: "var(--ac-space-3)",
+                        }}
+                      >
+                        <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 8 }}>
+                          <div>
+                            <strong className="ac-text-sm">{m.purpose}</strong>
+                            <div className="ac-text-xs ac-text-muted" style={{ marginTop: 2 }}>
+                              Area: <strong>{m.operating_area || "Standard Corridor"}</strong>
+                              {m.pilot_user_id && <> • Pilot: <span className="ac-mono">{m.pilot_user_id}</span></>}
+                              {m.planned_start && <> • Planned: {new Date(m.planned_start).toLocaleString()}</>}
+                            </div>
+                          </div>
+                          <div className="ac-flex ac-gap-2 ac-items-center">
+                            <StatusBadge
+                              status={
+                                m.status === "AUTHORIZED" || m.status === "COMPLETED"
+                                  ? "COMPLIANT"
+                                  : m.status === "IN_PROGRESS"
+                                  ? "REVIEW_REQUIRED"
+                                  : m.status === "CANCELLED"
+                                  ? "NON_COMPLIANT"
+                                  : "PENDING"
+                              }
+                              label={m.status}
+                            />
+                            {m.status === "PLANNED" && (
+                              <button
+                                className="ac-btn ac-btn--sm"
+                                disabled={authorizingMissionId === m.id}
+                                onClick={() => handleAuthorizeMission(m.id)}
+                              >
+                                {authorizingMissionId === m.id ? "Authorizing…" : "Authorize Mission"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {m.authorized_at && (
+                          <div className="ac-text-xs ac-text-muted" style={{ marginTop: 6 }}>
+                            Operationally authorized on {new Date(m.authorized_at).toLocaleString()}
+                            {m.authorized_by_user_id && <> by <span className="ac-mono">{m.authorized_by_user_id}</span></>}
+                          </div>
+                        )}
+
+                        <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--ac-border)" }}>
+                          <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
+                            <span className="ac-text-xs ac-text-muted" style={{ fontWeight: 600 }}>
+                              Pre-Flight Evaluation Matrix:
+                            </span>
+                            <span className="ac-badge ac-badge--secondary" style={{ fontSize: 10 }}>
+                              PRE-FLIGHT: MANUAL CLEARANCE REQUIRED (External Controls Unevaluated)
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                              gap: 8,
+                              marginTop: 6,
+                            }}
+                          >
+                            <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 8px" }}>
+                              <span className="ac-text-xs">Airframe Condition</span>
+                              <StatusBadge
+                                status={readiness?.status === "READY" ? "COMPLIANT" : "NON_COMPLIANT"}
+                                label={readiness?.status === "READY" ? "PASS" : "BLOCK"}
+                              />
+                            </div>
+                            <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 8px" }}>
+                              <span className="ac-text-xs">Battery Status</span>
+                              <StatusBadge
+                                status={batteries.length > 0 && !batteries.some((b) => b.status === "CRITICAL" || b.status === "RETIRED") ? "COMPLIANT" : "NON_COMPLIANT"}
+                                label={batteries.length > 0 && !batteries.some((b) => b.status === "CRITICAL" || b.status === "RETIRED") ? "PASS" : "CHECK"}
+                              />
+                            </div>
+                            <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 8px" }}>
+                              <span className="ac-text-xs">Maintenance Due</span>
+                              <StatusBadge
+                                status={maintenanceItems.every((item) => item.due_status === "NOT_DUE") ? "COMPLIANT" : "NON_COMPLIANT"}
+                                label={maintenanceItems.every((item) => item.due_status === "NOT_DUE") ? "PASS" : "DUE"}
+                              />
+                            </div>
+                            <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 8px" }}>
+                              <span className="ac-text-xs">Inspection Gate</span>
+                              <StatusBadge
+                                status={!readiness?.blockers?.some((b) => b.toLowerCase().includes("inspection")) ? "COMPLIANT" : "NON_COMPLIANT"}
+                                label={!readiness?.blockers?.some((b) => b.toLowerCase().includes("inspection")) ? "PASS" : "BLOCK"}
+                              />
+                            </div>
+                            <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 8px" }}>
+                              <span className="ac-text-xs">Open Findings</span>
+                              <StatusBadge
+                                status={!readiness?.finding_blockers?.length ? "COMPLIANT" : "NON_COMPLIANT"}
+                                label={!readiness?.finding_blockers?.length ? "PASS" : "BLOCK"}
+                              />
+                            </div>
+                            <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 8px" }}>
+                              <span className="ac-text-xs">Pilot Qualification</span>
+                              <span className="ac-badge ac-badge--secondary" style={{ fontSize: 10 }}>NOT EVALUATED</span>
+                            </div>
+                            <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 8px" }}>
+                              <span className="ac-text-xs">Airspace Auth</span>
+                              <span className="ac-badge ac-badge--secondary" style={{ fontSize: 10 }}>NOT INTEGRATED</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Real Compliance Assessments for Drone */}
+              <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+                <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
+                  <div>
+                    <strong className="ac-text-sm">Compliance Determinations ({compliance.length})</strong>
+                    <p className="ac-text-xs ac-text-muted" style={{ margin: "2px 0 0" }}>
+                      Asset-scoped regulatory compliance determinations and assessment records.
+                    </p>
+                  </div>
+                </div>
+
+                {complianceError && (
+                  <p className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)" }}>
+                    {complianceError.message}
+                  </p>
+                )}
+
+                {complianceLoading ? (
+                  <p className="ac-text-sm ac-text-muted">Loading compliance assessments…</p>
+                ) : compliance.length === 0 ? (
+                  <p className="ac-text-sm ac-text-muted">No compliance assessments recorded for this drone asset.</p>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "1px solid var(--ac-border)", textAlign: "left" }}>
+                          <th style={{ padding: "6px 8px" }}>Requirement ID</th>
+                          <th style={{ padding: "6px 8px" }}>Status</th>
+                          <th style={{ padding: "6px 8px" }}>Evaluated</th>
+                          <th style={{ padding: "6px 8px" }}>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {compliance.map((c) => (
+                          <tr key={c.id} style={{ borderBottom: "1px solid var(--ac-border)" }}>
+                            <td style={{ padding: "8px" }} className="ac-mono">{c.requirement_id}</td>
+                            <td style={{ padding: "8px" }}>
+                              <StatusBadge
+                                status={c.status === "COMPLIANT" ? "COMPLIANT" : c.status === "NOT_APPLICABLE" ? "NOT_APPLICABLE" : "NON_COMPLIANT"}
+                                label={c.status}
+                              />
+                            </td>
+                            <td style={{ padding: "8px" }}>{new Date(c.evaluated_at).toLocaleDateString()}</td>
+                            <td style={{ padding: "8px" }}>{c.notes || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
@@ -448,8 +726,8 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
                             <div style={{ marginTop: 6 }}>
                               <MaintenanceSection
                                 items={batteryMaintenance[b.id] ?? []}
-                                loading={false}
-                                error={null}
+                                loading={batteryMaintenanceLoading[b.id] ?? false}
+                                error={batteryMaintenanceErrors[b.id] ?? null}
                                 canWrite={canRecordFlight(user)}
                                 intervalOptions={[
                                   { value: "BATTERY_CYCLES", label: "Battery Cycles" },
@@ -526,8 +804,8 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
                             <div style={{ marginTop: 6 }}>
                               <MaintenanceSection
                                 items={componentMaintenance[c.id] ?? []}
-                                loading={false}
-                                error={null}
+                                loading={componentMaintenanceLoading[c.id] ?? false}
+                                error={componentMaintenanceErrors[c.id] ?? null}
                                 canWrite={canRecordFlight(user)}
                                 intervalOptions={[
                                   { value: "COMPONENT_HOURS", label: "Component Hours" },
@@ -714,7 +992,549 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
   );
 }
 
+// Demo Drone Detail for SessionType === "DEMO"
+function DemoDroneDetail({ assetId }: { assetId: string }) {
+  const drone = getDemoDroneById(assetId);
+
+  if (!drone) {
+    return (
+      <div>
+        <PageHeader
+          breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Drones", href: "/drones" }, { label: "Not Found" }]}
+          title="Drone Not Found"
+          subtitle="The requested synthetic drone could not be located in the demo environment."
+        />
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <p className="ac-text-sm" style={{ margin: 0 }}>
+            No synthetic drone found with ID &ldquo;{assetId}&rdquo;. <Link href="/drones">Return to Fleet →</Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const readiness = getDemoDeploymentReadiness(drone.id);
+  const battery = getDemoBatteryForDrone(drone.id);
+  const components = getDemoComponentsForDrone(drone.id);
+  const flights = getDemoFlightsForDrone(drone.id);
+  const utilization = getDemoUtilizationForDrone(drone.id);
+  const maintenance = getDemoMaintenanceForDrone(drone.id);
+  const findings = getDemoFindingsForDrone(drone.id);
+  const missions = getDemoMissionsForDrone(drone.id);
+  const compliance = getDemoComplianceForDrone(drone.id);
+
+  return (
+    <div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Drones", href: "/drones" },
+          { label: drone.registration ?? "Drone" },
+        ]}
+        title={drone.registration ?? "Drone"}
+        subtitle={`${drone.manufacturer ?? "Unknown Manufacturer"} ${drone.model ?? "Unknown Model"} • S/N: ${drone.serial_number ?? "—"}`}
+        actions={
+          <Link href={`/maintenance/work-orders?asset_id=${drone.id}`} className="ac-btn">
+            Maintenance / Work Orders →
+          </Link>
+        }
+      />
+
+      {/* Deployment Readiness Card */}
+      <div
+        className="ac-card"
+        style={{
+          padding: "var(--ac-space-4)",
+          marginBottom: "var(--ac-space-4)",
+          borderLeft: `4px solid ${readiness.status === "READY" ? "var(--ac-status-compliant)" : "var(--ac-status-non-compliant)"}`,
+        }}
+      >
+        <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <span className="ac-text-xs ac-text-muted" style={{ textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              Operational Deployment Gate
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
+              <strong style={{ fontSize: 18 }}>
+                {readiness.status === "READY" ? "Ready for Flight Operations" : "Flight Operations Blocked"}
+              </strong>
+              <StatusBadge
+                status={readiness.status === "READY" ? "COMPLIANT" : "NON_COMPLIANT"}
+                label={readiness.status === "READY" ? "READY" : "BLOCKED"}
+              />
+            </div>
+          </div>
+          <div className="ac-flex ac-gap-2">
+            <StatusBadge {...statusBadge(drone.status)} />
+          </div>
+        </div>
+
+        {readiness.blockers.length > 0 && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--ac-border)" }}>
+            <span className="ac-text-xs" style={{ fontWeight: 600, color: "var(--ac-status-non-compliant)" }}>
+              Blocking Conditions ({readiness.blockers.length}):
+            </span>
+            <ul style={{ margin: "6px 0 0", paddingLeft: 20, fontSize: 13 }}>
+              {readiness.blockers.map((b, idx) => (
+                <li key={idx} style={{ color: "var(--ac-text-primary)", marginBottom: 2 }}>
+                  {b}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--ac-space-4)" }}>
+        {/* Airframe Identity & Utilization Overview */}
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <strong className="ac-text-sm">Airframe Identity & Utilization</strong>
+          <div
+            className="ac-grid-4"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              gap: "var(--ac-space-3)",
+              marginTop: 12,
+            }}
+          >
+            <div>
+              <span className="ac-text-xs ac-text-muted">Serial Number</span>
+              <p className="ac-text-sm" style={{ margin: "2px 0 0", fontWeight: 600 }}>
+                {drone.serial_number ?? "—"}
+              </p>
+            </div>
+            <div>
+              <span className="ac-text-xs ac-text-muted">Assigned Base / Facility</span>
+              <p className="ac-text-sm" style={{ margin: "2px 0 0", fontWeight: 600 }}>
+                {drone.facility_id ?? "Default Hub"}
+              </p>
+            </div>
+            <div>
+              <span className="ac-text-xs ac-text-muted">Total Recorded Flights</span>
+              <p className="ac-text-sm" style={{ margin: "2px 0 0", fontWeight: 600 }}>
+                {utilization.total_flights} flights
+              </p>
+            </div>
+            <div>
+              <span className="ac-text-xs ac-text-muted">Cumulative Flight Time</span>
+              <p className="ac-text-sm" style={{ margin: "2px 0 0", fontWeight: 600 }}>
+                {(utilization.total_minutes / 60).toFixed(1)} hrs ({utilization.total_minutes} mins)
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Mission Operations & Pre-Flight Gate */}
+        {missions.length > 0 && (
+          <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+            <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 12 }}>
+              <strong className="ac-text-sm">Assigned Mission & Pre-Flight Gate</strong>
+              <StatusBadge status="PENDING" label={`${missions.length} Scheduled Mission`} />
+            </div>
+
+            {missions.map((m) => (
+              <div
+                key={m.id}
+                style={{
+                  background: "var(--ac-bg-subtle, rgba(255,255,255,0.03))",
+                  border: "1px solid var(--ac-border)",
+                  borderRadius: 6,
+                  padding: "var(--ac-space-3)",
+                  marginBottom: 10,
+                }}
+              >
+                <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <strong className="ac-text-sm">{m.mission_code}</strong>: {m.purpose}
+                    <div className="ac-text-xs ac-text-muted" style={{ marginTop: 2 }}>
+                      Pilot: <strong>{m.pilot_name}</strong> • Area: <strong>{m.operating_area}</strong> • Planned:{" "}
+                      {new Date(m.planned_start).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <StatusBadge
+                    status={m.overall_preflight === "READY" ? "COMPLIANT" : "NON_COMPLIANT"}
+                    label={`PRE-FLIGHT: ${m.overall_preflight}`}
+                  />
+                </div>
+
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--ac-border)" }}>
+                  <span className="ac-text-xs ac-text-muted" style={{ fontWeight: 600 }}>
+                    Pre-Flight Assessment Matrix:
+                  </span>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                      gap: 8,
+                      marginTop: 8,
+                    }}
+                  >
+                    <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 10px" }}>
+                      <span className="ac-text-xs">Airframe Condition</span>
+                      <StatusBadge
+                        status={m.preflight_checks.airframe_condition === "PASS" ? "COMPLIANT" : "NON_COMPLIANT"}
+                        label={m.preflight_checks.airframe_condition}
+                      />
+                    </div>
+                    <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 10px" }}>
+                      <span className="ac-text-xs">Battery System</span>
+                      <StatusBadge
+                        status={m.preflight_checks.battery_state === "PASS" ? "COMPLIANT" : "NON_COMPLIANT"}
+                        label={m.preflight_checks.battery_state}
+                      />
+                    </div>
+                    <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 10px" }}>
+                      <span className="ac-text-xs">Maintenance Due</span>
+                      <StatusBadge
+                        status={m.preflight_checks.maintenance_status === "PASS" ? "COMPLIANT" : "NON_COMPLIANT"}
+                        label={m.preflight_checks.maintenance_status}
+                      />
+                    </div>
+                    <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 10px" }}>
+                      <span className="ac-text-xs">Inspection Gate</span>
+                      <StatusBadge
+                        status={m.preflight_checks.inspection_clearance === "PASS" ? "COMPLIANT" : "NON_COMPLIANT"}
+                        label={m.preflight_checks.inspection_clearance}
+                      />
+                    </div>
+                    <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 10px" }}>
+                      <span className="ac-text-xs">Open Findings</span>
+                      <StatusBadge
+                        status={m.preflight_checks.open_findings === "PASS" ? "COMPLIANT" : "NON_COMPLIANT"}
+                        label={m.preflight_checks.open_findings}
+                      />
+                    </div>
+                    <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 10px" }}>
+                      <span className="ac-text-xs">Pilot Qualification</span>
+                      <StatusBadge
+                        status={m.preflight_checks.pilot_qualification === "PASS" ? "COMPLIANT" : "NON_COMPLIANT"}
+                        label={m.preflight_checks.pilot_qualification}
+                      />
+                    </div>
+                    <div className="ac-flex ac-justify-between ac-items-center ac-card" style={{ padding: "6px 10px" }}>
+                      <span className="ac-text-xs">Airspace Auth</span>
+                      <StatusBadge
+                        status={m.preflight_checks.airspace_authorization === "PASS" ? "COMPLIANT" : "NON_COMPLIANT"}
+                        label={m.preflight_checks.airspace_authorization}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Battery Lifecycle & Installed Pack */}
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
+            <strong className="ac-text-sm">Power & Battery System</strong>
+            {battery && (
+              <StatusBadge
+                status={battery.status === "GOOD" ? "COMPLIANT" : battery.status === "MONITOR" || battery.status === "SERVICE_DUE" ? "REVIEW_REQUIRED" : "NON_COMPLIANT"}
+                label={battery.status}
+              />
+            )}
+          </div>
+
+          {battery ? (
+            <div
+              className="ac-grid-4"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                gap: "var(--ac-space-3)",
+              }}
+            >
+              <div>
+                <span className="ac-text-xs ac-text-muted">Serial Number</span>
+                <p className="ac-text-sm" style={{ margin: "2px 0 0", fontWeight: 600 }}>
+                  {battery.serial_number}
+                </p>
+              </div>
+              <div>
+                <span className="ac-text-xs ac-text-muted">Model / Chemistry</span>
+                <p className="ac-text-sm" style={{ margin: "2px 0 0", fontWeight: 600 }}>
+                  {battery.model ?? "LiPo Smart Pack"}
+                </p>
+              </div>
+              <div>
+                <span className="ac-text-xs ac-text-muted">Cycle Count</span>
+                <p className="ac-text-sm" style={{ margin: "2px 0 0", fontWeight: 600 }}>
+                  {battery.cycle_count} cycles
+                </p>
+              </div>
+              <div>
+                <span className="ac-text-xs ac-text-muted">Nominal Voltage & Capacity</span>
+                <p className="ac-text-sm" style={{ margin: "2px 0 0", fontWeight: 600 }}>
+                  {battery.voltage ?? "—"}V • {battery.capacity_mah ?? "—"} mAh
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              No battery currently installed.
+            </p>
+          )}
+        </div>
+
+        {/* Installed Components & Traceability */}
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <strong className="ac-text-sm">Configuration & Installed Components ({components.length})</strong>
+          <div style={{ marginTop: 10 }}>
+            {components.length === 0 ? (
+              <p className="ac-text-sm ac-text-muted">No line-replaceable components registered.</p>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--ac-border)", textAlign: "left" }}>
+                      <th style={{ padding: "6px 8px" }}>Component</th>
+                      <th style={{ padding: "6px 8px" }}>Manufacturer / Model</th>
+                      <th style={{ padding: "6px 8px" }}>Serial Number</th>
+                      <th style={{ padding: "6px 8px" }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {components.map((c) => (
+                      <tr key={c.id} style={{ borderBottom: "1px solid var(--ac-border)" }}>
+                        <td style={{ padding: "8px" }}>
+                          <strong>{c.name}</strong>
+                          <div className="ac-text-xs ac-text-muted">{c.component_type}</div>
+                        </td>
+                        <td style={{ padding: "8px" }}>{c.manufacturer ? `${c.manufacturer} ${c.model ?? ""}` : (c.model ?? "—")}</td>
+                        <td style={{ padding: "8px" }}>{c.serial_number ?? "—"}</td>
+                        <td style={{ padding: "8px" }}>
+                          <StatusBadge
+                            status={c.status === "SERVICEABLE" || c.status === "ACTIVE" ? "COMPLIANT" : "NON_COMPLIANT"}
+                            label={c.status}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Flight Operations History */}
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <strong className="ac-text-sm">Flight Operations Log ({flights.length})</strong>
+          <div style={{ marginTop: 10 }}>
+            {flights.length === 0 ? (
+              <p className="ac-text-sm ac-text-muted">No flight records logged.</p>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--ac-border)", textAlign: "left" }}>
+                      <th style={{ padding: "6px 8px" }}>Flight Date</th>
+                      <th style={{ padding: "6px 8px" }}>Duration</th>
+                      <th style={{ padding: "6px 8px" }}>Cycles</th>
+                      <th style={{ padding: "6px 8px" }}>Pilot</th>
+                      <th style={{ padding: "6px 8px" }}>Mission Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {flights.map((f) => (
+                      <tr key={f.id} style={{ borderBottom: "1px solid var(--ac-border)" }}>
+                        <td style={{ padding: "8px" }}>{new Date(f.flown_at).toLocaleDateString()}</td>
+                        <td style={{ padding: "8px" }}>{f.duration_minutes} mins</td>
+                        <td style={{ padding: "8px" }}>{f.cycles}</td>
+                        <td style={{ padding: "8px" }}>{f.pilot_user_id ?? "Chief Pilot"}</td>
+                        <td style={{ padding: "8px" }}>{f.notes ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Maintenance Schedule */}
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <strong className="ac-text-sm">Maintenance & Inspection Requirements ({maintenance.length})</strong>
+          <div style={{ marginTop: 10 }}>
+            {maintenance.length === 0 ? (
+              <p className="ac-text-sm ac-text-muted">No maintenance rules configured for this drone.</p>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--ac-border)", textAlign: "left" }}>
+                      <th style={{ padding: "6px 8px" }}>Task / Title</th>
+                      <th style={{ padding: "6px 8px" }}>Interval</th>
+                      <th style={{ padding: "6px 8px" }}>Due Status</th>
+                      <th style={{ padding: "6px 8px" }}>Status / Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {maintenance.map((m) => (
+                      <tr key={m.requirement.id} style={{ borderBottom: "1px solid var(--ac-border)" }}>
+                        <td style={{ padding: "8px" }}>
+                          <strong>{m.requirement.description}</strong>
+                          {m.requirement.task_reference && (
+                            <div className="ac-text-xs ac-text-muted">{m.requirement.task_reference}</div>
+                          )}
+                        </td>
+                        <td style={{ padding: "8px" }}>
+                          {m.requirement.fh_interval
+                            ? `${m.requirement.fh_interval} FH`
+                            : m.requirement.fc_interval
+                            ? `${m.requirement.fc_interval} FC`
+                            : m.requirement.calendar_interval_days
+                            ? `${m.requirement.calendar_interval_days} Days`
+                            : m.requirement.interval_type}
+                        </td>
+                        <td style={{ padding: "8px" }}>
+                          <StatusBadge
+                            status={m.due_status === "NOT_DUE" ? "COMPLIANT" : m.due_status === "DUE_SOON" ? "REVIEW_REQUIRED" : "NON_COMPLIANT"}
+                            label={m.due_status}
+                          />
+                        </td>
+                        <td style={{ padding: "8px" }}>{m.reason ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Findings & Compliance */}
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <strong className="ac-text-sm">Findings & Dispositions ({findings.length})</strong>
+          <div style={{ marginTop: 10 }}>
+            {findings.length === 0 ? (
+              <p className="ac-text-sm ac-text-muted">No open or historical findings recorded for this airframe.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {findings.map((f) => (
+                  <div
+                    key={f.id}
+                    className="ac-card"
+                    style={{
+                      padding: "var(--ac-space-3)",
+                      borderLeft: `3px solid ${f.severity === "CRITICAL" ? "var(--ac-status-non-compliant)" : f.severity === "MAJOR" ? "#f59e0b" : "var(--ac-border)"}`,
+                    }}
+                  >
+                    <div className="ac-flex ac-justify-between ac-items-center">
+                      <div>
+                        <strong>{f.title}</strong>
+                        <span className="ac-text-xs ac-text-muted" style={{ marginLeft: 8 }}>
+                          [{f.severity}]
+                        </span>
+                      </div>
+                      <StatusBadge
+                        status={f.status === "CLOSED" ? "COMPLIANT" : f.status === "IN_PROGRESS" ? "REVIEW_REQUIRED" : "NON_COMPLIANT"}
+                        label={f.status}
+                      />
+                    </div>
+                    <p className="ac-text-sm" style={{ margin: "6px 0 0", color: "var(--ac-text-muted)" }}>
+                      {f.description}
+                    </p>
+                    {f.dispositions && f.dispositions.length > 0 && (
+                      <div className="ac-text-xs" style={{ marginTop: 6, color: "var(--ac-text-secondary)" }}>
+                        Disposition: {f.dispositions[0].disposition_type}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Compliance Determinations for Drone */}
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
+            <div>
+              <strong className="ac-text-sm">Compliance Determinations ({compliance.length})</strong>
+              <p className="ac-text-xs ac-text-muted" style={{ margin: "2px 0 0" }}>
+                Asset-scoped regulatory compliance determinations and assessment records.
+              </p>
+            </div>
+            <StatusBadge
+              status={
+                compliance.length === 0
+                  ? "UNKNOWN"
+                  : compliance.every((c) => c.status === "COMPLIANT")
+                  ? "COMPLIANT"
+                  : compliance.some((c) => c.status === "NON_COMPLIANT")
+                  ? "NON_COMPLIANT"
+                  : "REVIEW_REQUIRED"
+              }
+              label={
+                compliance.length === 0
+                  ? "NO DETERMINATIONS"
+                  : compliance.every((c) => c.status === "COMPLIANT")
+                  ? "ALL COMPLIANT"
+                  : compliance.some((c) => c.status === "NON_COMPLIANT")
+                  ? "NON-COMPLIANT DETECTED"
+                  : "REVIEW REQUIRED"
+              }
+            />
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            {compliance.length === 0 ? (
+              <p className="ac-text-sm ac-text-muted">No compliance determinations recorded for this drone asset.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {compliance.map((c) => (
+                  <div
+                    key={c.id}
+                    className="ac-card"
+                    style={{
+                      padding: "var(--ac-space-3)",
+                      borderLeft: `3px solid ${
+                        c.status === "COMPLIANT"
+                          ? "var(--ac-status-compliant)"
+                          : c.status === "NON_COMPLIANT"
+                          ? "var(--ac-status-non-compliant)"
+                          : "#f59e0b"
+                      }`,
+                    }}
+                  >
+                    <div className="ac-flex ac-justify-between ac-items-center">
+                      <div>
+                        <strong>{c.requirement_number}</strong>: {c.title}
+                        <span className="ac-text-xs ac-text-muted" style={{ marginLeft: 8 }}>
+                          [{c.authority}]
+                        </span>
+                      </div>
+                      <StatusBadge status={c.status} label={c.status} />
+                    </div>
+                    {c.notes && (
+                      <p className="ac-text-sm" style={{ margin: "6px 0 0", color: "var(--ac-text-muted)" }}>
+                        {c.notes}
+                      </p>
+                    )}
+                    <div className="ac-text-xs ac-text-muted" style={{ marginTop: 6 }}>
+                      Evaluated: {c.evaluated_at}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DroneDetailPage() {
   const params = useParams<{ id: string }>();
+  const { sessionType } = useSession();
+
+  if (sessionType === "DEMO") {
+    return <DemoDroneDetail assetId={params.id} />;
+  }
   return <RealDroneDetail assetId={params.id} />;
 }

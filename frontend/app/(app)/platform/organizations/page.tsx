@@ -1,12 +1,10 @@
 "use client";
 
-// Platform Admin — Organization Management. REAL-mode only: this is
-// cross-tenant platform staff tooling, not a customer-facing feature, so
-// there is no demo dataset for it. Backend enforces PLATFORM_MANAGE on
-// every call here (app/api/v1/platform.py) — this page hiding itself from
-// non-platform-admin users is a UX convenience, never the security boundary.
+// Platform Admin — Organization Management.
+// Supports both REAL-mode (backend-enforced PLATFORM_MANAGE) and DEMO-mode (deterministic synthetic data).
+// Backend enforces PLATFORM_MANAGE on every call here (app/api/v1/platform.py).
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -14,11 +12,14 @@ import { StatusBadge, genericStatusBadge } from "@/components/status/StatusBadge
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useSession } from "@/lib/auth/SessionContext";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { platformApi, type BackendPlatformOrganization } from "@/lib/api/platform";
+import { DEMO_PLATFORM_ORGANIZATIONS } from "@/lib/demo/demoPlatform";
 
 function CreateAdminForm({ orgId, onDone }: { orgId: string; onDone: () => void }) {
   const { accessToken } = useSession();
+  const { mode } = useDataMode();
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
@@ -27,6 +28,11 @@ function CreateAdminForm({ orgId, onDone }: { orgId: string; onDone: () => void 
   const [done, setDone] = useState(false);
 
   const submit = () => {
+    if (mode === "DEMO") {
+      setDone(true);
+      setTimeout(onDone, 500);
+      return;
+    }
     if (!accessToken || !email.trim() || !fullName.trim() || password.length < 8) return;
     setBusy(true);
     setError(null);
@@ -45,7 +51,7 @@ function CreateAdminForm({ orgId, onDone }: { orgId: string; onDone: () => void 
   };
 
   if (done) {
-    return <p className="ac-text-sm" style={{ color: "var(--ac-status-compliant)" }}>Admin created.</p>;
+    return <p className="ac-text-sm" style={{ color: "var(--ac-status-compliant)" }}>Admin created successfully.</p>;
   }
 
   return (
@@ -69,36 +75,56 @@ function CreateAdminForm({ orgId, onDone }: { orgId: string; onDone: () => void 
       <input
         className="ac-input"
         style={{ width: 180 }}
-        placeholder="Temporary password (8+ chars)"
+        placeholder="Password (8+ chars)"
         type="password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         aria-label="Admin password"
       />
-      <button className="ac-btn" onClick={submit} disabled={busy}>
-        {busy ? "Creating…" : "Create First Admin"}
+      <button className="ac-btn" onClick={submit} disabled={busy || !email.trim() || !fullName.trim()}>
+        {busy ? "Creating…" : "Create Admin"}
       </button>
       {error && <span className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)" }}>{error.message}</span>}
     </div>
   );
 }
 
-function RealPlatformOrganizations() {
-  const { accessToken, isAuthenticated } = useSession();
+export default function PlatformOrganizationsPage() {
+  const { accessToken, isAuthenticated, user } = useSession();
+  const { mode } = useDataMode();
+
   const [orgs, setOrgs] = useState<BackendPlatformOrganization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  // Filters & Search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "SUSPENDED">("ALL");
+  const [industryFilter, setIndustryFilter] = useState<string>("ALL");
+
+  // Creation State
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmSuspendOrg, setConfirmSuspendOrg] = useState<BackendPlatformOrganization | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
 
+  const isPlatformUser =
+    user?.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
+
   const load = () => {
+    if (mode === "DEMO") {
+      setOrgs(DEMO_PLATFORM_ORGANIZATIONS);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     if (!isAuthenticated || !accessToken) {
       setLoading(false);
       return;
     }
+
     setLoading(true);
     setError(null);
     platformApi
@@ -111,10 +137,41 @@ function RealPlatformOrganizations() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, isAuthenticated]);
+  }, [mode, accessToken, isAuthenticated]);
+
+  const filteredOrgs = useMemo(() => {
+    return orgs.filter((o) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesName = o.name.toLowerCase().includes(q);
+        const matchesId = o.id.toLowerCase().includes(q);
+        if (!matchesName && !matchesId) return false;
+      }
+      if (statusFilter !== "ALL" && o.status !== statusFilter) return false;
+      if (industryFilter !== "ALL" && o.industry !== industryFilter) return false;
+      return true;
+    });
+  }, [orgs, searchQuery, statusFilter, industryFilter]);
 
   const createOrg = () => {
-    if (!accessToken || !newName.trim()) return;
+    if (!newName.trim()) return;
+    if (mode === "DEMO") {
+      const syntheticOrg: BackendPlatformOrganization = {
+        id: `00000000-0000-0000-0000-${String(Date.now()).slice(-12)}`,
+        name: newName.trim(),
+        status: "ACTIVE",
+        industry: "DRONE_UAV",
+        created_at: new Date().toISOString(),
+        user_count: 0,
+        aircraft_count: 0,
+        drone_count: 0,
+      };
+      setOrgs([syntheticOrg, ...orgs]);
+      setNewName("");
+      setExpandedId(syntheticOrg.id);
+      return;
+    }
+    if (!accessToken) return;
     setCreating(true);
     setError(null);
     platformApi
@@ -129,10 +186,19 @@ function RealPlatformOrganizations() {
   };
 
   const toggleStatus = (org: BackendPlatformOrganization) => {
+    if (mode === "DEMO") {
+      setOrgs((prev) =>
+        prev.map((o) =>
+          o.id === org.id
+            ? { ...o, status: o.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE" }
+            : o
+        )
+      );
+      return;
+    }
+
     if (!accessToken) return;
     if (org.status === "ACTIVE") {
-      // Suspending is destructive (locks out every user in the tenant) —
-      // require an explicit confirmation before firing the mutation.
       setConfirmSuspendOrg(org);
       return;
     }
@@ -140,7 +206,15 @@ function RealPlatformOrganizations() {
   };
 
   const confirmSuspend = () => {
-    if (!accessToken || !confirmSuspendOrg) return;
+    if (!confirmSuspendOrg) return;
+    if (mode === "DEMO") {
+      setOrgs((prev) =>
+        prev.map((o) => (o.id === confirmSuspendOrg.id ? { ...o, status: "SUSPENDED" } : o))
+      );
+      setConfirmSuspendOrg(null);
+      return;
+    }
+    if (!accessToken) return;
     setActionBusy(true);
     platformApi
       .suspendOrganization(accessToken, confirmSuspendOrg.id)
@@ -156,12 +230,52 @@ function RealPlatformOrganizations() {
     {
       key: "name",
       header: "Organization",
-      render: (o) => <Link href={`/platform/organizations/${o.id}`}>{o.name}</Link>,
+      render: (o) => (
+        <div>
+          <Link href={`/platform/organizations/${o.id}`} style={{ fontWeight: 600 }}>
+            {o.name}
+          </Link>
+          <div className="ac-text-sm ac-text-muted" style={{ fontSize: 11 }}>
+            ID: {o.id}
+          </div>
+        </div>
+      ),
+      sortValue: (o) => o.name,
     },
-    { key: "status", header: "Status", render: (o) => <StatusBadge {...genericStatusBadge(o.status)} /> },
-    { key: "users", header: "Users", render: (o) => o.user_count },
-    { key: "aircraft", header: "Aircraft", render: (o) => o.aircraft_count },
-    { key: "created", header: "Created", render: (o) => new Date(o.created_at).toLocaleDateString(), sortValue: (o) => o.created_at },
+    {
+      key: "status",
+      header: "Status",
+      render: (o) => <StatusBadge {...genericStatusBadge(o.status)} />,
+      sortValue: (o) => o.status,
+    },
+    {
+      key: "industry",
+      header: "Industry",
+      render: (o) => (
+        <span className="ac-badge" style={{ fontSize: 11 }}>
+          {o.industry ? o.industry.replace(/_/g, " ") : "UNSET"}
+        </span>
+      ),
+    },
+    { key: "users", header: "Users", render: (o) => o.user_count, sortValue: (o) => o.user_count },
+    {
+      key: "fleet",
+      header: "Fleet",
+      render: (o) => (
+        <span style={{ fontSize: 12 }}>
+          {o.aircraft_count > 0 && <span>✈ {o.aircraft_count} </span>}
+          {(o.drone_count ?? 0) > 0 && <span>◆ {o.drone_count}</span>}
+          {o.aircraft_count === 0 && (o.drone_count ?? 0) === 0 && <span className="ac-text-muted">—</span>}
+        </span>
+      ),
+      sortValue: (o) => o.aircraft_count + (o.drone_count ?? 0),
+    },
+    {
+      key: "created",
+      header: "Created",
+      render: (o) => new Date(o.created_at).toLocaleDateString(),
+      sortValue: (o) => o.created_at,
+    },
     {
       key: "actions",
       header: "Actions",
@@ -175,7 +289,7 @@ function RealPlatformOrganizations() {
             style={{ fontSize: 12, padding: "2px 8px" }}
             onClick={() => setExpandedId(expandedId === o.id ? null : o.id)}
           >
-            {expandedId === o.id ? "Close" : "Create Admin"}
+            {expandedId === o.id ? "Close" : "Admin"}
           </button>
         </div>
       ),
@@ -183,57 +297,131 @@ function RealPlatformOrganizations() {
   ];
 
   return (
-    <div>
-      <Breadcrumbs items={[{ label: "Platform Admin", href: "/platform/organizations" }, { label: "Organizations" }]} />
-      <div className="ac-section-header">
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--ac-space-4, 20px)" }}>
+      <Breadcrumbs items={[{ label: "Platform Admin", href: "/platform/dashboard" }, { label: "Organizations" }]} />
+
+      <div className="ac-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 className="ac-h1">Platform — Organizations</h1>
-          <p className="ac-subtitle">Cross-tenant administration. Not visible to customer users.</p>
+          <h1 className="ac-h1" style={{ margin: 0 }}>Platform — Organizations</h1>
+          <p className="ac-subtitle" style={{ margin: "4px 0 0" }}>
+            Customer tenants control plane. Direct metadata inspection and tenant lifecycle management.
+          </p>
         </div>
         <Link className="ac-btn" href="/platform/organizations/provision">
           + Provision Organization
         </Link>
       </div>
 
-      {!isAuthenticated ? (
+      {mode === "REAL" && !isAuthenticated ? (
         <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
           <p className="ac-text-sm" style={{ margin: 0 }}>
             Platform administration requires signing in as a platform admin. <Link href="/login">Sign in →</Link>
           </p>
         </div>
+      ) : mode === "REAL" && !isPlatformUser ? (
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)", borderLeft: "4px solid var(--ac-status-non-compliant)" }}>
+          <h3 className="ac-h3" style={{ margin: "0 0 6px" }}>Platform Access Denied</h3>
+          <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+            Your account does not possess the <code>PLATFORM_MANAGE</code> authority required to view or administer tenant control planes.
+          </p>
+        </div>
       ) : (
         <>
-          <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
-            <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+          {/* Quick Create Bar */}
+          <div className="ac-card" style={{ padding: "var(--ac-space-3)" }}>
+            <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap", alignItems: "center" }}>
               <input
                 className="ac-input"
-                style={{ width: 280 }}
+                style={{ width: 320 }}
                 placeholder="New customer organization name…"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 aria-label="New organization name"
               />
               <button className="ac-btn" onClick={createOrg} disabled={creating || !newName.trim()}>
-                {creating ? "Creating…" : "Create Organization"}
+                {creating ? "Creating…" : "+ Fast Create"}
               </button>
+              <span className="ac-text-sm ac-text-muted" style={{ marginLeft: "auto" }}>
+                Need full onboarding? Use <Link href="/platform/organizations/provision">Guided Provisioning →</Link>
+              </span>
+            </div>
+          </div>
+
+          {/* Search & Filters */}
+          <div
+            className="ac-card"
+            style={{
+              padding: "var(--ac-space-3)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 12,
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", flex: 1 }}>
+              <input
+                className="ac-input"
+                style={{ minWidth: 260, flex: "1 1 260px" }}
+                placeholder="Search by organization name or UUID…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label="Search organizations"
+              />
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="ac-text-sm ac-text-muted">Status:</span>
+                <select
+                  className="ac-select"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                  aria-label="Filter by status"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="SUSPENDED">SUSPENDED</option>
+                </select>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="ac-text-sm ac-text-muted">Industry:</span>
+                <select
+                  className="ac-select"
+                  value={industryFilter}
+                  onChange={(e) => setIndustryFilter(e.target.value)}
+                  aria-label="Filter by industry"
+                >
+                  <option value="ALL">All Industries</option>
+                  <option value="DRONE_UAV">Drone / UAV</option>
+                  <option value="AIRCRAFT">Aircraft</option>
+                  <option value="HELICOPTER">Helicopter</option>
+                  <option value="EVTOL_AAM">eVTOL / AAM</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="ac-text-sm ac-text-muted">
+              Showing {filteredOrgs.length} of {orgs.length} organizations
             </div>
           </div>
 
           <RealDataPanel
             loading={loading}
             error={error}
-            isEmpty={orgs.length === 0}
-            emptyMessage="No customer organizations exist yet. Create one above to begin onboarding."
+            isEmpty={filteredOrgs.length === 0}
+            emptyMessage={
+              searchQuery || statusFilter !== "ALL" || industryFilter !== "ALL"
+                ? "No organizations match your active search or filter criteria."
+                : "No customer organizations exist yet. Use '+ Provision Organization' above to onboard one."
+            }
           >
             <div className="ac-card" style={{ padding: 0 }}>
               <div className="ac-table-desktop">
-                <DataTable columns={columns} rows={orgs} getRowHref={(o) => `/platform/organizations/${o.id}`} />
+                <DataTable columns={columns} rows={filteredOrgs} getRowHref={(o) => `/platform/organizations/${o.id}`} />
               </div>
-              {/* Below 640px, columns (Created / Actions) are replaced with
-                  stacked cards so every field and action stays reachable
-                  without relying on horizontal table scroll. */}
+
               <div className="ac-row-cards">
-                {orgs.map((o) => (
+                {filteredOrgs.map((o) => (
                   <div className="ac-row-card" key={o.id}>
                     <div className="ac-row-card-field">
                       <span className="ac-row-card-field-label">Organization</span>
@@ -246,12 +434,14 @@ function RealPlatformOrganizations() {
                       <StatusBadge {...genericStatusBadge(o.status)} />
                     </div>
                     <div className="ac-row-card-field">
-                      <span className="ac-row-card-field-label">Users</span>
-                      <span>{o.user_count}</span>
+                      <span className="ac-row-card-field-label">Industry</span>
+                      <span className="ac-badge" style={{ fontSize: 11 }}>{o.industry ?? "UNSET"}</span>
                     </div>
                     <div className="ac-row-card-field">
-                      <span className="ac-row-card-field-label">Aircraft</span>
-                      <span>{o.aircraft_count}</span>
+                      <span className="ac-row-card-field-label">Users / Fleet</span>
+                      <span>
+                        {o.user_count} users · {o.aircraft_count} aircraft · {o.drone_count ?? 0} drones
+                      </span>
                     </div>
                     <div className="ac-row-card-field">
                       <span className="ac-row-card-field-label">Created</span>
@@ -269,6 +459,7 @@ function RealPlatformOrganizations() {
                 ))}
               </div>
             </div>
+
             {expandedId && (
               <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
                 <strong className="ac-text-sm">Create first admin for this organization</strong>
@@ -282,7 +473,7 @@ function RealPlatformOrganizations() {
       <ConfirmDialog
         open={confirmSuspendOrg !== null}
         title={`Suspend ${confirmSuspendOrg?.name ?? "organization"}?`}
-        body={`This immediately suspends "${confirmSuspendOrg?.name ?? ""}". Every user in this tenant loses normal access until the organization is reactivated. This is reversible at any time via Activate.`}
+        body={`This immediately suspends "${confirmSuspendOrg?.name ?? ""}". Every user in this tenant loses normal operational access until the organization is reactivated. This is reversible at any time via Activate.`}
         confirmLabel="Suspend Organization"
         cancelLabel="Cancel"
         busy={actionBusy}
@@ -291,8 +482,4 @@ function RealPlatformOrganizations() {
       />
     </div>
   );
-}
-
-export default function PlatformOrganizationsPage() {
-  return <RealPlatformOrganizations />;
 }

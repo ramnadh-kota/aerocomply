@@ -553,6 +553,7 @@ export interface WorkOrder {
   projectId: string | null;
   workPackageId: string | null;
   aircraftId: string;
+  assetId?: string | null;
   title: string;
   ataChapter: string;
   maintenanceType: MaintenanceType;

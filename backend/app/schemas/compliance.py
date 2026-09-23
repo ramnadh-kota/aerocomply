@@ -1,7 +1,7 @@
 import datetime
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class RegulatoryRequirementCreateRequest(BaseModel):
@@ -32,11 +32,18 @@ class RegulatoryRequirementResponse(BaseModel):
 
 
 class ComplianceAssessmentCreateRequest(BaseModel):
-    aircraft_id: uuid.UUID
+    aircraft_id: uuid.UUID | None = None
+    asset_id: uuid.UUID | None = None
     requirement_id: uuid.UUID
     status: str = Field(default="UNKNOWN", max_length=16)
     evaluated_at: datetime.date
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_subject(self) -> "ComplianceAssessmentCreateRequest":
+        if self.aircraft_id is None and self.asset_id is None:
+            raise ValueError("At least one of aircraft_id or asset_id must be provided")
+        return self
 
 
 class ComplianceAssessmentOverrideRequest(BaseModel):
@@ -47,7 +54,8 @@ class ComplianceAssessmentOverrideRequest(BaseModel):
 class ComplianceAssessmentResponse(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
-    aircraft_id: uuid.UUID
+    aircraft_id: uuid.UUID | None = None
+    asset_id: uuid.UUID | None = None
     requirement_id: uuid.UUID
     status: str
     evaluated_at: datetime.date

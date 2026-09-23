@@ -13,6 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
+from app.models.aircraft import Aircraft
+from app.models.asset import Asset
+from app.models.component import Component
+from app.models.evidence import Evidence
 from app.models.finding import (
     ALL_DISPOSITION_TYPES,
     ALL_FINDING_SEVERITIES,
@@ -22,6 +26,8 @@ from app.models.finding import (
     FindingStatus,
 )
 from app.models.user import User
+from app.models.inspection_requirement import InspectionRequirement
+from app.models.task import Task
 from app.models.work_order import WorkOrder
 from app.services.audit_service import record_audit_event
 
@@ -46,6 +52,18 @@ def _assert_work_order_in_organization(
         raise NotFoundError("Work order not found")
 
 
+def _assert_reference_in_organization(
+    db: Session, *, organization_id: uuid.UUID, model: type, resource_id: uuid.UUID, label: str
+) -> None:
+    exists = db.execute(
+        select(model.id).where(
+            model.id == resource_id, model.organization_id == organization_id
+        )
+    ).scalar_one_or_none()
+    if exists is None:
+        raise NotFoundError(f"{label} not found")
+
+
 def create_finding(
     db: Session,
     *,
@@ -64,6 +82,22 @@ def create_finding(
 ) -> Finding:
     if severity not in ALL_FINDING_SEVERITIES:
         raise ConflictError(f"Invalid severity: {severity}")
+    references = (
+        (Aircraft, aircraft_id, "Aircraft"),
+        (Asset, asset_id, "Asset"),
+        (Component, component_id, "Component"),
+        (InspectionRequirement, inspection_requirement_id, "Inspection requirement"),
+        (Task, task_id, "Task"),
+    )
+    for model, resource_id, label in references:
+        if resource_id is not None:
+            _assert_reference_in_organization(
+                db,
+                organization_id=organization_id,
+                model=model,
+                resource_id=resource_id,
+                label=label,
+            )
     if work_order_id is not None:
         _assert_work_order_in_organization(db, organization_id=organization_id, work_order_id=work_order_id)
     if responsible_user_id is not None:
@@ -155,6 +189,14 @@ def add_disposition(
         raise ConflictError(f"Invalid disposition_type: {disposition_type}")
     if disposition_type == DispositionType.CORRECTIVE_ACTION and not corrective_action:
         raise ConflictError("corrective_action is required for a CORRECTIVE_ACTION disposition")
+    if evidence_id is not None:
+        _assert_reference_in_organization(
+            db,
+            organization_id=finding.organization_id,
+            model=Evidence,
+            resource_id=evidence_id,
+            label="Evidence",
+        )
 
     disposition = FindingDisposition(
         organization_id=finding.organization_id,

@@ -28,9 +28,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
       </head>
       <body>
-        <DataModeProvider>
-          <SessionProvider>{children}</SessionProvider>
-        </DataModeProvider>
+        <SessionProvider>
+          <DataModeProvider>{children}</DataModeProvider>
+        </SessionProvider>
       </body>
     </html>
   );

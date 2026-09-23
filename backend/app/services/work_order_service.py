@@ -4,11 +4,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
+from app.models.aircraft import Aircraft
+from app.models.asset import AssetType
 from app.models.task import Task
 from app.models.work_order import WorkOrder
 from app.schemas.task import TaskCreateRequest
 from app.schemas.work_order import WorkOrderCreateRequest
 from app.services import aircraft_service
+from app.services import asset_service
 from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
@@ -29,16 +32,34 @@ def create_work_order(
     created_by_user_id: uuid.UUID | None,
     payload: WorkOrderCreateRequest,
 ) -> WorkOrder:
-    # aircraft_id is client-supplied; verify it belongs to this organization
-    # before attaching a work order to it (cross-tenant IDOR otherwise).
-    aircraft = aircraft_service.get_aircraft(
-        db, organization_id=organization_id, aircraft_id=payload.aircraft_id
-    )
+    aircraft_id = payload.aircraft_id
+    asset_id = payload.asset_id
+    if aircraft_id is not None:
+        # aircraft_id is client-supplied; verify it belongs to this
+        # organization before attaching a work order to it.
+        aircraft = aircraft_service.get_aircraft(
+            db, organization_id=organization_id, aircraft_id=aircraft_id
+        )
+        asset_id = resolve_asset_id(aircraft)
+    else:
+        asset = asset_service.get_asset(
+            db, organization_id=organization_id, asset_id=asset_id
+        )
+        if asset.asset_type == AssetType.AIRCRAFT:
+            aircraft = db.execute(
+                select(Aircraft).where(
+                    Aircraft.organization_id == organization_id,
+                    Aircraft.asset_id == asset.id,
+                )
+            ).scalar_one_or_none()
+            if aircraft is None:
+                raise NotFoundError("Aircraft not found for asset")
+            aircraft_id = aircraft.id
 
     work_order = WorkOrder(
         organization_id=organization_id,
-        aircraft_id=payload.aircraft_id,
-        asset_id=resolve_asset_id(aircraft),
+        aircraft_id=aircraft_id,
+        asset_id=asset_id,
         work_order_number=payload.work_order_number,
         status=payload.status,
         priority=payload.priority,
@@ -63,12 +84,19 @@ def get_work_order(
     return work_order
 
 
-def list_work_orders(db: Session, *, organization_id: uuid.UUID) -> list[WorkOrder]:
-    return list(
-        db.execute(select(WorkOrder).where(WorkOrder.organization_id == organization_id))
-        .scalars()
-        .all()
-    )
+def list_work_orders(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    asset_id: uuid.UUID | None = None,
+    aircraft_id: uuid.UUID | None = None,
+) -> list[WorkOrder]:
+    query = select(WorkOrder).where(WorkOrder.organization_id == organization_id)
+    if asset_id is not None:
+        query = query.where(WorkOrder.asset_id == asset_id)
+    if aircraft_id is not None:
+        query = query.where(WorkOrder.aircraft_id == aircraft_id)
+    return list(db.execute(query).scalars().all())
 
 
 def create_task(db: Session, *, organization_id: uuid.UUID, payload: TaskCreateRequest) -> Task:

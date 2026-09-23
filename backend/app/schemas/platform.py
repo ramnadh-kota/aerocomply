@@ -79,6 +79,21 @@ class PlatformOrganizationResponse(BaseModel):
     created_at: datetime
     user_count: int
     aircraft_count: int
+    drone_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class PlatformUserResponse(BaseModel):
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    organization_name: str | None = None
+    email: str
+    full_name: str
+    is_active: bool
+    roles: list[str] = Field(default_factory=list)
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -136,3 +151,23 @@ class PlatformHealthResponse(BaseModel):
     overall_status: str
     checked_at: datetime
     components: list[ComponentHealthResponse]
+
+
+class PlanDistributionItem(BaseModel):
+    plan_code: str
+    plan_name: str
+    count: int
+
+
+class PlatformDashboardStatsResponse(BaseModel):
+    total_organizations: int
+    active_organizations: int
+    suspended_organizations: int
+    pending_provisioning: int
+    active_subscriptions: int
+    trial_subscriptions: int
+    total_users: int
+    total_aircraft: int
+    total_drones: int
+    organizations_by_plan: list[PlanDistributionItem] = Field(default_factory=list)
+    recent_activity: list[AuditEventResponse] = Field(default_factory=list)

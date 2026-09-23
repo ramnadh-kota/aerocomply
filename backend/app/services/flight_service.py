@@ -4,10 +4,11 @@ from datetime import datetime
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError
+from app.core.errors import AeroComplyError, NotFoundError
 from app.models.battery import Battery
 from app.models.flight import Flight
-from app.services import drone_service
+from app.models.user import User
+from app.services import drone_service, mission_service
 from app.services.audit_service import record_audit_event
 
 # M17.3B: read-side pagination bounds for flight history, same
@@ -30,14 +31,35 @@ def record_flight(
     cycles: int,
     pilot_user_id: uuid.UUID | None,
     notes: str | None,
+    mission_id: uuid.UUID | None = None,
 ) -> Flight:
     # Confirms the drone belongs to this tenant before recording a flight
     # against it (cross-tenant IDOR otherwise).
     drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
 
+    # Validate pilot belongs to the caller's organization if provided
+    if pilot_user_id is not None:
+        pilot = db.execute(
+            select(User).where(
+                User.id == pilot_user_id,
+                User.organization_id == organization_id,
+            )
+        ).scalar_one_or_none()
+        if pilot is None:
+            raise NotFoundError("Pilot user not found in organization")
+
+    # Validate mission exists in caller's organization and references this asset
+    if mission_id is not None:
+        mission = mission_service.get_mission(
+            db, organization_id=organization_id, mission_id=mission_id
+        )
+        if mission.asset_id != asset_id:
+            raise AeroComplyError("Mission is not assigned to this drone asset")
+
     flight = Flight(
         organization_id=organization_id,
         asset_id=asset_id,
+        mission_id=mission_id,
         flown_at=flown_at,
         duration_minutes=duration_minutes,
         cycles=cycles,

@@ -14,12 +14,15 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { useSession } from "@/lib/auth/SessionContext";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { platformApi, type ProvisionOrganizationResponse } from "@/lib/api/platform";
 import { planApi, type PlanResponse } from "@/lib/api/plan";
+import { DEMO_PLATFORM_PLANS } from "@/lib/demo/demoPlatform";
 
-function RealProvisionOrganization() {
+export function RealProvisionOrganization() {
   const { accessToken, isAuthenticated } = useSession();
+  const { mode } = useDataMode();
 
   const [plans, setPlans] = useState<PlanResponse[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
@@ -37,6 +40,11 @@ function RealProvisionOrganization() {
   const [resendStatus, setResendStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
 
   useEffect(() => {
+    if (mode === "DEMO") {
+      setPlans(DEMO_PLATFORM_PLANS.filter((p) => p.is_active));
+      setPlansLoading(false);
+      return;
+    }
     if (!isAuthenticated || !accessToken) {
       setPlansLoading(false);
       return;
@@ -46,7 +54,7 @@ function RealProvisionOrganization() {
       .then((all) => setPlans(all.filter((p) => p.is_active)))
       .catch((err) => setPlansError(normalizeApiError(err)))
       .finally(() => setPlansLoading(false));
-  }, [accessToken, isAuthenticated]);
+  }, [mode, accessToken, isAuthenticated]);
 
   const selectedPlan = plans.find((p) => p.id === planId) ?? null;
   const canSubmit =
@@ -56,9 +64,30 @@ function RealProvisionOrganization() {
     adminFullName.trim().length > 0;
 
   const submit = () => {
-    if (!accessToken || !canSubmit) return;
+    if (!canSubmit) return;
     setSubmitting(true);
     setSubmitError(null);
+
+    if (mode === "DEMO") {
+      setTimeout(() => {
+        setResult({
+          organization_id: `00000000-0000-0000-0000-${String(Date.now()).slice(-12)}`,
+          organization_name: organizationName.trim(),
+          organization_status: "ACTIVE",
+          plan_id: planId,
+          subscription_id: `20000000-0000-0000-0000-${String(Date.now()).slice(-12)}`,
+          subscription_status: subscriptionStatus,
+          admin_user_id: `30000000-0000-0000-0000-${String(Date.now()).slice(-12)}`,
+          admin_email: adminEmail.trim(),
+          admin_email_verified: false,
+          onboarding_email_sent: true,
+        });
+        setSubmitting(false);
+      }, 500);
+      return;
+    }
+
+    if (!accessToken) return;
     platformApi
       .provisionOrganization(accessToken, {
         organization_name: organizationName.trim(),
@@ -73,6 +102,10 @@ function RealProvisionOrganization() {
   };
 
   const resendInvitation = () => {
+    if (mode === "DEMO") {
+      setResendStatus("sent");
+      return;
+    }
     if (!accessToken || !result) return;
     setResendStatus("sending");
     platformApi

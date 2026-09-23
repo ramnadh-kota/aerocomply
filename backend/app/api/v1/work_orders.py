@@ -19,6 +19,7 @@ def create_work_order(
     payload: WorkOrderCreateRequest,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_WRITE)),
+    _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> WorkOrderResponse:
     # organization_id always comes from the authenticated user, never the request body.
     work_order = work_order_service.create_work_order(
@@ -32,12 +33,17 @@ def create_work_order(
 
 @router.get("", response_model=list[WorkOrderResponse])
 def list_work_orders(
+    asset_id: uuid.UUID | None = None,
+    aircraft_id: uuid.UUID | None = None,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
     _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> list[WorkOrderResponse]:
     work_orders = work_order_service.list_work_orders(
-        db, organization_id=current_user.organization_id
+        db,
+        organization_id=current_user.organization_id,
+        asset_id=asset_id,
+        aircraft_id=aircraft_id,
     )
     return [WorkOrderResponse.model_validate(w) for w in work_orders]
 
@@ -61,6 +67,7 @@ def create_task(
     payload: TaskCreateRequest,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_WRITE)),
+    _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> TaskResponse:
     payload = payload.model_copy(update={"work_order_id": work_order_id})
     task = work_order_service.create_task(
@@ -78,6 +85,7 @@ def complete_task(
     # app/core/permissions.py); AIRCRAFT_WRITE already gates task creation
     # above, so it gates task completion too for the same reason.
     current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_WRITE)),
+    _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> TaskResponse:
     task = work_order_service.get_task(
         db, organization_id=current_user.organization_id, task_id=task_id
@@ -93,6 +101,7 @@ def list_tasks(
     work_order_id: uuid.UUID,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+    _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> list[TaskResponse]:
     tasks = work_order_service.list_tasks_for_work_order(
         db, organization_id=current_user.organization_id, work_order_id=work_order_id

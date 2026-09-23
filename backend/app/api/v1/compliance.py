@@ -134,3 +134,44 @@ def get_compliance_analytics(
     return compliance_service.get_compliance_analytics(
         db, organization_id=current_user.organization_id, aircraft_id=aircraft_id
     )
+
+
+@router.get(
+    "/assets/{asset_id}/compliance-assessments",
+    response_model=list[ComplianceAssessmentResponse],
+)
+def list_assessments_for_asset(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.COMPLIANCE_ASSESS)),
+) -> list[ComplianceAssessmentResponse]:
+    assessments = compliance_service.list_assessments_for_asset(
+        db, organization_id=current_user.organization_id, asset_id=asset_id
+    )
+    return [ComplianceAssessmentResponse.model_validate(a) for a in assessments]
+
+
+@router.get("/assets/{asset_id}/compliance-analytics", response_model=dict[str, int])
+def get_compliance_analytics_for_asset(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.COMPLIANCE_ASSESS)),
+) -> dict[str, int]:
+    return compliance_service.get_compliance_analytics_for_asset(
+        db, organization_id=current_user.organization_id, asset_id=asset_id
+    )
+
+
+@router.get(
+    "/drones/{asset_id}/compliance-assessments",
+    response_model=list[ComplianceAssessmentResponse],
+)
+def list_assessments_for_drone(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.COMPLIANCE_ASSESS)),
+) -> list[ComplianceAssessmentResponse]:
+    assessments = compliance_service.list_assessments_for_asset(
+        db, organization_id=current_user.organization_id, asset_id=asset_id
+    )
+    return [ComplianceAssessmentResponse.model_validate(a) for a in assessments]

@@ -68,8 +68,8 @@ function RealRegulatoryRegister() {
     };
   }, [accessToken, isAuthenticated]);
 
-  const registrationFor = (aircraftId: string) =>
-    aircraftList.find((a) => a.id === aircraftId)?.registration ?? aircraftId;
+  const registrationFor = (aircraftId: string | null) =>
+    aircraftId ? (aircraftList.find((a) => a.id === aircraftId)?.registration ?? aircraftId) : "N/A";
 
   const rows = requirements.map((req) => {
     const reqAssessments = assessments.filter((a) => a.requirement_id === req.id);

@@ -9,14 +9,60 @@ export interface BackendPlatformOrganization {
   id: string;
   name: string;
   status: "ACTIVE" | "SUSPENDED";
+  industry?: string | null;
   created_at: string;
   user_count: number;
   aircraft_count: number;
+  drone_count?: number;
+}
+
+export interface PlatformUser {
+  id: string;
+  organization_id: string;
+  organization_name?: string | null;
+  email: string;
+  full_name: string;
+  is_active: boolean;
+  roles: string[];
+  created_at: string;
+}
+
+export interface BackendDashboardStats {
+  total_organizations: number;
+  active_organizations: number;
+  suspended_organizations: number;
+  pending_provisioning: number;
+  active_subscriptions: number;
+  trial_subscriptions: number;
+  total_users: number;
+  total_aircraft: number;
+  total_drones: number;
+  organizations_by_plan: { plan_code: string; plan_name: string; count: number }[];
+  recent_activity: any[];
 }
 
 export const platformApi = {
+  getDashboardStats: (accessToken: string) =>
+    apiRequest<BackendDashboardStats>("/platform/dashboard/stats", { accessToken }),
+
   listOrganizations: (accessToken: string) =>
     apiRequest<BackendPlatformOrganization[]>("/platform/organizations", { accessToken }),
+
+  listOrganizationUsers: (accessToken: string, organizationId: string) =>
+    apiRequest<PlatformUser[]>(`/platform/organizations/${organizationId}/users`, { accessToken }),
+
+  listPlatformUsers: (
+    accessToken: string,
+    params?: { organizationId?: string; role?: string; limit?: number; offset?: number }
+  ) => {
+    const q = new URLSearchParams();
+    if (params?.organizationId) q.set("organization_id", params.organizationId);
+    if (params?.role) q.set("role", params.role);
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.offset) q.set("offset", String(params.offset));
+    const qs = q.toString();
+    return apiRequest<PlatformUser[]>(`/platform/users${qs ? `?${qs}` : ""}`, { accessToken });
+  },
 
   createOrganization: (accessToken: string, name: string) =>
     apiRequest<BackendPlatformOrganization>("/platform/organizations", {

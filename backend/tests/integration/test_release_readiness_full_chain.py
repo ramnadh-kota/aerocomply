@@ -9,9 +9,12 @@ categories release_readiness_service actually implements today.
 
 import uuid
 
+from app.models.plan import Plan, PlanFeature
+from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.user import User
 from app.schemas.procurement_request import ProcurementRequestApproveRequest
 from app.services import procurement_service
+from datetime import UTC, datetime, timedelta
 
 
 def _register(client, org_name, email):
@@ -32,9 +35,40 @@ def _auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def _entitle(db_session, org_id, feature_key):
+    """M21.5 fixture maintenance: grant org_id the named feature on an
+    active plan subscription so entitlement-gated routes are reachable."""
+    plan = Plan(
+        name=f"RR-Plan-{feature_key}-{org_id}",
+        code=f"rr-{feature_key}-{org_id}",
+        is_active=True,
+    )
+    db_session.add(plan)
+    db_session.commit()
+    db_session.refresh(plan)
+    db_session.add(PlanFeature(plan_id=plan.id, feature_key=feature_key, enabled=True))
+    db_session.add(
+        Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+            ends_at=None,
+        )
+    )
+    db_session.commit()
+
+
 def test_full_readiness_chain(client, db_session):
     tokens = _register(client, "Airline Chain", "admin@airline-chain.com")
     headers = _auth(tokens["access_token"])
+
+    # M21.5 fixture maintenance: work-order and procurement routes now
+    # require their respective feature entitlements.
+    org_id_str = client.get("/api/v1/auth/me", headers=headers).json()["organization_id"]
+    chain_org_id = uuid.UUID(org_id_str)
+    _entitle(db_session, chain_org_id, "work_order_management")
+    _entitle(db_session, chain_org_id, "procurement_management")
 
     aircraft_resp = client.post(
         "/api/v1/aircraft",

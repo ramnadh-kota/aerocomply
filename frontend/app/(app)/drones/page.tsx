@@ -1,10 +1,6 @@
 "use client";
 
-// Phase 18.6: Drone Operations. REAL-mode tenant page. Drone identity is
-// the existing Asset (asset_type=DRONE) -- see backend/app/services/
-// drone_service.py.
-
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -13,6 +9,220 @@ import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { dronesApi, type DroneResponse } from "@/lib/api/drones";
+import {
+  DEMO_DRONES,
+  getDemoDeploymentReadiness,
+  getDemoFleetStatistics,
+} from "@/lib/demo/demoDrones";
+
+function DemoDrones() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+
+  const stats = useMemo(() => getDemoFleetStatistics(), []);
+
+  const filteredDrones = useMemo(() => {
+    return DEMO_DRONES.filter((d) => {
+      const matchesSearch =
+        (d.registration?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
+        (d.manufacturer?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
+        (d.model?.toLowerCase() ?? "").includes(searchTerm.toLowerCase());
+
+      const matchesStatus = statusFilter === "ALL" || d.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [searchTerm, statusFilter]);
+
+  const columns: Column<DroneResponse>[] = [
+    {
+      key: "registration",
+      header: "Drone ID",
+      render: (d) => (
+        <Link href={`/drones/${d.id}`} className="ac-link" style={{ fontWeight: 600 }}>
+          {d.registration}
+        </Link>
+      ),
+    },
+    { key: "manufacturer", header: "Manufacturer", render: (d) => d.manufacturer ?? "—" },
+    { key: "model", header: "Model", render: (d) => d.model ?? "—" },
+    {
+      key: "status",
+      header: "Status",
+      render: (d) => <StatusBadge {...statusBadge(d.status)} />,
+    },
+    {
+      key: "readiness",
+      header: "Deployment Readiness",
+      render: (d) => {
+        const readiness = getDemoDeploymentReadiness(d.id);
+        return (
+          <StatusBadge
+            status={readiness.status === "READY" ? "COMPLIANT" : "NON_COMPLIANT"}
+            label={readiness.status === "READY" ? "READY FOR FLIGHT" : `BLOCKED (${readiness.blockers.length})`}
+          />
+        );
+      },
+    },
+  ];
+
+  return (
+    <div>
+      <PageHeader
+        breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Drones" }]}
+        title="Drone Fleet Operations"
+        subtitle="Operational drone fleet, configurations, battery health, maintenance schedules, and pre-flight readiness."
+      />
+
+      {/* Dynamic Fleet KPI Statistics */}
+      <div
+        className="ac-grid-4"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: "var(--ac-space-4)",
+          marginBottom: "var(--ac-space-4)",
+        }}
+      >
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <span className="ac-text-sm" style={{ color: "var(--ac-text-muted)" }}>
+            Total Fleet
+          </span>
+          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{stats.totalDrones}</div>
+          <span className="ac-text-xs" style={{ color: "var(--ac-text-muted)" }}>
+            Active Airframes: {stats.totalDrones - stats.groundedDrones}
+          </span>
+        </div>
+
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <span className="ac-text-sm" style={{ color: "var(--ac-text-muted)" }}>
+            Operationally Ready
+          </span>
+          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4, color: "var(--ac-status-compliant)" }}>
+            {stats.readyDrones}
+          </div>
+          <span className="ac-text-xs" style={{ color: "var(--ac-text-muted)" }}>
+            {stats.blockedDrones} Blocked / Attention Required
+          </span>
+        </div>
+
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <span className="ac-text-sm" style={{ color: "var(--ac-text-muted)" }}>
+            Maintenance Overdue
+          </span>
+          <div
+            style={{
+              fontSize: 24,
+              fontWeight: 700,
+              marginTop: 4,
+              color: stats.maintenanceDueDrones > 0 ? "var(--ac-status-non-compliant)" : "var(--ac-text-primary)",
+            }}
+          >
+            {stats.maintenanceDueDrones}
+          </div>
+          <span className="ac-text-xs" style={{ color: "var(--ac-text-muted)" }}>
+            Inspection & service due
+          </span>
+        </div>
+
+        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+          <span className="ac-text-sm" style={{ color: "var(--ac-text-muted)" }}>
+            Open Findings
+          </span>
+          <div
+            style={{
+              fontSize: 24,
+              fontWeight: 700,
+              marginTop: 4,
+              color: stats.openFindingsCount > 0 ? "var(--ac-status-in-progress)" : "var(--ac-text-primary)",
+            }}
+          >
+            {stats.openFindingsCount}
+          </div>
+          <span className="ac-text-xs" style={{ color: "var(--ac-text-muted)" }}>
+            Total Flight Hours: {stats.totalFlightHours}h
+          </span>
+        </div>
+      </div>
+
+      {/* Fleet Controls / Filter */}
+      <div
+        className="ac-card ac-section"
+        style={{
+          padding: "var(--ac-space-4)",
+          display: "flex",
+          gap: "var(--ac-space-3)",
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <input
+          className="ac-input"
+          style={{ width: 240 }}
+          placeholder="Search drone ID, make, model…"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          aria-label="Search Drones"
+        />
+        <select
+          className="ac-input"
+          style={{ width: 160 }}
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          aria-label="Status Filter"
+        >
+          <option value="ALL">All Statuses</option>
+          <option value="ACTIVE">Active Only</option>
+          <option value="GROUNDED">Grounded Only</option>
+          <option value="MAINTENANCE">Maintenance Only</option>
+        </select>
+        <span className="ac-text-xs" style={{ color: "var(--ac-text-muted)", marginLeft: "auto" }}>
+          Showing {filteredDrones.length} of {DEMO_DRONES.length} synthetic aircraft
+        </span>
+      </div>
+
+      {/* Fleet Table */}
+      <div className="ac-card" style={{ padding: 0 }}>
+        <div className="ac-table-desktop">
+          <DataTable columns={columns} rows={filteredDrones} getRowHref={(d) => `/drones/${d.id}`} />
+        </div>
+        <div className="ac-row-cards">
+          {filteredDrones.map((d) => {
+            const readiness = getDemoDeploymentReadiness(d.id);
+            return (
+              <div className="ac-row-card" key={d.id}>
+                <div className="ac-row-card-field">
+                  <span className="ac-row-card-field-label">Drone ID</span>
+                  <strong>
+                    <Link href={`/drones/${d.id}`}>{d.registration}</Link>
+                  </strong>
+                </div>
+                <div className="ac-row-card-field">
+                  <span className="ac-row-card-field-label">Manufacturer</span>
+                  <span>{d.manufacturer ?? "—"}</span>
+                </div>
+                <div className="ac-row-card-field">
+                  <span className="ac-row-card-field-label">Model</span>
+                  <span>{d.model ?? "—"}</span>
+                </div>
+                <div className="ac-row-card-field">
+                  <span className="ac-row-card-field-label">Status</span>
+                  <StatusBadge {...statusBadge(d.status)} />
+                </div>
+                <div className="ac-row-card-field">
+                  <span className="ac-row-card-field-label">Readiness</span>
+                  <StatusBadge
+                    status={readiness.status === "READY" ? "COMPLIANT" : "NON_COMPLIANT"}
+                    label={readiness.status === "READY" ? "READY" : "BLOCKED"}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function RealDrones() {
   const { accessToken, isAuthenticated } = useSession();
@@ -182,5 +392,9 @@ function RealDrones() {
 }
 
 export default function DronesPage() {
+  const { sessionType } = useSession();
+  if (sessionType === "DEMO") {
+    return <DemoDrones />;
+  }
   return <RealDrones />;
 }

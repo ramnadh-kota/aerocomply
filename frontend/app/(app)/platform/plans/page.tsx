@@ -15,8 +15,10 @@ import { DataTable, type Column } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/status/StatusBadge";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
+import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { planApi, type PlanResponse } from "@/lib/api/plan";
+import { DEMO_PLATFORM_PLANS } from "@/lib/demo/demoPlatform";
 
 function planStatusBadge(isActive: boolean) {
   return isActive
@@ -26,6 +28,7 @@ function planStatusBadge(isActive: boolean) {
 
 function RealPlatformPlans() {
   const { accessToken, isAuthenticated } = useSession();
+  const { mode } = useDataMode();
   const [plans, setPlans] = useState<PlanResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
@@ -37,6 +40,13 @@ function RealPlatformPlans() {
   const [createError, setCreateError] = useState<NormalizedApiError | null>(null);
 
   const load = () => {
+    if (mode === "DEMO") {
+      setPlans(DEMO_PLATFORM_PLANS);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     if (!isAuthenticated || !accessToken) {
       setLoading(false);
       return;
@@ -53,10 +63,28 @@ function RealPlatformPlans() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, isAuthenticated]);
+  }, [mode, accessToken, isAuthenticated]);
 
   const createPlan = () => {
-    if (!accessToken || !name.trim() || !code.trim()) return;
+    if (!name.trim() || !code.trim()) return;
+    if (mode === "DEMO") {
+      const syntheticPlan: PlanResponse = {
+        id: `10000000-0000-0000-0000-${String(Date.now()).slice(-12)}`,
+        name: name.trim(),
+        code: code.trim().toLowerCase(),
+        description: description.trim() || null,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setPlans([...plans, syntheticPlan]);
+      setName("");
+      setCode("");
+      setDescription("");
+      return;
+    }
+
+    if (!accessToken) return;
     setCreating(true);
     setCreateError(null);
     planApi

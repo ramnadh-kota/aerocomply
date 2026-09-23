@@ -56,6 +56,28 @@ def _entitle_drone_ops(db_session, org_id):
     db_session.commit()
 
 
+def _entitle_work_orders(db_session, org_id):
+    """M21.5 fixture maintenance: POST /work-orders requires
+    work_order_management. Grant only that feature."""
+    plan = Plan(name=f"WO-Test-Plan-{org_id}", code=f"wo-test-{org_id}", is_active=True)
+    db_session.add(plan)
+    db_session.commit()
+    db_session.refresh(plan)
+    db_session.add(
+        PlanFeature(plan_id=plan.id, feature_key="work_order_management", enabled=True)
+    )
+    db_session.add(
+        Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+            ends_at=None,
+        )
+    )
+    db_session.commit()
+
+
 def _auth(token):
     return {"Authorization": f"Bearer {token}"}
 
@@ -124,8 +146,12 @@ class TestDroneCRUD:
         assert listing.status_code == 200
         assert any(d["id"] == body["id"] for d in listing.json())
 
-    def test_update_drone(self, client):
+    def test_update_drone(self, client, db_session):
         tokens = _register(client, "Drone Org 2", "drone-admin2@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         created = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         )
@@ -193,11 +219,15 @@ class TestDroneTenantIsolationAndPermissions:
     def test_cross_tenant_get_drone_returns_404(self, client, db_session):
         org_a = _register(client, "Drone Isolation Org A", "drone-iso-a@example.com")
         org_b = _register(client, "Drone Isolation Org B", "drone-iso-b@example.com")
-        org_b_id = uuid.UUID(
-            client.get("/api/v1/auth/me", headers=_auth(org_b["access_token"])).json()[
-                "organization_id"
-            ]
+        org_a_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(org_a["access_token"])).json()["organization_id"]
         )
+        org_b_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(org_b["access_token"])).json()["organization_id"]
+        )
+        # M21.5: Org A creates the drone (needs entitlement); Org B attempts
+        # a cross-tenant GET which must 404, not 403 from missing entitlement.
+        _entitle_drone_ops(db_session, org_a_id)
         _entitle_drone_ops(db_session, org_b_id)
         created = client.post(
             "/api/v1/drones", headers=_auth(org_a["access_token"]), json=_drone_payload()
@@ -207,9 +237,17 @@ class TestDroneTenantIsolationAndPermissions:
         resp = client.get(f"/api/v1/drones/{asset_id}", headers=_auth(org_b["access_token"]))
         assert resp.status_code == 404
 
-    def test_cross_tenant_cannot_attach_battery(self, client):
+    def test_cross_tenant_cannot_attach_battery(self, client, db_session):
         org_a = _register(client, "Drone Battery Iso Org A", "drone-batt-iso-a@example.com")
         org_b = _register(client, "Drone Battery Iso Org B", "drone-batt-iso-b@example.com")
+        org_a_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(org_a["access_token"])).json()["organization_id"]
+        )
+        # M21.5: Org A must be entitled to create the drone; POST
+        # /drones/{id}/batteries by Org B 404s via tenancy isolation
+        # (no entitlement needed for Org B since it never passes the
+        # service-layer tenant check). The whole drones router is gated.
+        _entitle_drone_ops(db_session, org_a_id)
         created = client.post(
             "/api/v1/drones", headers=_auth(org_a["access_token"]), json=_drone_payload()
         )
@@ -222,9 +260,14 @@ class TestDroneTenantIsolationAndPermissions:
         )
         assert resp.status_code == 404
 
-    def test_cross_tenant_cannot_record_flight(self, client):
+    def test_cross_tenant_cannot_record_flight(self, client, db_session):
         org_a = _register(client, "Drone Flight Iso Org A", "drone-flight-iso-a@example.com")
         org_b = _register(client, "Drone Flight Iso Org B", "drone-flight-iso-b@example.com")
+        org_a_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(org_a["access_token"])).json()["organization_id"]
+        )
+        # M21.5: Org A must be entitled to create the drone.
+        _entitle_drone_ops(db_session, org_a_id)
         created = client.post(
             "/api/v1/drones", headers=_auth(org_a["access_token"]), json=_drone_payload()
         )
@@ -237,9 +280,14 @@ class TestDroneTenantIsolationAndPermissions:
         )
         assert resp.status_code == 404
 
-    def test_cross_tenant_cannot_read_readiness(self, client):
+    def test_cross_tenant_cannot_read_readiness(self, client, db_session):
         org_a = _register(client, "Drone Readiness Iso Org A", "drone-ready-iso-a@example.com")
         org_b = _register(client, "Drone Readiness Iso Org B", "drone-ready-iso-b@example.com")
+        org_a_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(org_a["access_token"])).json()["organization_id"]
+        )
+        # M21.5: Org A must be entitled to create the drone.
+        _entitle_drone_ops(db_session, org_a_id)
         created = client.post(
             "/api/v1/drones", headers=_auth(org_a["access_token"]), json=_drone_payload()
         )
@@ -252,8 +300,12 @@ class TestDroneTenantIsolationAndPermissions:
 
 
 class TestBatteryAndComponent:
-    def test_attach_and_list_battery(self, client):
+    def test_attach_and_list_battery(self, client, db_session):
         tokens = _register(client, "Battery Org 1", "battery-admin1@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         ).json()
@@ -272,8 +324,12 @@ class TestBatteryAndComponent:
         )
         assert len(listing.json()) == 1
 
-    def test_update_battery_status(self, client):
+    def test_update_battery_status(self, client, db_session):
         tokens = _register(client, "Battery Org 2", "battery-admin2@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         ).json()
@@ -292,8 +348,12 @@ class TestBatteryAndComponent:
         assert resp.json()["status"] == "CRITICAL"
         assert resp.json()["health_percent"] == 40
 
-    def test_attach_component(self, client):
+    def test_attach_component(self, client, db_session):
         tokens = _register(client, "Component Org 1", "component-admin1@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         ).json()
@@ -306,9 +366,14 @@ class TestBatteryAndComponent:
         assert resp.status_code == 201
         assert resp.json()["component_type"] == "GPS"
 
-    def test_cross_tenant_cannot_attach_component(self, client):
+    def test_cross_tenant_cannot_attach_component(self, client, db_session):
         org_a = _register(client, "Component Iso Org A", "component-iso-a@example.com")
         org_b = _register(client, "Component Iso Org B", "component-iso-b@example.com")
+        org_a_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(org_a["access_token"])).json()["organization_id"]
+        )
+        # M21.5: Org A must be entitled to create the drone.
+        _entitle_drone_ops(db_session, org_a_id)
         drone = client.post(
             "/api/v1/drones", headers=_auth(org_a["access_token"]), json=_drone_payload()
         ).json()
@@ -322,8 +387,12 @@ class TestBatteryAndComponent:
 
 
 class TestFlightAndUtilization:
-    def test_record_flight_and_utilization_sums_correctly(self, client):
+    def test_record_flight_and_utilization_sums_correctly(self, client, db_session):
         tokens = _register(client, "Flight Org 1", "flight-admin1@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         ).json()
@@ -343,8 +412,12 @@ class TestFlightAndUtilization:
         assert util["total_minutes"] == 55
         assert util["total_cycles"] == 2
 
-    def test_flight_increments_attached_battery_cycle_count(self, client):
+    def test_flight_increments_attached_battery_cycle_count(self, client, db_session):
         tokens = _register(client, "Flight Org 2", "flight-admin2@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         ).json()
@@ -364,11 +437,16 @@ class TestFlightAndUtilization:
         ).json()
         assert batteries[0]["cycle_count"] == 3
 
-    def test_existing_aircraft_work_order_flow_unaffected(self, client):
+    def test_existing_aircraft_work_order_flow_unaffected(self, client, db_session):
         """Regression: this milestone does not touch Aircraft/WorkOrder
         behavior -- confirms the existing aircraft-based work order flow
         still works exactly as before Phase 18.6."""
         tokens = _register(client, "Regression Org 1", "regression-admin1@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        # M21.5 fixture maintenance: work orders now require work_order_management.
+        _entitle_work_orders(db_session, org_id)
         aircraft = client.post(
             "/api/v1/aircraft",
             headers=_auth(tokens["access_token"]),
@@ -397,8 +475,12 @@ class TestDeploymentReadiness:
         )
         return drone
 
-    def test_ready_drone_returns_ready(self, client):
+    def test_ready_drone_returns_ready(self, client, db_session):
         tokens = _register(client, "Readiness Org 1", "readiness-admin1@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = self._drone_with_good_battery(client, tokens["access_token"])
 
         resp = client.get(
@@ -410,8 +492,12 @@ class TestDeploymentReadiness:
         assert body["status"] == "READY"
         assert body["blockers"] == []
 
-    def test_grounded_drone_returns_blocked(self, client):
+    def test_grounded_drone_returns_blocked(self, client, db_session):
         tokens = _register(client, "Readiness Org 2", "readiness-admin2@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = self._drone_with_good_battery(client, tokens["access_token"])
         client.patch(
             f"/api/v1/drones/{drone['id']}",
@@ -427,8 +513,12 @@ class TestDeploymentReadiness:
         assert body["status"] == "BLOCKED"
         assert any("not active" in b for b in body["blockers"])
 
-    def test_no_battery_returns_blocked(self, client):
+    def test_no_battery_returns_blocked(self, client, db_session):
         tokens = _register(client, "Readiness Org 3", "readiness-admin3@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         ).json()
@@ -441,8 +531,12 @@ class TestDeploymentReadiness:
         assert body["status"] == "BLOCKED"
         assert "No battery assigned" in body["blockers"]
 
-    def test_battery_critical_returns_blocked(self, client):
+    def test_battery_critical_returns_blocked(self, client, db_session):
         tokens = _register(client, "Readiness Org 4", "readiness-admin4@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         ).json()
@@ -551,8 +645,12 @@ class TestDeploymentReadiness:
         assert body["status"] == "BLOCKED"
         assert "Failed inspection" in body["blockers"]
 
-    def test_multiple_blockers_returned_together(self, client):
+    def test_multiple_blockers_returned_together(self, client, db_session):
         tokens = _register(client, "Readiness Org 7", "readiness-admin7@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = client.post(
             "/api/v1/drones", headers=_auth(tokens["access_token"]), json=_drone_payload()
         ).json()
@@ -597,8 +695,12 @@ class TestFindingReadinessIntegration:
         assert resp.status_code == 201
         return resp.json()
 
-    def test_no_findings_no_finding_blocker(self, client):
+    def test_no_findings_no_finding_blocker(self, client, db_session):
         tokens = _register(client, "Finding Readiness Org 1", "finding-ready-1@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = self._drone_with_good_battery(client, tokens["access_token"])
 
         resp = client.get(
@@ -609,8 +711,12 @@ class TestFindingReadinessIntegration:
         assert body["status"] == "READY"
         assert body.get("finding_blockers", []) == []
 
-    def test_unresolved_finding_produces_blocker(self, client):
+    def test_unresolved_finding_produces_blocker(self, client, db_session):
         tokens = _register(client, "Finding Readiness Org 2", "finding-ready-2@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = self._drone_with_good_battery(client, tokens["access_token"])
         finding = self._create_finding(client, tokens["access_token"], drone["id"])
 
@@ -626,8 +732,12 @@ class TestFindingReadinessIntegration:
         assert body["finding_blockers"][0]["severity"] == "MAJOR"
         assert body["finding_blockers"][0]["status"] == "OPEN"
 
-    def test_closed_finding_produces_no_blocker(self, client):
+    def test_closed_finding_produces_no_blocker(self, client, db_session):
         tokens = _register(client, "Finding Readiness Org 3", "finding-ready-3@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = self._drone_with_good_battery(client, tokens["access_token"])
         finding = self._create_finding(client, tokens["access_token"], drone["id"])
 
@@ -649,8 +759,12 @@ class TestFindingReadinessIntegration:
         assert body["status"] == "READY"
         assert body.get("finding_blockers", []) == []
 
-    def test_multiple_findings_mixed_resolution_only_unresolved_block(self, client):
+    def test_multiple_findings_mixed_resolution_only_unresolved_block(self, client, db_session):
         tokens = _register(client, "Finding Readiness Org 4", "finding-ready-4@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = self._drone_with_good_battery(client, tokens["access_token"])
         open_finding = self._create_finding(
             client, tokens["access_token"], drone["id"], title="Open finding"
@@ -676,8 +790,12 @@ class TestFindingReadinessIntegration:
         assert len(body["finding_blockers"]) == 1
         assert body["finding_blockers"][0]["finding_id"] == open_finding["id"]
 
-    def test_finding_lifecycle_reflected_in_fresh_readiness_call(self, client):
+    def test_finding_lifecycle_reflected_in_fresh_readiness_call(self, client, db_session):
         tokens = _register(client, "Finding Readiness Org 5", "finding-ready-5@example.com")
+        org_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_id)
         drone = self._drone_with_good_battery(client, tokens["access_token"])
 
         ready_before = client.get(
@@ -707,9 +825,17 @@ class TestFindingReadinessIntegration:
         ).json()
         assert ready_after["status"] == "READY"
 
-    def test_cross_org_finding_never_leaks_into_other_org_readiness(self, client):
+    def test_cross_org_finding_never_leaks_into_other_org_readiness(self, client, db_session):
         org_a = _register(client, "Finding Readiness Org A", "finding-ready-a@example.com")
         org_b = _register(client, "Finding Readiness Org B", "finding-ready-b@example.com")
+        org_a_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(org_a["access_token"])).json()["organization_id"]
+        )
+        org_b_id = uuid.UUID(
+            client.get("/api/v1/auth/me", headers=_auth(org_b["access_token"])).json()["organization_id"]
+        )
+        _entitle_drone_ops(db_session, org_a_id)
+        _entitle_drone_ops(db_session, org_b_id)
         drone_a = self._drone_with_good_battery(client, org_a["access_token"])
         drone_b = self._drone_with_good_battery(client, org_b["access_token"])
         self._create_finding(client, org_a["access_token"], drone_a["id"])

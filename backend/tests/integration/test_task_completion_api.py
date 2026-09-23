@@ -9,6 +9,10 @@ Mirrors the register/auth pattern in test_assessments_api.py. Confirms:
 """
 
 from app.models.audit_event import AuditEvent
+from app.models.plan import Plan, PlanFeature
+from app.models.subscription import Subscription, SubscriptionStatus
+from datetime import UTC, datetime, timedelta
+import uuid
 
 
 def _register(client, org_name, email):
@@ -27,6 +31,35 @@ def _register(client, org_name, email):
 
 def _auth(token):
     return {"Authorization": f"Bearer {token}"}
+
+
+def _entitle_work_orders(db_session, org_id):
+    """M21.5 fixture maintenance: POST /work-orders (and all work-order
+    sub-routes) now require require_feature("work_order_management").
+    Grant only that one feature to the given org so tests that exercise
+    RBAC, tenancy, or task-completion logic are not blocked at the
+    entitlement gate before they reach their actual assertion."""
+    plan = Plan(
+        name=f"WO-Test-Plan-{org_id}",
+        code=f"wo-test-{org_id}",
+        is_active=True,
+    )
+    db_session.add(plan)
+    db_session.commit()
+    db_session.refresh(plan)
+    db_session.add(
+        PlanFeature(plan_id=plan.id, feature_key="work_order_management", enabled=True)
+    )
+    db_session.add(
+        Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+            ends_at=None,
+        )
+    )
+    db_session.commit()
 
 
 def _make_work_order_with_task(client, headers):
@@ -55,8 +88,12 @@ def _make_work_order_with_task(client, headers):
     return work_order_id, task_resp.json()["id"]
 
 
-def test_valid_task_completion(client):
+def test_valid_task_completion(client, db_session):
     tokens = _register(client, "Airline Task1", "admin@airline-task1.com")
+    org_id = uuid.UUID(
+        client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+    )
+    _entitle_work_orders(db_session, org_id)
     headers = _auth(tokens["access_token"])
     work_order_id, task_id = _make_work_order_with_task(client, headers)
 
@@ -67,8 +104,12 @@ def test_valid_task_completion(client):
     assert resp.json()["execution_state"] == "COMPLETED"
 
 
-def test_duplicate_completion_rejected(client):
+def test_duplicate_completion_rejected(client, db_session):
     tokens = _register(client, "Airline Task2", "admin@airline-task2.com")
+    org_id = uuid.UUID(
+        client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+    )
+    _entitle_work_orders(db_session, org_id)
     headers = _auth(tokens["access_token"])
     work_order_id, task_id = _make_work_order_with_task(client, headers)
 
@@ -83,9 +124,21 @@ def test_duplicate_completion_rejected(client):
     assert second.status_code == 409
 
 
-def test_cross_tenant_task_completion_rejected(client):
+def test_cross_tenant_task_completion_rejected(client, db_session):
     tokens_a = _register(client, "Airline Task3A", "admin@airline-task3a.com")
     tokens_b = _register(client, "Airline Task3B", "admin@airline-task3b.com")
+    org_a_id = uuid.UUID(
+        client.get("/api/v1/auth/me", headers=_auth(tokens_a["access_token"])).json()["organization_id"]
+    )
+    org_b_id = uuid.UUID(
+        client.get("/api/v1/auth/me", headers=_auth(tokens_b["access_token"])).json()["organization_id"]
+    )
+    # M21.5 fixture maintenance: both orgs need work_order_management so
+    # the cross-tenant isolation (404) is reached rather than an entitlement
+    # denial (403). Org A creates the work order; Org B must pass the
+    # entitlement gate before the service layer can return 404.
+    _entitle_work_orders(db_session, org_a_id)
+    _entitle_work_orders(db_session, org_b_id)
     headers_a = _auth(tokens_a["access_token"])
     headers_b = _auth(tokens_b["access_token"])
 
@@ -99,6 +152,10 @@ def test_cross_tenant_task_completion_rejected(client):
 
 def test_task_completion_records_audit_event(client, db_session):
     tokens = _register(client, "Airline Task4", "admin@airline-task4.com")
+    org_id = uuid.UUID(
+        client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+    )
+    _entitle_work_orders(db_session, org_id)
     headers = _auth(tokens["access_token"])
     work_order_id, task_id = _make_work_order_with_task(client, headers)
 
@@ -116,8 +173,12 @@ def test_task_completion_records_audit_event(client, db_session):
     assert str(events[0].entity_id) == task_id
 
 
-def test_task_completion_clears_release_readiness_blocker(client):
+def test_task_completion_clears_release_readiness_blocker(client, db_session):
     tokens = _register(client, "Airline Task5", "admin@airline-task5.com")
+    org_id = uuid.UUID(
+        client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()["organization_id"]
+    )
+    _entitle_work_orders(db_session, org_id)
     headers = _auth(tokens["access_token"])
     work_order_id, task_id = _make_work_order_with_task(client, headers)
 

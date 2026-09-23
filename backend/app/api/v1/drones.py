@@ -48,7 +48,14 @@ from app.services import (
     readiness_service,
 )
 
-router = APIRouter(tags=["drones"])
+# Every drone asset operation is part of the drone-fleet capability. Keeping
+# this gate at the router boundary prevents a new battery, component, flight,
+# maintenance, or readiness endpoint from accidentally bypassing entitlement
+# enforcement while preserving the existing per-route RBAC checks.
+router = APIRouter(
+    tags=["drones"],
+    dependencies=[Depends(require_feature("drone_fleet_management"))],
+)
 
 
 @router.get("/drones", response_model=list[DroneResponse])
@@ -251,6 +258,7 @@ def record_flight(
         cycles=payload.cycles,
         pilot_user_id=payload.pilot_user_id,
         notes=payload.notes,
+        mission_id=payload.mission_id,
     )
     return FlightResponse.model_validate(flight)
 

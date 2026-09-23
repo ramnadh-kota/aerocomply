@@ -1,25 +1,39 @@
-import Link from "next/link";
-import { PLATFORM_TAGLINE } from "@/lib/brand";
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "@/lib/auth/SessionContext";
 import { Logo } from "@/components/branding/Logo";
 
 export default function HomePage() {
+  const router = useRouter();
+  const { user, isAuthenticated, loading } = useSession();
+
+  useEffect(() => {
+    if (loading) return;
+    if (!isAuthenticated || !user) {
+      router.replace("/login");
+    } else {
+      const isPlatformUser =
+        user.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
+      router.replace(isPlatformUser ? "/platform/organizations" : "/dashboard");
+    }
+  }, [loading, isAuthenticated, user, router]);
+
   return (
-    <main style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
-      <div style={{ textAlign: "center" }}>
-        <Logo height={64} />
-        <p style={{ opacity: 0.7, margin: "12px 0 0" }}>{PLATFORM_TAGLINE}</p>
-      </div>
-      <div style={{ display: "flex", gap: 12 }}>
-        <Link href="/dashboard" className="ac-btn ac-btn-primary">
-          Enter M0.5 Prototype
-        </Link>
-        <Link href="/login" className="ac-btn">
-          Sign in
-        </Link>
-      </div>
-      <p className="ac-text-sm ac-text-muted" style={{ maxWidth: 420, textAlign: "center" }}>
-        The prototype uses fictional demo data and is not connected to the real backend. See the
-        environment indicator in the sidebar.
+    <main
+      style={{
+        display: "flex",
+        height: "100vh",
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column",
+        gap: 16,
+      }}
+    >
+      <Logo height={64} />
+      <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+        Redirecting…
       </p>
     </main>
   );
