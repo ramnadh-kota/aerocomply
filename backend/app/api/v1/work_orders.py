@@ -8,7 +8,12 @@ from app.core.errors import NotFoundError
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.task import TaskCreateRequest, TaskResponse
-from app.schemas.work_order import WorkOrderCreateRequest, WorkOrderResponse
+from app.schemas.work_order import (
+    WorkOrderCreateRequest,
+    WorkOrderDeleteRequest,
+    WorkOrderResponse,
+    WorkOrderRestoreRequest,
+)
 from app.services import work_order_service
 
 router = APIRouter(prefix="/work-orders", tags=["work-orders"])
@@ -44,6 +49,7 @@ def list_work_orders(
         organization_id=current_user.organization_id,
         asset_id=asset_id,
         aircraft_id=aircraft_id,
+        include_deleted=False,
     )
     return [WorkOrderResponse.model_validate(w) for w in work_orders]
 
@@ -56,7 +62,55 @@ def get_work_order(
     _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> WorkOrderResponse:
     work_order = work_order_service.get_work_order(
-        db, organization_id=current_user.organization_id, work_order_id=work_order_id
+        db,
+        organization_id=current_user.organization_id,
+        work_order_id=work_order_id,
+        include_deleted=False,
+    )
+    return WorkOrderResponse.model_validate(work_order)
+
+
+@router.delete("/{work_order_id}", status_code=204)
+def delete_work_order(
+    work_order_id: uuid.UUID,
+    payload: WorkOrderDeleteRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.WORK_ORDER_DELETE)),
+    _entitled: CurrentUser = Depends(require_feature("work_order_management")),
+) -> None:
+    """Soft-delete only -- the row is never removed (see LifecycleMixin,
+    app/db/base.py). A cross-tenant or nonexistent work_order_id raises
+    NotFoundError (404, indistinguishable from each other); an
+    already-deleted one raises ConflictError (409) -- both from
+    work_order_service.soft_delete_work_order, never handled here.
+    """
+    work_order_service.soft_delete_work_order(
+        db,
+        organization_id=current_user.organization_id,
+        work_order_id=work_order_id,
+        actor_user_id=current_user.id,
+        reason_code=payload.reason_code,
+        note=payload.note,
+    )
+
+
+@router.post("/{work_order_id}/restore", response_model=WorkOrderResponse)
+def restore_work_order(
+    work_order_id: uuid.UUID,
+    payload: WorkOrderRestoreRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.WORK_ORDER_RESTORE)),
+    _entitled: CurrentUser = Depends(require_feature("work_order_management")),
+) -> WorkOrderResponse:
+    """DELETED -> ACTIVE. WorkOrder.status is preserved exactly as it was
+    at delete time (see work_order_service.restore_work_order)."""
+    work_order = work_order_service.restore_work_order(
+        db,
+        organization_id=current_user.organization_id,
+        work_order_id=work_order_id,
+        actor_user_id=current_user.id,
+        reason_code=payload.reason_code,
+        note=payload.note,
     )
     return WorkOrderResponse.model_validate(work_order)
 

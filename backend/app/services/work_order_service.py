@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,9 +10,12 @@ from app.models.asset import AssetType
 from app.models.task import Task
 from app.models.work_order import WorkOrder
 from app.schemas.task import TaskCreateRequest
-from app.schemas.work_order import WorkOrderCreateRequest
-from app.services import aircraft_service
-from app.services import asset_service
+from app.schemas.work_order import (
+    WorkOrderCreateRequest,
+    WorkOrderDeleteReasonCode,
+    WorkOrderRestoreReasonCode,
+)
+from app.services import aircraft_service, asset_service
 from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
 
@@ -72,13 +76,27 @@ def create_work_order(
 
 
 def get_work_order(
-    db: Session, *, organization_id: uuid.UUID, work_order_id: uuid.UUID
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    work_order_id: uuid.UUID,
+    include_deleted: bool = True,
 ) -> WorkOrder:
-    work_order = db.execute(
-        select(WorkOrder).where(
-            WorkOrder.id == work_order_id, WorkOrder.organization_id == organization_id
-        )
-    ).scalar_one_or_none()
+    """include_deleted defaults to True so every existing caller (task/part
+    requirement/inspection/procurement/deferred-item creation, assessment
+    engine, AI tools, Lisa entity resolution, dashboards) keeps its current
+    behavior unchanged -- child-mutation guards against a deleted WorkOrder
+    are a deliberately separate, later slice (see the WorkOrder lifecycle
+    architecture decision report), not an incidental side effect of this
+    parameter. Only the tenant-facing GET route and the delete/restore
+    lifecycle actions below pass include_deleted explicitly.
+    """
+    query = select(WorkOrder).where(
+        WorkOrder.id == work_order_id, WorkOrder.organization_id == organization_id
+    )
+    if not include_deleted:
+        query = query.where(WorkOrder.deleted_at.is_(None))
+    work_order = db.execute(query).scalar_one_or_none()
     if work_order is None:
         raise NotFoundError("Work order not found")
     return work_order
@@ -90,12 +108,19 @@ def list_work_orders(
     organization_id: uuid.UUID,
     asset_id: uuid.UUID | None = None,
     aircraft_id: uuid.UUID | None = None,
+    include_deleted: bool = True,
 ) -> list[WorkOrder]:
+    """include_deleted defaults to True for the same reason as
+    get_work_order above -- existing callers (assessment engine, Lisa,
+    proactive/control-center dashboards) are unaffected by this slice.
+    Only the tenant-facing GET route passes include_deleted=False."""
     query = select(WorkOrder).where(WorkOrder.organization_id == organization_id)
     if asset_id is not None:
         query = query.where(WorkOrder.asset_id == asset_id)
     if aircraft_id is not None:
         query = query.where(WorkOrder.aircraft_id == aircraft_id)
+    if not include_deleted:
+        query = query.where(WorkOrder.deleted_at.is_(None))
     return list(db.execute(query).scalars().all())
 
 
@@ -165,3 +190,100 @@ def list_tasks_for_work_order(
         .scalars()
         .all()
     )
+
+
+def soft_delete_work_order(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    work_order_id: uuid.UUID,
+    actor_user_id: uuid.UUID | None,
+    reason_code: WorkOrderDeleteReasonCode,
+    note: str | None = None,
+) -> WorkOrder:
+    """ACTIVE -> DELETED. deleted_at IS NULL is the only lifecycle-state
+    signal (see LifecycleMixin, app/db/base.py) -- WorkOrder.status is never
+    touched here. Tenant scoping uses include_deleted=True so a
+    cross-tenant work_order_id and an already-deleted one both reach this
+    function identically to a nonexistent one from another org's
+    perspective; the two cases are then told apart only by whether the row
+    was found at all (NotFoundError, mapped to 404) vs. found but already
+    deleted (ConflictError, mapped to 409) -- never a distinguishable error
+    for tenant ownership.
+    """
+    work_order = get_work_order(
+        db, organization_id=organization_id, work_order_id=work_order_id, include_deleted=True
+    )
+    if work_order.deleted_at is not None:
+        raise ConflictError("Work order is already deleted")
+
+    work_order.deleted_at = datetime.now(UTC)
+    work_order.deleted_by = actor_user_id
+
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=actor_user_id,
+        action="work_order.deleted",
+        entity_type="WorkOrder",
+        entity_id=work_order.id,
+        metadata={
+            "lifecycle_transition": "ACTIVE->DELETED",
+            "reason_code": reason_code,
+            "note": note,
+            "status_snapshot": work_order.status,
+        },
+    )
+
+    db.add(work_order)
+    db.commit()
+    db.refresh(work_order)
+    return work_order
+
+
+def restore_work_order(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    work_order_id: uuid.UUID,
+    actor_user_id: uuid.UUID | None,
+    reason_code: WorkOrderRestoreReasonCode,
+    note: str | None = None,
+) -> WorkOrder:
+    """DELETED -> ACTIVE. WorkOrder.status is left exactly as it was at
+    delete time -- restore never re-derives or resets it. deleted_by is
+    cleared alongside deleted_at (the most recent transition's actor moves
+    to restored_by); the full delete/restore history lives in the audit
+    trail (work_order.deleted/work_order.restored events), not in these
+    columns, matching the approved lifecycle contract.
+    """
+    work_order = get_work_order(
+        db, organization_id=organization_id, work_order_id=work_order_id, include_deleted=True
+    )
+    if work_order.deleted_at is None:
+        raise ConflictError("Work order is not deleted")
+
+    work_order.deleted_at = None
+    work_order.deleted_by = None
+    work_order.restored_at = datetime.now(UTC)
+    work_order.restored_by = actor_user_id
+
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=actor_user_id,
+        action="work_order.restored",
+        entity_type="WorkOrder",
+        entity_id=work_order.id,
+        metadata={
+            "lifecycle_transition": "DELETED->ACTIVE",
+            "reason_code": reason_code,
+            "note": note,
+            "status_snapshot": work_order.status,
+        },
+    )
+
+    db.add(work_order)
+    db.commit()
+    db.refresh(work_order)
+    return work_order
