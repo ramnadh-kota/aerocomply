@@ -79,6 +79,17 @@ class Permission(StrEnum):
     # ROLE_PERMISSIONS below for why it is not yet a separately-grantable
     # tier).
     PLATFORM_ENTITLEMENT_OVERRIDE = "platform:entitlement_override"
+    # Phase 2 of the WorkOrder lifecycle feature: dedicated permissions
+    # replacing the prior reuse of AIRCRAFT_READ/AIRCRAFT_WRITE on
+    # app/api/v1/work_orders.py's routes. WORK_ORDER_DELETE/WORK_ORDER_RESTORE
+    # exist now purely to complete the authorization boundary ahead of time —
+    # no delete/restore endpoint exists yet (that is a later phase); no role
+    # below is granted either until that behavior actually ships.
+    WORK_ORDER_READ = "work_order:read"
+    WORK_ORDER_CREATE = "work_order:create"
+    WORK_ORDER_UPDATE = "work_order:update"
+    WORK_ORDER_DELETE = "work_order:delete"
+    WORK_ORDER_RESTORE = "work_order:restore"
 
 
 class Role(StrEnum):
@@ -153,6 +164,11 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.FACILITY_WRITE,
         Permission.DRONE_READ,
         Permission.DRONE_WRITE,
+        Permission.WORK_ORDER_READ,
+        Permission.WORK_ORDER_CREATE,
+        Permission.WORK_ORDER_UPDATE,
+        Permission.WORK_ORDER_DELETE,
+        Permission.WORK_ORDER_RESTORE,
     },
     Role.COMPLIANCE_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -200,6 +216,11 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.FACILITY_WRITE,
         Permission.DRONE_READ,
         Permission.DRONE_WRITE,
+        Permission.WORK_ORDER_READ,
+        Permission.WORK_ORDER_CREATE,
+        Permission.WORK_ORDER_UPDATE,
+        Permission.WORK_ORDER_DELETE,
+        Permission.WORK_ORDER_RESTORE,
     },
     Role.QUALITY_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -217,6 +238,9 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ASSESSMENT_WRITE,
         Permission.FACILITY_READ,
         Permission.DRONE_READ,
+        Permission.WORK_ORDER_READ,
+        Permission.WORK_ORDER_CREATE,
+        Permission.WORK_ORDER_UPDATE,
     },
     Role.MAINTENANCE_ENGINEER: {
         Permission.AIRCRAFT_READ,
@@ -233,6 +257,9 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ASSESSMENT_READ,
         Permission.FACILITY_READ,
         Permission.DRONE_READ,
+        Permission.WORK_ORDER_READ,
+        Permission.WORK_ORDER_CREATE,
+        Permission.WORK_ORDER_UPDATE,
     },
     Role.VIEWER: {
         Permission.AIRCRAFT_READ,
@@ -246,6 +273,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.PROCUREMENT_READ,
         Permission.TECHNICIAN_READ,
         Permission.ASSESSMENT_READ,
+        Permission.WORK_ORDER_READ,
     },
     # Deliberately minimal: platform staff can administer tenants but do not
     # implicitly gain any customer operational-data permission — a platform

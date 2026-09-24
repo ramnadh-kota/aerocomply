@@ -18,7 +18,7 @@ router = APIRouter(prefix="/work-orders", tags=["work-orders"])
 def create_work_order(
     payload: WorkOrderCreateRequest,
     db: Session = Depends(get_db_session),
-    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_WRITE)),
+    current_user: CurrentUser = Depends(require_permission(Permission.WORK_ORDER_CREATE)),
     _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> WorkOrderResponse:
     # organization_id always comes from the authenticated user, never the request body.
@@ -36,7 +36,7 @@ def list_work_orders(
     asset_id: uuid.UUID | None = None,
     aircraft_id: uuid.UUID | None = None,
     db: Session = Depends(get_db_session),
-    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+    current_user: CurrentUser = Depends(require_permission(Permission.WORK_ORDER_READ)),
     _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> list[WorkOrderResponse]:
     work_orders = work_order_service.list_work_orders(
@@ -52,7 +52,7 @@ def list_work_orders(
 def get_work_order(
     work_order_id: uuid.UUID,
     db: Session = Depends(get_db_session),
-    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+    current_user: CurrentUser = Depends(require_permission(Permission.WORK_ORDER_READ)),
     _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> WorkOrderResponse:
     work_order = work_order_service.get_work_order(
@@ -66,7 +66,7 @@ def create_task(
     work_order_id: uuid.UUID,
     payload: TaskCreateRequest,
     db: Session = Depends(get_db_session),
-    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_WRITE)),
+    current_user: CurrentUser = Depends(require_permission(Permission.WORK_ORDER_UPDATE)),
     _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> TaskResponse:
     payload = payload.model_copy(update={"work_order_id": work_order_id})
@@ -82,9 +82,9 @@ def complete_task(
     task_id: uuid.UUID,
     db: Session = Depends(get_db_session),
     # No distinct TASK_WRITE permission exists in the catalog (see
-    # app/core/permissions.py); AIRCRAFT_WRITE already gates task creation
+    # app/core/permissions.py); WORK_ORDER_UPDATE already gates task creation
     # above, so it gates task completion too for the same reason.
-    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_WRITE)),
+    current_user: CurrentUser = Depends(require_permission(Permission.WORK_ORDER_UPDATE)),
     _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> TaskResponse:
     task = work_order_service.get_task(
@@ -100,7 +100,7 @@ def complete_task(
 def list_tasks(
     work_order_id: uuid.UUID,
     db: Session = Depends(get_db_session),
-    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+    current_user: CurrentUser = Depends(require_permission(Permission.WORK_ORDER_READ)),
     _entitled: CurrentUser = Depends(require_feature("work_order_management")),
 ) -> list[TaskResponse]:
     tasks = work_order_service.list_tasks_for_work_order(
