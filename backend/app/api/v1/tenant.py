@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_user, get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser, MessageResponse
+from app.schemas.deletion import OrganizationDeletionRequest
 from app.schemas.platform import AuditEventResponse
 from app.schemas.tenant import (
     TenantDashboardResponse,
@@ -22,7 +23,7 @@ from app.schemas.tenant import (
     TenantUserRoleUpdateRequest,
     TenantUserStatusUpdateRequest,
 )
-from app.services import tenant_service
+from app.services import deletion_service, tenant_service
 
 router = APIRouter(prefix="/tenant", tags=["tenant"])
 
@@ -85,6 +86,35 @@ def update_tenant_settings(
         organization_id=current_user.organization_id,
         actor_user_id=current_user.id,
         payload=payload,
+    )
+
+
+# --- DELETION REQUEST (Platform Control Plane) ---
+#
+# Soft-deletes this Tenant Admin's OWN organization -- there is no way to
+# name a different organization_id here (see get_current_user's own
+# docstring). Once submitted, every subsequent request from every user in
+# this organization is refused (app/core/deps.py's get_current_user, plus
+# login/refresh in app/services/auth_service.py), including the admin who
+# just submitted it -- there is no tenant-facing undo. Only Platform Admin
+# can reverse this (POST /platform/deleted-records/organizations/{id}/
+# restore) or approve permanent deletion.
+
+
+@router.post("/deletion-request", response_model=MessageResponse)
+def request_organization_deletion(
+    payload: OrganizationDeletionRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.ORG_MANAGE)),
+) -> MessageResponse:
+    deletion_service.request_organization_deletion(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        payload=payload,
+    )
+    return MessageResponse(
+        message="Deletion requested. Your organization is now pending Platform Admin review."
     )
 
 

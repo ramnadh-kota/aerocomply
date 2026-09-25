@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
 from app.models.part_requirement import PartRequirement, PartRequirementStatus
+from app.models.work_order import WorkOrder
 from app.schemas.part_requirement import PartRequirementCreateRequest, PartRequirementUpdateRequest
 from app.services import part_service, work_order_service
 from app.services.audit_service import record_audit_event
@@ -98,11 +99,22 @@ def get_part_requirement(
 def list_part_requirements_for_work_order(
     db: Session, *, organization_id: uuid.UUID, work_order_id: uuid.UUID
 ) -> list[PartRequirement]:
+    # Same INHERITED-from-WORKORDER cheap join-filter as
+    # work_order_service.list_tasks_for_work_order -- hides a
+    # PartRequirement from this one operational listing when its parent
+    # WorkOrder is soft-deleted, without mutating the PartRequirement row
+    # itself or affecting any other query path (e.g. fulfill_from_receipt/
+    # recompute_status_for_part above never join through WorkOrder at all,
+    # by design -- see their own docstrings on why they operate over raw
+    # part_id).
     return list(
         db.execute(
-            select(PartRequirement).where(
+            select(PartRequirement)
+            .join(WorkOrder, WorkOrder.id == PartRequirement.work_order_id)
+            .where(
                 PartRequirement.organization_id == organization_id,
                 PartRequirement.work_order_id == work_order_id,
+                WorkOrder.deleted_at.is_(None),
             )
         )
         .scalars()

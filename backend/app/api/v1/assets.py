@@ -30,7 +30,8 @@ from app.schemas.asset import (
     AssetUtilizationResponse,
 )
 from app.schemas.auth import CurrentUser
-from app.services import asset_service
+from app.schemas.deletion import AssetDeleteRequest
+from app.services import asset_service, deletion_service
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -118,6 +119,31 @@ def update_asset(
         actor_user_id=current_user.id,
         asset_id=asset_id,
         payload=payload,
+    )
+    return AssetResponse.model_validate(asset)
+
+
+@router.delete("/{asset_id}", response_model=AssetResponse)
+def delete_asset(
+    asset_id: uuid.UUID,
+    reason: str | None = Query(default=None, max_length=500),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_asset_write),
+) -> AssetResponse:
+    # Soft delete only (Platform Control Plane) -- never a physical row
+    # delete from a tenant-facing endpoint. The asset immediately stops
+    # appearing in every tenant-facing read (list_assets/get_asset and the
+    # drone/aircraft verticals built on them); Platform Admin can see it in
+    # GET /platform/deleted-records and restore or permanently delete it.
+    # `reason` is a query param (not a request body) -- a DELETE with a body
+    # is awkward across HTTP clients/proxies, and this optional, short field
+    # doesn't need one.
+    asset = deletion_service.soft_delete_asset(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        asset_id=asset_id,
+        payload=AssetDeleteRequest(reason=reason),
     )
     return AssetResponse.model_validate(asset)
 

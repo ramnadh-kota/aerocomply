@@ -67,6 +67,7 @@ def evaluate_deployment_readiness(
         .where(
             WorkOrder.organization_id == organization_id,
             WorkOrder.asset_id == asset_id,
+            WorkOrder.deleted_at.is_(None),
             InspectionRequirement.status == InspectionRequirementStatus.REJECTED.value,
         )
         .limit(1)

@@ -4,10 +4,10 @@ from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
+from app.db.base import Base, SoftDeleteMixin, TenantScopedMixin, TimestampMixin, UUIDPKMixin
 
 
-class WorkOrder(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
+class WorkOrder(UUIDPKMixin, TenantScopedMixin, TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "work_orders"
 
     # Phase 18.6 (migration 0032): loosened to nullable -- a Drone-based work

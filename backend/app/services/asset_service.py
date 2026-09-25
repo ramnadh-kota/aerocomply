@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import AeroComplyError, ConflictError, NotFoundError
 from app.models.aircraft import Aircraft
 from app.models.aircraft_detail import AircraftDetail
 from app.models.asset import Asset, AssetLifecycleStatus, AssetOperationalStatus, AssetType
@@ -53,9 +53,21 @@ from app.services.audit_service import record_audit_event
 
 
 def get_asset(db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID) -> Asset:
-    """Retrieve an asset by ID strictly scoped to the caller's organization."""
+    """Retrieve an asset by ID strictly scoped to the caller's organization.
+
+    Excludes soft-deleted rows (deleted_at IS NOT NULL) -- a tenant that
+    deleted an asset must never be able to keep reading it through this or
+    any function built on it (get_aircraft_asset, readiness, history, ...).
+    Platform Admin's deletion_service/restoration_service query Asset
+    directly instead of through this function, precisely so they CAN see
+    soft-deleted rows.
+    """
     asset = db.execute(
-        select(Asset).where(Asset.id == asset_id, Asset.organization_id == organization_id)
+        select(Asset).where(
+            Asset.id == asset_id,
+            Asset.organization_id == organization_id,
+            Asset.deleted_at.is_(None),
+        )
     ).scalar_one_or_none()
     if asset is None:
         raise NotFoundError("Asset not found")
@@ -70,8 +82,13 @@ def list_assets(
     status: str | None = None,
     search: str | None = None,
 ) -> list[Asset]:
-    """List assets for an organization with optional type, status, and search filters."""
-    query = select(Asset).where(Asset.organization_id == organization_id)
+    """List assets for an organization with optional type, status, and search filters.
+
+    Excludes soft-deleted rows -- see get_asset's docstring.
+    """
+    query = select(Asset).where(
+        Asset.organization_id == organization_id, Asset.deleted_at.is_(None)
+    )
 
     if asset_type is not None:
         query = query.where(Asset.asset_type == asset_type.upper())
@@ -536,8 +553,24 @@ def record_asset_flight(
     asset_id: uuid.UUID,
     payload: AssetFlightCreateRequest,
 ) -> AssetFlightResponse:
-    """Record an operational flight log entry for any asset type."""
+    """Record an operational flight log entry for any non-drone asset type.
+
+    DRONE assets must use POST /drones/{asset_id}/flights (flight_service.
+    record_flight) instead: that path atomically increments the attached
+    battery's cycle_count so it can never drift from actual flight history
+    (see flight_service.py's docstring for the concurrency hardening this
+    required). This generic path has no equivalent battery bookkeeping, so
+    routing a drone's flight through it would silently produce an
+    under-counted battery -- rejecting it here keeps there being exactly one
+    way to record a drone flight, rather than two paths that can disagree.
+    """
     asset = get_asset(db, organization_id=organization_id, asset_id=asset_id)
+    if asset.asset_type == AssetType.DRONE.value:
+        raise AeroComplyError(
+            "Drone flights must be recorded via POST /drones/{asset_id}/flights, "
+            "which also maintains attached battery cycle counts.",
+            code="use_drone_flight_endpoint",
+        )
 
     flight = Flight(
         id=uuid.uuid4(),
@@ -632,6 +665,7 @@ def get_asset_maintenance(
             .where(
                 WorkOrder.asset_id == asset_id,
                 WorkOrder.organization_id == organization_id,
+                WorkOrder.deleted_at.is_(None),
             )
             .order_by(WorkOrder.created_at.desc())
         ).scalars().all()
@@ -1076,6 +1110,7 @@ def get_asset_domain_context(
             WorkOrder.asset_id == asset.id,
             WorkOrder.organization_id == organization_id,
             WorkOrder.status != "COMPLETED",
+            WorkOrder.deleted_at.is_(None),
         )
     ).scalar_one()
 

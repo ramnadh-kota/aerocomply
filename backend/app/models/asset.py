@@ -6,7 +6,7 @@ from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
+from app.db.base import Base, SoftDeleteMixin, TenantScopedMixin, TimestampMixin, UUIDPKMixin
 
 
 class AssetType(StrEnum):
@@ -50,7 +50,7 @@ class AssetOperationalStatus(StrEnum):
 
 
 
-class Asset(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
+class Asset(UUIDPKMixin, TenantScopedMixin, TimestampMixin, SoftDeleteMixin, Base):
     """Generic aerospace asset identity, shared across asset types.
 
     Asset holds the fields every asset type has in common (tenant ownership,
@@ -62,6 +62,13 @@ class Asset(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     manufacturer/model/serial_number are nullable: the existing Aircraft
     table has no reliable source for these fields, and Phase 1A's backfill
     must not invent values (see the migration for 0027).
+
+    Asset is the pilot entity for the Platform Control Plane's soft-delete
+    architecture (SoftDeleteMixin, see app/db/base.py): it is the "important
+    record" every tenant-facing delete of an aircraft/drone/helicopter/eVTOL
+    ultimately reaches. There was previously no DELETE route for Asset at
+    all -- only a status change -- so this is additive, not a behavior
+    change to any existing path.
     """
 
     __tablename__ = "assets"

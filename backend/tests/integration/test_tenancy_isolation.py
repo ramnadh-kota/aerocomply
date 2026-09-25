@@ -14,6 +14,8 @@ NotFoundError, which the global error handler maps to HTTP 404 -- never a
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from app.core.deps import get_db_session
+from app.main import app
 from app.models.plan import Plan, PlanFeature
 from app.models.subscription import Subscription, SubscriptionStatus
 
@@ -46,6 +48,10 @@ def _entitle(db_session, org_id, feature_key):
 
 
 def _register(client, org_name, email):
+    from tests.integration.conftest import make_platform_admin_headers
+
+    db_session = next(app.dependency_overrides[get_db_session]())
+    headers = make_platform_admin_headers(client, db_session)
     resp = client.post(
         "/api/v1/auth/register-organization",
         json={
@@ -54,6 +60,7 @@ def _register(client, org_name, email):
             "admin_full_name": "Admin",
             "admin_password": "supersecret123",
         },
+        headers=headers,
     )
     assert resp.status_code == 201
     return resp.json()
@@ -145,7 +152,9 @@ def test_cross_tenant_cannot_get_aircraft(client):
 def test_cross_tenant_cannot_get_work_order(client, db_session):
     auth_a, auth_b = _two_tenants(client, "wo")
     org_a_id = uuid.UUID(client.get("/api/v1/auth/me", headers=auth_a).json()["organization_id"])
+    org_b_id = uuid.UUID(client.get("/api/v1/auth/me", headers=auth_b).json()["organization_id"])
     _entitle(db_session, org_a_id, "work_order_management")
+    _entitle(db_session, org_b_id, "work_order_management")
     aircraft_b = _create_aircraft(client, auth_b, "N002BB")
     wo_b = _create_work_order(client, auth_b, aircraft_b["id"], "WO-B-1")
 

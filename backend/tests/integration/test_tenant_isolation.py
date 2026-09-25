@@ -1,3 +1,6 @@
+from app.core.deps import get_db_session
+from app.main import app
+
 """Verifies the organization_id embedded in a user's token matches their own
 organization and never another tenant's — the foundational multi-tenancy
 guarantee described in FOUNDATION.md §9.
@@ -5,6 +8,10 @@ guarantee described in FOUNDATION.md §9.
 
 
 def _register(client, org_name, email):
+    from tests.integration.conftest import make_platform_admin_headers
+
+    db_session = next(app.dependency_overrides[get_db_session]())
+    headers = make_platform_admin_headers(client, db_session)
     resp = client.post(
         "/api/v1/auth/register-organization",
         json={
@@ -13,6 +20,7 @@ def _register(client, org_name, email):
             "admin_full_name": "Admin",
             "admin_password": "supersecret123",
         },
+        headers=headers,
     )
     assert resp.status_code == 201
     return resp.json()

@@ -94,7 +94,9 @@ def get_release_readiness_for_work_order(
 ) -> ReleaseReadiness:
     work_order = db.execute(
         select(WorkOrder).where(
-            WorkOrder.id == work_order_id, WorkOrder.organization_id == organization_id
+            WorkOrder.id == work_order_id,
+            WorkOrder.organization_id == organization_id,
+            WorkOrder.deleted_at.is_(None),
         )
     ).scalar_one_or_none()
     if work_order is None:

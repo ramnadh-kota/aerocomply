@@ -14,7 +14,10 @@ from app.schemas.approval import (
     ApprovalRequestListResponse,
     ApprovalRequestResponse,
 )
+from app.schemas.asset import AssetResponse
+from app.schemas.work_order import WorkOrderResponse
 from app.schemas.auth import CurrentUser, MessageResponse
+from app.schemas.deletion import DeletedRecordListResponse, PermanentDeleteRequest
 from app.schemas.entitlement import EntitlementResolutionResponse
 from app.schemas.plan import (
     PlanCreateRequest,
@@ -58,10 +61,12 @@ from app.services import (
     approval_service,
     audit_service,
     auth_service,
+    deletion_service,
     plan_service,
     platform_health_service,
     platform_service,
     provisioning_service,
+    restoration_service,
     subscription_service,
 )
 from app.services import tenant_entitlement_admin_service as tea_service
@@ -816,6 +821,131 @@ def list_audit_events(
         limit=effective_limit,
         offset=max(0, offset),
     )
+
+
+# ---------------------------------------------------------------------------
+# Platform Control Plane: soft-delete governance queue (deletion_service.py /
+# restoration_service.py). Asset and Organization are the two soft-deletable
+# entities today -- see both services' module docstrings. Listing is
+# PLATFORM_MANAGE-gated (same "cross-tenant visibility is a platform admin's
+# whole purpose" precedent as /audit above); restore and permanent-delete
+# each require their own, narrower permission (Permission.DATA_RESTORE /
+# DATA_PERMANENT_DELETE) on top of that, since acting on another tenant's
+# data is more sensitive than merely viewing that it exists.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/deleted-records", response_model=DeletedRecordListResponse)
+def list_deleted_records(
+    entity_type: str | None = Query(default=None, description="ASSET, ORGANIZATION, or WORKORDER"),
+    organization_id: uuid.UUID | None = None,
+    limit: int = Query(default=restoration_service.DELETED_RECORDS_DEFAULT_LIMIT, ge=1),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> DeletedRecordListResponse:
+    items, total = restoration_service.list_deleted_records(
+        db, entity_type=entity_type, organization_id=organization_id, limit=limit, offset=offset
+    )
+    effective_limit = max(1, min(limit, restoration_service.DELETED_RECORDS_MAX_LIMIT))
+    return DeletedRecordListResponse(
+        items=items, total=total, limit=effective_limit, offset=max(0, offset)
+    )
+
+
+@router.post("/deleted-records/assets/{asset_id}/restore", response_model=AssetResponse)
+def restore_deleted_asset(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DATA_RESTORE)),
+) -> AssetResponse:
+    asset = restoration_service.restore_asset(db, actor_user_id=current_user.id, asset_id=asset_id)
+    return AssetResponse.model_validate(asset)
+
+
+@router.post("/deleted-records/assets/{asset_id}/permanent-delete", response_model=MessageResponse)
+def permanently_delete_asset(
+    asset_id: uuid.UUID,
+    payload: PermanentDeleteRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DATA_PERMANENT_DELETE)),
+) -> MessageResponse:
+    deletion_service.permanently_delete_asset(
+        db, actor_user_id=current_user.id, asset_id=asset_id, payload=payload
+    )
+    return MessageResponse(message="Asset permanently deleted.")
+
+
+@router.post(
+    "/deleted-records/organizations/{organization_id}/restore", response_model=MessageResponse
+)
+def restore_deleted_organization(
+    organization_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DATA_RESTORE)),
+) -> MessageResponse:
+    restoration_service.restore_organization(
+        db, actor_user_id=current_user.id, organization_id=organization_id
+    )
+    return MessageResponse(message="Organization restored.")
+
+
+@router.post(
+    "/deleted-records/organizations/{organization_id}/permanent-delete",
+    response_model=MessageResponse,
+)
+def permanently_delete_organization(
+    organization_id: uuid.UUID,
+    payload: PermanentDeleteRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DATA_PERMANENT_DELETE)),
+) -> MessageResponse:
+    # Deliberately does not attempt a cascading delete of a non-empty
+    # organization's data -- deletion_service.permanently_delete_organization
+    # refuses (has_dependent_records) whenever any User or Asset still
+    # belongs to it. There is no bulk tenant-offboarding/data-purge workflow
+    # in this slice; this endpoint only ever succeeds for an organization
+    # that was already effectively empty.
+    deletion_service.permanently_delete_organization(
+        db, actor_user_id=current_user.id, organization_id=organization_id, payload=payload
+    )
+    return MessageResponse(message="Organization permanently deleted.")
+
+
+@router.post(
+    "/deleted-records/work-orders/{work_order_id}/restore", response_model=WorkOrderResponse
+)
+def restore_deleted_work_order(
+    work_order_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DATA_RESTORE)),
+) -> WorkOrderResponse:
+    work_order = restoration_service.restore_work_order(
+        db, actor_user_id=current_user.id, work_order_id=work_order_id
+    )
+    return WorkOrderResponse.model_validate(work_order)
+
+
+@router.post(
+    "/deleted-records/work-orders/{work_order_id}/permanent-delete",
+    response_model=MessageResponse,
+)
+def permanently_delete_work_order(
+    work_order_id: uuid.UUID,
+    payload: PermanentDeleteRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DATA_PERMANENT_DELETE)),
+) -> MessageResponse:
+    # deletion_service.permanently_delete_work_order runs an application-
+    # level dependency check across all 8 real FK dependents (Task,
+    # PartRequirement, AogEvent, DeferredItem, Finding,
+    # InspectionRequirement, MaintenanceRequirement, ProcurementRequest)
+    # before attempting the physical DELETE -- see that function's
+    # docstring for why this is app-level rather than DB ondelete=RESTRICT.
+    deletion_service.permanently_delete_work_order(
+        db, actor_user_id=current_user.id, work_order_id=work_order_id, payload=payload
+    )
+    return MessageResponse(message="Work order permanently deleted.")
 
 
 # ---------------------------------------------------------------------------

@@ -1,15 +1,16 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db_session, require_feature, require_permission
 from app.core.errors import NotFoundError
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
+from app.schemas.deletion import WorkOrderDeleteRequest
 from app.schemas.task import TaskCreateRequest, TaskResponse
 from app.schemas.work_order import WorkOrderCreateRequest, WorkOrderResponse
-from app.services import work_order_service
+from app.services import deletion_service, work_order_service
 
 router = APIRouter(prefix="/work-orders", tags=["work-orders"])
 
@@ -57,6 +58,32 @@ def get_work_order(
 ) -> WorkOrderResponse:
     work_order = work_order_service.get_work_order(
         db, organization_id=current_user.organization_id, work_order_id=work_order_id
+    )
+    return WorkOrderResponse.model_validate(work_order)
+
+
+@router.delete("/{work_order_id}", response_model=WorkOrderResponse)
+def delete_work_order(
+    work_order_id: uuid.UUID,
+    reason: str | None = Query(default=None, max_length=500),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_WRITE)),
+    _entitled: CurrentUser = Depends(require_feature("work_order_management")),
+) -> WorkOrderResponse:
+    # Soft delete only (Platform Control Plane) -- mirrors DELETE
+    # /assets/{asset_id} exactly (see app/api/v1/assets.py's delete_asset).
+    # Never a physical row delete from a tenant-facing endpoint. The work
+    # order immediately stops appearing in every tenant-facing read
+    # (work_order_service.get_work_order/list_work_orders and the
+    # Task/PartRequirement listings that join through it); Platform Admin
+    # can see it in GET /platform/deleted-records and restore or
+    # permanently delete it.
+    work_order = deletion_service.soft_delete_work_order(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        work_order_id=work_order_id,
+        payload=WorkOrderDeleteRequest(reason=reason),
     )
     return WorkOrderResponse.model_validate(work_order)
 

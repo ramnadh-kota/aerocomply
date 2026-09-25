@@ -35,6 +35,12 @@ def get_current_user(
     the rest of its TTL. Login/refresh already refuse a suspended org
     (app/services/auth_service.py); this closes the same gap for tokens
     already in a client's hands.
+
+    Also refuses a deletion-requested organization (deleted_at set --
+    Platform Control Plane, see app/services/deletion_service.py's
+    request_organization_deletion) the same way, and for the same reason:
+    an access token issued before deletion was requested must not keep
+    working for the rest of its TTL either.
     """
     if credentials is None:
         raise UnauthorizedError("Missing bearer token")
@@ -52,6 +58,8 @@ def get_current_user(
     org = db.get(Organization, organization_id)
     if org is not None and org.status == OrganizationStatus.SUSPENDED:
         raise UnauthorizedError("This organization has been suspended")
+    if org is not None and org.deleted_at is not None:
+        raise UnauthorizedError("This organization has requested deletion and is pending review")
 
     bind_request_identity(organization_id=payload["organization_id"], user_id=payload["sub"])
 

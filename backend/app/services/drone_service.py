@@ -64,11 +64,16 @@ def create_drone(
 
 
 def get_drone(db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID) -> Asset:
+    # deleted_at.is_(None): a soft-deleted drone (Platform Control Plane, see
+    # app/services/deletion_service.py) must disappear from every
+    # tenant-facing read, same as get_asset -- this function is the drone
+    # vertical's own direct Asset query, not built on asset_service.get_asset.
     drone = db.execute(
         select(Asset).where(
             Asset.id == asset_id,
             Asset.organization_id == organization_id,
             Asset.asset_type == AssetType.DRONE.value,
+            Asset.deleted_at.is_(None),
         )
     ).scalar_one_or_none()
     if drone is None:
@@ -82,6 +87,7 @@ def list_drones(db: Session, *, organization_id: uuid.UUID) -> list[Asset]:
             select(Asset).where(
                 Asset.organization_id == organization_id,
                 Asset.asset_type == AssetType.DRONE.value,
+                Asset.deleted_at.is_(None),
             )
         )
         .scalars()

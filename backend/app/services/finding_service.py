@@ -45,7 +45,9 @@ def _assert_work_order_in_organization(
 ) -> None:
     exists = db.execute(
         select(WorkOrder.id).where(
-            WorkOrder.id == work_order_id, WorkOrder.organization_id == organization_id
+            WorkOrder.id == work_order_id,
+            WorkOrder.organization_id == organization_id,
+            WorkOrder.deleted_at.is_(None),
         )
     ).scalar_one_or_none()
     if exists is None:

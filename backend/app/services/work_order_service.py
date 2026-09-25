@@ -74,9 +74,15 @@ def create_work_order(
 def get_work_order(
     db: Session, *, organization_id: uuid.UUID, work_order_id: uuid.UUID
 ) -> WorkOrder:
+    # Platform Control Plane: a soft-deleted work order (deleted_at set --
+    # see deletion_service.soft_delete_work_order) is excluded from every
+    # tenant-facing read, same as Asset. Only Platform Admin's restoration_
+    # service/deletion_service functions look past this filter.
     work_order = db.execute(
         select(WorkOrder).where(
-            WorkOrder.id == work_order_id, WorkOrder.organization_id == organization_id
+            WorkOrder.id == work_order_id,
+            WorkOrder.organization_id == organization_id,
+            WorkOrder.deleted_at.is_(None),
         )
     ).scalar_one_or_none()
     if work_order is None:
@@ -91,7 +97,9 @@ def list_work_orders(
     asset_id: uuid.UUID | None = None,
     aircraft_id: uuid.UUID | None = None,
 ) -> list[WorkOrder]:
-    query = select(WorkOrder).where(WorkOrder.organization_id == organization_id)
+    query = select(WorkOrder).where(
+        WorkOrder.organization_id == organization_id, WorkOrder.deleted_at.is_(None)
+    )
     if asset_id is not None:
         query = query.where(WorkOrder.asset_id == asset_id)
     if aircraft_id is not None:
@@ -156,10 +164,24 @@ def complete_task(db: Session, task: Task, *, actor_user_id: uuid.UUID | None) -
 def list_tasks_for_work_order(
     db: Session, *, organization_id: uuid.UUID, work_order_id: uuid.UUID
 ) -> list[Task]:
+    # Task has no lifecycle of its own (lifecycle_policy.py: TASK is
+    # INHERITED from WORKORDER) and is never itself soft-deleted or
+    # mutated when its parent WorkOrder is (deletion_service.
+    # soft_delete_work_order only touches the WorkOrder row). This join
+    # filter only hides a Task from this one operational listing path when
+    # its parent is soft-deleted -- it never deletes or alters the Task
+    # row, so historical/audit access to it (e.g. GET /work-orders/{id}/
+    # tasks/{task_id} equivalents, or any query that doesn't go through
+    # this function) is unaffected. Cheap: a single join on an already-
+    # indexed FK, no broader rewrite.
     return list(
         db.execute(
-            select(Task).where(
-                Task.organization_id == organization_id, Task.work_order_id == work_order_id
+            select(Task)
+            .join(WorkOrder, WorkOrder.id == Task.work_order_id)
+            .where(
+                Task.organization_id == organization_id,
+                Task.work_order_id == work_order_id,
+                WorkOrder.deleted_at.is_(None),
             )
         )
         .scalars()

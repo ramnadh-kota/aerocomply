@@ -15,6 +15,9 @@ class User(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    profile_photo_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    pending_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
 
     role_links: Mapped[list["UserRole"]] = relationship(back_populates="user")
 

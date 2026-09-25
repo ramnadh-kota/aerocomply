@@ -39,7 +39,9 @@ def get_work_order_tat_status(
 ) -> TatStatus:
     work_order = db.execute(
         select(WorkOrder).where(
-            WorkOrder.id == work_order_id, WorkOrder.organization_id == organization_id
+            WorkOrder.id == work_order_id,
+            WorkOrder.organization_id == organization_id,
+            WorkOrder.deleted_at.is_(None),
         )
     ).scalar_one_or_none()
     if work_order is None:
@@ -62,7 +64,7 @@ def get_fleet_tat_status(db: Session, *, organization_id: uuid.UUID) -> FleetTat
     total = db.execute(
         select(func.count())
         .select_from(WorkOrder)
-        .where(WorkOrder.organization_id == organization_id)
+        .where(WorkOrder.organization_id == organization_id, WorkOrder.deleted_at.is_(None))
     ).scalar_one()
 
     # Every work order is UNKNOWN today for the same reason as the per-work-order

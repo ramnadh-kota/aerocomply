@@ -1,7 +1,7 @@
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TimestampMixin, UUIDPKMixin
+from app.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPKMixin
 
 
 class OrganizationStatus:
@@ -43,14 +43,31 @@ class OrganizationIndustry:
     EVTOL_AAM = "EVTOL_AAM"
 
 
-class Organization(UUIDPKMixin, TimestampMixin, Base):
+class Organization(UUIDPKMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """The second entity (after Asset) using the Platform Control Plane's
+    soft-delete lifecycle (SoftDeleteMixin, see app/db/base.py). deleted_at
+    is deliberately independent of `status` (SUSPENDED vs. ACTIVE), same
+    separation Asset keeps between its own `status` and `deleted_at` --
+    "is this org deletion-requested" and "is this org suspended" are
+    orthogonal facts.
+
+    Unlike Asset, organization_id columns elsewhere in this codebase
+    (TenantScopedMixin) are plain UUID columns, never a real foreign key to
+    organizations.id -- so there is no ondelete=RESTRICT to lean on the way
+    deletion_service.permanently_delete_asset does. permanently_delete_
+    organization (app/services/deletion_service.py) instead explicitly
+    checks for existing Users/Assets before allowing a physical delete.
+    """
+
     __tablename__ = "organizations"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     # Platform-managed tenant lifecycle status — never a billing/subscription
     # engine (none exists in this codebase); a plain field a platform admin
     # toggles. A SUSPENDED organization's users are refused at login (see
-    # auth_service) rather than merely hidden in the UI.
+    # auth_service) rather than merely hidden in the UI. A deletion-requested
+    # organization (deleted_at set) is refused the same way -- see
+    # app/core/deps.py's get_current_user and both checks in auth_service.py.
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=OrganizationStatus.ACTIVE
     )

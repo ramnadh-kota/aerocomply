@@ -79,6 +79,15 @@ class Permission(StrEnum):
     # ROLE_PERMISSIONS below for why it is not yet a separately-grantable
     # tier).
     PLATFORM_ENTITLEMENT_OVERRIDE = "platform:entitlement_override"
+    # Platform Control Plane soft-delete governance (see
+    # app/services/deletion_service.py / restoration_service.py). Restoring
+    # a tenant's soft-deleted record is routine platform-support work, so it
+    # sits alongside PLATFORM_MANAGE on both platform roles. Permanent
+    # deletion is irreversible and is deliberately its own, narrower
+    # permission -- same "ordinary vs. expansive/irreversible" split as
+    # PLATFORM_ENTITLEMENT_OVERRIDE above -- held only by PLATFORM_ADMIN.
+    DATA_RESTORE = "data:restore"
+    DATA_PERMANENT_DELETE = "data:permanent_delete"
 
 
 class Role(StrEnum):
@@ -257,6 +266,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.PLATFORM_ADMIN: {
         Permission.PLATFORM_MANAGE,
         Permission.PLATFORM_ENTITLEMENT_OVERRIDE,
+        Permission.DATA_RESTORE,
+        Permission.DATA_PERMANENT_DELETE,
     },
     # M15: the narrower staff tier anticipated by M6/M14 -- PLATFORM_MANAGE
     # only, deliberately without PLATFORM_ENTITLEMENT_OVERRIDE. A
@@ -268,6 +279,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     # was added for this, it falls out of the existing per-permission gate.
     Role.PLATFORM_STAFF: {
         Permission.PLATFORM_MANAGE,
+        Permission.DATA_RESTORE,
     },
 }
 
