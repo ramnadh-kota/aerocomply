@@ -66,6 +66,17 @@ def create_work_order(
         created_by_user_id=created_by_user_id,
     )
     db.add(work_order)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=created_by_user_id,
+        action="work_order.created",
+        entity_type="WorkOrder",
+        entity_id=work_order.id,
+    )
+
     db.commit()
     db.refresh(work_order)
     return work_order
