@@ -1,10 +1,19 @@
 "use client";
 
-// Authentication session state — supports both REAL backend sessions (JWT-backed)
-// and isolated synthetic staging DEMO sessions (KOTA Aerospace Demo Operations).
+// Authentication session state — REAL backend sessions (JWT-backed) only.
 //
 // Real tokens are stored in localStorage under ACCESS_TOKEN_STORAGE_KEY / REFRESH_TOKEN_STORAGE_KEY.
-// Demo sessions are stored under DEMO_SESSION_STORAGE_KEY and never use JWTs or contact the live backend.
+//
+// A synthetic "DEMO" sessionType historically existed here as a client-side authentication
+// bypass (hardcoded credentials, a one-click login button, no backend involvement). That
+// bypass has been removed: authentication now has exactly one path — POST /auth/login on
+// the real backend. SessionType/isDemo are kept in the shape below only because a separate,
+// legitimate "demo data display" feature (see lib/demo/*, DataModeContext) reads them to
+// decide whether to render synthetic data inside an already-authenticated REAL session;
+// nothing in this file can ever produce sessionType "DEMO" anymore.
+// DEMO_ORG_ID / DEMO_ORG_NAME / DEMO_USER_ID / DEMO_USER_NAME remain exported because
+// lib/demo/demoTenant.ts, demoStore.ts, and demoDrones.ts key their synthetic records off
+// these constants — they are data labels, not credentials, and are unrelated to authentication.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -18,20 +27,9 @@ export const DEMO_ORG_ID = "00000000-0000-0000-0000-000000000001";
 export const DEMO_ORG_NAME = "KOTA Aerospace Demo Operations";
 export const DEMO_USER_ID = "00000000-0000-0000-0000-000000000002";
 export const DEMO_USER_NAME = "KOTA Aerospace Demo User";
+// Display-only label for synthetic demo records (lib/demo/demoTenant.ts). Not paired with any
+// password or login path — never used for authentication.
 export const DEMO_USER_EMAIL = "demo@kotaaerospace.com";
-export const DEMO_USER_PASSWORD = "KotaDemo2026!";
-export const DEMO_USER_ROLES = ["ORGANIZATION_ADMIN", "MAINTENANCE_MANAGER", "CHIEF_PILOT"];
-
-export const DEMO_SESSION_STORAGE_KEY = "aerocomply_demo_session";
-
-export const DEMO_USER: CurrentUser = {
-  id: DEMO_USER_ID,
-  organization_id: DEMO_ORG_ID,
-  email: DEMO_USER_EMAIL,
-  full_name: DEMO_USER_NAME,
-  roles: DEMO_USER_ROLES,
-  email_verified: true,
-};
 
 export type SessionType = "REAL" | "DEMO";
 
@@ -46,9 +44,8 @@ export interface SessionContextValue {
   loading: boolean;
   /** Store tokens and load /auth/me for a REAL session. Throws on failure. */
   login: (tokens: { access_token: string; refresh_token: string }) => Promise<CurrentUser>;
-  /** Activate the synthetic staging DEMO session. */
-  loginWithDemo: () => void;
   logout: () => void;
+  updateUser: (partialUser: Partial<CurrentUser>) => void;
   isAuthenticated: boolean;
 }
 
@@ -65,30 +62,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setAccessToken(null);
     setSessionType(null);
     try {
-      window.localStorage.removeItem(DEMO_SESSION_STORAGE_KEY);
       window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
       window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     } catch {
       // best-effort
     }
-  }, []);
-
-  const loginWithDemo = useCallback(() => {
-    try {
-      window.localStorage.setItem(DEMO_SESSION_STORAGE_KEY, "true");
-      window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-      window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
-    } catch {
-      // best-effort
-    }
-    setUser(DEMO_USER);
-    setAccessToken(null);
-    setSessionType("DEMO");
   }, []);
 
   const login = useCallback(async (tokens: { access_token: string; refresh_token: string }) => {
     try {
-      window.localStorage.removeItem(DEMO_SESSION_STORAGE_KEY);
       window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, tokens.access_token);
       window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refresh_token);
     } catch {
@@ -109,24 +91,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     async function restore() {
-      let isDemoActive = false;
       let token: string | null = null;
       try {
-        isDemoActive = window.localStorage.getItem(DEMO_SESSION_STORAGE_KEY) === "true";
         token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
       } catch {
-        isDemoActive = false;
         token = null;
-      }
-
-      if (isDemoActive) {
-        if (!cancelled) {
-          setUser(DEMO_USER);
-          setAccessToken(null);
-          setSessionType("DEMO");
-          setLoading(false);
-        }
-        return;
       }
 
       if (!token) {
@@ -158,6 +127,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return user?.organization_id ? `Org ${user.organization_id.slice(0, 8)}` : null;
   }, [sessionType, user]);
 
+  const updateUser = useCallback(
+    (partialUser: Partial<CurrentUser>) => {
+      setUser((prev) => {
+        if (!prev) return null;
+        const updated = { ...prev, ...partialUser };
+        if (sessionType === "DEMO" && typeof window !== "undefined") {
+          try {
+            const raw = window.sessionStorage.getItem("aerocomply_demo_store_v1");
+            const parsed = raw ? JSON.parse(raw) : {};
+            parsed.profile = { ...(parsed.profile || {}), ...partialUser };
+            window.sessionStorage.setItem("aerocomply_demo_store_v1", JSON.stringify(parsed));
+          } catch {
+            // best-effort
+          }
+        }
+        return updated;
+      });
+    },
+    [sessionType]
+  );
+
   const value = useMemo<SessionContextValue>(
     () => ({
       user,
@@ -168,11 +158,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       organizationName,
       loading,
       login,
-      loginWithDemo,
       logout,
-      isAuthenticated: !!user && (sessionType === "DEMO" || (sessionType === "REAL" && !!accessToken)),
+      updateUser,
+      isAuthenticated: !!user && sessionType === "REAL" && !!accessToken,
     }),
-    [user, accessToken, sessionType, organizationName, loading, login, loginWithDemo, logout]
+    [user, accessToken, sessionType, organizationName, loading, login, logout, updateUser]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
