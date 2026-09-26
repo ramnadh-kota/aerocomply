@@ -82,21 +82,87 @@ interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   accessToken?: string;
+  /** Abort the request after this many ms (per attempt). Opt-in; default is no timeout. */
+  timeoutMs?: number;
+  /**
+   * If the request fails at the network level (fetch throws — connection
+   * refused/reset, DNS failure, CORS, or our own timeout below), retry ONCE
+   * after a short delay. Never applies to a completed HTTP response (4xx/5xx),
+   * only to a fetch() that never got a response at all. Opt-in; default false.
+   */
+  retryOnNetworkFailure?: boolean;
+  /** Called once, right before the single network-failure retry fires. */
+  onRetry?: () => void;
+}
+
+const NETWORK_RETRY_DELAY_MS = 1000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * True for a failure that means the request never reached/returned from the
+ * server at all: fetch()'s own TypeError (offline, DNS, connection
+ * refused/reset, CORS), or our AbortController firing on timeout. An HTTP
+ * error response (4xx/5xx) never reaches this — fetch() resolves normally
+ * for those, so they're handled separately below and are never retried here.
+ */
+function isNetworkLevelFailure(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
+/** Normalize a network-level failure to a TypeError so normalizeApiError's `offline` branch catches it (a timeout's AbortError isn't naturally a TypeError). */
+function toNetworkError(err: unknown): TypeError {
+  if (err instanceof TypeError) return err;
+  return new TypeError("Network request failed");
+}
+
+async function fetchOnce(
+  path: string,
+  method: string,
+  headers: Record<string, string>,
+  body: BodyInit | undefined,
+  timeoutMs: number | undefined
+): Promise<Response> {
+  if (!timeoutMs) {
+    return fetch(`${API_BASE_URL}${path}`, { method, headers, body });
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, { method, headers, body, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, accessToken } = options;
+  const { method = "GET", body, accessToken, timeoutMs, retryOnNetworkFailure, onRetry } = options;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
+  const serializedBody = body !== undefined ? JSON.stringify(body) : undefined;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetchOnce(path, method, headers, serializedBody, timeoutMs);
+  } catch (err) {
+    if (retryOnNetworkFailure && isNetworkLevelFailure(err)) {
+      onRetry?.();
+      await delay(NETWORK_RETRY_DELAY_MS);
+      try {
+        response = await fetchOnce(path, method, headers, serializedBody, timeoutMs);
+      } catch (retryErr) {
+        throw toNetworkError(retryErr);
+      }
+    } else {
+      throw toNetworkError(err);
+    }
+  }
 
   if (response.status === 204) {
     return undefined as T;
@@ -168,9 +234,20 @@ export interface MessageResponse {
   message: string;
 }
 
+// Generous enough to ride out a cold-started backend (e.g. Render free/starter
+// tier spinning an idle instance back up) without the user seeing a false
+// "invalid credentials" or network error on an otherwise-successful login.
+const LOGIN_TIMEOUT_MS = 20000;
+
 export const authApi = {
-  login: (email: string, password: string) =>
-    apiRequest<TokenResponse>("/auth/login", { method: "POST", body: { email, password } }),
+  login: (email: string, password: string, opts: { onRetry?: () => void } = {}) =>
+    apiRequest<TokenResponse>("/auth/login", {
+      method: "POST",
+      body: { email, password },
+      timeoutMs: LOGIN_TIMEOUT_MS,
+      retryOnNetworkFailure: true,
+      onRetry: opts.onRetry,
+    }),
 
   registerOrganization: (payload: {
     organization_name: string;

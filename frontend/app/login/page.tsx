@@ -16,14 +16,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (loading) return; // guard against a duplicate submit landing before re-render disables the button
     setError(null);
+    setRetrying(false);
     setLoading(true);
 
     try {
-      const tokens = await authApi.login(email, password);
+      const tokens = await authApi.login(email, password, { onRetry: () => setRetrying(true) });
       const me = await login(tokens);
       setMode("REAL");
       const isPlatformUser =
@@ -33,6 +36,7 @@ export default function LoginPage() {
       setError(normalizeApiError(err).message);
     } finally {
       setLoading(false);
+      setRetrying(false);
     }
   }
 
@@ -96,7 +100,7 @@ export default function LoginPage() {
           )}
 
           <button type="submit" disabled={loading} style={buttonStyle}>
-            {loading ? "Signing in…" : "Sign in"}
+            {retrying ? "Connecting…" : loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
       </div>
