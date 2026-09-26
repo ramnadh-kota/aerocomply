@@ -1,7 +1,7 @@
 "use client";
 
-// Phase 18.3: Platform Admin — Provision Organization. Orchestrates the
-// existing Organization/Plan/Subscription/Admin systems in one guided flow
+// Phase 18.3 & Milestone: Platform Admin — Provision Organization. Orchestrates the
+// existing Organization/Plan/Subscription/Admin systems in one atomic flow
 // (backend/app/api/v1/platform.py POST /platform/organizations/provision +
 // app/services/provisioning_service.py) rather than duplicating any of
 // them. REAL-mode only, same pattern as the rest of /platform/*. Backend
@@ -38,6 +38,14 @@ export function RealProvisionOrganization() {
   const [submitError, setSubmitError] = useState<NormalizedApiError | null>(null);
   const [result, setResult] = useState<ProvisionOrganizationResponse | null>(null);
   const [resendStatus, setResendStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+
+  const orgCodePreview = organizationName.trim()
+    ? organizationName
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "_")
+        .slice(0, 16)
+    : "";
 
   useEffect(() => {
     if (mode === "DEMO") {
@@ -81,6 +89,9 @@ export function RealProvisionOrganization() {
           admin_email: adminEmail.trim(),
           admin_email_verified: false,
           onboarding_email_sent: true,
+          plan_code: selectedPlan?.code ?? "DRONE_001",
+          features_count: selectedPlan?.included_features_count ?? 12,
+          limits_count: 6,
         });
         setSubmitting(false);
       }, 500);
@@ -138,8 +149,8 @@ export function RealProvisionOrganization() {
         <div>
           <h1 className="ac-h1">Provision Organization</h1>
           <p className="ac-subtitle">
-            Create a new customer organization, assign a plan, and invite its first admin. Not visible to
-            customer users.
+            Create a new customer organization, assign a commercial plan, establish baseline entitlements,
+            and invite its initial tenant administrator.
           </p>
         </div>
       </div>
@@ -151,27 +162,112 @@ export function RealProvisionOrganization() {
           </p>
         </div>
       ) : result ? (
-        <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
-          <StatusBadge status="COMPLIANT" label="Organization Provisioned" />
-          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-            <p className="ac-text-sm" style={{ margin: 0 }}>
-              <strong>Organization:</strong> {result.organization_name} ({result.organization_status})
-            </p>
-            <p className="ac-text-sm" style={{ margin: 0 }}>
-              <strong>Plan:</strong> {selectedPlan?.name ?? result.plan_id} — Subscription{" "}
-              {result.subscription_status}
-            </p>
-            <p className="ac-text-sm" style={{ margin: 0 }}>
-              <strong>Admin:</strong> {result.admin_email} —{" "}
-              {result.admin_email_verified ? "Email verified" : "Awaiting email verification"}
-            </p>
-            <p className="ac-text-sm" style={{ margin: 0, opacity: 0.8 }}>
-              {result.onboarding_email_sent
-                ? "An invitation email has been sent. The administrator will verify their email and set their own password — the platform never sees or sets it."
-                : "The invitation email could not be sent. Use Resend Invitation below."}
-            </p>
+        <div className="ac-card" style={{ padding: "var(--ac-space-6)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+            <StatusBadge status="COMPLIANT" label="Tenant Ready" />
+            <h2 className="ac-h2" style={{ margin: 0 }}>
+              Organization Provisioned Successfully
+            </h2>
           </div>
-          <div className="ac-flex ac-gap-2" style={{ marginTop: 16, flexWrap: "wrap" }}>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: 16,
+              marginBottom: 20,
+              background: "var(--ac-surface-2)",
+              padding: "var(--ac-space-4)",
+              borderRadius: "var(--ac-radius-md)",
+            }}
+          >
+            <div>
+              <span className="ac-text-xs" style={{ textTransform: "uppercase", opacity: 0.6, letterSpacing: "0.05em" }}>
+                1. Organization Created
+              </span>
+              <p className="ac-text-sm" style={{ margin: "4px 0 0 0", fontWeight: 600 }}>
+                {result.organization_name}
+              </p>
+              <span className="ac-text-xs" style={{ opacity: 0.8 }}>
+                Status: {result.organization_status}
+              </span>
+            </div>
+
+            <div>
+              <span className="ac-text-xs" style={{ textTransform: "uppercase", opacity: 0.6, letterSpacing: "0.05em" }}>
+                2. Subscription Created
+              </span>
+              <p className="ac-text-sm" style={{ margin: "4px 0 0 0", fontWeight: 600 }}>
+                {result.subscription_status}
+              </p>
+              <span className="ac-text-xs" style={{ opacity: 0.8 }}>
+                ID: {result.subscription_id.slice(0, 8)}…
+              </span>
+            </div>
+
+            <div>
+              <span className="ac-text-xs" style={{ textTransform: "uppercase", opacity: 0.6, letterSpacing: "0.05em" }}>
+                3. Plan Assigned
+              </span>
+              <p className="ac-text-sm" style={{ margin: "4px 0 0 0", fontWeight: 600 }}>
+                {result.plan_code || selectedPlan?.code || "Assigned"}
+              </p>
+              <span className="ac-text-xs" style={{ opacity: 0.8 }}>
+                {selectedPlan?.name ?? "Commercial Plan Baseline"}
+              </span>
+            </div>
+
+            <div>
+              <span className="ac-text-xs" style={{ textTransform: "uppercase", opacity: 0.6, letterSpacing: "0.05em" }}>
+                4. Initial Admin Created
+              </span>
+              <p className="ac-text-sm" style={{ margin: "4px 0 0 0", fontWeight: 600 }}>
+                {result.admin_email}
+              </p>
+              <span className="ac-text-xs" style={{ opacity: 0.8 }}>
+                {result.admin_email_verified ? "Email Verified" : "Awaiting activation OTP"}
+              </span>
+            </div>
+
+            <div>
+              <span className="ac-text-xs" style={{ textTransform: "uppercase", opacity: 0.6, letterSpacing: "0.05em" }}>
+                5. Entitlements Established
+              </span>
+              <p className="ac-text-sm" style={{ margin: "4px 0 0 0", fontWeight: 600 }}>
+                Inherited from Plan
+              </p>
+              <span className="ac-text-xs" style={{ opacity: 0.8 }}>
+                {result.features_count !== undefined && result.features_count !== null
+                  ? `${result.features_count} feature entitlements active`
+                  : "Effective features resolved"}
+              </span>
+            </div>
+
+            <div>
+              <span className="ac-text-xs" style={{ textTransform: "uppercase", opacity: 0.6, letterSpacing: "0.05em" }}>
+                6. Usage Limits Established
+              </span>
+              <p className="ac-text-sm" style={{ margin: "4px 0 0 0", fontWeight: 600 }}>
+                Inherited from Plan
+              </p>
+              <span className="ac-text-xs" style={{ opacity: 0.8 }}>
+                {result.limits_count !== undefined && result.limits_count !== null
+                  ? `${result.limits_count} limit thresholds established`
+                  : "Baseline usage limits configured"}
+              </span>
+            </div>
+          </div>
+
+          <p className="ac-text-sm" style={{ margin: "0 0 16px 0", opacity: 0.85 }}>
+            {result.onboarding_email_sent
+              ? "An onboarding invitation has been dispatched to the administrator. They will verify their email and set their password through the secure activation flow."
+              : "The initial onboarding email could not be sent immediately. You may resend the invitation below."}
+          </p>
+
+          <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+            <Link className="ac-btn" href={`/platform/organizations/${result.organization_id}`}>
+              View Organization
+            </Link>
             <button className="ac-btn" onClick={resendInvitation} disabled={resendStatus === "sending"}>
               {resendStatus === "sending"
                 ? "Sending…"
@@ -179,40 +275,57 @@ export function RealProvisionOrganization() {
                   ? "Invitation Resent"
                   : "Resend Invitation"}
             </button>
-            {resendStatus === "error" && (
-              <span className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)" }}>
-                Could not resend right now — it may still be within the resend cooldown window.
-              </span>
-            )}
-            <Link className="ac-btn" href={`/platform/organizations/${result.organization_id}`}>
-              View Organization
-            </Link>
-            <button className="ac-btn" onClick={reset}>
+            <button className="ac-btn" style={{ background: "transparent" }} onClick={reset}>
               Provision Another
             </button>
+            {resendStatus === "error" && (
+              <span className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)", alignSelf: "center" }}>
+                Could not resend invitation right now (may be within cooldown window).
+              </span>
+            )}
           </div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--ac-space-4)" }}>
+          {/* Organization Section */}
           <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
             <strong className="ac-text-sm">Organization</strong>
-            <div style={{ marginTop: 8 }}>
-              <input
-                className="ac-input"
-                style={{ width: "100%", maxWidth: 420 }}
-                placeholder="Organization name"
-                value={organizationName}
-                onChange={(e) => setOrganizationName(e.target.value)}
-                aria-label="Organization name"
-              />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginTop: 10 }}>
+              <div>
+                <label className="ac-text-xs" style={{ display: "block", marginBottom: 4, opacity: 0.8 }}>
+                  Organization Name *
+                </label>
+                <input
+                  className="ac-input"
+                  style={{ width: "100%" }}
+                  placeholder="e.g. Skyline Aerospace Ltd."
+                  value={organizationName}
+                  onChange={(e) => setOrganizationName(e.target.value)}
+                  aria-label="Organization Name"
+                />
+              </div>
+              <div>
+                <label className="ac-text-xs" style={{ display: "block", marginBottom: 4, opacity: 0.8 }}>
+                  Organization Code Preview
+                </label>
+                <input
+                  className="ac-input"
+                  style={{ width: "100%", opacity: 0.8, background: "var(--ac-surface-2)" }}
+                  readOnly
+                  placeholder="Auto-derived from name"
+                  value={orgCodePreview}
+                  aria-label="Organization Code"
+                />
+              </div>
             </div>
           </div>
 
+          {/* Commercial Plan Section */}
           <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
-            <strong className="ac-text-sm">Commercial</strong>
+            <strong className="ac-text-sm">Commercial Plan</strong>
             {plansLoading ? (
               <p className="ac-text-sm" style={{ marginTop: 8 }}>
-                Loading plans…
+                Loading commercial plans…
               </p>
             ) : plansError ? (
               <p className="ac-text-sm" style={{ marginTop: 8, color: "var(--ac-status-non-compliant)" }}>
@@ -220,78 +333,158 @@ export function RealProvisionOrganization() {
               </p>
             ) : plans.length === 0 ? (
               <p className="ac-text-sm" style={{ marginTop: 8 }}>
-                No active plans exist yet. <Link href="/platform/plans">Create one in Plans →</Link>
+                No active commercial plans exist. <Link href="/platform/plans">Create one in Plans →</Link>
               </p>
             ) : (
-              <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap", marginTop: 8 }}>
-                <select
-                  className="ac-input"
-                  style={{ width: 260 }}
-                  value={planId}
-                  onChange={(e) => setPlanId(e.target.value)}
-                  aria-label="Plan"
-                >
-                  <option value="">Select a plan…</option>
-                  {plans.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.code})
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="ac-input"
-                  style={{ width: 180 }}
-                  value={subscriptionStatus}
-                  onChange={(e) => setSubscriptionStatus(e.target.value as "TRIALING" | "ACTIVE")}
-                  aria-label="Subscription status"
-                >
-                  <option value="TRIALING">Trial</option>
-                  <option value="ACTIVE">Active</option>
-                </select>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginTop: 10 }}>
+                <div>
+                  <label className="ac-text-xs" style={{ display: "block", marginBottom: 4, opacity: 0.8 }}>
+                    Select Plan *
+                  </label>
+                  <select
+                    className="ac-input"
+                    style={{ width: "100%" }}
+                    value={planId}
+                    onChange={(e) => setPlanId(e.target.value)}
+                    aria-label="Commercial Plan"
+                  >
+                    <option value="">Select Plan ▼</option>
+                    {plans.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectedPlan && (
+                  <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                    <span className="ac-text-xs" style={{ opacity: 0.7 }}>
+                      Asset Scope: <strong>{selectedPlan.asset_scope ?? "All Aerospace"}</strong>
+                    </span>
+                    <span className="ac-text-xs" style={{ opacity: 0.7 }}>
+                      Features: <strong>{selectedPlan.included_features_count ?? "Full Suite"} included</strong>
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
+          {/* Subscription Section */}
           <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
-            <strong className="ac-text-sm">Administrator</strong>
-            <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap", marginTop: 8 }}>
-              <input
-                className="ac-input"
-                style={{ width: 240 }}
-                placeholder="Full name"
-                value={adminFullName}
-                onChange={(e) => setAdminFullName(e.target.value)}
-                aria-label="Admin full name"
-              />
-              <input
-                className="ac-input"
-                style={{ width: 260 }}
-                placeholder="admin@customer.com"
-                type="email"
-                value={adminEmail}
-                onChange={(e) => setAdminEmail(e.target.value)}
-                aria-label="Admin email"
-              />
+            <strong className="ac-text-sm">Subscription</strong>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginTop: 10 }}>
+              <div>
+                <label className="ac-text-xs" style={{ display: "block", marginBottom: 4, opacity: 0.8 }}>
+                  Start Date
+                </label>
+                <input
+                  className="ac-input"
+                  style={{ width: "100%", opacity: 0.85, background: "var(--ac-surface-2)" }}
+                  readOnly
+                  value={new Date().toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                  aria-label="Start Date"
+                />
+              </div>
+              <div>
+                <label className="ac-text-xs" style={{ display: "block", marginBottom: 4, opacity: 0.8 }}>
+                  Billing / Subscription Status *
+                </label>
+                <select
+                  className="ac-input"
+                  style={{ width: "100%" }}
+                  value={subscriptionStatus}
+                  onChange={(e) => setSubscriptionStatus(e.target.value as "TRIALING" | "ACTIVE")}
+                  aria-label="Subscription Status"
+                >
+                  <option value="TRIALING">Trial (TRIALING)</option>
+                  <option value="ACTIVE">Active (ACTIVE)</option>
+                </select>
+              </div>
             </div>
-            <p className="ac-text-sm" style={{ marginTop: 8, opacity: 0.8 }}>
-              The administrator will receive an email to verify their address and create their own password.
-              No password is set here.
-            </p>
           </div>
 
+          {/* Initial Tenant Administrator Section */}
+          <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
+            <strong className="ac-text-sm">Initial Tenant Administrator</strong>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginTop: 10 }}>
+              <div>
+                <label className="ac-text-xs" style={{ display: "block", marginBottom: 4, opacity: 0.8 }}>
+                  Full Name *
+                </label>
+                <input
+                  className="ac-input"
+                  style={{ width: "100%" }}
+                  placeholder="e.g. Captain Jane Doe"
+                  value={adminFullName}
+                  onChange={(e) => setAdminFullName(e.target.value)}
+                  aria-label="Admin Full Name"
+                />
+              </div>
+              <div>
+                <label className="ac-text-xs" style={{ display: "block", marginBottom: 4, opacity: 0.8 }}>
+                  Email Address *
+                </label>
+                <input
+                  className="ac-input"
+                  style={{ width: "100%" }}
+                  placeholder="admin@customer.com"
+                  type="email"
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  aria-label="Admin Email"
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: 10, padding: 8, background: "var(--ac-surface-2)", borderRadius: "var(--ac-radius-sm)" }}>
+              <span className="ac-text-xs" style={{ opacity: 0.85 }}>
+                <strong>Credential Flow:</strong> A secure one-time activation token will be generated and dispatched
+                to the initial administrator. The administrator sets their own password during onboarding; passwords are never
+                set, stored, or viewed by platform administrators.
+              </span>
+            </div>
+          </div>
+
+          {/* Provisioning Summary Card */}
           {canSubmit && (
             <div className="ac-card" style={{ padding: "var(--ac-space-4)", background: "var(--ac-surface-2)" }}>
-              <strong className="ac-text-sm">Review</strong>
-              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-                <span className="ac-text-sm">
-                  Organization: <strong>{organizationName.trim()}</strong>
-                </span>
-                <span className="ac-text-sm">
-                  Plan: <strong>{selectedPlan?.name ?? "—"}</strong> ({subscriptionStatus === "TRIALING" ? "Trial" : "Active"})
-                </span>
-                <span className="ac-text-sm">
-                  Admin: <strong>{adminFullName.trim()}</strong> — {adminEmail.trim()}
-                </span>
+              <strong className="ac-text-sm" style={{ display: "block", marginBottom: 8 }}>
+                Provisioning Summary
+              </strong>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                <div>
+                  <span className="ac-text-xs" style={{ opacity: 0.6, display: "block" }}>
+                    Plan:
+                  </span>
+                  <span className="ac-text-sm" style={{ fontWeight: 600 }}>
+                    {selectedPlan?.code ?? "—"}
+                  </span>
+                  <span className="ac-text-xs" style={{ display: "block", opacity: 0.8 }}>
+                    {selectedPlan?.name ?? "Commercial Plan"}
+                  </span>
+                </div>
+                <div>
+                  <span className="ac-text-xs" style={{ opacity: 0.6, display: "block" }}>
+                    Features:
+                  </span>
+                  <span className="ac-text-sm" style={{ fontWeight: 600 }}>
+                    Inherited from selected plan
+                  </span>
+                  <span className="ac-text-xs" style={{ display: "block", opacity: 0.8 }}>
+                    Baseline features active upon provisioning
+                  </span>
+                </div>
+                <div>
+                  <span className="ac-text-xs" style={{ opacity: 0.6, display: "block" }}>
+                    Limits:
+                  </span>
+                  <span className="ac-text-sm" style={{ fontWeight: 600 }}>
+                    Inherited from selected plan
+                  </span>
+                  <span className="ac-text-xs" style={{ display: "block", opacity: 0.8 }}>
+                    Assets, users, work orders, LISA tokens & storage
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -302,10 +495,13 @@ export function RealProvisionOrganization() {
             </p>
           )}
 
-          <div>
+          <div className="ac-flex ac-gap-2">
             <button className="ac-btn" onClick={submit} disabled={!canSubmit || submitting}>
               {submitting ? "Provisioning…" : "Provision Organization"}
             </button>
+            <Link className="ac-btn" style={{ background: "transparent" }} href="/platform/organizations">
+              Cancel
+            </Link>
           </div>
         </div>
       )}
@@ -316,3 +512,4 @@ export function RealProvisionOrganization() {
 export default function ProvisionOrganizationPage() {
   return <RealProvisionOrganization />;
 }
+

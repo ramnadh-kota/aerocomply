@@ -8,6 +8,7 @@ platform-scoped, and that a failure partway through leaves no orphaned
 Organization/Subscription behind.
 """
 
+from datetime import UTC, datetime
 import uuid
 
 from sqlalchemy import select
@@ -17,8 +18,9 @@ from app.core.security import hash_password, verify_password
 from app.main import app
 from app.models.audit_event import AuditEvent
 from app.models.organization import Organization
-from app.models.plan import Plan, PlanFeature
+from app.models.plan import Plan, PlanFeature, PlanLimit
 from app.models.subscription import Subscription
+from app.models.tenant_entitlement import TenantFeatureOverride, TenantUsageLimit
 from app.models.user import User, UserRole
 from app.services.entitlement_service import EntitlementResolutionStatus, resolve_entitlements
 
@@ -228,6 +230,34 @@ class TestProvisioningResult:
         assert "otp" not in body_text
         assert "token" not in body_text
 
+    def test_provision_response_includes_plan_code_and_entitlement_counts(self, client, db_session):
+        plan = _make_plan(db_session, feature_key="asset_management")
+        db_session.add(
+            PlanLimit(
+                plan_id=plan.id,
+                limit_key="max_assets",
+                limit_value=50,
+            )
+        )
+        db_session.commit()
+
+        admin = _create_platform_admin(db_session, "prov-admin-counts@example.com")
+        tokens = _login(client, admin.email)
+
+        resp = client.post(
+            "/api/v1/platform/organizations/provision",
+            headers=_auth(tokens["access_token"]),
+            json=_provision_payload(
+                plan_id=plan.id,
+                admin_email="tenant-counts-admin@example.com",
+            ),
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["plan_code"] == plan.code
+        assert body["features_count"] >= 1
+        assert body["limits_count"] >= 1
+
 
 class TestClientCannotEscalate:
     def test_client_cannot_choose_organization_id(self, client, db_session):
@@ -386,6 +416,57 @@ class TestDuplicateProtection:
         # HTTP request gets its own connection/transaction.)
         assert second.status_code == 409
 
+    def test_duplicate_organization_name_rejected(self, client, db_session):
+        admin = _create_platform_admin(db_session, "prov-admin-dup-org@example.com")
+        tokens = _login(client, admin.email)
+        plan = _make_plan(db_session)
+        org_name = f"Skyline Aerospace Ops {uuid.uuid4().hex[:6]}"
+
+        first = client.post(
+            "/api/v1/platform/organizations/provision",
+            headers=_auth(tokens["access_token"]),
+            json=_provision_payload(
+                plan_id=plan.id,
+                admin_email=f"skyline-admin1-{uuid.uuid4().hex[:6]}@example.com",
+                org_name=org_name,
+            ),
+        )
+        assert first.status_code == 201
+
+        second = client.post(
+            "/api/v1/platform/organizations/provision",
+            headers=_auth(tokens["access_token"]),
+            json=_provision_payload(
+                plan_id=plan.id,
+                admin_email=f"skyline-admin2-{uuid.uuid4().hex[:6]}@example.com",
+                org_name=f"  {org_name.upper()}  ",
+            ),
+        )
+        assert second.status_code == 409
+        assert "duplicate_organization_name" in second.text
+
+    def test_inactive_plan_rejected(self, client, db_session):
+        admin = _create_platform_admin(db_session, "prov-admin-inactive-plan@example.com")
+        tokens = _login(client, admin.email)
+        plan = Plan(
+            name="Decommissioned Plan",
+            code=f"decom-{uuid.uuid4().hex[:8]}",
+            is_active=False,
+        )
+        db_session.add(plan)
+        db_session.commit()
+
+        resp = client.post(
+            "/api/v1/platform/organizations/provision",
+            headers=_auth(tokens["access_token"]),
+            json=_provision_payload(
+                plan_id=plan.id,
+                admin_email="inactive-plan-tenant@example.com",
+            ),
+        )
+        assert resp.status_code == 409
+        assert "inactive_plan" in resp.text
+
 
 class TestEntitlementResolution:
     def test_provisioned_organization_resolves_plan_entitlements(self, client, db_session):
@@ -423,6 +504,94 @@ class TestEntitlementResolution:
         result = resolve_entitlements(db_session, organization_id=org_id)
         assert result.resolution_status == EntitlementResolutionStatus.ACTIVE
         assert result.effective_features.get("lisa") is True
+
+    def test_plan_limits_inherited_by_provisioned_tenant(self, client, db_session):
+        plan = _make_plan(db_session, feature_key="asset_management")
+        db_session.add(
+            PlanLimit(
+                plan_id=plan.id,
+                limit_key="max_assets",
+                limit_value=25,
+            )
+        )
+        db_session.commit()
+
+        admin = _create_platform_admin(db_session, "prov-admin-limits@example.com")
+        tokens = _login(client, admin.email)
+
+        resp = client.post(
+            "/api/v1/platform/organizations/provision",
+            headers=_auth(tokens["access_token"]),
+            json=_provision_payload(
+                plan_id=plan.id,
+                admin_email="tenant-limits-admin@example.com",
+                status="ACTIVE",
+            ),
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        org_id = uuid.UUID(body["organization_id"])
+
+        result = resolve_entitlements(db_session, organization_id=org_id)
+        assert result.resolution_status == EntitlementResolutionStatus.ACTIVE
+        assert result.effective_features.get("asset_management") is True
+
+        limit_keys = {cfg.limit_key: cfg.limit_value for cfg in result.usage_limits}
+        assert "max_assets" in limit_keys
+        assert limit_keys["max_assets"] == 25
+
+        # Confirm no TenantFeatureOverride or TenantUsageLimit rows exist (pure inheritance)
+        overrides = (
+            db_session.execute(
+                select(TenantFeatureOverride).where(TenantFeatureOverride.organization_id == org_id)
+            )
+            .scalars()
+            .all()
+        )
+        assert overrides == []
+        tenant_limits = (
+            db_session.execute(
+                select(TenantUsageLimit).where(TenantUsageLimit.organization_id == org_id)
+            )
+            .scalars()
+            .all()
+        )
+        assert tenant_limits == []
+
+    def test_soft_deleted_organization_denies_commercial_access(self, client, db_session):
+        plan = _make_plan(db_session, feature_key="flight_logging")
+        admin = _create_platform_admin(db_session, "prov-admin-softdel@example.com")
+        tokens = _login(client, admin.email)
+
+        resp = client.post(
+            "/api/v1/platform/organizations/provision",
+            headers=_auth(tokens["access_token"]),
+            json=_provision_payload(
+                plan_id=plan.id,
+                admin_email="tenant-softdel-admin@example.com",
+                status="ACTIVE",
+            ),
+        )
+        assert resp.status_code == 201
+        org_id = uuid.UUID(resp.json()["organization_id"])
+
+        # Active org resolves entitlements
+        res_before = resolve_entitlements(db_session, organization_id=org_id)
+        assert res_before.resolution_status == EntitlementResolutionStatus.ACTIVE
+        assert res_before.effective_features.get("flight_logging") is True
+
+        # Soft delete the organization
+        org = db_session.get(Organization, org_id)
+        org.deleted_at = datetime.now(UTC)
+        db_session.commit()
+
+        # Entitlement resolution immediately returns SUSPENDED with DELETED org status
+        res_after = resolve_entitlements(db_session, organization_id=org_id)
+        assert res_after.resolution_status == EntitlementResolutionStatus.SUSPENDED
+        assert res_after.organization_status == "DELETED"
+        assert res_after.effective_features == {}
+        assert res_after.usage_limits == []
+
 
 
 class TestAudit:

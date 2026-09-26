@@ -151,4 +151,8 @@ export interface ProvisionOrganizationResponse {
   admin_email: string;
   admin_email_verified: boolean;
   onboarding_email_sent: boolean;
+  plan_code?: string | null;
+  features_count?: number | null;
+  limits_count?: number | null;
 }
+

@@ -51,14 +51,18 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import secrets
+import uuid
 
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from app.core.errors import ConflictError, NotFoundError
 from app.models.organization import Organization
+from app.models.plan import Plan
 from app.models.subscription import Subscription
 from app.models.user import User
-from app.services import auth_service, platform_service, subscription_service
+from app.services import auth_service, entitlement_service, platform_service, subscription_service
 from app.services.audit_service import record_audit_event
 
 
@@ -68,6 +72,9 @@ class ProvisionOrganizationResult:
     subscription: Subscription
     admin: User
     onboarding_email_sent: bool
+    plan_code: str | None = None
+    features_count: int = 0
+    limits_count: int = 0
 
 
 @dataclass
@@ -135,11 +142,17 @@ def invite_organization_admin(
     return InviteOrganizationAdminResult(admin=admin, onboarding_email_sent=onboarding_email_sent)
 
 
-def _rollback_partial_provisioning(db: Session, *, organization_id: uuid.UUID) -> None:
-    db.rollback()
-    db.execute(delete(Subscription).where(Subscription.organization_id == organization_id))
-    db.execute(delete(Organization).where(Organization.id == organization_id))
-    db.commit()
+def _rollback_partial_provisioning(db: Session, *, organization_id: uuid.UUID | None) -> None:
+    if not organization_id:
+        return
+    try:
+        db.rollback()
+        db.execute(delete(Subscription).where(Subscription.organization_id == organization_id))
+        db.execute(delete(User).where(User.organization_id == organization_id))
+        db.execute(delete(Organization).where(Organization.id == organization_id))
+        db.commit()
+    except Exception:
+        db.rollback()
 
 
 def provision_organization(
@@ -152,11 +165,72 @@ def provision_organization(
     admin_email: str,
     admin_full_name: str,
 ) -> ProvisionOrganizationResult:
-    org = platform_service.create_organization(
-        db, actor_user_id=actor_user_id, name=organization_name
-    )
+    """Orchestrates atomic tenant provisioning:
+    1. Pre-flight checks:
+       - Commercial plan exists and is active.
+       - No active organization with the same name already exists.
+       - No user with the initial admin email already exists.
+    2. Single DB Transaction (commit=False across platform/subscription services):
+       - Create organization.
+       - Create initial admin with a discarded random password.
+       - Create subscription with the selected commercial plan.
+       - Derive and verify effective entitlements & usage limits baseline.
+       - Record audit event (platform.organization.provisioned).
+       - Commit atomic transaction.
+    3. Post-commit:
+       - Request account onboarding OTP email.
+    """
+    # 1. Pre-flight checks
+    plan = db.get(Plan, plan_id)
+    if plan is None:
+        raise NotFoundError(f"Commercial plan '{plan_id}' does not exist", code="plan_not_found")
+    if not plan.is_active:
+        raise ConflictError(
+            f"Commercial plan '{plan.name}' ({plan.code}) is inactive and cannot be assigned to new provisions",
+            code="inactive_plan",
+        )
 
+    clean_org_name = organization_name.strip()
+    existing_org = db.scalars(
+        select(Organization).where(
+            func.lower(Organization.name) == clean_org_name.lower(),
+            Organization.deleted_at.is_(None),
+        )
+    ).first()
+    if existing_org:
+        raise ConflictError(
+            f"An active organization named '{clean_org_name}' already exists",
+            code="duplicate_organization_name",
+        )
+
+    clean_admin_email = admin_email.strip().lower()
+    existing_user = db.scalars(
+        select(User).where(func.lower(User.email) == clean_admin_email)
+    ).first()
+    if existing_user:
+        raise ConflictError(
+            f"A user with email '{admin_email}' already exists",
+            code="duplicate_admin_email",
+        )
+
+    # 2. Atomic Provisioning Execution
+    org = None
     try:
+        org = platform_service.create_organization(
+            db, actor_user_id=actor_user_id, name=clean_org_name, commit=False
+        )
+
+        discarded_password = secrets.token_urlsafe(32)
+        admin = platform_service.create_organization_admin(
+            db,
+            actor_user_id=actor_user_id,
+            organization_id=org.id,
+            email=clean_admin_email,
+            full_name=admin_full_name.strip(),
+            password=discarded_password,
+            commit=False,
+        )
+
         subscription = subscription_service.create_subscription(
             db,
             actor_user_id=actor_user_id,
@@ -164,38 +238,37 @@ def provision_organization(
             plan_id=plan_id,
             status=subscription_status,
             starts_at=datetime.now(UTC),
+            commit=False,
         )
-    except Exception:
-        _rollback_partial_provisioning(db, organization_id=org.id)
-        raise
 
-    try:
-        # Never stored, transmitted, or logged beyond this local variable --
-        # see this module's docstring on password handling.
-        discarded_password = secrets.token_urlsafe(32)
-        admin = platform_service.create_organization_admin(
+        # Baseline entitlement resolution verification
+        entitlements = entitlement_service.resolve_entitlements(db, organization_id=org.id)
+
+        record_audit_event(
             db,
-            actor_user_id=actor_user_id,
             organization_id=org.id,
-            email=admin_email,
-            full_name=admin_full_name,
-            password=discarded_password,
+            user_id=actor_user_id,
+            action="platform.organization.provisioned",
+            entity_type="Organization",
+            entity_id=org.id,
+            metadata={
+                "plan_id": str(plan_id),
+                "plan_code": plan.code,
+                "admin_email": clean_admin_email,
+                "subscription_id": str(subscription.id),
+                "features_count": len(entitlements.effective_features),
+                "limits_count": len(entitlements.usage_limits),
+            },
         )
+
+        db.commit()
     except Exception:
-        _rollback_partial_provisioning(db, organization_id=org.id)
+        db.rollback()
+        if org is not None and getattr(org, "id", None) is not None:
+            _rollback_partial_provisioning(db, organization_id=org.id)
         raise
 
-    record_audit_event(
-        db,
-        organization_id=org.id,
-        user_id=actor_user_id,
-        action="platform.organization.provisioned",
-        entity_type="Organization",
-        entity_id=org.id,
-        metadata={"plan_id": str(plan_id), "admin_email": admin_email},
-    )
-    db.commit()
-
+    # 3. Post-commit onboarding email
     onboarding_email_sent = False
     try:
         auth_service.request_account_onboarding(db, user_id=admin.id)
@@ -216,4 +289,7 @@ def provision_organization(
         subscription=subscription,
         admin=admin,
         onboarding_email_sent=onboarding_email_sent,
+        plan_code=plan.code,
+        features_count=len(entitlements.effective_features),
+        limits_count=len(entitlements.usage_limits),
     )

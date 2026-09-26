@@ -165,8 +165,8 @@ def resolve_entitlements(
             reason="Organization not found.",
         )
 
-    # Step 1: tenant status short-circuit. A suspended org is denied before
-    # even looking at subscriptions.
+    # Step 1: tenant status short-circuit. A suspended or soft-deleted org is
+    # denied before even looking at subscriptions.
     if organization.status == OrganizationStatus.SUSPENDED:
         return EntitlementResolution(
             organization_id=organization_id,
@@ -178,6 +178,21 @@ def resolve_entitlements(
             plan_code=None,
             reason=(
                 "Organization is SUSPENDED; entitlements are denied without "
+                "inspecting subscriptions."
+            ),
+        )
+
+    if organization.deleted_at is not None:
+        return EntitlementResolution(
+            organization_id=organization_id,
+            resolution_status=EntitlementResolutionStatus.SUSPENDED,
+            organization_status="DELETED",
+            subscription_id=None,
+            subscription_status=None,
+            plan_id=None,
+            plan_code=None,
+            reason=(
+                "Organization is deletion-requested/soft-deleted; entitlements are denied without "
                 "inspecting subscriptions."
             ),
         )

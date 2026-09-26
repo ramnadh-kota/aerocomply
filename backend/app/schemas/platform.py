@@ -44,6 +44,9 @@ class ProvisionOrganizationResponse(BaseModel):
     admin_email: str
     admin_email_verified: bool
     onboarding_email_sent: bool
+    plan_code: str | None = None
+    features_count: int | None = None
+    limits_count: int | None = None
 
 
 class OrganizationAdminCreateRequest(BaseModel):

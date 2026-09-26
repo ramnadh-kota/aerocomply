@@ -159,6 +159,7 @@ def create_subscription(
     status: str,
     starts_at: datetime,
     ends_at: datetime | None = None,
+    commit: bool = True,
 ) -> Subscription:
     if db.get(Organization, organization_id) is None:
         raise NotFoundError("Organization not found")
@@ -192,8 +193,9 @@ def create_subscription(
         entity_id=sub.id,
         metadata={"plan_id": str(plan_id), "status": status},
     )
-    db.commit()
-    db.refresh(sub)
+    if commit:
+        db.commit()
+        db.refresh(sub)
     return sub
 
 

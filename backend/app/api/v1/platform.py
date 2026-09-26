@@ -164,6 +164,9 @@ def provision_organization(
         admin_email=result.admin.email,
         admin_email_verified=result.admin.email_verified,
         onboarding_email_sent=result.onboarding_email_sent,
+        plan_code=result.plan_code,
+        features_count=result.features_count,
+        limits_count=result.limits_count,
     )
 
 

@@ -220,7 +220,7 @@ def list_platform_users(
 
 
 def create_organization(
-    db: Session, *, actor_user_id: uuid.UUID | None, name: str
+    db: Session, *, actor_user_id: uuid.UUID | None, name: str, commit: bool = True
 ) -> Organization:
     org = Organization(name=name, status=OrganizationStatus.ACTIVE)
     db.add(org)
@@ -234,8 +234,9 @@ def create_organization(
         entity_id=org.id,
         metadata={"name": name},
     )
-    db.commit()
-    db.refresh(org)
+    if commit:
+        db.commit()
+        db.refresh(org)
     return org
 
 
@@ -290,6 +291,7 @@ def create_organization_admin(
     email: str,
     full_name: str,
     password: str,
+    commit: bool = True,
 ) -> User:
     get_organization(db, organization_id=organization_id)  # raises NotFoundError if missing
 
@@ -318,6 +320,7 @@ def create_organization_admin(
         entity_id=user.id,
         metadata={"email": email},
     )
-    db.commit()
-    db.refresh(user)
+    if commit:
+        db.commit()
+        db.refresh(user)
     return user
