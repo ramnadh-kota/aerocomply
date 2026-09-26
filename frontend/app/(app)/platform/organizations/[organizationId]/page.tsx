@@ -28,6 +28,8 @@ import {
   getOverrideExpirationState,
 } from "@/lib/api/entitlement";
 import { subscriptionApi, type SubscriptionResponse } from "@/lib/api/subscription";
+import { planApi, type PlanFeatureResponse } from "@/lib/api/plan";
+import { productCatalogApi, type ProductFeatureResponse } from "@/lib/api/productCatalog";
 import { auditApi, type AuditEventResponse } from "@/lib/api/audit";
 import {
   getDemoOrganization,
@@ -57,6 +59,22 @@ interface FeatureRow {
   planEnabled: boolean;
   source: "Plan" | "Tenant Override";
   override?: TenantFeatureOverrideResponse;
+}
+
+export interface OverrideModalState {
+  open: boolean;
+  featureKey: string;
+  featureName: string;
+  planEnabled: boolean;
+  overrideState: "INHERIT" | "ENABLED" | "DISABLED";
+  reason: string;
+  existingOverride?: TenantFeatureOverrideResponse;
+}
+
+function formatFeatureKey(key: string): string {
+  return key
+    .replace(/[._]/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function subscriptionStatusBadge(status: string) {
@@ -119,14 +137,25 @@ export default function PlatformOrganizationDetailPage({
   const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
-  // Feature Override Form State
-  const [showCreateOverride, setShowCreateOverride] = useState(false);
-  const [overrideFeatureKey, setOverrideFeatureKey] = useState("");
-  const [overrideEnabled, setOverrideEnabled] = useState(true);
-  const [overrideReason, setOverrideReason] = useState("");
-  const [overrideExpiresAt, setOverrideExpiresAt] = useState("");
+  // Catalog & Plan Feature State
+  const [catalogFeatures, setCatalogFeatures] = useState<ProductFeatureResponse[]>([]);
+  const [planFeatures, setPlanFeatures] = useState<PlanFeatureResponse[]>([]);
+
+  // Feature Override Modal & Feedback State
+  const [overrideModal, setOverrideModal] = useState<OverrideModalState>({
+    open: false,
+    featureKey: "",
+    featureName: "",
+    planEnabled: false,
+    overrideState: "INHERIT",
+    reason: "",
+  });
   const [overrideBusy, setOverrideBusy] = useState(false);
   const [overrideError, setOverrideError] = useState<NormalizedApiError | null>(null);
+  const [overrideFeedback, setOverrideFeedback] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const isPlatformUser =
     user?.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
@@ -194,16 +223,26 @@ export default function PlatformOrganizationDetailPage({
       entitlementApi.listFeatureOverrides(accessToken, organizationId),
       entitlementApi.listUsageLimits(accessToken, organizationId),
       auditApi.listAuditEvents(accessToken, { organization_id: organizationId, limit: 20 }),
-    ]).then(([orgRes, userRes, subRes, entRes, ovRes, limRes, audRes]) => {
+      productCatalogApi.listFeatures(accessToken),
+    ]).then(([orgRes, userRes, subRes, entRes, ovRes, limRes, audRes, catRes]) => {
       if (orgRes.status === "fulfilled") setOrg(orgRes.value);
       else setError(normalizeApiError(orgRes.reason));
 
       if (userRes.status === "fulfilled") setUsers(userRes.value);
       if (subRes.status === "fulfilled") setSubscriptions(subRes.value);
-      if (entRes.status === "fulfilled") setEntitlements(entRes.value);
+      if (entRes.status === "fulfilled") {
+        setEntitlements(entRes.value);
+        if (entRes.value.plan_id) {
+          planApi
+            .listPlanFeatures(accessToken, entRes.value.plan_id)
+            .then(setPlanFeatures)
+            .catch(() => {});
+        }
+      }
       if (ovRes.status === "fulfilled") setOverrides(ovRes.value);
       if (limRes.status === "fulfilled") setLimits(limRes.value);
       if (audRes.status === "fulfilled") setAuditEvents(audRes.value.items);
+      if (catRes.status === "fulfilled") setCatalogFeatures(catRes.value);
 
       setLoading(false);
     });
@@ -213,6 +252,17 @@ export default function PlatformOrganizationDetailPage({
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, accessToken, isAuthenticated, organizationId]);
+
+  useEffect(() => {
+    if (!overrideModal.open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !overrideBusy) {
+        setOverrideModal((prev) => ({ ...prev, open: false }));
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [overrideModal.open, overrideBusy]);
 
   const handleToggleOrgStatus = () => {
     if (mode === "DEMO") {
@@ -289,25 +339,63 @@ export default function PlatformOrganizationDetailPage({
       .finally(() => setInviteBusy(false));
   };
 
-  const handleCreateOverride = (e: React.FormEvent) => {
+  const handleOpenOverrideModal = (f: FeatureRow) => {
+    setOverrideModal({
+      open: true,
+      featureKey: f.feature_key,
+      featureName: f.name,
+      planEnabled: f.planEnabled,
+      overrideState: f.override
+        ? f.override.enabled
+          ? "ENABLED"
+          : "DISABLED"
+        : f.planEnabled
+        ? "DISABLED"
+        : "ENABLED",
+      reason: f.override?.reason ?? "",
+      existingOverride: f.override,
+    });
+    setOverrideError(null);
+  };
+
+  const handleSaveOverrideModal = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!overrideFeatureKey.trim()) return;
+    if (!overrideModal.open) return;
+
+    const { featureKey, overrideState, reason, existingOverride } = overrideModal;
 
     if (mode === "DEMO") {
-      const newOv: TenantFeatureOverrideResponse = {
-        id: `50000000-0000-0000-0000-${String(Date.now()).slice(-12)}`,
-        organization_id: organizationId,
-        feature_key: overrideFeatureKey.trim(),
-        enabled: overrideEnabled,
-        reason: overrideReason.trim() || null,
-        expires_at: overrideExpiresAt ? new Date(overrideExpiresAt).toISOString() : null,
-        created_at: new Date().toISOString(),
-      };
-      setOverrides([newOv, ...overrides]);
-      setShowCreateOverride(false);
-      setOverrideFeatureKey("");
-      setOverrideReason("");
-      setOverrideExpiresAt("");
+      if (overrideState === "INHERIT") {
+        setOverrides((prev) => prev.filter((o) => o.feature_key !== featureKey));
+      } else {
+        const newEnabled = overrideState === "ENABLED";
+        if (existingOverride) {
+          setOverrides((prev) =>
+            prev.map((o) =>
+              o.feature_key === featureKey
+                ? { ...o, enabled: newEnabled, reason: reason.trim() || null }
+                : o
+            )
+          );
+        } else {
+          const newOv: TenantFeatureOverrideResponse = {
+            id: `50000000-0000-0000-0000-${String(Date.now()).slice(-12)}`,
+            organization_id: organizationId,
+            feature_key: featureKey,
+            enabled: newEnabled,
+            reason: reason.trim() || null,
+            expires_at: null,
+            created_at: new Date().toISOString(),
+          };
+          setOverrides((prev) => [newOv, ...prev]);
+        }
+      }
+      setOverrideFeedback({
+        type: "success",
+        message: "Feature entitlement updated successfully.",
+      });
+      setOverrideModal((prev) => ({ ...prev, open: false }));
+      setTimeout(() => setOverrideFeedback(null), 4000);
       return;
     }
 
@@ -315,51 +403,147 @@ export default function PlatformOrganizationDetailPage({
     setOverrideBusy(true);
     setOverrideError(null);
 
-    entitlementApi
-      .createFeatureOverride(accessToken, organizationId, {
-        feature_key: overrideFeatureKey.trim(),
-        enabled: overrideEnabled,
-        reason: overrideReason.trim() || undefined,
-        expires_at: overrideExpiresAt ? new Date(overrideExpiresAt).toISOString() : undefined,
-      })
+    let call: Promise<unknown>;
+    if (overrideState === "INHERIT") {
+      if (existingOverride) {
+        call = entitlementApi.removeFeatureOverride(accessToken, organizationId, featureKey);
+      } else {
+        setOverrideModal((prev) => ({ ...prev, open: false }));
+        setOverrideBusy(false);
+        return;
+      }
+    } else {
+      const newEnabled = overrideState === "ENABLED";
+      if (existingOverride) {
+        call = entitlementApi.updateFeatureOverride(accessToken, organizationId, featureKey, {
+          enabled: newEnabled,
+          reason: reason.trim() || null,
+        });
+      } else {
+        call = entitlementApi.createFeatureOverride(accessToken, organizationId, {
+          feature_key: featureKey,
+          enabled: newEnabled,
+          reason: reason.trim() || undefined,
+        });
+      }
+    }
+
+    call
       .then(() => {
-        setShowCreateOverride(false);
-        setOverrideFeatureKey("");
-        setOverrideReason("");
-        setOverrideExpiresAt("");
+        setOverrideFeedback({
+          type: "success",
+          message: "Feature entitlement updated successfully.",
+        });
+        setOverrideModal((prev) => ({ ...prev, open: false }));
         loadData();
+        setTimeout(() => setOverrideFeedback(null), 4000);
       })
-      .catch((err) => setOverrideError(normalizeApiError(err)))
+      .catch((err) => {
+        const norm = normalizeApiError(err);
+        setOverrideError(norm);
+      })
       .finally(() => setOverrideBusy(false));
   };
 
   const handleRemoveOverride = (featureKey: string) => {
     if (mode === "DEMO") {
-      setOverrides(overrides.filter((o) => o.feature_key !== featureKey));
+      setOverrides((prev) => prev.filter((o) => o.feature_key !== featureKey));
+      setOverrideFeedback({
+        type: "success",
+        message: "Override removed. Tenant returned to plan inheritance.",
+      });
+      setTimeout(() => setOverrideFeedback(null), 4000);
       return;
     }
     if (!accessToken) return;
+    setActionBusy(true);
     entitlementApi
       .removeFeatureOverride(accessToken, organizationId, featureKey)
-      .then(loadData)
-      .catch((err) => setError(normalizeApiError(err)));
+      .then(() => {
+        setOverrideFeedback({
+          type: "success",
+          message: "Override removed. Tenant returned to plan inheritance.",
+        });
+        loadData();
+        setTimeout(() => setOverrideFeedback(null), 4000);
+      })
+      .catch((err) => {
+        const norm = normalizeApiError(err);
+        setError(norm);
+      })
+      .finally(() => setActionBusy(false));
   };
 
-  // Build 3-source feature rows
-  const featureRows: FeatureRow[] = DEMO_PLATFORM_FEATURES.map((feat) => {
-    const override = overrides.find((o) => o.feature_key === feat.feature_key);
-    const planEnabled =
-      entitlements?.plan_code === "enterprise"
-        ? true
-        : entitlements?.plan_code === "professional"
-        ? feat.plans.includes("professional") || feat.plans.includes("starter")
-        : feat.plans.includes("starter");
+  // Build dynamic feature rows from catalog, plan, entitlements, and overrides
+  const featureMap = new Map<string, { key: string; name: string }>();
+
+  // 1. From catalog features (backend canonical registry)
+  catalogFeatures.forEach((cf) => {
+    featureMap.set(cf.code, { key: cf.code, name: cf.name });
+  });
+
+  // 2. From demo platform features (standard aerospace feature catalog)
+  DEMO_PLATFORM_FEATURES.forEach((df) => {
+    if (!featureMap.has(df.feature_key)) {
+      featureMap.set(df.feature_key, { key: df.feature_key, name: df.name });
+    }
+  });
+
+  // 3. From plan features
+  planFeatures.forEach((pf) => {
+    if (!featureMap.has(pf.feature_key)) {
+      featureMap.set(pf.feature_key, {
+        key: pf.feature_key,
+        name: formatFeatureKey(pf.feature_key),
+      });
+    }
+  });
+
+  // 4. From effective_features in resolved entitlements
+  if (entitlements?.effective_features) {
+    Object.keys(entitlements.effective_features).forEach((key) => {
+      if (!featureMap.has(key)) {
+        featureMap.set(key, { key, name: formatFeatureKey(key) });
+      }
+    });
+  }
+
+  // 5. From overrides
+  overrides.forEach((ov) => {
+    if (!featureMap.has(ov.feature_key)) {
+      featureMap.set(ov.feature_key, {
+        key: ov.feature_key,
+        name: formatFeatureKey(ov.feature_key),
+      });
+    }
+  });
+
+  const featureRows: FeatureRow[] = Array.from(featureMap.values()).map(({ key, name }) => {
+    const override = overrides.find((o) => o.feature_key === key);
+
+    let planEnabled = false;
+    if (mode === "DEMO") {
+      const demoFeat = DEMO_PLATFORM_FEATURES.find((f) => f.feature_key === key);
+      planEnabled =
+        entitlements?.plan_code === "enterprise"
+          ? true
+          : entitlements?.plan_code === "professional"
+          ? Boolean(demoFeat?.plans.includes("professional") || demoFeat?.plans.includes("starter"))
+          : Boolean(demoFeat?.plans.includes("starter"));
+    } else {
+      const pf = planFeatures.find((p) => p.feature_key === key);
+      if (pf !== undefined) {
+        planEnabled = pf.enabled;
+      } else if (override === undefined && entitlements?.effective_features?.[key] !== undefined) {
+        planEnabled = entitlements.effective_features[key];
+      }
+    }
 
     const effective = override ? override.enabled : planEnabled;
 
     return {
-      feature_key: feat.feature_key,
-      name: feat.name,
+      feature_key: key,
+      name,
       enabled: effective,
       planEnabled,
       source: override ? "Tenant Override" : "Plan",
@@ -782,6 +966,47 @@ export default function PlatformOrganizationDetailPage({
               {/* TAB 4: ENTITLEMENTS */}
               {activeTab === "Entitlements" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {overrideFeedback && (
+                    <div
+                      className="ac-card"
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: 6,
+                        borderLeft:
+                          overrideFeedback.type === "success"
+                            ? "4px solid var(--ac-status-compliant, #22c55e)"
+                            : "4px solid var(--ac-status-non-compliant, #ef4444)",
+                        background:
+                          overrideFeedback.type === "success"
+                            ? "rgba(34, 197, 94, 0.08)"
+                            : "rgba(239, 68, 68, 0.08)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span
+                        className="ac-text-sm"
+                        style={{
+                          color:
+                            overrideFeedback.type === "success"
+                              ? "var(--ac-status-compliant, #22c55e)"
+                              : "var(--ac-status-non-compliant, #ef4444)",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {overrideFeedback.message}
+                      </span>
+                      <button
+                        className="ac-btn"
+                        style={{ padding: "2px 8px", fontSize: 11 }}
+                        onClick={() => setOverrideFeedback(null)}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                     <div>
                       <h2 className="ac-h2" style={{ margin: 0 }}>Effective Tenant Entitlements</h2>
@@ -789,62 +1014,7 @@ export default function PlatformOrganizationDetailPage({
                         Base Plan Features + Tenant Feature Overrides = Effective Entitlement.
                       </p>
                     </div>
-                    <button className="ac-btn" onClick={() => setShowCreateOverride(!showCreateOverride)}>
-                      {showCreateOverride ? "Cancel" : "+ Add Feature Override"}
-                    </button>
                   </div>
-
-                  {showCreateOverride && (
-                    <div className="ac-card" style={{ padding: "var(--ac-space-3)", background: "rgba(255,255,255,0.03)" }}>
-                      <h3 className="ac-h3" style={{ margin: "0 0 10px", fontSize: 14 }}>
-                        Create Tenant Feature Override
-                      </h3>
-                      <form onSubmit={handleCreateOverride} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                        <div>
-                          <label className="ac-text-sm" style={{ display: "block", marginBottom: 4 }}>Feature Key</label>
-                          <input
-                            className="ac-input"
-                            style={{ width: "100%", maxWidth: 400 }}
-                            placeholder="e.g. battery_analytics"
-                            value={overrideFeatureKey}
-                            onChange={(e) => setOverrideFeatureKey(e.target.value)}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label className="ac-text-sm" style={{ display: "block", marginBottom: 4 }}>Override State</label>
-                          <select
-                            className="ac-select"
-                            value={overrideEnabled ? "true" : "false"}
-                            onChange={(e) => setOverrideEnabled(e.target.value === "true")}
-                          >
-                            <option value="true">Enabled (Allow)</option>
-                            <option value="false">Disabled (Deny)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="ac-text-sm" style={{ display: "block", marginBottom: 4 }}>Reason / Justification</label>
-                          <input
-                            className="ac-input"
-                            style={{ width: "100%", maxWidth: 500 }}
-                            placeholder="Commercial trial exception approved by staff"
-                            value={overrideReason}
-                            onChange={(e) => setOverrideReason(e.target.value)}
-                          />
-                        </div>
-                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                          <button className="ac-btn" type="submit" disabled={overrideBusy}>
-                            {overrideBusy ? "Applying…" : "Save Override"}
-                          </button>
-                          {overrideError && (
-                            <span className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)" }}>
-                              {overrideError.message}
-                            </span>
-                          )}
-                        </div>
-                      </form>
-                    </div>
-                  )}
 
                   <div className="ac-card" style={{ padding: 0 }}>
                     <table className="ac-table" style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -858,54 +1028,84 @@ export default function PlatformOrganizationDetailPage({
                         </tr>
                       </thead>
                       <tbody>
-                        {featureRows.map((f) => (
-                          <tr key={f.feature_key}>
-                            <td>
-                              <strong>{f.name}</strong>
-                              <div className="ac-text-sm ac-text-muted" style={{ fontSize: 11 }}>{f.feature_key}</div>
-                            </td>
-                            <td>
-                              <StatusBadge
-                                status={f.planEnabled ? "COMPLIANT" : "NON_COMPLIANT"}
-                                label={f.planEnabled ? "Included" : "Excluded"}
-                              />
-                            </td>
-                            <td>
-                              {f.override ? (
-                                <div>
-                                  <StatusBadge
-                                    status={f.override.enabled ? "COMPLIANT" : "NON_COMPLIANT"}
-                                    label={f.override.enabled ? "Override: Allowed" : "Override: Blocked"}
-                                  />
-                                  {f.override.reason && (
-                                    <div className="ac-text-sm ac-text-muted" style={{ fontSize: 11 }}>
-                                      {f.override.reason}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="ac-text-muted">None (Inherited)</span>
-                              )}
-                            </td>
-                            <td>
-                              <StatusBadge
-                                status={f.enabled ? "COMPLIANT" : "NON_COMPLIANT"}
-                                label={f.enabled ? "ENABLED" : "DISABLED"}
-                              />
-                            </td>
-                            <td>
-                              {f.override && (
-                                <button
-                                  className="ac-btn"
-                                  style={{ fontSize: 11, padding: "2px 8px" }}
-                                  onClick={() => handleRemoveOverride(f.feature_key)}
-                                >
-                                  Remove Override
-                                </button>
-                              )}
+                        {featureRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} style={{ textAlign: "center", padding: 24 }} className="ac-text-muted">
+                              No features available in catalog.
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          featureRows.map((f) => (
+                            <tr key={f.feature_key}>
+                              <td>
+                                <strong>{f.name}</strong>
+                                <div className="ac-text-sm ac-text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                                  <code>{f.feature_key}</code>
+                                </div>
+                              </td>
+                              <td>
+                                <StatusBadge
+                                  status={f.planEnabled ? "COMPLIANT" : "NON_COMPLIANT"}
+                                  label={f.planEnabled ? "Included" : "Excluded"}
+                                />
+                              </td>
+                              <td>
+                                {f.override ? (
+                                  <div>
+                                    <StatusBadge
+                                      status={f.override.enabled ? "COMPLIANT" : "NON_COMPLIANT"}
+                                      label={f.override.enabled ? "ENABLED" : "DISABLED"}
+                                    />
+                                    {f.override.reason && (
+                                      <div className="ac-text-sm ac-text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                                        {f.override.reason}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="ac-text-muted">None (Inherited)</span>
+                                )}
+                              </td>
+                              <td>
+                                <StatusBadge
+                                  status={f.enabled ? "COMPLIANT" : "NON_COMPLIANT"}
+                                  label={f.enabled ? "ENABLED" : "DISABLED"}
+                                />
+                              </td>
+                              <td>
+                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                  {f.override ? (
+                                    <>
+                                      <button
+                                        className="ac-btn"
+                                        style={{ fontSize: 11, padding: "2px 8px" }}
+                                        onClick={() => handleOpenOverrideModal(f)}
+                                      >
+                                        Edit Override
+                                      </button>
+                                      <button
+                                        className="ac-btn"
+                                        style={{ fontSize: 11, padding: "2px 8px" }}
+                                        onClick={() => handleRemoveOverride(f.feature_key)}
+                                        disabled={actionBusy}
+                                      >
+                                        Remove Override
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      className="ac-btn"
+                                      style={{ fontSize: 11, padding: "2px 8px" }}
+                                      onClick={() => handleOpenOverrideModal(f)}
+                                    >
+                                      Override
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1129,6 +1329,309 @@ export default function PlatformOrganizationDetailPage({
         onConfirm={handleToggleOrgStatus}
         onCancel={() => setConfirmSuspend(false)}
       />
+
+      {/* Feature Override Dialog */}
+      {overrideModal.open && (
+        <div
+          className="ac-modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !overrideBusy) {
+              setOverrideModal((prev) => ({ ...prev, open: false }));
+            }
+          }}
+        >
+          <div
+            className="ac-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="override-dialog-title"
+            style={{ maxWidth: 520, width: "100%" }}
+          >
+            <form onSubmit={handleSaveOverrideModal}>
+              <h2 id="override-dialog-title" className="ac-modal-title">
+                {overrideModal.existingOverride ? "Edit Feature Override" : "Override Feature Entitlement"}
+              </h2>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 12 }}>
+                {/* Feature details card */}
+                <div
+                  style={{
+                    background: "var(--ac-bg-surface, rgba(255, 255, 255, 0.03))",
+                    border: "1px solid var(--ac-border)",
+                    borderRadius: "var(--ac-radius-md)",
+                    padding: "12px 14px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: "var(--ac-text-primary)" }}>
+                        {overrideModal.featureName}
+                      </div>
+                      <div style={{ marginTop: 2 }}>
+                        <code style={{ fontSize: 11, color: "var(--ac-text-muted)" }}>
+                          {overrideModal.featureKey}
+                        </code>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 11, color: "var(--ac-text-muted)", marginBottom: 4 }}>
+                        Plan Entitlement
+                      </div>
+                      {overrideModal.planEnabled ? (
+                        <span
+                          className="ac-badge"
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: "var(--ac-status-compliant)",
+                            border: "1px solid var(--ac-status-compliant)",
+                            background: "rgba(34, 197, 94, 0.1)",
+                          }}
+                        >
+                          ● INCLUDED
+                        </span>
+                      ) : (
+                        <span
+                          className="ac-badge"
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: "var(--ac-status-non-compliant)",
+                            border: "1px solid var(--ac-status-non-compliant)",
+                            background: "rgba(239, 68, 68, 0.1)",
+                          }}
+                        >
+                          ✕ EXCLUDED
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Override state selection */}
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: 600,
+                      marginBottom: 8,
+                      color: "var(--ac-text-primary)",
+                    }}
+                  >
+                    Tenant Override State
+                  </label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {/* Option 1: Inherit from Plan */}
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 10,
+                        padding: "10px 12px",
+                        borderRadius: "var(--ac-radius-md)",
+                        border: `1px solid ${
+                          overrideModal.overrideState === "INHERIT"
+                            ? "var(--ac-primary, #38bdf8)"
+                            : "var(--ac-border)"
+                        }`,
+                        background:
+                          overrideModal.overrideState === "INHERIT"
+                            ? "rgba(56, 189, 248, 0.06)"
+                            : "transparent",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="overrideState"
+                        value="INHERIT"
+                        checked={overrideModal.overrideState === "INHERIT"}
+                        onChange={() =>
+                          setOverrideModal((prev) => ({ ...prev, overrideState: "INHERIT" }))
+                        }
+                        style={{ marginTop: 3 }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--ac-text-primary)" }}>
+                          Inherit from Plan
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--ac-text-muted)" }}>
+                          No override. Revert to base commercial plan setting (
+                          {overrideModal.planEnabled ? "Included / Enabled" : "Excluded / Disabled"}).
+                        </div>
+                      </div>
+                    </label>
+
+                    {/* Option 2: Enabled */}
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 10,
+                        padding: "10px 12px",
+                        borderRadius: "var(--ac-radius-md)",
+                        border: `1px solid ${
+                          overrideModal.overrideState === "ENABLED"
+                            ? "var(--ac-status-compliant)"
+                            : "var(--ac-border)"
+                        }`,
+                        background:
+                          overrideModal.overrideState === "ENABLED"
+                            ? "rgba(34, 197, 94, 0.06)"
+                            : "transparent",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="overrideState"
+                        value="ENABLED"
+                        checked={overrideModal.overrideState === "ENABLED"}
+                        onChange={() =>
+                          setOverrideModal((prev) => ({ ...prev, overrideState: "ENABLED" }))
+                        }
+                        style={{ marginTop: 3 }}
+                      />
+                      <div>
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            fontSize: 13,
+                            color: "var(--ac-status-compliant)",
+                          }}
+                        >
+                          Enabled (Commercial Exception)
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--ac-text-muted)" }}>
+                          Explicitly grant capability to this tenant regardless of base plan exclusion.
+                        </div>
+                      </div>
+                    </label>
+
+                    {/* Option 3: Disabled */}
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 10,
+                        padding: "10px 12px",
+                        borderRadius: "var(--ac-radius-md)",
+                        border: `1px solid ${
+                          overrideModal.overrideState === "DISABLED"
+                            ? "var(--ac-status-non-compliant)"
+                            : "var(--ac-border)"
+                        }`,
+                        background:
+                          overrideModal.overrideState === "DISABLED"
+                            ? "rgba(239, 68, 68, 0.06)"
+                            : "transparent",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="overrideState"
+                        value="DISABLED"
+                        checked={overrideModal.overrideState === "DISABLED"}
+                        onChange={() =>
+                          setOverrideModal((prev) => ({ ...prev, overrideState: "DISABLED" }))
+                        }
+                        style={{ marginTop: 3 }}
+                      />
+                      <div>
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            fontSize: 13,
+                            color: "var(--ac-status-non-compliant)",
+                          }}
+                        >
+                          Disabled (Commercial Restriction)
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--ac-text-muted)" }}>
+                          Explicitly block access to this capability for this tenant even if included in base plan.
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Reason / Justification */}
+                <div>
+                  <label
+                    htmlFor="override-reason-input"
+                    style={{
+                      display: "block",
+                      fontSize: "0.85rem",
+                      fontWeight: 600,
+                      marginBottom: 6,
+                      color: "var(--ac-text-primary)",
+                    }}
+                  >
+                    Reason / Justification
+                  </label>
+                  <input
+                    id="override-reason-input"
+                    type="text"
+                    className="ac-input"
+                    placeholder="e.g. Approved commercial exception per enterprise SLA"
+                    value={overrideModal.reason}
+                    onChange={(e) =>
+                      setOverrideModal((prev) => ({ ...prev, reason: e.target.value }))
+                    }
+                    disabled={overrideBusy}
+                    style={{ width: "100%", padding: "8px 12px" }}
+                  />
+                  <div style={{ fontSize: 11, color: "var(--ac-text-muted)", marginTop: 4 }}>
+                    Recorded in immutable platform audit trail for enterprise governance.
+                  </div>
+                </div>
+
+                {/* Error Banner */}
+                {overrideError && (
+                  <div
+                    style={{
+                      background: "rgba(239, 68, 68, 0.1)",
+                      border: "1px solid var(--ac-status-non-compliant)",
+                      color: "var(--ac-status-non-compliant)",
+                      padding: "8px 12px",
+                      borderRadius: "var(--ac-radius-md)",
+                      fontSize: 12,
+                    }}
+                  >
+                    {overrideError.message || "Failed to save feature override. The tenant entitlement was not changed."}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="ac-modal-actions" style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    className="ac-btn"
+                    onClick={() => setOverrideModal((prev) => ({ ...prev, open: false }))}
+                    disabled={overrideBusy}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="ac-btn"
+                    disabled={overrideBusy}
+                    style={{
+                      background: "var(--ac-primary, #38bdf8)",
+                      color: "#000",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {overrideBusy ? "Saving…" : "Save Override"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

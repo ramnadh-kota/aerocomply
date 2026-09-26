@@ -137,7 +137,7 @@ export const entitlementApi = {
       {
         accessToken,
         method: "POST",
-        body: JSON.stringify(payload),
+        body: payload,
       }
     ),
 
@@ -152,7 +152,7 @@ export const entitlementApi = {
       {
         accessToken,
         method: "PATCH",
-        body: JSON.stringify(payload),
+        body: payload,
       }
     ),
 
@@ -181,7 +181,7 @@ export const entitlementApi = {
       {
         accessToken,
         method: "POST",
-        body: JSON.stringify(payload),
+        body: payload,
       }
     ),
 
@@ -197,7 +197,7 @@ export const entitlementApi = {
       {
         accessToken,
         method: "PATCH",
-        body: JSON.stringify(payload),
+        body: payload,
       }
     ),
 

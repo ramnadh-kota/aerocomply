@@ -121,4 +121,7 @@ export const productCatalogApi = {
       body: payload,
       accessToken,
     }),
+
+  listFeatures: (accessToken: string) =>
+    apiRequest<ProductFeatureResponse[]>("/platform/product-features", { accessToken }),
 };
