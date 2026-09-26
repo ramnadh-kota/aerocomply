@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db_session
+from app.core.deps import get_current_user, get_db_session, require_permission
+from app.core.permissions import Permission
 from app.core.rate_limit import rate_limit
 from app.schemas.auth import (
+    ConfirmEmailChangeRequest,
     ConfirmEmailVerificationRequest,
     CurrentUser,
     ForgotPasswordRequest,
@@ -11,8 +13,10 @@ from app.schemas.auth import (
     MessageResponse,
     RefreshRequest,
     RegisterOrganizationRequest,
+    RequestEmailChangeRequest,
     ResetPasswordRequest,
     TokenResponse,
+    UpdateProfileRequest,
 )
 from app.services import auth_service
 
@@ -58,8 +62,14 @@ _OTP_CONFIRM_RATE_WINDOW_SECONDS = 300
     ],
 )
 def register_organization(
-    payload: RegisterOrganizationRequest, db: Session = Depends(get_db_session)
+    payload: RegisterOrganizationRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
 ) -> TokenResponse:
+    # Gated to PLATFORM_MANAGE: this is a platform-administrative bootstrap
+    # primitive, not a public signup endpoint. See /platform/organizations/provision
+    # for the standard admin-initiated org+admin provisioning flow, which this
+    # endpoint predates and is retained alongside for internal/test use.
     return auth_service.register_organization(db, payload)
 
 
@@ -94,8 +104,106 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db_session)) -> T
 
 
 @router.get("/me", response_model=CurrentUser)
-def me(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    return current_user
+def me(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> CurrentUser:
+    return auth_service.get_user_profile(db, user_id=current_user.id)
+
+
+@router.patch("/me", response_model=CurrentUser)
+def update_me(
+    payload: UpdateProfileRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> CurrentUser:
+    return auth_service.update_user_profile(
+        db,
+        user_id=current_user.id,
+        full_name=payload.full_name,
+        phone_number=payload.phone_number,
+    )
+
+
+@router.post("/me/photo", response_model=CurrentUser)
+async def upload_photo(
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> CurrentUser:
+    content = await file.read()
+    return auth_service.upload_profile_photo(
+        db,
+        user_id=current_user.id,
+        content=content,
+        content_type=file.content_type or "application/octet-stream",
+        filename=file.filename or "avatar.png",
+    )
+
+
+@router.delete("/me/photo", response_model=CurrentUser)
+def delete_photo(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> CurrentUser:
+    return auth_service.delete_profile_photo(db, user_id=current_user.id)
+
+
+@router.post(
+    "/me/change-email/request",
+    response_model=MessageResponse,
+    dependencies=[
+        Depends(
+            rate_limit(
+                "auth_change_email_request",
+                limit=_OTP_RATE_LIMIT,
+                window_seconds=_OTP_RATE_WINDOW_SECONDS,
+            )
+        )
+    ],
+)
+def request_email_change(
+    payload: RequestEmailChangeRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> MessageResponse:
+    auth_service.request_email_change(
+        db, user_id=current_user.id, new_email=payload.new_email
+    )
+    return MessageResponse(
+        message=f"Verification code sent to {payload.new_email}. Confirm code to complete update."
+    )
+
+
+@router.post(
+    "/me/change-email/confirm",
+    response_model=CurrentUser,
+    dependencies=[
+        Depends(
+            rate_limit(
+                "auth_change_email_confirm",
+                limit=_OTP_CONFIRM_RATE_LIMIT,
+                window_seconds=_OTP_CONFIRM_RATE_WINDOW_SECONDS,
+            )
+        )
+    ],
+)
+def confirm_email_change(
+    payload: ConfirmEmailChangeRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> CurrentUser:
+    return auth_service.confirm_email_change(
+        db, user_id=current_user.id, code=payload.code
+    )
+
+
+@router.post("/me/change-email/cancel", response_model=CurrentUser)
+def cancel_email_change(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> CurrentUser:
+    return auth_service.cancel_email_change(db, user_id=current_user.id)
 
 
 @router.post(

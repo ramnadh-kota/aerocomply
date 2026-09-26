@@ -32,6 +32,7 @@ from app.schemas.tenant import (
 from app.services import auth_service
 from app.services.audit_service import record_audit_event
 from app.services.entitlement_service import resolve_entitlements
+from app.services.limit_enforcement_service import check_user_creation_limit
 
 # Supported customer tenant roles (PLATFORM_ADMIN, PLATFORM_STAFF are strictly excluded)
 SUPPORTED_TENANT_ROLES: list[Role] = [
@@ -410,6 +411,8 @@ def invite_tenant_user(
     allowed_roles = {r.value for r in SUPPORTED_TENANT_ROLES}
     if payload.role not in allowed_roles:
         raise ForbiddenError(f"Role '{payload.role}' cannot be assigned in customer invitations.")
+
+    check_user_creation_limit(db, organization_id=organization_id)
 
     # Check for existing email in tenant
     existing_user = db.execute(

@@ -156,6 +156,7 @@ export const PLATFORM_NAV_GROUPS: NavGroup[] = [
       { href: "/platform/entitlements", label: "Entitlements", glyph: "🔒" },
       { href: "/platform/provisioning", label: "Provisioning", glyph: "⚡" },
       { href: "/platform/usage", label: "Usage & Limits", glyph: "📊" },
+      { href: "/platform/deleted-records", label: "Deletion Requests", glyph: "🗑" },
       { href: "/platform/audit", label: "Audit / Activity", glyph: "≡" },
       { href: "/platform/approvals", label: "Approvals", glyph: "✓" },
       { href: "/platform/monitoring", label: "Monitoring & Health", glyph: "♥" },

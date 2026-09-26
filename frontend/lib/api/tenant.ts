@@ -148,6 +148,19 @@ export const tenantApi = {
       body: payload,
     }),
 
+  // Platform Control Plane: soft-deletes this admin's OWN organization
+  // (backend/app/services/deletion_service.py's request_organization_
+  // deletion). There is no tenant-facing undo -- every subsequent request,
+  // including this admin's own current session, is refused immediately
+  // afterward. Only Platform Admin can restore or approve permanent
+  // deletion (lib/api/deletion.ts).
+  requestDeletion: (accessToken: string, reason?: string) =>
+    apiRequest<{ message: string }>("/tenant/deletion-request", {
+      accessToken,
+      method: "POST",
+      body: { reason },
+    }),
+
   listUsers: (accessToken: string) =>
     apiRequest<TenantUser[]>("/tenant/users", { accessToken }),
 

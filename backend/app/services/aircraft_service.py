@@ -10,6 +10,7 @@ from app.models.aircraft_detail import AircraftDetail
 from app.models.asset import Asset, AssetType
 from app.schemas.aircraft import AircraftCreateRequest, AircraftUpdateRequest
 from app.services.audit_service import record_audit_event
+from app.services.limit_enforcement_service import check_asset_creation_limit
 
 
 def create_aircraft(
@@ -37,6 +38,8 @@ def create_aircraft(
     test/service callers that predate the M4 audit-trail requirement keep
     working unchanged; the API layer always passes the authenticated user.
     """
+    check_asset_creation_limit(db, organization_id=organization_id)
+
     asset = Asset(
         organization_id=organization_id,
         asset_type=AssetType.AIRCRAFT.value,

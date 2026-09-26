@@ -7,7 +7,7 @@ pure serialization/validation shapes, no business logic. ORM objects
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PlanCreateRequest(BaseModel):
@@ -15,37 +15,32 @@ class PlanCreateRequest(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     description: str | None = None
     is_active: bool = True
-    # M21.4: which app.models.product_catalog.ProductSuite this plan is for
-    # (optional -- see Plan.suite_id's docstring for why this is nullable
-    # and single-valued).
     suite_id: uuid.UUID | None = None
+    asset_scope: str | None = Field(default=None, max_length=32)
 
 
 class PlanUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     code: str | None = Field(default=None, min_length=1, max_length=64)
     description: str | None = None
-    # M21.4. `...` (PydanticUndefined) sentinel isn't used here -- following
-    # this file's existing convention (name/code/description above) of
-    # "None means no change", which is why clearing suite_id back to
-    # unassigned isn't supported through this endpoint; that's an accepted,
-    # narrow limitation consistent with the rest of this schema, not an
-    # oversight.
     suite_id: uuid.UUID | None = None
+    asset_scope: str | None = Field(default=None, max_length=32)
 
 
 class PlanResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: uuid.UUID
     name: str
     code: str
     description: str | None
     is_active: bool
     suite_id: uuid.UUID | None = None
+    asset_scope: str | None = None
+    included_features_count: int = 0
+    tenant_count: int = 0
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class PlanFeatureCreateRequest(BaseModel):
@@ -57,7 +52,18 @@ class PlanFeatureUpdateRequest(BaseModel):
     enabled: bool
 
 
+class PlanFeatureBulkItem(BaseModel):
+    feature_key: str = Field(min_length=1, max_length=128)
+    enabled: bool = True
+
+
+class PlanFeatureBulkUpdateRequest(BaseModel):
+    features: list[PlanFeatureBulkItem]
+
+
 class PlanFeatureResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: uuid.UUID
     plan_id: uuid.UUID
     feature_key: str
@@ -65,5 +71,45 @@ class PlanFeatureResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+
+
+class PlanSubscribedTenantResponse(BaseModel):
+    organization_id: uuid.UUID
+    organization_name: str
+    organization_status: str
+    subscription_id: uuid.UUID
+    subscription_status: str
+    starts_at: datetime
+    ends_at: datetime | None = None
+
+
+class PlanLimitItem(BaseModel):
+    limit_key: str = Field(min_length=1, max_length=128)
+    limit_value: int | None = Field(default=None, ge=0)
+    is_unlimited: bool = False
+
+    @model_validator(mode="after")
+    def validate_limits(self) -> "PlanLimitItem":
+        if self.is_unlimited:
+            self.limit_value = None
+        elif self.limit_value is None:
+            raise ValueError("limit_value is required when is_unlimited is False")
+        return self
+
+
+class PlanLimitBulkUpdateRequest(BaseModel):
+    limits: list[PlanLimitItem]
+
+
+class PlanLimitResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    plan_id: uuid.UUID
+    limit_key: str
+    limit_value: int | None
+    is_unlimited: bool
+    created_at: datetime
+    updated_at: datetime
+
+

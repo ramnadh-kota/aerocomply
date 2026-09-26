@@ -14,15 +14,26 @@ import {
   getDemoDeploymentReadiness,
   getDemoFleetStatistics,
 } from "@/lib/demo/demoDrones";
+import { AssetRegistrationModal } from "@/components/assets/AssetRegistrationModal";
+import { demoStore } from "@/lib/demo/demoStore";
 
 function DemoDrones() {
+  const [drones, setDrones] = useState<DroneResponse[]>(demoStore.getDrones());
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const stats = useMemo(() => getDemoFleetStatistics(), []);
+  useEffect(() => {
+    setDrones(demoStore.getDrones());
+    return demoStore.subscribe(() => {
+      setDrones(demoStore.getDrones());
+    });
+  }, []);
+
+  const stats = useMemo(() => getDemoFleetStatistics(), [drones]);
 
   const filteredDrones = useMemo(() => {
-    return DEMO_DRONES.filter((d) => {
+    return drones.filter((d) => {
       const matchesSearch =
         (d.registration?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
         (d.manufacturer?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
@@ -31,7 +42,7 @@ function DemoDrones() {
       const matchesStatus = statusFilter === "ALL" || d.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
-  }, [searchTerm, statusFilter]);
+  }, [drones, searchTerm, statusFilter]);
 
   const columns: Column<DroneResponse>[] = [
     {
@@ -71,6 +82,16 @@ function DemoDrones() {
         breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Drones" }]}
         title="Drone Fleet Operations"
         subtitle="Operational drone fleet, configurations, battery health, maintenance schedules, and pre-flight readiness."
+        actions={
+          <button
+            type="button"
+            className="ac-btn"
+            style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+            onClick={() => setIsModalOpen(true)}
+          >
+            + Add Drone
+          </button>
+        }
       />
 
       {/* Dynamic Fleet KPI Statistics */}
@@ -176,7 +197,7 @@ function DemoDrones() {
           <option value="MAINTENANCE">Maintenance Only</option>
         </select>
         <span className="ac-text-xs" style={{ color: "var(--ac-text-muted)", marginLeft: "auto" }}>
-          Showing {filteredDrones.length} of {DEMO_DRONES.length} synthetic aircraft
+          Showing {filteredDrones.length} of {drones.length} tactical UAS
         </span>
       </div>
 
@@ -220,6 +241,14 @@ function DemoDrones() {
           })}
         </div>
       </div>
+
+      <AssetRegistrationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        defaultType="DRONE"
+        lockedType="DRONE"
+        destinationRoute="drones"
+      />
     </div>
   );
 }
@@ -229,6 +258,7 @@ function RealDrones() {
   const [drones, setDrones] = useState<DroneResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [registration, setRegistration] = useState("");
   const [manufacturer, setManufacturer] = useState("");
@@ -294,6 +324,16 @@ function RealDrones() {
         breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Drones" }]}
         title="Drones"
         subtitle="Drone assets, batteries, components, flights, and deployment readiness."
+        actions={
+          <button
+            type="button"
+            className="ac-btn"
+            style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+            onClick={() => setIsModalOpen(true)}
+          >
+            + Add Drone
+          </button>
+        }
       />
 
       {!isAuthenticated ? (
@@ -387,6 +427,15 @@ function RealDrones() {
           </RealDataPanel>
         </>
       )}
+
+      <AssetRegistrationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        defaultType="DRONE"
+        lockedType="DRONE"
+        onCreated={() => load()}
+        destinationRoute="drones"
+      />
     </div>
   );
 }

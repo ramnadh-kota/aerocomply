@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
@@ -31,6 +32,30 @@ export default function TenantSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const router = useRouter();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleRequestDeletion() {
+    if (!accessToken) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await tenantApi.requestDeletion(accessToken, deleteReason.trim() || undefined);
+      // The access token is refused on the very next request (backend
+      // re-checks organization.deleted_at on every call) -- send the user
+      // to login rather than leaving them on a page whose next data fetch
+      // will 401.
+      router.push("/login");
+    } catch (err) {
+      setDeleteError(normalizeApiError(err).message);
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     if (isDemo) {
@@ -260,6 +285,97 @@ export default function TenantSettingsPage() {
               {saving ? "Saving..." : "Save Settings"}
             </button>
           </form>
+        </div>
+      )}
+
+      {!isDemo && (
+        <div
+          className="ac-card"
+          style={{ maxWidth: 640, marginTop: 24, borderColor: "var(--danger, #ef4444)" }}
+        >
+          <h2 className="ac-h2" style={{ marginTop: 0, color: "var(--danger, #ef4444)" }}>
+            Danger Zone
+          </h2>
+          <p className="ac-text-sm" style={{ marginBottom: 16 }}>
+            Requesting deletion immediately signs out every user in this organization and submits it for Platform
+            Admin review. This is not reversible by your organization — only a Platform Admin can restore it or
+            approve permanent deletion.
+          </p>
+          {!showDeleteConfirm ? (
+            <button
+              type="button"
+              className="ac-btn"
+              style={{ borderColor: "var(--danger, #ef4444)", color: "var(--danger, #ef4444)" }}
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              Request Organization Deletion
+            </button>
+          ) : (
+            <div>
+              <div style={{ marginBottom: 12 }}>
+                <label className="ac-label" style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>
+                  Reason (optional)
+                </label>
+                <textarea
+                  className="ac-input"
+                  style={{ width: "100%", minHeight: 60 }}
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  placeholder="Why are you requesting deletion?"
+                />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label className="ac-label" style={{ display: "block", marginBottom: 6, fontWeight: 600 }}>
+                  Type DELETE to confirm
+                </label>
+                <input
+                  type="text"
+                  className="ac-input"
+                  style={{ width: "100%" }}
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="DELETE"
+                />
+              </div>
+              {deleteError && (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    background: "rgba(239, 68, 68, 0.15)",
+                    color: "var(--danger, #ef4444)",
+                    borderRadius: 4,
+                    marginBottom: 12,
+                    fontSize: 13,
+                  }}
+                >
+                  ⚠ {deleteError}
+                </div>
+              )}
+              <div className="ac-flex ac-gap-2">
+                <button
+                  type="button"
+                  className="ac-btn"
+                  style={{ background: "var(--danger, #ef4444)", color: "#fff" }}
+                  disabled={deleting || deleteConfirmText !== "DELETE"}
+                  onClick={handleRequestDeletion}
+                >
+                  {deleting ? "Submitting…" : "Confirm Deletion Request"}
+                </button>
+                <button
+                  type="button"
+                  className="ac-btn"
+                  disabled={deleting}
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteConfirmText("");
+                    setDeleteError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

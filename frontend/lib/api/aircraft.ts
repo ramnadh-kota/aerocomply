@@ -14,9 +14,38 @@ export interface BackendAircraft {
   created_at: string;
 }
 
+export interface AircraftCreateRequest {
+  registration: string;
+  msn: string;
+  aircraft_type: string;
+  status?: string;
+  manufacturer?: string | null;
+}
+
+export interface AircraftUpdateRequest {
+  manufacturer?: string | null;
+  msn?: string;
+  aircraft_type?: string;
+  status?: string;
+}
+
 export const aircraftApi = {
   list: (accessToken: string) => apiRequest<BackendAircraft[]>("/aircraft", { accessToken }),
 
   get: (accessToken: string, aircraftId: string) =>
     apiRequest<BackendAircraft>(`/aircraft/${aircraftId}`, { accessToken }),
+
+  create: (accessToken: string, data: AircraftCreateRequest) =>
+    apiRequest<BackendAircraft>("/aircraft", {
+      accessToken,
+      method: "POST",
+      body: data,
+    }),
+
+  update: (accessToken: string, aircraftId: string, data: AircraftUpdateRequest) =>
+    apiRequest<BackendAircraft>(`/aircraft/${aircraftId}`, {
+      accessToken,
+      method: "PATCH",
+      body: data,
+    }),
 };

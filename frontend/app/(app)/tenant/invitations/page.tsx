@@ -8,6 +8,7 @@ import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { tenantApi, type TenantInvitation } from "@/lib/api/tenant";
 import { DEMO_TENANT_INVITATIONS } from "@/lib/demo/demoTenant";
+import { demoStore } from "@/lib/demo/demoStore";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 
 const ROLES = [
@@ -38,7 +39,7 @@ export default function TenantInvitationsPage() {
 
   const loadInvitations = () => {
     if (isDemo) {
-      setInvitations(DEMO_TENANT_INVITATIONS);
+      setInvitations(demoStore.getInvitations());
       setLoading(false);
       return;
     }
@@ -59,6 +60,11 @@ export default function TenantInvitationsPage() {
 
   useEffect(() => {
     loadInvitations();
+    if (isDemo) {
+      return demoStore.subscribe(() => {
+        setInvitations(demoStore.getInvitations());
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDemo, isAuthenticated, accessToken]);
 
@@ -73,24 +79,17 @@ export default function TenantInvitationsPage() {
 
     setSubmitting(true);
     if (isDemo) {
-      const syntheticNew: TenantInvitation = {
-        id: `demo-inv-${Date.now()}`,
-        user_id: `demo-user-${Date.now()}`,
+      const created = demoStore.addInvitation({
         email,
         full_name: fullName,
         role,
-        status: "PENDING",
-        created_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
-        can_resend: true,
-        can_cancel: true,
-      };
-      setInvitations((prev) => [syntheticNew, ...prev]);
+      });
+      setInvitations(demoStore.getInvitations());
       setSubmitting(false);
       setShowModal(false);
       setEmail("");
       setFullName("");
-      setNotice(`Invitation sent to ${email}.`);
+      setNotice(`DEMO SIMULATION: Demonstration invitation created for ${created.email} (${created.role}). No external email dispatched.`);
       return;
     }
 
@@ -115,7 +114,8 @@ export default function TenantInvitationsPage() {
 
   const handleResend = async (inv: TenantInvitation) => {
     if (isDemo) {
-      alert(`Invitation resent to ${inv.email}.`);
+      demoStore.resendInvitation(inv.id);
+      setNotice(`DEMO SIMULATION: Invitation extended for ${inv.email}.`);
       return;
     }
     if (!accessToken) return;
@@ -133,13 +133,8 @@ export default function TenantInvitationsPage() {
       return;
     }
     if (isDemo) {
-      setInvitations((prev) =>
-        prev.map((i) =>
-          i.id === inv.id
-            ? { ...i, status: "CANCELLED", can_resend: false, can_cancel: false }
-            : i
-        )
-      );
+      demoStore.cancelInvitation(inv.id);
+      setNotice(`DEMO SIMULATION: Invitation cancelled for ${inv.email}.`);
       return;
     }
     if (!accessToken) return;

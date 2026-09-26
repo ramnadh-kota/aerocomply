@@ -30,6 +30,7 @@ from app.models.maintenance_requirement import MaintenanceAccomplishment
 from app.models.mission import Mission, MissionStatus
 from app.models.task import Task
 from app.models.work_order import WorkOrder
+from app.services.limit_enforcement_service import check_asset_creation_limit
 from app.schemas.asset import (
     AssetComponentResponse,
     AssetConfigurationResponse,
@@ -117,6 +118,8 @@ def create_asset(
     payload: AssetCreateRequest,
 ) -> Asset:
     """Create a new aerospace asset within tenant scope."""
+    check_asset_creation_limit(db, organization_id=organization_id)
+
     # Check registration uniqueness within organization
     existing = db.execute(
         select(Asset).where(

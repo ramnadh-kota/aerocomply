@@ -14,6 +14,7 @@ from app.services import aircraft_service
 from app.services import asset_service
 from app.services.asset_resolution import resolve_asset_id
 from app.services.audit_service import record_audit_event
+from app.services.limit_enforcement_service import check_work_order_creation_limit
 
 _TASK_TERMINAL_STATE = "COMPLETED"
 
@@ -32,6 +33,8 @@ def create_work_order(
     created_by_user_id: uuid.UUID | None,
     payload: WorkOrderCreateRequest,
 ) -> WorkOrder:
+    check_work_order_creation_limit(db, organization_id=organization_id)
+
     aircraft_id = payload.aircraft_id
     asset_id = payload.asset_id
     if aircraft_id is not None:

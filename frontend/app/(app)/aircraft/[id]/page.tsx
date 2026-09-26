@@ -35,7 +35,7 @@ import type { ApplicabilityAssessment, ComponentInstallation, EngineInstallation
 import { useEffect, useState as useReactState } from "react";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
-import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
+import { aircraftApi, type BackendAircraft, type AircraftUpdateRequest } from "@/lib/api/aircraft";
 import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
@@ -198,30 +198,57 @@ function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
   const [record, setRecord] = useReactState<BackendAircraft | null>(null);
   const [loading, setLoading] = useReactState(true);
   const [error, setError] = useReactState<NormalizedApiError | null>(null);
+  const [isEditing, setIsEditing] = useReactState(false);
+  const [editMsn, setEditMsn] = useReactState("");
+  const [editAircraftType, setEditAircraftType] = useReactState("");
+  const [editStatus, setEditStatus] = useReactState("ACTIVE");
+  const [saving, setSaving] = useReactState(false);
+  const [saveError, setSaveError] = useReactState<string | null>(null);
 
-  useEffect(() => {
+  const refresh = () => {
     if (!isAuthenticated || !accessToken) {
       setLoading(false);
       return;
     }
-    let cancelled = false;
     setLoading(true);
     setError(null);
     aircraftApi
       .get(accessToken, aircraftId)
-      .then((data) => {
-        if (!cancelled) setRecord(data);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(normalizeApiError(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, isAuthenticated, aircraftId]);
+      .then((data) => setRecord(data))
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(refresh, [accessToken, isAuthenticated, aircraftId]);
+
+  function startEditing() {
+    if (!record) return;
+    setEditMsn(record.msn);
+    setEditAircraftType(record.aircraft_type);
+    setEditStatus(record.status);
+    setSaveError(null);
+    setIsEditing(true);
+  }
+
+  async function saveEdits() {
+    if (!accessToken) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const payload: AircraftUpdateRequest = {
+        msn: editMsn.trim(),
+        aircraft_type: editAircraftType.trim(),
+        status: editStatus,
+      };
+      const updated = await aircraftApi.update(accessToken, aircraftId, payload);
+      setRecord(updated);
+      setIsEditing(false);
+    } catch (err) {
+      setSaveError(normalizeApiError(err).message || "Failed to update aircraft.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div>
@@ -231,7 +258,14 @@ function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
           <h1 className="ac-h1">{record?.registration ?? "Aircraft"}</h1>
           <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
         </div>
-        {record && <StatusBadge {...genericStatusBadge(record.status)} />}
+        <div className="ac-flex ac-items-center ac-gap-2">
+          {record && <StatusBadge {...genericStatusBadge(record.status)} />}
+          {record && !isEditing && (
+            <button type="button" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }} onClick={startEditing}>
+              Edit
+            </button>
+          )}
+        </div>
       </div>
       {!isAuthenticated ? (
         <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
@@ -241,12 +275,47 @@ function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
         </div>
       ) : (
         <RealDataPanel loading={loading} error={error} isEmpty={!record} emptyMessage="This aircraft could not be found in the connected database.">
-          {record && (
+          {record && !isEditing && (
             <div className="ac-card">
               <p><strong>MSN:</strong> {record.msn}</p>
               <p><strong>Aircraft Type:</strong> {record.aircraft_type}</p>
               <p><strong>Status:</strong> {record.status}</p>
               <p><strong>Created:</strong> {new Date(record.created_at).toLocaleString()}</p>
+            </div>
+          )}
+          {record && isEditing && (
+            <div className="ac-card">
+              {saveError && (
+                <p className="ac-text-sm" style={{ color: "#ef4444", marginTop: 0 }}>{saveError}</p>
+              )}
+              <div className="ac-grid-2" style={{ gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: 4 }}>MSN</label>
+                  <input className="ac-input" style={{ width: "100%" }} value={editMsn} onChange={(e) => setEditMsn(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: 4 }}>Aircraft Type</label>
+                  <input className="ac-input" style={{ width: "100%" }} value={editAircraftType} onChange={(e) => setEditAircraftType(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: 4 }}>Status</label>
+                  <select className="ac-input" style={{ width: "100%" }} value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="IN_SERVICE">IN_SERVICE</option>
+                    <option value="MAINTENANCE">MAINTENANCE</option>
+                    <option value="GROUNDED">GROUNDED</option>
+                    <option value="RETIRED">RETIRED</option>
+                  </select>
+                </div>
+              </div>
+              <div className="ac-flex ac-gap-2">
+                <button type="button" className="ac-btn ac-btn-primary" disabled={saving} onClick={saveEdits}>
+                  {saving ? "Saving…" : "Save Changes"}
+                </button>
+                <button type="button" className="ac-btn" disabled={saving} onClick={() => setIsEditing(false)}>
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </RealDataPanel>

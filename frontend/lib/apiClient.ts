@@ -159,6 +159,9 @@ export interface CurrentUser {
   full_name: string;
   roles: string[];
   email_verified: boolean;
+  phone_number?: string | null;
+  profile_photo_url?: string | null;
+  pending_email?: string | null;
 }
 
 export interface MessageResponse {
@@ -178,11 +181,40 @@ export const authApi = {
 
   me: (accessToken: string) => apiRequest<CurrentUser>("/auth/me", { accessToken }),
 
+  updateMe: (accessToken: string, payload: { full_name?: string; phone_number?: string | null }) =>
+    apiRequest<CurrentUser>("/auth/me", { method: "PATCH", body: payload, accessToken }),
+
+  uploadPhoto: (accessToken: string, file: File) =>
+    apiUploadFile<CurrentUser>("/auth/me/photo", file, { accessToken }),
+
+  deletePhoto: (accessToken: string) =>
+    apiRequest<CurrentUser>("/auth/me/photo", { method: "DELETE", accessToken }),
+
   requestEmailVerification: (accessToken: string) =>
     apiRequest<MessageResponse>("/auth/verify-email/request", { method: "POST", accessToken }),
 
   confirmEmailVerification: (accessToken: string, code: string) =>
     apiRequest<MessageResponse>("/auth/verify-email/confirm", { method: "POST", body: { code }, accessToken }),
+
+  requestEmailChange: (accessToken: string, new_email: string) =>
+    apiRequest<MessageResponse>("/auth/me/change-email/request", {
+      method: "POST",
+      body: { new_email },
+      accessToken,
+    }),
+
+  confirmEmailChange: (accessToken: string, code: string) =>
+    apiRequest<CurrentUser>("/auth/me/change-email/confirm", {
+      method: "POST",
+      body: { code },
+      accessToken,
+    }),
+
+  cancelEmailChange: (accessToken: string) =>
+    apiRequest<CurrentUser>("/auth/me/change-email/cancel", {
+      method: "POST",
+      accessToken,
+    }),
 
   forgotPassword: (email: string) =>
     apiRequest<MessageResponse>("/auth/forgot-password", { method: "POST", body: { email } }),

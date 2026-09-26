@@ -6,9 +6,15 @@ ambiguous-match short-circuit never reaches the provider at all.
 """
 
 from app.core.config import get_settings
+from app.core.deps import get_db_session
+from app.main import app
 
 
 def _register(client, org_name="Lisa Context Airline", email="context-admin@lisatest.com"):
+    from tests.integration.conftest import make_platform_admin_headers
+
+    db_session = next(app.dependency_overrides[get_db_session]())
+    headers = make_platform_admin_headers(client, db_session)
     resp = client.post(
         "/api/v1/auth/register-organization",
         json={
@@ -17,6 +23,7 @@ def _register(client, org_name="Lisa Context Airline", email="context-admin@lisa
             "admin_password": "supersecret123",
             "admin_full_name": "Context Admin",
         },
+        headers=headers,
     )
     assert resp.status_code == 201
     return resp.json()["access_token"]

@@ -42,6 +42,12 @@ class ConflictError(AeroComplyError):
     code = "conflict"
 
 
+class UsageLimitExceededError(AeroComplyError):
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "usage_limit_exceeded"
+
+
+
 def _error_body(code: str, message: str) -> dict:
     return {"error": {"code": code, "message": message}}
 

@@ -11,7 +11,9 @@ import uuid
 
 from sqlalchemy import select
 
+from app.core.deps import get_db_session
 from app.core.security import hash_password
+from app.main import app
 from app.models.audit_event import AuditEvent
 from app.models.organization import Organization
 from app.models.plan import Plan, PlanFeature
@@ -34,6 +36,10 @@ def _auth(token):
 
 
 def _register(client, org_name, email):
+    from tests.integration.conftest import make_platform_admin_headers
+
+    db_session = next(app.dependency_overrides[get_db_session]())
+    headers = make_platform_admin_headers(client, db_session)
     resp = client.post(
         "/api/v1/auth/register-organization",
         json={
@@ -42,6 +48,7 @@ def _register(client, org_name, email):
             "admin_full_name": "Admin",
             "admin_password": "supersecret123",
         },
+        headers=headers,
     )
     assert resp.status_code == 201
     return resp.json()
@@ -486,3 +493,127 @@ def test_duplicate_create_plan_leaves_no_partial_row_or_audit_event(db_session, 
     with engine.connect() as raw_conn:
         raw_conn.execute(Plan.__table__.delete().where(Plan.__table__.c.code == "PT14-DUP"))
         raw_conn.commit()
+
+
+# M21.6: comprehensive integration test for commercial plan packaging,
+# asset scope, counts, bulk features, subscribed tenants, and entitlement resolution.
+def test_commercial_plan_governance_and_entitlement_lifecycle(client, db_session):
+    from datetime import UTC, datetime, timedelta
+    from app.models.tenant_entitlement import TenantFeatureOverride
+
+    admin = _create_platform_admin(db_session, "platform.admin.m21@aerocomply.com")
+    token = _login(client, admin.email)["access_token"]
+    headers = _auth(token)
+
+    # 1. Platform Admin creates Kota Drone plan with DRONE asset scope
+    create_resp = client.post(
+        "/api/v1/platform/plans",
+        headers=headers,
+        json={
+            "name": "Kota Drone",
+            "code": "DRONE_001_TEST",
+            "description": "Commercial autonomous drone operations",
+            "asset_scope": "DRONE",
+            "is_active": True,
+        },
+    )
+    assert create_resp.status_code == 201
+    plan_data = create_resp.json()
+    plan_id = plan_data["id"]
+    assert plan_data["name"] == "Kota Drone"
+    assert plan_data["code"] == "DRONE_001_TEST"
+    assert plan_data["asset_scope"] == "DRONE"
+    assert plan_data["included_features_count"] == 0
+    assert plan_data["tenant_count"] == 0
+
+    # 2. Bulk configure features: drone_fleet_management=True, predictive_maintenance=False
+    bulk_resp = client.put(
+        f"/api/v1/platform/plans/{plan_id}/features",
+        headers=headers,
+        json={
+            "features": [
+                {"feature_key": "drone_fleet_management", "enabled": True},
+                {"feature_key": "predictive_maintenance", "enabled": False},
+            ]
+        },
+    )
+    assert bulk_resp.status_code == 200
+    features_list = bulk_resp.json()
+    assert len(features_list) == 2
+
+    # 3. Verify get_plan reflects included_features_count = 1
+    get_plan_resp = client.get(f"/api/v1/platform/plans/{plan_id}", headers=headers)
+    assert get_plan_resp.status_code == 200
+    assert get_plan_resp.json()["included_features_count"] == 1
+    assert get_plan_resp.json()["tenant_count"] == 0
+
+    # 4. Create customer organization & assign subscription to this plan
+    org = Organization(name="Aero India Test Org")
+    db_session.add(org)
+    db_session.flush()
+
+    sub = Subscription(
+        organization_id=org.id,
+        plan_id=uuid.UUID(plan_id),
+        status=SubscriptionStatus.ACTIVE,
+        starts_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    db_session.add(sub)
+    db_session.commit()
+
+    # 5. Verify tenant_count on plan is now 1
+    get_plan_resp2 = client.get(f"/api/v1/platform/plans/{plan_id}", headers=headers)
+    assert get_plan_resp2.status_code == 200
+    assert get_plan_resp2.json()["tenant_count"] == 1
+
+    # 6. Verify subscribed tenants endpoint returns the organization
+    tenants_resp = client.get(f"/api/v1/platform/plans/{plan_id}/tenants", headers=headers)
+    assert tenants_resp.status_code == 200
+    tenants = tenants_resp.json()
+    assert len(tenants) == 1
+    assert tenants[0]["organization_name"] == "Aero India Test Org"
+    assert tenants[0]["subscription_status"] == "ACTIVE"
+
+    # 7. Verify effective entitlement resolution for tenant
+    resolution = resolve_entitlements(db_session, organization_id=org.id)
+    assert resolution.resolution_status == EntitlementResolutionStatus.ACTIVE
+    assert resolution.effective_features["drone_fleet_management"] is True
+    assert resolution.effective_features["predictive_maintenance"] is False
+
+    # 8. Add active TenantFeatureOverride for predictive_maintenance=True
+    override = TenantFeatureOverride(
+        organization_id=org.id,
+        feature_key="predictive_maintenance",
+        enabled=True,
+        reason="Enterprise trial exception",
+    )
+    db_session.add(override)
+    db_session.commit()
+
+    # 9. Verify tenant override wins: predictive_maintenance becomes True
+    resolution2 = resolve_entitlements(db_session, organization_id=org.id)
+    assert resolution2.effective_features["drone_fleet_management"] is True
+    assert resolution2.effective_features["predictive_maintenance"] is True
+
+    # 10. Verify audit trail endpoint returns audit events for this plan
+    audit_resp = client.get(f"/api/v1/platform/plans/{plan_id}/audit-trail", headers=headers)
+    assert audit_resp.status_code == 200
+    events = audit_resp.json()
+    assert len(events) >= 2  # plan created + features updated
+
+    # 11. Verify customer user / ORG_ADMIN cannot access plan endpoints (403)
+    cust_reg = _register(client, "Customer Fleet Org", "orgadmin@customerfleet.com")
+    cust_login = _login(client, "orgadmin@customerfleet.com")
+    cust_token = cust_login["access_token"]
+    cust_headers = _auth(cust_token)
+
+    forbidden_resp = client.get("/api/v1/platform/plans", headers=cust_headers)
+    assert forbidden_resp.status_code == 403
+
+    forbidden_resp2 = client.post(
+        "/api/v1/platform/plans",
+        headers=cust_headers,
+        json={"name": "Hacked Plan", "code": "HACK_01"},
+    )
+    assert forbidden_resp2.status_code == 403
+

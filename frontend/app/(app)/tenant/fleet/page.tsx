@@ -8,6 +8,8 @@ import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { assetsApi, type AssetResponse } from "@/lib/api/assets";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { AssetRegistrationModal } from "@/components/assets/AssetRegistrationModal";
+import { demoStore } from "@/lib/demo/demoStore";
 
 const DEMO_FLEET_ASSETS: AssetResponse[] = [
   {
@@ -106,21 +108,16 @@ const DEMO_FLEET_ASSETS: AssetResponse[] = [
 export default function TenantFleetPage() {
   const { accessToken, isAuthenticated, isDemo } = useSession();
   const [assets, setAssets] = useState<AssetResponse[]>(
-    isDemo ? DEMO_FLEET_ASSETS : []
+    isDemo ? demoStore.getAssets() : []
   );
   const [loading, setLoading] = useState(!isDemo);
   const [error, setError] = useState<NormalizedApiError | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    if (isDemo) {
-      setAssets(DEMO_FLEET_ASSETS);
-      setLoading(false);
-      return;
-    }
-
+  const fetchRealAssets = () => {
     if (!isAuthenticated || !accessToken) {
       setLoading(false);
       return;
@@ -133,6 +130,18 @@ export default function TenantFleetPage() {
       .then(setAssets)
       .catch((err) => setError(normalizeApiError(err)))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (isDemo) {
+      setAssets(demoStore.getAssets());
+      setLoading(false);
+      return demoStore.subscribe(() => {
+        setAssets(demoStore.getAssets());
+      });
+    }
+
+    fetchRealAssets();
   }, [isDemo, isAuthenticated, accessToken]);
 
   const filteredAssets = assets.filter((a) => {
@@ -147,6 +156,8 @@ export default function TenantFleetPage() {
 
   const aircraftCount = assets.filter((a) => a.asset_type === "AIRCRAFT").length;
   const droneCount = assets.filter((a) => a.asset_type === "DRONE").length;
+  const helicopterCount = assets.filter((a) => a.asset_type === "HELICOPTER").length;
+  const evtolCount = assets.filter((a) => a.asset_type === "EVTOL").length;
 
   return (
     <div>
@@ -158,14 +169,25 @@ export default function TenantFleetPage() {
         ]}
         eyebrow="FLEET GOVERNANCE"
         title="Fleet &amp; Asset Administration"
-        subtitle="Tenant-level registry of fixed-wing aircraft, drone UAVs, and future eVTOL/AAM assets."
+        subtitle="Tenant-level registry of fixed-wing aircraft, drone UAVs, rotorcraft, and eVTOL/AAM assets."
         actions={
           <div className="ac-flex ac-gap-2">
+            <button
+              type="button"
+              className="ac-btn"
+              style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+              onClick={() => setIsModalOpen(true)}
+            >
+              + Add Asset
+            </button>
+            <Link href="/assets" className="ac-btn">
+              Unified Registry →
+            </Link>
             <Link href="/aircraft" className="ac-btn">
-              Aircraft Floor View →
+              Aircraft Floor →
             </Link>
             <Link href="/drones" className="ac-btn">
-              Drone Operations View →
+              Drone Ops →
             </Link>
           </div>
         }
@@ -256,6 +278,8 @@ export default function TenantFleetPage() {
             <option value="ALL">All Asset Classes ({assets.length})</option>
             <option value="AIRCRAFT">Aircraft ({aircraftCount})</option>
             <option value="DRONE">Drone UAV ({droneCount})</option>
+            {helicopterCount > 0 && <option value="HELICOPTER">Rotorcraft ({helicopterCount})</option>}
+            {evtolCount > 0 && <option value="EVTOL">eVTOL / AAM ({evtolCount})</option>}
           </select>
         </div>
       </div>
@@ -286,9 +310,9 @@ export default function TenantFleetPage() {
                 filteredAssets.map((a) => (
                   <tr key={a.id}>
                     <td>
-                      <span className="ac-mono" style={{ fontWeight: 600 }}>
+                      <Link href={`/assets/${a.id}`} className="ac-mono ac-link" style={{ fontWeight: 600 }}>
                         {a.registration ?? a.id.slice(0, 8)}
-                      </span>
+                      </Link>
                     </td>
                     <td>
                       <span
@@ -300,8 +324,19 @@ export default function TenantFleetPage() {
                           background:
                             a.asset_type === "DRONE"
                               ? "rgba(139, 92, 246, 0.15)"
+                              : a.asset_type === "HELICOPTER"
+                              ? "rgba(16, 185, 129, 0.15)"
+                              : a.asset_type === "EVTOL"
+                              ? "rgba(245, 158, 11, 0.15)"
                               : "rgba(59, 130, 246, 0.15)",
-                          color: a.asset_type === "DRONE" ? "#a78bfa" : "#60a5fa",
+                          color:
+                            a.asset_type === "DRONE"
+                              ? "#a78bfa"
+                              : a.asset_type === "HELICOPTER"
+                              ? "#34d399"
+                              : a.asset_type === "EVTOL"
+                              ? "#fbbf24"
+                              : "#60a5fa",
                           border: "1px solid var(--border-color, #27272a)",
                         }}
                       >
@@ -335,13 +370,21 @@ export default function TenantFleetPage() {
                         >
                           Drone Detail →
                         </Link>
-                      ) : (
+                      ) : a.asset_type === "AIRCRAFT" ? (
                         <Link
                           href={`/aircraft/${a.id}`}
                           className="ac-btn"
                           style={{ fontSize: 11, padding: "3px 8px" }}
                         >
                           Aircraft Detail →
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/assets/${a.id}`}
+                          className="ac-btn"
+                          style={{ fontSize: 11, padding: "3px 8px" }}
+                        >
+                          Asset Detail →
                         </Link>
                       )}
                     </td>
@@ -352,6 +395,14 @@ export default function TenantFleetPage() {
           </table>
         </div>
       </div>
+
+      <AssetRegistrationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onCreated={() => {
+          if (!isDemo) fetchRealAssets();
+        }}
+      />
     </div>
   );
 }

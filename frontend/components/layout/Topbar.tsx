@@ -115,6 +115,12 @@ export function Topbar() {
     router.push("/login");
   }
 
+  // Same check as Sidebar.tsx's isPlatformUser — a Platform Admin operates
+  // at platform scope, not inside any single tenant's "viewing as a role" /
+  // "Org" context, so those controls (meant for simulating a tenant
+  // workspace) are replaced with a plain platform-scope indicator instead.
+  const isPlatformUser = user?.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
+
   const displayName = user?.full_name || (sessionType === "DEMO" ? "KOTA Aerospace Demo User" : "Authenticated User");
   const initials = displayName
     .split(" ")
@@ -135,44 +141,55 @@ export function Topbar() {
           <span aria-hidden="true" style={{ marginRight: 6 }}>✦</span>
           Ask {PLATFORM_AI_NAME}
         </Link>
-        <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm" title="Prototype role simulation — permissions are not enforced">
-          <span className="ac-text-muted">Viewing as</span>
-          <select
-            className="ac-input"
-            style={{ width: 190, padding: "6px 10px" }}
-            value={roleId}
-            onChange={(e) => changeRole(e.target.value)}
-            aria-label="View as role (prototype simulation)"
+        {isPlatformUser ? (
+          <span
+            className="ac-text-sm"
+            style={{ fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--ac-text-muted)" }}
           >
-            {simulatableRoles().map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          {roleId !== "role-org-admin" && (
-            <button className="ac-btn" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => changeRole("role-org-admin")}>
-              Reset
-            </button>
-          )}
-        </label>
+            Platform Administration
+          </span>
+        ) : (
+          <>
+            <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm" title="Prototype role simulation — permissions are not enforced">
+              <span className="ac-text-muted">Viewing as</span>
+              <select
+                className="ac-input"
+                style={{ width: 190, padding: "6px 10px" }}
+                value={roleId}
+                onChange={(e) => changeRole(e.target.value)}
+                aria-label="View as role (prototype simulation)"
+              >
+                {simulatableRoles().map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+              {roleId !== "role-org-admin" && (
+                <button className="ac-btn" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => changeRole("role-org-admin")}>
+                  Reset
+                </button>
+              )}
+            </label>
 
-        <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm">
-          <span className="ac-text-muted">Org</span>
-          <select
-            className="ac-input"
-            style={{ width: 200, padding: "6px 10px" }}
-            value={orgId}
-            onChange={(e) => setOrgId(e.target.value)}
-            aria-label="Organization selector"
-          >
-            {organizations.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        </label>
+            <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm">
+              <span className="ac-text-muted">Org</span>
+              <select
+                className="ac-input"
+                style={{ width: 200, padding: "6px 10px" }}
+                value={orgId}
+                onChange={(e) => setOrgId(e.target.value)}
+                aria-label="Organization selector"
+              >
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
 
         <ThemeToggle />
 
@@ -302,23 +319,39 @@ export function Topbar() {
               color: "var(--ac-text-primary)",
             }}
           >
-            <span
-              aria-hidden="true"
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: "50%",
-                background: "var(--ac-bg-surface-hover)",
-                border: "1px solid var(--ac-border)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
-              {initials}
-            </span>
+            {user?.profile_photo_url ? (
+              <img
+                src={user.profile_photo_url}
+                alt={displayName}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  objectFit: "cover",
+                  border: "1px solid var(--ac-border)",
+                  flexShrink: 0,
+                }}
+              />
+            ) : (
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  background: "var(--ac-bg-surface-hover)",
+                  border: "1px solid var(--ac-border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  flexShrink: 0,
+                }}
+              >
+                {initials}
+              </span>
+            )}
             <span className="ac-text-sm">{displayName}</span>
             <span aria-hidden="true" style={{ fontSize: 11 }}>▼</span>
           </button>
@@ -328,24 +361,97 @@ export function Topbar() {
               className="ac-card"
               role="menu"
               aria-label="User account menu"
-              style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", minWidth: 220, zIndex: 60, padding: 0 }}
+              style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", minWidth: 240, zIndex: 60, padding: 0 }}
             >
-              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/settings"); }}>
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderBottom: "1px solid var(--ac-border)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                {user?.profile_photo_url ? (
+                  <img
+                    src={user.profile_photo_url}
+                    alt={displayName}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: "50%",
+                      objectFit: "cover",
+                      border: "1px solid var(--ac-border)",
+                      flexShrink: 0,
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: "50%",
+                      background: "var(--ac-bg-surface-hover)",
+                      border: "1px solid var(--ac-border)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {initials}
+                  </div>
+                )}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {displayName}
+                  </div>
+                  <div
+                    className="ac-text-muted"
+                    style={{
+                      fontSize: 11,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {user?.email || "No email"}
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding: "8px 12px 4px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--ac-text-muted)" }}>
+                Personal Account
+              </div>
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/profile"); }}>
                 Profile
               </button>
-              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/settings"); }}>
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/profile?tab=preferences"); }}>
                 My Preferences
               </button>
-              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/organization"); }}>
-                Organization Settings
-              </button>
-              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/settings"); }}>
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/profile?tab=security"); }}>
                 Security
+              </button>
+              <div style={{ borderTop: "1px solid var(--ac-border)", margin: "4px 0" }} />
+              <div style={{ padding: "6px 12px 4px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--ac-text-muted)" }}>
+                Organization
+              </div>
+              <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/tenant/settings"); }}>
+                Organization Settings
               </button>
               <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left" }} onClick={() => { setUserMenuOpen(false); router.push("/workspace"); }}>
                 Workspace / Organization
               </button>
-              <div style={{ borderTop: "1px solid var(--ac-border)", marginTop: 4 }} />
+              <div style={{ borderTop: "1px solid var(--ac-border)", margin: "4px 0" }} />
               <button type="button" role="menuitem" className="ac-nav-link" style={{ width: "100%", border: "none", textAlign: "left", color: "var(--ac-status-non-compliant)" }} onClick={handleSignOut}>
                 Sign Out
               </button>

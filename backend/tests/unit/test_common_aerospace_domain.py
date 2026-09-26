@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 import pytest
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import AeroComplyError, ConflictError, NotFoundError
 from app.models.asset import Asset, AssetLifecycleStatus, AssetOperationalStatus, AssetType
 from app.models.compliance import ComplianceAssessmentStatus
 from app.models.component import Component, ComponentStatus, ComponentType
@@ -287,3 +287,125 @@ def test_multi_dimensional_readiness_evaluation():
         assert dims["DEPLOYMENT"] == "READY"
         assert dims["RELEASE"] == "READY"
         assert "not an electronic Release to Service" in readiness.disclaimer
+
+
+# ---------------------------------------------------------------------------
+# 9. Generic Flight Recording (Slice B: aircraft/helicopter path, drone guard)
+# ---------------------------------------------------------------------------
+
+def test_record_asset_flight_rejects_drone():
+    """DRONE assets must go through POST /drones/{asset_id}/flights
+    (flight_service.record_flight), which also maintains the attached
+    battery's cycle_count. The generic path has no such bookkeeping, so it
+    must refuse a drone rather than silently under-counting a battery."""
+    db = MagicMock()
+    drone = Asset(
+        id=uuid.uuid4(),
+        organization_id=TENANT_A,
+        asset_type="DRONE",
+        registration="UAV-99",
+        status="ACTIVE",
+    )
+    db.execute.return_value.scalar_one_or_none.return_value = drone
+
+    payload = AssetFlightCreateRequest(
+        flown_at=datetime.now(UTC), duration_minutes=30, cycles=1
+    )
+
+    with pytest.raises(AeroComplyError) as exc:
+        asset_service.record_asset_flight(
+            db,
+            organization_id=TENANT_A,
+            actor_user_id=USER_ID,
+            asset_id=drone.id,
+            payload=payload,
+        )
+    assert exc.value.code == "use_drone_flight_endpoint"
+    assert not db.add.called
+
+
+def test_record_asset_flight_success_for_aircraft():
+    db = MagicMock()
+    aircraft_asset = Asset(
+        id=uuid.uuid4(),
+        organization_id=TENANT_A,
+        asset_type="AIRCRAFT",
+        registration="N100AC",
+        status="ACTIVE",
+    )
+    db.execute.return_value.scalar_one_or_none.return_value = aircraft_asset
+
+    payload = AssetFlightCreateRequest(
+        flown_at=datetime.now(UTC), duration_minutes=90, cycles=2
+    )
+
+    with patch("app.services.asset_service.record_audit_event") as mock_audit:
+        result = asset_service.record_asset_flight(
+            db,
+            organization_id=TENANT_A,
+            actor_user_id=USER_ID,
+            asset_id=aircraft_asset.id,
+            payload=payload,
+        )
+        assert result.asset_id == aircraft_asset.id
+        assert result.duration_minutes == 90
+        assert result.cycles == 2
+        assert db.add.called
+        assert db.commit.called
+        assert mock_audit.called
+
+
+def test_record_asset_flight_success_for_helicopter():
+    """Same generic path also legitimately covers HELICOPTER (Slice A found
+    no helicopter-specific flight recording exists yet); only DRONE is
+    rejected."""
+    db = MagicMock()
+    heli_asset = Asset(
+        id=uuid.uuid4(),
+        organization_id=TENANT_A,
+        asset_type="HELICOPTER",
+        registration="VT-COPTER2",
+        status="ACTIVE",
+    )
+    db.execute.return_value.scalar_one_or_none.return_value = heli_asset
+
+    payload = AssetFlightCreateRequest(
+        flown_at=datetime.now(UTC), duration_minutes=45, cycles=3
+    )
+
+    with patch("app.services.asset_service.record_audit_event"):
+        result = asset_service.record_asset_flight(
+            db,
+            organization_id=TENANT_A,
+            actor_user_id=USER_ID,
+            asset_id=heli_asset.id,
+            payload=payload,
+        )
+        assert result.asset_id == heli_asset.id
+        assert result.cycles == 3
+
+
+def test_utilization_reflects_recorded_aircraft_flight():
+    """End-to-end within the generic path: SUM-over-flights utilization
+    (Slice A's confirmed source-of-truth architecture) must reflect a flight
+    recorded through record_asset_flight for a non-drone asset."""
+    db = MagicMock()
+    asset = Asset(
+        id=uuid.uuid4(),
+        organization_id=TENANT_A,
+        asset_type="AIRCRAFT",
+        registration="N200AC",
+        status="ACTIVE",
+    )
+
+    db.execute.side_effect = [
+        MagicMock(scalar_one_or_none=MagicMock(return_value=asset)),
+        MagicMock(one=MagicMock(return_value=(1, 90, 2))),
+    ]
+
+    util = asset_service.get_asset_utilization(db, organization_id=TENANT_A, asset_id=asset.id)
+
+    assert util.total_flights == 1
+    assert util.total_minutes == 90
+    assert util.total_flight_hours == 1.5
+    assert util.total_cycles == 2

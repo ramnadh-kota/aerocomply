@@ -18,6 +18,14 @@ export interface DroneResponse {
   created_at: string;
 }
 
+export interface DroneCreateRequest {
+  registration: string;
+  manufacturer?: string | null;
+  model?: string | null;
+  serial_number?: string | null;
+  facility_id?: string | null;
+}
+
 export interface BatteryResponse {
   id: string;
   organization_id: string;

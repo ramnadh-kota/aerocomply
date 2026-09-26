@@ -229,7 +229,7 @@ export const assetsApi = {
     apiRequest<AssetResponse>("/assets", {
       accessToken,
       method: "POST",
-      body: JSON.stringify(data),
+      body: data,
     }),
 
   updateAsset: (
@@ -240,8 +240,21 @@ export const assetsApi = {
     apiRequest<AssetResponse>(`/assets/${assetId}`, {
       accessToken,
       method: "PATCH",
-      body: JSON.stringify(data),
+      body: data,
     }),
+
+  // Soft delete only (Platform Control Plane) -- the asset row still exists
+  // afterward, just hidden from every tenant-facing read; see
+  // backend/app/services/deletion_service.py. Platform Admin's
+  // /platform/deleted-records can restore or permanently delete it
+  // (lib/api/deletion.ts).
+  deleteAsset: (accessToken: string, assetId: string, reason?: string) => {
+    const qs = reason ? `?reason=${encodeURIComponent(reason)}` : "";
+    return apiRequest<AssetResponse>(`/assets/${assetId}${qs}`, {
+      accessToken,
+      method: "DELETE",
+    });
+  },
 
   getConfiguration: (accessToken: string, assetId: string) =>
     apiRequest<AssetConfigurationResponse>(`/assets/${assetId}/configuration`, {
@@ -261,7 +274,7 @@ export const assetsApi = {
     apiRequest<AssetComponentResponse>(`/assets/${assetId}/components`, {
       accessToken,
       method: "POST",
-      body: JSON.stringify(data),
+      body: data,
     }),
 
   removeComponent: (accessToken: string, assetId: string, componentId: string) =>
@@ -286,7 +299,7 @@ export const assetsApi = {
     apiRequest<AssetFlightResponse>(`/assets/${assetId}/flights`, {
       accessToken,
       method: "POST",
-      body: JSON.stringify(data),
+      body: data,
     }),
 
   getUtilization: (accessToken: string, assetId: string) =>

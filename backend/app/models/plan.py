@@ -12,7 +12,7 @@ these are pure schema/domain foundation for that future work.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,6 +53,13 @@ class Plan(UUIDPKMixin, TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    # M21.6: commercial asset vertical domain (e.g. DRONE, AIRCRAFT, HELICOPTER, EVTOL).
+    # Nullable so universal/unassigned plans remain valid.
+    asset_scope: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        index=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -80,3 +87,28 @@ class PlanFeature(UUIDPKMixin, TimestampMixin, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class PlanLimit(UUIDPKMixin, TimestampMixin, Base):
+    """A commercial usage limit baseline attached to a Plan (e.g. max_assets,
+    max_users, monthly_work_orders, storage_gb).
+
+    Subscribed tenants inherit these limits as defaults, which can be
+    overridden per-tenant via TenantUsageLimit.
+    """
+
+    __tablename__ = "plan_limits"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "limit_key", name="uq_plan_limits_plan_id_limit_key"),
+    )
+
+    plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("plans.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    limit_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    limit_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_unlimited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+

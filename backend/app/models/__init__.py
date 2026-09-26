@@ -42,7 +42,7 @@ from app.models.lisa_conversation_context import LisaConversationContext
 from app.models.mission import Mission, MissionStatus
 from app.models.organization import Organization
 from app.models.part import Part
-from app.models.plan import Plan, PlanFeature
+from app.models.plan import Plan, PlanFeature, PlanLimit
 from app.models.product_catalog import ProductFeature, ProductModule, ProductPage, ProductSuite
 from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.task import Task
@@ -105,6 +105,7 @@ __all__ = [
     "ProductPage",
     "ProductFeature",
     "PlanFeature",
+    "PlanLimit",
     "Subscription",
     "SubscriptionStatus",
     "TenantFeatureOverride",

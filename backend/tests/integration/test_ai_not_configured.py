@@ -5,7 +5,7 @@ must pass here — it asserts the honest failure mode, not a real LLM call."""
 from app.core.config import get_settings
 
 
-def test_lisa_ask_returns_ai_not_configured_without_api_key(client):
+def test_lisa_ask_returns_ai_not_configured_without_api_key(client, platform_admin_headers):
     settings = get_settings()
     assert not settings.anthropic_api_key, "test assumes no ANTHROPIC_API_KEY is configured"
 
@@ -17,6 +17,7 @@ def test_lisa_ask_returns_ai_not_configured_without_api_key(client):
             "admin_full_name": "Ada Admin",
             "admin_password": "supersecret123",
         },
+        headers=platform_admin_headers,
     )
     assert register_resp.status_code == 201
     access_token = register_resp.json()["access_token"]

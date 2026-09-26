@@ -17,6 +17,7 @@ import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
+import { AssetRegistrationModal } from "@/components/assets/AssetRegistrationModal";
 
 interface Row {
   aircraft: Aircraft;
@@ -78,6 +79,7 @@ function RealAircraftList() {
   const [rows, setRows] = useState<BackendAircraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated || !accessToken) {
@@ -114,11 +116,19 @@ function RealAircraftList() {
   return (
     <div>
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft" }]} />
-      <div className="ac-section-header">
+      <div className="ac-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 className="ac-h1">Aircraft Fleet</h1>
           <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
         </div>
+        <button
+          type="button"
+          className="ac-btn"
+          style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+          onClick={() => setIsModalOpen(true)}
+        >
+          + Add Aircraft
+        </button>
       </div>
 
       {!isAuthenticated ? (
@@ -139,6 +149,14 @@ function RealAircraftList() {
           </div>
         </RealDataPanel>
       )}
+
+      <AssetRegistrationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        defaultType="AIRCRAFT"
+        lockedType="AIRCRAFT"
+        destinationRoute="assets"
+      />
     </div>
   );
 }
@@ -155,6 +173,7 @@ function DemoAircraftListPage() {
   const [operatorFilter, setOperatorFilter] = useState("ALL");
   const [complianceFilter, setComplianceFilter] = useState("ALL");
   const [maintenanceFilter, setMaintenanceFilter] = useState("ALL");
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const rows = useMemo(buildRows, []);
   const operators = useMemo(() => Array.from(new Set(rows.map((r) => r.operatorName))), [rows]);
@@ -206,11 +225,19 @@ function DemoAircraftListPage() {
     <div>
       <AircraftContextLayer />
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft" }]} />
-      <div className="ac-section-header">
+      <div className="ac-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 className="ac-h1">Aircraft Fleet</h1>
           <p className="ac-subtitle">{filtered.length} of {rows.length} aircraft shown</p>
         </div>
+        <button
+          type="button"
+          className="ac-btn"
+          style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+          onClick={() => setIsModalOpen(true)}
+        >
+          + Add Aircraft
+        </button>
       </div>
 
       <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
@@ -256,6 +283,14 @@ function DemoAircraftListPage() {
       <div className="ac-card" style={{ padding: 0 }}>
         <DataTable columns={columns} rows={filtered} getRowHref={(r) => `/aircraft/${r.aircraft.id}`} emptyMessage="No aircraft match the current filters." />
       </div>
+
+      <AssetRegistrationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        defaultType="AIRCRAFT"
+        lockedType="AIRCRAFT"
+        destinationRoute="assets"
+      />
     </div>
   );
 }

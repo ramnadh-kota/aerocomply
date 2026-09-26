@@ -14,6 +14,8 @@ import {
   type AssetCreateRequest,
 } from "@/lib/api/assets";
 import { DEMO_ASSETS } from "@/lib/demo/demoAssets";
+import { AssetRegistrationModal } from "@/components/assets/AssetRegistrationModal";
+import { demoStore } from "@/lib/demo/demoStore";
 
 const ASSET_TYPE_ICONS: Record<string, string> = {
   AIRCRAFT: "✈",
@@ -32,224 +34,19 @@ const ASSET_TYPE_LABELS: Record<string, string> = {
   EVTOL: "eVTOL / Advanced Mobility",
 };
 
-function RegisterAssetModal({
-  isOpen,
-  onClose,
-  onSubmit,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (data: AssetCreateRequest) => Promise<void>;
-}) {
-  const [assetType, setAssetType] = useState("AIRCRAFT");
-  const [registration, setRegistration] = useState("");
-  const [manufacturer, setManufacturer] = useState("");
-  const [model, setModel] = useState("");
-  const [serialNumber, setSerialNumber] = useState("");
-  const [status, setStatus] = useState("ACTIVE");
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  if (!isOpen) return null;
-
-  async function handleFormSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!registration.trim()) {
-      setFormError("Tail number / registration is required.");
-      return;
-    }
-    setSubmitting(true);
-    setFormError(null);
-    try {
-      await onSubmit({
-        asset_type: assetType,
-        registration: registration.trim().toUpperCase(),
-        manufacturer: manufacturer.trim() || undefined,
-        model: model.trim() || undefined,
-        serial_number: serialNumber.trim() || undefined,
-        status,
-      });
-      onClose();
-    } catch (err: any) {
-      setFormError(err.message || "Failed to register asset");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(0, 0, 0, 0.65)",
-        backdropFilter: "blur(4px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 9999,
-      }}
-      onClick={onClose}
-    >
-      <div
-        className="ac-card"
-        style={{
-          width: "100%",
-          maxWidth: 520,
-          background: "var(--ac-card-bg, #111827)",
-          padding: "24px",
-          borderRadius: "12px",
-          border: "1px solid var(--ac-border, #374151)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ fontSize: "1.25rem", fontWeight: 700, margin: 0 }}>Register Aerospace Asset</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="ac-button-secondary"
-            style={{ padding: "4px 8px", cursor: "pointer" }}
-          >
-            ✕
-          </button>
-        </div>
-
-        {formError && (
-          <div
-            style={{
-              padding: "10px 14px",
-              background: "rgba(239, 68, 68, 0.15)",
-              border: "1px solid #ef4444",
-              borderRadius: "6px",
-              color: "#fca5a5",
-              marginBottom: 16,
-              fontSize: "0.875rem",
-            }}
-          >
-            {formError}
-          </div>
-        )}
-
-        <form onSubmit={handleFormSubmit}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div>
-              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, marginBottom: 4 }}>
-                Asset Class / Type *
-              </label>
-              <select
-                value={assetType}
-                onChange={(e) => setAssetType(e.target.value)}
-                style={{ width: "100%", padding: "8px 10px", borderRadius: 6, background: "#1f2937", color: "#fff", border: "1px solid #4b5563" }}
-              >
-                <option value="AIRCRAFT">Fixed-Wing Aircraft</option>
-                <option value="DRONE">Unmanned Drone (sUAS)</option>
-                <option value="HELICOPTER">Rotorcraft / Helicopter</option>
-                <option value="EVTOL">eVTOL / Advanced Mobility</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, marginBottom: 4 }}>
-                Registration / Tail Number *
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. N737AA, DRN-M300-01"
-                value={registration}
-                onChange={(e) => setRegistration(e.target.value)}
-                required
-                style={{ width: "100%", padding: "8px 10px", borderRadius: 6, background: "#1f2937", color: "#fff", border: "1px solid #4b5563" }}
-              />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, marginBottom: 4 }}>
-                  Manufacturer
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Boeing, DJI, Bell"
-                  value={manufacturer}
-                  onChange={(e) => setManufacturer(e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, background: "#1f2937", color: "#fff", border: "1px solid #4b5563" }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, marginBottom: 4 }}>
-                  Model
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 737-800, M300 RTK"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, background: "#1f2937", color: "#fff", border: "1px solid #4b5563" }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, marginBottom: 4 }}>
-                  Serial Number (MSN/S/N)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. MSN-30124"
-                  value={serialNumber}
-                  onChange={(e) => setSerialNumber(e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, background: "#1f2937", color: "#fff", border: "1px solid #4b5563" }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, marginBottom: 4 }}>
-                  Initial Lifecycle Status
-                </label>
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, background: "#1f2937", color: "#fff", border: "1px solid #4b5563" }}
-                >
-                  <option value="ACTIVE">ACTIVE</option>
-                  <option value="IN_SERVICE">IN_SERVICE</option>
-                  <option value="MAINTENANCE">MAINTENANCE</option>
-                  <option value="PLANNED">PLANNED</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-              <button
-                type="button"
-                onClick={onClose}
-                className="ac-button-secondary"
-                disabled={submitting}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="ac-button-primary"
-                disabled={submitting}
-              >
-                {submitting ? "Registering..." : "Register Asset"}
-              </button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 function DemoAssets() {
-  const [assets, setAssets] = useState<AssetResponse[]>(DEMO_ASSETS);
+  const [assets, setAssets] = useState<AssetResponse[]>(demoStore.getAssets());
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  useEffect(() => {
+    setAssets(demoStore.getAssets());
+    return demoStore.subscribe(() => {
+      setAssets(demoStore.getAssets());
+    });
+  }, []);
 
   const stats = useMemo(() => {
     return {
@@ -357,22 +154,7 @@ function DemoAssets() {
     },
   ];
 
-  async function handleCreateDemoAsset(data: AssetCreateRequest) {
-    const newAsset: AssetResponse = {
-      id: `demo-asset-${Date.now()}`,
-      organization_id: "demo-org-id",
-      asset_type: data.asset_type,
-      registration: data.registration,
-      manufacturer: data.manufacturer || null,
-      model: data.model || null,
-      serial_number: data.serial_number || null,
-      status: data.status || "ACTIVE",
-      acquired_at: new Date().toISOString(),
-      retired_at: null,
-      created_at: new Date().toISOString(),
-    };
-    setAssets((prev) => [newAsset, ...prev]);
-  }
+
 
   return (
     <div className="ac-page">
@@ -382,10 +164,11 @@ function DemoAssets() {
         actions={
           <button
             type="button"
-            className="ac-button-primary"
+            className="ac-btn"
+            style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
             onClick={() => setIsModalOpen(true)}
           >
-            + Register Asset
+            + Add Asset
           </button>
         }
       />
@@ -518,10 +301,9 @@ function DemoAssets() {
         </div>
       </div>
 
-      <RegisterAssetModal
+      <AssetRegistrationModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSubmit={handleCreateDemoAsset}
       />
     </div>
   );
@@ -559,11 +341,7 @@ function RealAssets() {
     fetchAssets();
   }, [accessToken, typeFilter, statusFilter, searchTerm]);
 
-  async function handleCreateRealAsset(data: AssetCreateRequest) {
-    if (!accessToken) return;
-    await assetsApi.createAsset(accessToken, data);
-    await fetchAssets();
-  }
+
 
   const columns: Column<AssetResponse>[] = [
     {
@@ -612,10 +390,11 @@ function RealAssets() {
         actions={
           <button
             type="button"
-            className="ac-button-primary"
+            className="ac-btn"
+            style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
             onClick={() => setIsModalOpen(true)}
           >
-            + Register Asset
+            + Add Asset
           </button>
         }
       />
@@ -653,10 +432,10 @@ function RealAssets() {
         </div>
       </RealDataPanel>
 
-      <RegisterAssetModal
+      <AssetRegistrationModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSubmit={handleCreateRealAsset}
+        onCreated={() => fetchAssets()}
       />
     </div>
   );

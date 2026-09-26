@@ -44,10 +44,13 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from app.core.deps import get_db_session
 from app.core.errors import ConflictError, NotFoundError
+from app.main import app
 from app.models.aircraft import Aircraft
 from app.models.aircraft_detail import AircraftDetail
 from app.models.asset import Asset, AssetType
+from app.models.audit_event import AuditEvent
 from app.models.organization import Organization
 from app.schemas.aircraft import AircraftCreateRequest
 from app.services import aircraft_service, asset_service
@@ -499,6 +502,295 @@ class TestAircraftApiResponseBackwardCompatibility:
         assert "asset_id" not in body
 
 
+class TestAircraftCreationAudit:
+    """Slice B: aircraft creation previously emitted no audit event at all,
+    unlike every other asset-creation path (asset_service.create_asset,
+    drone_service.create_drone). Recorded against entity_type="Asset" /
+    the backing Asset's id -- same convention those other paths use -- so
+    an Aircraft-typed asset's audit trail lives in one place regardless of
+    which endpoint created it."""
+
+    def test_create_aircraft_emits_audit_event(self, client, db_session):
+        tokens = _register(client, "Audit Tenant", "admin@audit-aircraft.example.com")
+        auth = _auth(tokens["access_token"])
+
+        resp = client.post(
+            "/api/v1/aircraft",
+            json={
+                "registration": "N30AU",
+                "msn": "MSN-AU1",
+                "aircraft_type": "A320",
+                "status": "ACTIVE",
+                "manufacturer": "Airbus",
+            },
+            headers=auth,
+        )
+        assert resp.status_code == 201, resp.text
+        aircraft_body = resp.json()
+
+        assets = client.get("/api/v1/assets", headers=auth).json()
+        matching = [a for a in assets if a["registration"] == "N30AU"]
+        assert len(matching) == 1
+        asset_id = matching[0]["id"]
+        # The manufacturer entered at creation now round-trips onto the
+        # backing Asset row (previously always null for aircraft-created
+        # assets).
+        assert matching[0]["manufacturer"] == "Airbus"
+        assert matching[0]["model"] == "A320"
+        assert matching[0]["serial_number"] == "MSN-AU1"
+
+        events = (
+            db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.entity_type == "Asset",
+                    AuditEvent.entity_id == uuid.UUID(asset_id),
+                    AuditEvent.action == "aircraft.created",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(events) == 1
+        assert events[0].event_metadata["aircraft_id"] == aircraft_body["id"]
+
+
+class TestAircraftUpdate:
+    def test_patch_updates_aircraft_and_backing_asset(self, client, db_session):
+        tokens = _register(client, "Edit Tenant", "admin@edit-aircraft.example.com")
+        auth = _auth(tokens["access_token"])
+
+        created = client.post(
+            "/api/v1/aircraft",
+            json={
+                "registration": "N31ED",
+                "msn": "MSN-ED1",
+                "aircraft_type": "A320",
+                "status": "ACTIVE",
+                "manufacturer": "Airbus",
+            },
+            headers=auth,
+        ).json()
+
+        patch_resp = client.patch(
+            f"/api/v1/aircraft/{created['id']}",
+            json={"status": "MAINTENANCE", "msn": "MSN-ED1-REV2", "manufacturer": "Airbus SE"},
+            headers=auth,
+        )
+        assert patch_resp.status_code == 200, patch_resp.text
+        updated = patch_resp.json()
+        assert updated["status"] == "MAINTENANCE"
+        assert updated["msn"] == "MSN-ED1-REV2"
+        # registration is immutable -- not accepted by AircraftUpdateRequest
+        assert updated["registration"] == "N31ED"
+
+        # Refetch (simulates navigation/refresh) -- persistence survives.
+        refetched = client.get(f"/api/v1/aircraft/{created['id']}", headers=auth).json()
+        assert refetched["status"] == "MAINTENANCE"
+        assert refetched["msn"] == "MSN-ED1-REV2"
+
+        # The backing Asset row (and AircraftDetail) stay in sync.
+        assets = client.get("/api/v1/assets", headers=auth).json()
+        matching = [a for a in assets if a["registration"] == "N31ED"]
+        assert len(matching) == 1
+        assert matching[0]["status"] == "MAINTENANCE"
+        assert matching[0]["manufacturer"] == "Airbus SE"
+        assert matching[0]["serial_number"] == "MSN-ED1-REV2"
+
+        detail = db_session.get(AircraftDetail, uuid.UUID(matching[0]["id"]))
+        assert detail is not None
+        assert detail.msn == "MSN-ED1-REV2"
+
+    def test_patch_emits_audit_event(self, client, db_session):
+        tokens = _register(client, "Edit Audit Tenant", "admin@edit-audit.example.com")
+        auth = _auth(tokens["access_token"])
+
+        created = client.post(
+            "/api/v1/aircraft",
+            json={"registration": "N32ED", "msn": "MSN-ED2", "aircraft_type": "A320"},
+            headers=auth,
+        ).json()
+
+        client.patch(
+            f"/api/v1/aircraft/{created['id']}",
+            json={"status": "GROUNDED"},
+            headers=auth,
+        )
+
+        events = (
+            db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action == "aircraft.updated",
+                    AuditEvent.entity_type == "Asset",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(events) == 1
+        assert events[0].event_metadata == {"status": "GROUNDED"}
+
+    def test_patch_cross_tenant_returns_404(self, client):
+        tokens_a = _register(client, "Edit Tenant A", "admin@edit-a.example.com")
+        tokens_b = _register(client, "Edit Tenant B", "admin@edit-b.example.com")
+        auth_a, auth_b = _auth(tokens_a["access_token"]), _auth(tokens_b["access_token"])
+
+        created = client.post(
+            "/api/v1/aircraft",
+            json={"registration": "N33XT", "msn": "MSN-XT1", "aircraft_type": "A320"},
+            headers=auth_a,
+        ).json()
+
+        resp = client.patch(
+            f"/api/v1/aircraft/{created['id']}",
+            json={"status": "GROUNDED"},
+            headers=auth_b,
+        )
+        assert resp.status_code == 404
+
+        # Confirms org A's aircraft was never touched.
+        unchanged = client.get(f"/api/v1/aircraft/{created['id']}", headers=auth_a).json()
+        assert unchanged["status"] == "ACTIVE"
+
+    def test_patch_no_op_when_no_fields_supplied(self, client):
+        tokens = _register(client, "Edit Noop Tenant", "admin@edit-noop.example.com")
+        auth = _auth(tokens["access_token"])
+        created = client.post(
+            "/api/v1/aircraft",
+            json={"registration": "N34NP", "msn": "MSN-NP1", "aircraft_type": "A320"},
+            headers=auth,
+        ).json()
+
+        resp = client.patch(f"/api/v1/aircraft/{created['id']}", json={}, headers=auth)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ACTIVE"
+
+
+class TestAircraftRegistryConsistency:
+    """Slice B objective: Add Aircraft -> Aircraft record -> AircraftDetail
+    -> Asset registry -> Aircraft list -> Aircraft detail must all agree,
+    and survive a refresh (re-GET)."""
+
+    def test_created_aircraft_visible_in_both_registries_after_refresh(self, client):
+        tokens = _register(client, "Registry Tenant", "admin@registry.example.com")
+        auth = _auth(tokens["access_token"])
+
+        created = client.post(
+            "/api/v1/aircraft",
+            json={
+                "registration": "N35RG",
+                "msn": "MSN-RG1",
+                "aircraft_type": "B737-800",
+                "manufacturer": "Boeing",
+            },
+            headers=auth,
+        ).json()
+
+        # Appears in the Aircraft list.
+        list_resp = client.get("/api/v1/aircraft", headers=auth).json()
+        assert any(a["id"] == created["id"] for a in list_resp)
+
+        # Appears in the universal Asset registry.
+        assets_resp = client.get("/api/v1/assets", headers=auth).json()
+        matching = [a for a in assets_resp if a["registration"] == "N35RG"]
+        assert len(matching) == 1
+        assert matching[0]["asset_type"] == "AIRCRAFT"
+
+        # Detail route resolves ("refresh" = re-GET with a fresh request).
+        detail_1 = client.get(f"/api/v1/aircraft/{created['id']}", headers=auth).json()
+        detail_2 = client.get(f"/api/v1/aircraft/{created['id']}", headers=auth).json()
+        assert detail_1 == detail_2
+        assert detail_1["registration"] == "N35RG"
+
+
+class TestGenericAssetFlightRecording:
+    """Slice B: POST /assets/{id}/flights (asset_service.record_asset_flight)
+    previously had zero test coverage. Covers the common-foundation path for
+    non-drone assets (Aircraft/Helicopter), the DRONE guard added in this
+    slice, and that utilization (SUM over flights -- Slice A's confirmed
+    source of truth) reflects what was recorded."""
+
+    def test_record_flight_and_utilization_for_aircraft(self, client):
+        tokens = _register(client, "Flight Tenant", "admin@flight.example.com")
+        auth = _auth(tokens["access_token"])
+
+        asset = client.post(
+            "/api/v1/assets",
+            json={"asset_type": "AIRCRAFT", "registration": "N40FL"},
+            headers=auth,
+        ).json()
+
+        for minutes, cycles in [(60, 1), (90, 2)]:
+            resp = client.post(
+                f"/api/v1/assets/{asset['id']}/flights",
+                json={
+                    "flown_at": "2025-01-01T00:00:00Z",
+                    "duration_minutes": minutes,
+                    "cycles": cycles,
+                },
+                headers=auth,
+            )
+            assert resp.status_code == 201, resp.text
+
+        util = client.get(f"/api/v1/assets/{asset['id']}/utilization", headers=auth).json()
+        assert util["total_flights"] == 2
+        assert util["total_minutes"] == 150
+        assert util["total_flight_hours"] == 2.5
+        assert util["total_cycles"] == 3
+
+    def test_record_flight_for_helicopter(self, client):
+        tokens = _register(client, "Heli Flight Tenant", "admin@heliflight.example.com")
+        auth = _auth(tokens["access_token"])
+
+        asset = client.post(
+            "/api/v1/assets",
+            json={"asset_type": "HELICOPTER", "registration": "VT-HF1"},
+            headers=auth,
+        ).json()
+
+        resp = client.post(
+            f"/api/v1/assets/{asset['id']}/flights",
+            json={"flown_at": "2025-01-01T00:00:00Z", "duration_minutes": 40, "cycles": 1},
+            headers=auth,
+        )
+        assert resp.status_code == 201, resp.text
+
+    def test_record_flight_rejects_drone_asset(self, client):
+        tokens = _register(client, "Drone Guard Tenant", "admin@droneguard.example.com")
+        auth = _auth(tokens["access_token"])
+
+        asset = client.post(
+            "/api/v1/assets",
+            json={"asset_type": "DRONE", "registration": "UAV-GUARD1"},
+            headers=auth,
+        ).json()
+
+        resp = client.post(
+            f"/api/v1/assets/{asset['id']}/flights",
+            json={"flown_at": "2025-01-01T00:00:00Z", "duration_minutes": 20, "cycles": 1},
+            headers=auth,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"]["code"] == "use_drone_flight_endpoint"
+
+    def test_record_flight_cross_tenant_returns_404(self, client):
+        tokens_a = _register(client, "Flight Tenant A", "admin@flight-a.example.com")
+        tokens_b = _register(client, "Flight Tenant B", "admin@flight-b.example.com")
+        auth_a, auth_b = _auth(tokens_a["access_token"]), _auth(tokens_b["access_token"])
+
+        asset = client.post(
+            "/api/v1/assets",
+            json={"asset_type": "AIRCRAFT", "registration": "N41FL"},
+            headers=auth_a,
+        ).json()
+
+        resp = client.post(
+            f"/api/v1/assets/{asset['id']}/flights",
+            json={"flown_at": "2025-01-01T00:00:00Z", "duration_minutes": 20, "cycles": 1},
+            headers=auth_b,
+        )
+        assert resp.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # Service-level tenant isolation
 # ---------------------------------------------------------------------------
@@ -565,6 +857,10 @@ class TestAssetServiceTenantIsolation:
 
 
 def _register(client, org_name, email):
+    from tests.integration.conftest import make_platform_admin_headers
+
+    db_session = next(app.dependency_overrides[get_db_session]())
+    headers = make_platform_admin_headers(client, db_session)
     resp = client.post(
         "/api/v1/auth/register-organization",
         json={
@@ -573,6 +869,7 @@ def _register(client, org_name, email):
             "admin_full_name": "Admin",
             "admin_password": "supersecret123",
         },
+        headers=headers,
     )
     assert resp.status_code == 201
     return resp.json()

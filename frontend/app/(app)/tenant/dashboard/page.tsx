@@ -8,21 +8,24 @@ import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { tenantApi, type TenantDashboardStats } from "@/lib/api/tenant";
 import { DEMO_TENANT_DASHBOARD_STATS } from "@/lib/demo/demoTenant";
+import { demoStore } from "@/lib/demo/demoStore";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 
 export default function TenantDashboardPage() {
   const { accessToken, isAuthenticated, isDemo } = useSession();
   const [stats, setStats] = useState<TenantDashboardStats | null>(
-    isDemo ? DEMO_TENANT_DASHBOARD_STATS : null
+    isDemo ? demoStore.getDashboardStats() : null
   );
   const [loading, setLoading] = useState(!isDemo);
   const [error, setError] = useState<NormalizedApiError | null>(null);
 
   useEffect(() => {
     if (isDemo) {
-      setStats(DEMO_TENANT_DASHBOARD_STATS);
+      setStats(demoStore.getDashboardStats());
       setLoading(false);
-      return;
+      return demoStore.subscribe(() => {
+        setStats(demoStore.getDashboardStats());
+      });
     }
 
     if (!isAuthenticated || !accessToken) {
@@ -197,9 +200,24 @@ export default function TenantDashboardPage() {
               <div style={{ fontSize: 13, opacity: 0.8 }}>
                 {stats.aircraft_count} Aircraft · {stats.drone_count} Drones
               </div>
-              <div style={{ marginTop: 12, fontSize: 12, borderTop: "1px solid var(--border-color, #27272a)", paddingTop: 8 }}>
-                <Link href="/tenant/fleet" style={{ color: "var(--primary, #3b82f6)" }}>
+              <div
+                style={{
+                  marginTop: 12,
+                  fontSize: 12,
+                  borderTop: "1px solid var(--border-color, #27272a)",
+                  paddingTop: 8,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 8,
+                }}
+              >
+                <Link href="/tenant/fleet" style={{ color: "var(--primary, #3b82f6)", fontWeight: 500 }}>
                   Fleet Administration →
+                </Link>
+                <Link href="/assets" style={{ color: "var(--ac-primary, #38bdf8)", fontWeight: 600 }}>
+                  Fleet Registry (+ Add) →
                 </Link>
               </div>
             </div>

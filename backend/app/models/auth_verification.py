@@ -41,6 +41,7 @@ class VerificationPurpose:
     # the admin controls the invited email AND lets them set their own
     # first real password in one step.
     ACCOUNT_ONBOARDING = "account_onboarding"
+    EMAIL_CHANGE = "email_change"
 
 
 class AuthVerificationCode(UUIDPKMixin, TimestampMixin, Base):

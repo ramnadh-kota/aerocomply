@@ -94,10 +94,10 @@ describe("Sidebar NAV_GROUPS (M21.2 IA regrouping)", () => {
 });
 
 describe("PLATFORM_NAV_GROUPS (M2 Platform Control Plane)", () => {
-  it("has exactly one 'Platform Control Plane' group with 14 control plane items", () => {
+  it("has exactly one 'Platform Control Plane' group with 15 control plane items", () => {
     expect(PLATFORM_NAV_GROUPS).toHaveLength(1);
     expect(PLATFORM_NAV_GROUPS[0].label).toBe("Platform Control Plane");
-    expect(PLATFORM_NAV_GROUPS[0].items).toHaveLength(14);
+    expect(PLATFORM_NAV_GROUPS[0].items).toHaveLength(15);
     const hrefs = PLATFORM_NAV_GROUPS[0].items.map((i) => i.href);
     expect(hrefs).toContain("/platform/dashboard");
     expect(hrefs).toContain("/platform/organizations");
@@ -109,6 +109,7 @@ describe("PLATFORM_NAV_GROUPS (M2 Platform Control Plane)", () => {
     expect(hrefs).toContain("/platform/entitlements");
     expect(hrefs).toContain("/platform/provisioning");
     expect(hrefs).toContain("/platform/usage");
+    expect(hrefs).toContain("/platform/deleted-records");
     expect(hrefs).toContain("/platform/audit");
     expect(hrefs).toContain("/platform/approvals");
     expect(hrefs).toContain("/platform/monitoring");

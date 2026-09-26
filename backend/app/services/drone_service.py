@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import ConflictError, NotFoundError
 from app.models.asset import Asset, AssetType
 from app.services.audit_service import record_audit_event
+from app.services.limit_enforcement_service import check_asset_creation_limit
 
 
 def create_drone(
@@ -27,6 +28,8 @@ def create_drone(
     serial_number: str | None,
     facility_id: uuid.UUID | None,
 ) -> Asset:
+    check_asset_creation_limit(db, organization_id=organization_id)
+
     existing = db.execute(
         select(Asset).where(
             Asset.organization_id == organization_id, Asset.registration == registration

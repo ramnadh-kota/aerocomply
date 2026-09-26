@@ -53,9 +53,17 @@ Frontend available at `http://localhost:3000`.
 
 ### 5. Try it end-to-end
 
+`POST /auth/register-organization` requires an authenticated caller with the
+`platform:manage` permission — it is a platform-administrative bootstrap
+primitive, not a public signup endpoint. To create a first organization for
+local development, seed a `PLATFORM_ADMIN` user directly in the database
+(see `backend/tests/integration/conftest.py::make_platform_admin_headers`
+for the pattern the test suite uses), log in as that user, then call:
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/register-organization \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <platform-admin-access-token>" \
   -d '{"organization_name":"Demo Airline","admin_email":"admin@demo.com","admin_full_name":"Demo Admin","admin_password":"supersecret123"}'
 ```
 

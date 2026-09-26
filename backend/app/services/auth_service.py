@@ -1,10 +1,12 @@
+import base64
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError, UnauthorizedError
+from app.core.errors import AeroComplyError, ConflictError, NotFoundError, UnauthorizedError
 from app.core.permissions import Role
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
@@ -19,9 +21,12 @@ from app.core.security import (
 from app.models.auth_verification import AuthVerificationCode, VerificationPurpose
 from app.models.organization import Organization, OrganizationStatus
 from app.models.user import User, UserRole
-from app.schemas.auth import RegisterOrganizationRequest, TokenResponse
+from app.schemas.auth import CurrentUser, RegisterOrganizationRequest, TokenResponse
 from app.services.audit_service import record_audit_event
 from app.services.email_service import send_verification_code_email
+from app.services.storage.keys import build_object_key, sanitize_filename
+from app.services.storage.service import get_storage_service
+from app.services.storage.exceptions import StorageError
 
 # Both OTP flows share these constants -- one shared authentication
 # foundation, not a system per flow (see app/models/auth_verification.py).
@@ -106,6 +111,8 @@ def authenticate(db: Session, email: str, password: str) -> TokenResponse:
     org = db.get(Organization, user.organization_id)
     if org is not None and org.status == OrganizationStatus.SUSPENDED:
         raise UnauthorizedError("This organization has been suspended")
+    if org is not None and org.deleted_at is not None:
+        raise UnauthorizedError("This organization has requested deletion and is pending review")
 
     roles = _roles_for_user(db, user.id)
 
@@ -139,6 +146,8 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenResponse:
     org = db.get(Organization, user.organization_id)
     if org is not None and org.status == OrganizationStatus.SUSPENDED:
         raise UnauthorizedError("This organization has been suspended")
+    if org is not None and org.deleted_at is not None:
+        raise UnauthorizedError("This organization has requested deletion and is pending review")
 
     roles = _roles_for_user(db, user.id)
     return _issue_tokens(user, roles)
@@ -399,3 +408,282 @@ def complete_account_onboarding(db: Session, *, email: str, code: str, new_passw
         entity_id=user.id,
     )
     db.commit()
+
+
+_PHONE_REGEX = re.compile(r"^[\+]?[0-9\s\-\.\(\)]{7,32}$")
+_ALLOWED_PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_MAX_PHOTO_BYTES = 2 * 1024 * 1024  # 2 MiB
+
+
+def _user_to_current_user(db: Session, user: User) -> CurrentUser:
+    roles = _roles_for_user(db, user.id)
+    return CurrentUser(
+        id=user.id,
+        organization_id=user.organization_id,
+        email=user.email,
+        full_name=user.full_name,
+        roles=roles,
+        email_verified=user.email_verified,
+        phone_number=user.phone_number,
+        profile_photo_url=user.profile_photo_url,
+        pending_email=user.pending_email,
+    )
+
+
+def get_user_profile(db: Session, *, user_id: uuid.UUID) -> CurrentUser:
+    """Retrieve the authoritative profile for a user."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+    return _user_to_current_user(db, user)
+
+
+def update_user_profile(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    full_name: str | None = None,
+    phone_number: str | None = None,
+) -> CurrentUser:
+    user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+    if user is None:
+        raise NotFoundError("User not found")
+
+    updated = False
+    audit_meta: dict[str, str | None] = {}
+
+    if full_name is not None and full_name.strip():
+        user.full_name = full_name.strip()
+        audit_meta["full_name"] = user.full_name
+        updated = True
+
+    if phone_number is not None:
+        raw_phone = phone_number.strip()
+        if not raw_phone:
+            user.phone_number = None
+            audit_meta["phone_number"] = None
+            updated = True
+        else:
+            if not _PHONE_REGEX.match(raw_phone):
+                raise AeroComplyError(
+                    "Invalid phone number format. Allowed characters: digits, spaces, hyphens, plus sign, parentheses.",
+                    code="invalid_phone_number",
+                )
+            user.phone_number = raw_phone
+            audit_meta["phone_number"] = user.phone_number
+            updated = True
+
+    if updated:
+        db.add(user)
+        record_audit_event(
+            db,
+            organization_id=user.organization_id,
+            user_id=user.id,
+            action="user.profile_updated",
+            entity_type="User",
+            entity_id=user.id,
+            metadata=audit_meta,
+        )
+        db.commit()
+        db.refresh(user)
+
+    return _user_to_current_user(db, user)
+
+
+def upload_profile_photo(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    content: bytes,
+    content_type: str,
+    filename: str,
+) -> CurrentUser:
+    """Upload and attach a personal profile photo to the user."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    norm_type = (content_type or "").lower().strip()
+    if norm_type not in _ALLOWED_PHOTO_CONTENT_TYPES:
+        raise AeroComplyError(
+            f"Unsupported image format: {norm_type or 'unknown'}. Allowed formats: JPEG, PNG, WEBP",
+            code="unsupported_image_format",
+            status_code=415,
+        )
+
+    if len(content) > _MAX_PHOTO_BYTES:
+        raise AeroComplyError(
+            f"Profile photo exceeds maximum limit of 2 MB ({len(content)} bytes uploaded)",
+            code="photo_too_large",
+            status_code=413,
+        )
+
+    photo_uri: str
+    try:
+        storage = get_storage_service()
+        safe_name = sanitize_filename(filename or "avatar.png")
+        key = build_object_key(
+            namespace="avatars",
+            organization_id=user.organization_id,
+            resource_id=user.id,
+            file_id=uuid.uuid4(),
+            filename=safe_name,
+        )
+        storage.put(key=key, body=content, content_type=norm_type)
+        photo_uri = storage.presign_get(key=key, expires_in=7 * 24 * 3600)
+    except Exception:
+        # Fallback to self-contained data URI when object storage is not configured/offline
+        b64 = base64.b64encode(content).decode("ascii")
+        photo_uri = f"data:{norm_type};base64,{b64}"
+
+    user.profile_photo_url = photo_uri
+    db.add(user)
+    record_audit_event(
+        db,
+        organization_id=user.organization_id,
+        user_id=user.id,
+        action="user.profile_photo_updated",
+        entity_type="User",
+        entity_id=user.id,
+        metadata={"filename": sanitize_filename(filename), "size_bytes": len(content)},
+    )
+    db.commit()
+    db.refresh(user)
+
+    return _user_to_current_user(db, user)
+
+
+def delete_profile_photo(db: Session, *, user_id: uuid.UUID) -> CurrentUser:
+    """Remove user's profile photo and revert to initials avatar."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    user.profile_photo_url = None
+    db.add(user)
+    record_audit_event(
+        db,
+        organization_id=user.organization_id,
+        user_id=user.id,
+        action="user.profile_photo_removed",
+        entity_type="User",
+        entity_id=user.id,
+    )
+    db.commit()
+    db.refresh(user)
+
+    return _user_to_current_user(db, user)
+
+
+def request_email_change(db: Session, *, user_id: uuid.UUID, new_email: str) -> None:
+    """Initiate a verified email change workflow."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    clean_email = new_email.strip().lower()
+    if clean_email == user.email.lower():
+        raise ConflictError(
+            "New email address is identical to your current email.",
+            code="identical_email",
+        )
+
+    # Ensure new email is not taken by another user
+    existing = db.execute(
+        select(User).where(User.email == clean_email, User.id != user.id)
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise ConflictError(
+            "This email address is already associated with another account.",
+            code="email_in_use",
+        )
+
+    user.pending_email = clean_email
+    db.add(user)
+
+    code = _issue_code(db, user=user, purpose=VerificationPurpose.EMAIL_CHANGE)
+    record_audit_event(
+        db,
+        organization_id=user.organization_id,
+        user_id=user.id,
+        action="user.email_change_requested",
+        entity_type="User",
+        entity_id=user.id,
+        metadata={"old_email": user.email, "new_email": clean_email},
+    )
+    db.commit()
+
+    send_verification_code_email(
+        to=clean_email, code=code, purpose_label="Email address change"
+    )
+
+
+def confirm_email_change(db: Session, *, user_id: uuid.UUID, code: str) -> CurrentUser:
+    """Confirm pending email change using the OTP sent to the new address."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    if not user.pending_email:
+        raise ConflictError(
+            "No pending email change request found.",
+            code="no_pending_email",
+        )
+
+    # Re-verify collision before committing
+    existing = db.execute(
+        select(User).where(User.email == user.pending_email, User.id != user.id)
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise ConflictError(
+            "This email address was claimed by another account.",
+            code="email_in_use",
+        )
+
+    _consume_code(db, user=user, purpose=VerificationPurpose.EMAIL_CHANGE, code=code)
+
+    old_email = user.email
+    new_email = user.pending_email
+
+    user.email = new_email
+    user.pending_email = None
+    user.email_verified = True
+    db.add(user)
+
+    record_audit_event(
+        db,
+        organization_id=user.organization_id,
+        user_id=user.id,
+        action="user.email_changed",
+        entity_type="User",
+        entity_id=user.id,
+        metadata={"old_email": old_email, "new_email": new_email},
+    )
+    db.commit()
+    db.refresh(user)
+
+    return _user_to_current_user(db, user)
+
+
+def cancel_email_change(db: Session, *, user_id: uuid.UUID) -> CurrentUser:
+    """Cancel in-flight email change request."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise NotFoundError("User not found")
+
+    if user.pending_email:
+        user.pending_email = None
+        db.add(user)
+        record_audit_event(
+            db,
+            organization_id=user.organization_id,
+            user_id=user.id,
+            action="user.email_change_cancelled",
+            entity_type="User",
+            entity_id=user.id,
+        )
+        db.commit()
+        db.refresh(user)
+
+    return _user_to_current_user(db, user)
+

@@ -28,14 +28,19 @@ def _platform_admin_user(org_id: uuid.UUID) -> CurrentUser:
 
 def test_platform_admin_role_grants_only_platform_manage():
     # M6: PLATFORM_ADMIN also now holds PLATFORM_ENTITLEMENT_OVERRIDE -- see
-    # app/core/permissions.py's ROLE_PERMISSIONS comment. It remains the
-    # only role with any platform authority at all (still no ordinary
-    # tenant permission is granted), so this test now asserts the full
-    # deliberate platform-authority grant set rather than a single value.
+    # app/core/permissions.py's ROLE_PERMISSIONS comment. Platform Control
+    # Plane soft-delete governance (deletion_service.py/restoration_
+    # service.py) added DATA_RESTORE/DATA_PERMANENT_DELETE, both also held
+    # by PLATFORM_ADMIN. It remains the only role with any platform
+    # authority at all (still no ordinary tenant permission is granted), so
+    # this test now asserts the full deliberate platform-authority grant
+    # set rather than a single value.
     granted = permissions_for_roles([Role.PLATFORM_ADMIN.value])
     assert granted == {
         Permission.PLATFORM_MANAGE.value,
         Permission.PLATFORM_ENTITLEMENT_OVERRIDE.value,
+        Permission.DATA_RESTORE.value,
+        Permission.DATA_PERMANENT_DELETE.value,
     }
 
 

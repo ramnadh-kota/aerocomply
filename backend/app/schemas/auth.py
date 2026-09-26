@@ -32,6 +32,22 @@ class CurrentUser(BaseModel):
     full_name: str
     roles: list[str]
     email_verified: bool = False
+    phone_number: str | None = None
+    profile_photo_url: str | None = None
+    pending_email: str | None = None
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    phone_number: str | None = Field(default=None, max_length=32)
+
+
+class RequestEmailChangeRequest(BaseModel):
+    new_email: EmailStr
+
+
+class ConfirmEmailChangeRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
 class ConfirmEmailVerificationRequest(BaseModel):

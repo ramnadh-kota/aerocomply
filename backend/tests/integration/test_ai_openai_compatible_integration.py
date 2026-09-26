@@ -10,6 +10,7 @@ import httpx
 from app.core.config import Settings
 from app.schemas.aircraft import AircraftCreateRequest
 from app.services import aircraft_service
+from tests.integration.conftest import make_platform_admin_headers
 
 
 def _mock_settings(**kwargs) -> Settings:
@@ -36,6 +37,7 @@ def test_lisa_ask_with_openai_compatible_provider_end_to_end(client, db_session)
             "admin_full_name": "LISA Admin",
             "admin_password": "supersecretpassword123",
         },
+        headers=make_platform_admin_headers(client, db_session),
     )
     assert resp.status_code == 201
     token = resp.json()["access_token"]

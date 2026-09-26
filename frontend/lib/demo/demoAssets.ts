@@ -82,7 +82,27 @@ export const DEMO_ASSETS: AssetResponse[] = [
 ];
 
 export function getDemoAssetDetail(assetId: string): AssetResponse | null {
-  return DEMO_ASSETS.find((a) => a.id === assetId) || null;
+  const staticFound = DEMO_ASSETS.find((a) => a.id === assetId);
+  if (staticFound) return staticFound;
+  if (typeof globalThis !== "undefined" && typeof (globalThis as any).__aerocomply_demo_get_asset__ === "function") {
+    const memFound = (globalThis as any).__aerocomply_demo_get_asset__(assetId);
+    if (memFound) return memFound;
+  }
+  if (typeof window !== "undefined") {
+    try {
+      const raw = window.sessionStorage.getItem("aerocomply_demo_store_v1");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.assets)) {
+          const found = parsed.assets.find((a: any) => a.id === assetId);
+          if (found) return found;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
 }
 
 export function getDemoConfiguration(assetId: string): AssetConfigurationResponse {

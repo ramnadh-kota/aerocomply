@@ -48,8 +48,8 @@ _CATALOG_ENTRIES = [
     {
         "suite": {
             "code": "maintenance",
-            "name": "Maintenance",
-            "description": "Fleet maintenance operations.",
+            "name": "Maintenance & MRO",
+            "description": "Fleet maintenance and engineering operations.",
         },
         "module": {
             "code": "maintenance_operations",
@@ -69,12 +69,33 @@ _CATALOG_ENTRIES = [
         },
     },
     {
-        # M21.5: real catalog entry backing app/api/v1/drones.py, matching
-        # the same one-deliberate-entry-at-a-time convention as above.
+        "suite": {
+            "code": "maintenance",
+            "name": "Maintenance & MRO",
+            "description": "Fleet maintenance and engineering operations.",
+        },
+        "module": {
+            "code": "maintenance_inspections",
+            "name": "Inspections",
+            "description": "Aircraft and airframe inspection management.",
+        },
+        "page": {
+            "code": "inspections",
+            "name": "Inspections",
+            "description": "Inspection management and sign-off views.",
+            "route": "/maintenance/inspections",
+        },
+        "feature": {
+            "code": "inspections_management",
+            "name": "Inspections",
+            "description": "Schedule, track, and record airframe and component inspections.",
+        },
+    },
+    {
         "suite": {
             "code": "drone_operations",
-            "name": "Drone Operations",
-            "description": "Drone/UAV fleet operations.",
+            "name": "Operations",
+            "description": "Drone, UAS, and autonomous fleet operations.",
         },
         "module": {
             "code": "drone_fleet_operations",
@@ -94,7 +115,52 @@ _CATALOG_ENTRIES = [
         },
     },
     {
-        # M21.5: real catalog entry backing app/api/v1/procurement.py.
+        "suite": {
+            "code": "drone_operations",
+            "name": "Operations",
+            "description": "Drone, UAS, and autonomous fleet operations.",
+        },
+        "module": {
+            "code": "flight_telemetry_ops",
+            "name": "Flight Telemetry",
+            "description": "Live and historical flight telemetry operations.",
+        },
+        "page": {
+            "code": "flight_telemetry",
+            "name": "Flight Telemetry",
+            "description": "Real-time telemetry and mission playback views.",
+            "route": "/flights/telemetry",
+        },
+        "feature": {
+            "code": "flight_telemetry",
+            "name": "Flight Telemetry",
+            "description": "Live mission tracking and flight telemetry analytics.",
+        },
+    },
+    {
+        "suite": {
+            "code": "drone_operations",
+            "name": "Operations",
+            "description": "Drone, UAS, and autonomous fleet operations.",
+        },
+        "module": {
+            "code": "battery_analytics_ops",
+            "name": "Battery Operations",
+            "description": "UAS battery pack health and lifecycle tracking.",
+        },
+        "page": {
+            "code": "battery_analytics",
+            "name": "Battery Analytics",
+            "description": "Battery lifecycle and health telemetry views.",
+            "route": "/drones/batteries",
+        },
+        "feature": {
+            "code": "battery_analytics",
+            "name": "Battery Analytics",
+            "description": "Monitor battery cell balance, cycles, and degradation.",
+        },
+    },
+    {
         "suite": {
             "code": "procurement",
             "name": "Procurement",
@@ -115,6 +181,98 @@ _CATALOG_ENTRIES = [
             "code": "procurement_management",
             "name": "Procurement Management",
             "description": "Create, review, and approve procurement requests.",
+        },
+    },
+    {
+        "suite": {
+            "code": "compliance",
+            "name": "Compliance",
+            "description": "Airworthiness regulations, standards, and compliance audits.",
+        },
+        "module": {
+            "code": "compliance_governance",
+            "name": "Compliance Governance",
+            "description": "Regulatory rulebook, evidence collection, and audits.",
+        },
+        "page": {
+            "code": "compliance_register",
+            "name": "Compliance Register",
+            "description": "Regulatory compliance register and rules.",
+            "route": "/compliance",
+        },
+        "feature": {
+            "code": "compliance_management",
+            "name": "Compliance Management",
+            "description": "Manage regulatory compliance assessments and audit evidence.",
+        },
+    },
+    {
+        "suite": {
+            "code": "compliance",
+            "name": "Compliance",
+            "description": "Airworthiness regulations, standards, and compliance audits.",
+        },
+        "module": {
+            "code": "compliance_intelligence",
+            "name": "Compliance Intelligence",
+            "description": "Continuous compliance validation and discrepancy scanning.",
+        },
+        "page": {
+            "code": "compliance_intelligence_page",
+            "name": "Compliance Intelligence",
+            "description": "Automated compliance checks and intelligence dashboard.",
+            "route": "/compliance/intelligence",
+        },
+        "feature": {
+            "code": "advanced_compliance_intelligence",
+            "name": "Advanced Compliance Intelligence",
+            "description": "Automated proactive compliance analysis and risk forecasting.",
+        },
+    },
+    {
+        "suite": {
+            "code": "ai_intelligence",
+            "name": "AI",
+            "description": "Artificial Intelligence and machine learning capabilities.",
+        },
+        "module": {
+            "code": "lisa_ai_module",
+            "name": "AI Assistant",
+            "description": "LISA conversational airworthiness assistant.",
+        },
+        "page": {
+            "code": "lisa_ai_page",
+            "name": "LISA Assistant",
+            "description": "LISA AI assistant chat and query interface.",
+            "route": "/lisa",
+        },
+        "feature": {
+            "code": "ai_assistant",
+            "name": "AI Assistant",
+            "description": "LISA aerospace regulatory and maintenance intelligent copilot.",
+        },
+    },
+    {
+        "suite": {
+            "code": "ai_intelligence",
+            "name": "AI",
+            "description": "Artificial Intelligence and machine learning capabilities.",
+        },
+        "module": {
+            "code": "predictive_ops",
+            "name": "Predictive Operations",
+            "description": "Machine-learning component wear and maintenance forecasting.",
+        },
+        "page": {
+            "code": "predictive_ops_page",
+            "name": "Predictive Analytics",
+            "description": "Predictive maintenance forecasting views.",
+            "route": "/analytics/predictive",
+        },
+        "feature": {
+            "code": "predictive_maintenance",
+            "name": "Predictive Maintenance",
+            "description": "Predictive airframe and component failure modeling.",
         },
     },
 ]

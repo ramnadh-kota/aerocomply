@@ -69,7 +69,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.organization import Organization, OrganizationStatus
-from app.models.plan import Plan, PlanFeature
+from app.models.plan import Plan, PlanFeature, PlanLimit
 from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.tenant_entitlement import TenantFeatureOverride, TenantUsageLimit
 
@@ -260,7 +260,10 @@ def resolve_entitlements(
     for override in active_overrides:
         effective_features[override.feature_key] = override.enabled
 
-    # Step 7: usage limits, configuration only.
+    # Step 7: usage limits (PlanLimit baseline + TenantUsageLimit overrides).
+    plan_limit_rows = list(
+        db.execute(select(PlanLimit).where(PlanLimit.plan_id == plan.id)).scalars().all()
+    )
     usage_limit_rows = list(
         db.execute(
             select(TenantUsageLimit).where(TenantUsageLimit.organization_id == organization_id)
@@ -268,15 +271,41 @@ def resolve_entitlements(
         .scalars()
         .all()
     )
-    usage_limits = [
-        UsageLimitConfiguration(
-            feature_key=row.feature_key,
-            limit_key=row.limit_key,
-            limit_value=row.limit_value,
-            is_unlimited=row.is_unlimited,
-        )
-        for row in sorted(usage_limit_rows, key=lambda r: (r.feature_key, r.limit_key))
-    ]
+    tenant_override_map = {row.limit_key: row for row in usage_limit_rows}
+
+    effective_limits_map: dict[str, UsageLimitConfiguration] = {}
+
+    # Plan baseline limits
+    for pl in plan_limit_rows:
+        if pl.limit_key in tenant_override_map:
+            tl = tenant_override_map[pl.limit_key]
+            effective_limits_map[pl.limit_key] = UsageLimitConfiguration(
+                feature_key=tl.feature_key,
+                limit_key=pl.limit_key,
+                limit_value=tl.limit_value,
+                is_unlimited=tl.is_unlimited,
+            )
+        else:
+            effective_limits_map[pl.limit_key] = UsageLimitConfiguration(
+                feature_key=pl.limit_key,
+                limit_key=pl.limit_key,
+                limit_value=pl.limit_value,
+                is_unlimited=pl.is_unlimited,
+            )
+
+    # Standalone tenant usage limits not in plan baseline
+    for tl in usage_limit_rows:
+        if tl.limit_key not in effective_limits_map:
+            effective_limits_map[tl.limit_key] = UsageLimitConfiguration(
+                feature_key=tl.feature_key,
+                limit_key=tl.limit_key,
+                limit_value=tl.limit_value,
+                is_unlimited=tl.is_unlimited,
+            )
+
+    usage_limits = sorted(
+        effective_limits_map.values(), key=lambda r: (r.feature_key, r.limit_key)
+    )
 
     if not plan.is_active:
         return EntitlementResolution(

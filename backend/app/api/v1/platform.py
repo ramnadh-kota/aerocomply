@@ -21,10 +21,14 @@ from app.schemas.deletion import DeletedRecordListResponse, PermanentDeleteReque
 from app.schemas.entitlement import EntitlementResolutionResponse
 from app.schemas.plan import (
     PlanCreateRequest,
+    PlanFeatureBulkUpdateRequest,
     PlanFeatureCreateRequest,
     PlanFeatureResponse,
     PlanFeatureUpdateRequest,
+    PlanLimitBulkUpdateRequest,
+    PlanLimitResponse,
     PlanResponse,
+    PlanSubscribedTenantResponse,
     PlanUpdateRequest,
 )
 from app.schemas.platform import (
@@ -389,6 +393,7 @@ def create_plan(
         description=payload.description,
         is_active=payload.is_active,
         suite_id=payload.suite_id,
+        asset_scope=payload.asset_scope,
     )
     return PlanResponse.model_validate(plan)
 
@@ -419,6 +424,7 @@ def update_plan(
         code=payload.code,
         description=payload.description,
         suite_id=payload.suite_id,
+        asset_scope=payload.asset_scope,
     )
     return PlanResponse.model_validate(plan)
 
@@ -483,6 +489,23 @@ def create_plan_feature(
     return PlanFeatureResponse.model_validate(feature)
 
 
+@router.put("/plans/{plan_id}/features", response_model=list[PlanFeatureResponse])
+def bulk_set_plan_features(
+    plan_id: uuid.UUID,
+    payload: PlanFeatureBulkUpdateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[PlanFeatureResponse]:
+    features = plan_service.bulk_set_plan_features(
+        db,
+        actor_user_id=current_user.id,
+        actor_organization_id=current_user.organization_id,
+        plan_id=plan_id,
+        features=[{"feature_key": f.feature_key, "enabled": f.enabled} for f in payload.features],
+    )
+    return [PlanFeatureResponse.model_validate(f) for f in features]
+
+
 @router.patch("/plans/{plan_id}/features/{feature_key}", response_model=PlanFeatureResponse)
 def update_plan_feature(
     plan_id: uuid.UUID,
@@ -500,6 +523,62 @@ def update_plan_feature(
         enabled=payload.enabled,
     )
     return PlanFeatureResponse.model_validate(feature)
+
+
+@router.get("/plans/{plan_id}/tenants", response_model=list[PlanSubscribedTenantResponse])
+def list_plan_tenants(
+    plan_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[PlanSubscribedTenantResponse]:
+    subscribers = plan_service.list_plan_subscribers(db, plan_id=plan_id)
+    return [PlanSubscribedTenantResponse.model_validate(s) for s in subscribers]
+
+
+@router.get("/plans/{plan_id}/audit-trail", response_model=list[AuditEventResponse])
+def get_plan_audit_trail(
+    plan_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[AuditEventResponse]:
+    events = plan_service.list_plan_audit_events(db, plan_id=plan_id)
+    return [AuditEventResponse.model_validate(e) for e in events]
+
+
+@router.get("/plans/{plan_id}/limits", response_model=list[PlanLimitResponse])
+def list_plan_limits(
+    plan_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[PlanLimitResponse]:
+    limits = plan_service.list_plan_limits(db, plan_id=plan_id)
+    return [PlanLimitResponse.model_validate(l) for l in limits]
+
+
+@router.put("/plans/{plan_id}/limits", response_model=list[PlanLimitResponse])
+def bulk_set_plan_limits(
+    plan_id: uuid.UUID,
+    payload: PlanLimitBulkUpdateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[PlanLimitResponse]:
+    limits = plan_service.bulk_set_plan_limits(
+        db,
+        actor_user_id=current_user.id,
+        actor_organization_id=current_user.organization_id,
+        plan_id=plan_id,
+        limits=[
+            {
+                "limit_key": l.limit_key,
+                "limit_value": l.limit_value,
+                "is_unlimited": l.is_unlimited,
+            }
+            for l in payload.limits
+        ],
+    )
+    return [PlanLimitResponse.model_validate(l) for l in limits]
+
+
 
 
 # ---------------------------------------------------------------------------
