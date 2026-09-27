@@ -358,13 +358,22 @@ def test_deactivate_plan_with_active_subscription_preserves_features(client, db_
     )
     from datetime import UTC, datetime, timedelta
 
-    sub = Subscription(
-        organization_id=org_id,
-        plan_id=plan.id,
-        status=SubscriptionStatus.ACTIVE,
-        starts_at=datetime.now(UTC) - timedelta(days=1),
-    )
-    db_session.add(sub)
+    sub = db_session.execute(
+        select(Subscription).where(Subscription.organization_id == org_id)
+    ).scalars().first()
+    if sub:
+        sub.plan_id = plan.id
+        sub.status = SubscriptionStatus.ACTIVE
+        sub.starts_at = datetime.now(UTC) - timedelta(days=1)
+        sub.ends_at = None
+    else:
+        sub = Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(sub)
     db_session.commit()
 
     result = resolve_entitlements(db_session, organization_id=org_id)
@@ -409,13 +418,22 @@ def test_m2_integration_live_read_after_write(client, db_session):
     )
     from datetime import UTC, datetime, timedelta
 
-    sub = Subscription(
-        organization_id=org_id,
-        plan_id=plan.id,
-        status=SubscriptionStatus.ACTIVE,
-        starts_at=datetime.now(UTC) - timedelta(days=1),
-    )
-    db_session.add(sub)
+    sub = db_session.execute(
+        select(Subscription).where(Subscription.organization_id == org_id)
+    ).scalars().first()
+    if sub:
+        sub.plan_id = plan.id
+        sub.status = SubscriptionStatus.ACTIVE
+        sub.starts_at = datetime.now(UTC) - timedelta(days=1)
+        sub.ends_at = None
+    else:
+        sub = Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(sub)
     db_session.commit()
 
     result = resolve_entitlements(db_session, organization_id=org_id)

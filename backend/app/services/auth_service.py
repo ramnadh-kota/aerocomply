@@ -20,6 +20,8 @@ from app.core.security import (
 )
 from app.models.auth_verification import AuthVerificationCode, VerificationPurpose
 from app.models.organization import Organization, OrganizationStatus
+from app.models.plan import Plan, PlanFeature
+from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.user import User, UserRole
 from app.schemas.auth import CurrentUser, RegisterOrganizationRequest, TokenResponse
 from app.services.audit_service import record_audit_event
@@ -38,6 +40,40 @@ OTP_MAX_ATTEMPTS = 5
 # resend reuses the same request-code endpoint, and this cooldown is what
 # stops it being spammed.
 OTP_RESEND_COOLDOWN_SECONDS = 60
+
+_DEFAULT_REGISTRATION_PLAN_CODE = "DEFAULT_PLAN"
+_DEFAULT_REGISTRATION_PLAN_NAME = "Default Standard Plan"
+_DEFAULT_REGISTRATION_PLAN_FEATURES = {
+    "drone_fleet_management": True,
+    "flight_telemetry": True,
+    "battery_analytics": True,
+    "work_order_management": True,
+    "inspections_management": True,
+    "compliance_management": True,
+    "advanced_compliance_intelligence": True,
+    "procurement_management": True,
+    "ai_assistant": True,
+    "predictive_maintenance": True,
+}
+
+
+def _get_or_create_default_plan(db: Session) -> Plan:
+    plan = db.execute(
+        select(Plan).where(Plan.code == _DEFAULT_REGISTRATION_PLAN_CODE)
+    ).scalar_one_or_none()
+    if plan is None:
+        plan = Plan(
+            name=_DEFAULT_REGISTRATION_PLAN_NAME,
+            code=_DEFAULT_REGISTRATION_PLAN_CODE,
+            description="Default commercial plan for registered organizations",
+            is_active=True,
+        )
+        db.add(plan)
+        db.flush()
+        for feature_key, enabled in _DEFAULT_REGISTRATION_PLAN_FEATURES.items():
+            db.add(PlanFeature(plan_id=plan.id, feature_key=feature_key, enabled=enabled))
+        db.flush()
+    return plan
 
 
 def _roles_for_user(db: Session, user_id: uuid.UUID) -> list[str]:
@@ -60,7 +96,7 @@ def _issue_tokens(user: User, roles: list[str]) -> TokenResponse:
 
 
 def register_organization(db: Session, payload: RegisterOrganizationRequest) -> TokenResponse:
-    """Bootstrap a new tenant: creates the Organization and its first ORG_ADMIN user."""
+    """Bootstrap a new tenant: creates the Organization, initial active Subscription with default Plan, and ORG_ADMIN user."""
     existing = db.execute(
         select(User).where(User.email == payload.admin_email)
     ).scalar_one_or_none()
@@ -83,6 +119,17 @@ def register_organization(db: Session, payload: RegisterOrganizationRequest) -> 
 
     db.add(UserRole(user_id=user.id, role_name=Role.ORG_ADMIN.value, organization_id=org.id))
 
+    default_plan = _get_or_create_default_plan(db)
+    sub = Subscription(
+        organization_id=org.id,
+        plan_id=default_plan.id,
+        status=SubscriptionStatus.ACTIVE,
+        starts_at=datetime.now(UTC) - timedelta(minutes=1),
+        ends_at=None,
+    )
+    db.add(sub)
+    db.flush()
+
     record_audit_event(
         db,
         organization_id=org.id,
@@ -90,6 +137,15 @@ def register_organization(db: Session, payload: RegisterOrganizationRequest) -> 
         action="organization.register",
         entity_type="Organization",
         entity_id=org.id,
+    )
+    record_audit_event(
+        db,
+        organization_id=org.id,
+        user_id=user.id,
+        action="platform.subscription.created",
+        entity_type="Subscription",
+        entity_id=sub.id,
+        metadata={"plan_id": str(default_plan.id), "status": sub.status},
     )
 
     db.commit()

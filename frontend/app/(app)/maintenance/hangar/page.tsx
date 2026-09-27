@@ -1,8 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge, priorityBadge, workOrderStatusBadge, checklistResultBadge } from "@/components/status/StatusBadge";
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { useSession } from "@/lib/auth/SessionContext";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
 import { workOrders, isOverdue } from "@/lib/mock/workOrders";
 import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getTechnicianById } from "@/lib/mock/technicians";
@@ -13,8 +18,78 @@ import { getInspectorReviewById } from "@/lib/mock/inspectorReviews";
 import { getTechnicianWorkload } from "@/lib/mock/ai/analytics";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 
+const WO_TERMINAL_STATUSES = new Set(["COMPLETED", "CLOSED", "CANCELLED"]);
+
+/** Real active work orders (asset, status, priority, assigned technician,
+ * due date) -- the facts the Hangar Floor concept actually maps to on the
+ * real backend. The below-decks checklist-execution simulation (per-item
+ * PASS/FAIL/UNKNOWN, defects, part blockers) has no backend equivalent yet
+ * (MroStateContext is a client-only prototype), so it stays demo-only and
+ * clearly labeled rather than being fabricated against real work orders. */
+function RealActiveWorkOrders() {
+  const { accessToken, isAuthenticated, sessionType } = useSession();
+  const [realWorkOrders, setRealWorkOrders] = useState<BackendWorkOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || sessionType === "DEMO") {
+      setLoading(false);
+      return;
+    }
+    if (!accessToken) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    workOrdersApi
+      .list(accessToken, { limit: 100 })
+      .then((all) => setRealWorkOrders(all.filter((w) => !WO_TERMINAL_STATUSES.has(w.status))))
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setLoading(false));
+  }, [accessToken, isAuthenticated, sessionType]);
+
+  if (!isAuthenticated || sessionType === "DEMO") return null;
+
+  return (
+    <section className="ac-section">
+      <div className="ac-section-header">
+        <h2 className="ac-h2" style={{ margin: 0 }}>Active Work Orders (Live)</h2>
+        <span className="ac-badge ac-badge-active">REAL DATA</span>
+      </div>
+      <RealDataPanel
+        loading={loading}
+        error={error}
+        isEmpty={!loading && !error && realWorkOrders.length === 0}
+        emptyMessage="No active work orders for this organization."
+      >
+        <div className="ac-grid-2">
+          {realWorkOrders.map((wo) => (
+            <Link key={wo.id} href={`/maintenance/work-orders/${wo.id}`} className="ac-card" style={{ display: "block" }}>
+              <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 6 }}>
+                <span className="ac-mono" style={{ fontWeight: 600 }}>{wo.work_order_number}</span>
+                <div className="ac-flex ac-gap-2">
+                  <StatusBadge {...priorityBadge(wo.priority)} />
+                  <StatusBadge {...workOrderStatusBadge(wo.status)} />
+                </div>
+              </div>
+              <p className="ac-text-sm ac-text-secondary" style={{ margin: "0 0 6px" }}>{wo.title || "Untitled Work Order"}</p>
+              <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                {wo.assigned_to_user_id ? "Technician assigned" : "Unassigned"}
+                {wo.due_at ? ` · Due ${new Date(wo.due_at).toLocaleDateString()}` : ""}
+              </p>
+            </Link>
+          ))}
+        </div>
+      </RealDataPanel>
+    </section>
+  );
+}
+
 export default function HangarFloorPage() {
   const { submissions } = useMroState();
+  const { sessionType } = useSession();
 
   // "Under maintenance" = any aircraft with a work order that is not
   // COMPLETED/CANCELLED — same definition used by getOperationsAnalytics,
@@ -64,14 +139,23 @@ export default function HangarFloorPage() {
       <div className="ac-section-header">
         <div>
           <h1 className="ac-h1">Hangar Floor</h1>
-          <p className="ac-subtitle">{aircraftIds.length} aircraft under maintenance · {activeWos.length} active work order(s). Technician execution view.</p>
+          <p className="ac-subtitle">
+            {sessionType === "DEMO"
+              ? `${aircraftIds.length} aircraft under maintenance · ${activeWos.length} active work order(s). Technician execution view.`
+              : "Real active work orders below; the checklist-execution risk board is illustrative demo data (no backend checklist-execution model exists yet)."}
+          </p>
         </div>
         <Link href="/maintenance/operations" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Operations Command Center →</Link>
       </div>
 
+      <RealActiveWorkOrders />
+
       {/* M3.6 — Hangar Risk Board */}
       <section className="ac-section">
-        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Hangar Risk Board</h2>
+        <div className="ac-section-header">
+          <h2 className="ac-h2" style={{ margin: 0 }}>Hangar Risk Board</h2>
+          <span className="ac-illustrative-badge">Illustrative Data</span>
+        </div>
         <div className="ac-kpi-grid">
           <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">Blocked (UNKNOWN)</p>
@@ -102,7 +186,10 @@ export default function HangarFloorPage() {
 
       {/* M3.0 / M3.1 — Digital Task Cards, one per active work order */}
       <section className="ac-section">
-        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Active Work — Task Cards</h2>
+        <div className="ac-section-header">
+          <h2 className="ac-h2" style={{ margin: 0 }}>Active Work — Task Cards</h2>
+          <span className="ac-illustrative-badge">Illustrative Data</span>
+        </div>
         {cards.length === 0 ? (
           <p className="ac-text-sm ac-text-muted">Insufficient source data.</p>
         ) : (

@@ -31,6 +31,10 @@ export interface BackendFinding {
   inspection_requirement_id: string | null;
   work_order_id: string | null;
   task_id: string | null;
+  compliance_obligation_id?: string | null;
+  regulatory_requirement_id?: string | null;
+  safety_significance?: string | null;
+  compliance_relevance?: string | null;
   title: string;
   description: string;
   severity: string;
@@ -83,6 +87,11 @@ export const findingsApi = {
       { accessToken }
     ),
 
+  listForWorkOrder: (accessToken: string, workOrderId: string) =>
+    apiRequest<BackendFinding[]>(`/findings?work_order_id=${encodeURIComponent(workOrderId)}`, {
+      accessToken,
+    }),
+
   addDisposition: (
     accessToken: string,
     findingId: string,
@@ -96,4 +105,20 @@ export const findingsApi = {
 
   close: (accessToken: string, findingId: string) =>
     apiRequest<BackendFinding>(`/findings/${findingId}/close`, { method: "POST", accessToken }),
+
+  correlateCompliance: (
+    accessToken: string,
+    findingId: string,
+    payload: {
+      compliance_obligation_id?: string;
+      regulatory_requirement_id?: string;
+      safety_significance?: string;
+      compliance_relevance?: string;
+    }
+  ) =>
+    apiRequest<BackendFinding>(`/findings/${findingId}/correlate-compliance`, {
+      method: "POST",
+      accessToken,
+      body: payload,
+    }),
 };

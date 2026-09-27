@@ -631,6 +631,112 @@ def _investigate_assessment(
     )
 
 
+def _investigate_proactive_intelligence(
+    db: Session, user: CurrentUser, resolution: MessageResolution
+) -> InvestigationResult:
+    budget = _CallBudget(db, user)
+    context = resolution.context
+
+    # If context has a specific aircraft/asset, fetch per-asset signals
+    if context.current_aircraft_id:
+        try:
+            aircraft_info = budget.call("get_aircraft", {"aircraft_id": str(context.current_aircraft_id)})
+            asset_signals = budget.call("get_asset_proactive_signals", {"asset_id": str(context.current_aircraft_id)})
+        except AeroComplyError as exc:
+            return _error_result(Intent.PROACTIVE_INTELLIGENCE, exc, budget.tools_invoked)
+
+        reg = aircraft_info.get("registration", "Asset") if aircraft_info else "Asset"
+        signals = asset_signals.get("signals", []) if asset_signals else []
+        active_signals = [s for s in signals if s.get("status") not in ("RESOLVED", "DISMISSED")]
+
+        if not active_signals:
+            return InvestigationResult(
+                intent=Intent.PROACTIVE_INTELLIGENCE.value,
+                status="ANSWERED",
+                headline=f"No active proactive alerts or emerging risks for {reg}.",
+                tools_invoked=budget.tools_invoked,
+                what_i_found=[f"{reg} has no active threshold, recurring finding, or compliance gap alerts."],
+                why_it_matters="All operational and maintenance parameters are within nominal thresholds.",
+                next_step="Continue routine flight logging and scheduled monitoring.",
+            )
+
+        top = active_signals[0]
+        what_i_found = [f"{s.get('severity')}: {s.get('headline')}" for s in active_signals[:4]]
+        why_it_matters = f"{top.get('title')} ({top.get('severity')} priority) requires operational attention."
+        next_step = top.get("recommended_actions", [{}])[0].get("description", "Review asset operational workspace.")
+
+        return InvestigationResult(
+            intent=Intent.PROACTIVE_INTELLIGENCE.value,
+            status="ANSWERED",
+            headline=f"{len(active_signals)} proactive intelligence alert(s) for {reg} ({top.get('severity')} priority).",
+            tools_invoked=budget.tools_invoked,
+            what_i_found=what_i_found,
+            why_it_matters=why_it_matters,
+            next_step=next_step,
+            related_records=[RelatedRecord(label="Asset", id=str(context.current_aircraft_id))],
+        )
+
+    # Fleet-wide Proactive Intelligence Summary
+    try:
+        summary = budget.call("get_proactive_intelligence_summary", {})
+    except AeroComplyError as exc:
+        return _error_result(Intent.PROACTIVE_INTELLIGENCE, exc, budget.tools_invoked)
+
+    if summary is None:
+        return InvestigationResult(
+            intent=Intent.PROACTIVE_INTELLIGENCE.value,
+            status="BACKEND_UNAVAILABLE",
+            headline="I couldn't retrieve the proactive intelligence summary.",
+            tools_invoked=budget.tools_invoked,
+        )
+
+    total = summary.get("total_active_signals", 0)
+    critical_count = summary.get("critical_count", 0)
+    high_count = summary.get("high_count", 0)
+    signals = summary.get("signals", [])
+
+    if total == 0:
+        return InvestigationResult(
+            intent=Intent.PROACTIVE_INTELLIGENCE.value,
+            status="ANSWERED",
+            headline="No active operational risks or threshold alerts across the fleet.",
+            tools_invoked=budget.tools_invoked,
+            what_i_found=["All fleet assets are currently operating within nominal thresholds."],
+            why_it_matters="Zero overdue maintenance or critical findings detected.",
+            next_step="Monitor daily operational sorties and flight hours.",
+        )
+
+    what_i_found = [
+        f"[{s.get('severity')}] {s.get('headline')}"
+        for s in signals[:5]
+    ]
+
+    headline = (
+        f"{total} operational alert(s) require attention: "
+        f"{critical_count} critical, {high_count} high priority."
+    )
+    why_it_matters = (
+        "Emerging thresholds and recurring findings impact operational readiness and maintenance dispatch."
+    )
+    next_step = "Review the top-priority items in the Operational Command Center."
+
+    related: list[RelatedRecord] = []
+    for s in signals[:3]:
+        if s.get("asset_id"):
+            related.append(RelatedRecord(label=s.get("asset_registration") or "Asset", id=str(s["asset_id"])))
+
+    return InvestigationResult(
+        intent=Intent.PROACTIVE_INTELLIGENCE.value,
+        status="ANSWERED",
+        headline=headline,
+        tools_invoked=budget.tools_invoked,
+        what_i_found=what_i_found,
+        why_it_matters=why_it_matters,
+        next_step=next_step,
+        related_records=related,
+    )
+
+
 _INVESTIGATORS = {
     Intent.AOG: _investigate_aog,
     Intent.RELEASE_READINESS: _investigate_release_readiness,
@@ -638,6 +744,7 @@ _INVESTIGATORS = {
     Intent.PROCUREMENT_CHAIN: _investigate_procurement_chain,
     Intent.COMPLIANCE: _investigate_compliance,
     Intent.ASSESSMENT: _investigate_assessment,
+    Intent.PROACTIVE_INTELLIGENCE: _investigate_proactive_intelligence,
 }
 
 # Which entity_type(s) each intent's investigator actually reads from
@@ -651,6 +758,7 @@ _INTENT_ENTITY_TYPES: dict[Intent, tuple[str, ...]] = {
     Intent.PROCUREMENT_CHAIN: ("purchase_order", "procurement_request"),
     Intent.COMPLIANCE: ("aircraft",),
     Intent.ASSESSMENT: (),
+    Intent.PROACTIVE_INTELLIGENCE: ("aircraft",),
 }
 
 

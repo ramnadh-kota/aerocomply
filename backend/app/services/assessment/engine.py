@@ -148,7 +148,7 @@ def _aog_findings(db: Session, organization_id: uuid.UUID, aircraft) -> list[_Dr
 def _release_findings_for_non_aog_work_orders(
     db: Session, organization_id: uuid.UUID, aog_work_order_ids: set[str]
 ) -> list[_DraftFinding]:
-    work_orders = work_order_service.list_work_orders(db, organization_id=organization_id)
+    work_orders, _ = work_order_service.list_work_orders(db, organization_id=organization_id)
     drafts: list[_DraftFinding] = []
     for wo in work_orders:
         if str(wo.id) in aog_work_order_ids:

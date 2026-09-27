@@ -205,6 +205,7 @@ class TestTenantIsolation:
         task = work_order_service.create_task(
             db_session,
             organization_id=org_id,
+            actor_user_id=user_id,
             payload=TaskCreateRequest(work_order_id=work_order.id, description="Inspect panel"),
         )
         return evidence_service.create_evidence(

@@ -89,14 +89,21 @@ def _make_plan(db_session, *, code, feature_key, enabled=True):
 
 
 def _subscribe(db_session, *, org_id, plan, status=SubscriptionStatus.ACTIVE, ends_at=None):
-    sub = Subscription(
-        organization_id=org_id,
-        plan_id=plan.id,
-        status=status,
-        starts_at=datetime.now(UTC) - timedelta(days=1),
-        ends_at=ends_at,
-    )
-    db_session.add(sub)
+    sub = db_session.query(Subscription).filter(Subscription.organization_id == org_id).first()
+    if sub is not None:
+        sub.plan_id = plan.id
+        sub.status = status
+        sub.starts_at = datetime.now(UTC) - timedelta(days=1)
+        sub.ends_at = ends_at
+    else:
+        sub = Subscription(
+            organization_id=org_id,
+            plan_id=plan.id,
+            status=status,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+            ends_at=ends_at,
+        )
+        db_session.add(sub)
     db_session.commit()
     return sub
 
@@ -123,8 +130,13 @@ class TestEntitledOrgSucceeds:
 
 class TestUnentitledOrgDenied:
     def test_no_subscription_gets_403_with_stable_code(self, client, db_session):
+        from sqlalchemy import delete
+
         org = _register(client, "Unentitled Org WO", "unent-wo@example.com")
         token = _login(client, "unent-wo@example.com")["access_token"]
+        org_id = _org_id(client, token)
+        db_session.execute(delete(Subscription).where(Subscription.organization_id == org_id))
+        db_session.commit()
 
         resp = client.get("/api/v1/work-orders", headers=_auth(token))
         assert resp.status_code == 403
@@ -146,6 +158,9 @@ class TestUnentitledOrgDenied:
         # but that must not substitute for entitlement.
         org = _register(client, "Unentitled Org Procurement", "unent-proc@example.com")
         token = _login(client, "unent-proc@example.com")["access_token"]
+        org_id = _org_id(client, token)
+        plan = _make_plan(db_session, code="PLAN-NO-PROCUREMENT", feature_key="procurement_management", enabled=False)
+        _subscribe(db_session, org_id=org_id, plan=plan)
 
         resp = client.get("/api/v1/procurement-requests", headers=_auth(token))
         assert resp.status_code == 403
@@ -194,11 +209,14 @@ class TestTenantIsolation:
         _register(client, "Isolation Org B", "iso-b@example.com")
         token_a = _login(client, "iso-a@example.com")["access_token"]
         token_b = _login(client, "iso-b@example.com")["access_token"]
+        org_a_id = _org_id(client, token_a)
         org_b_id = _org_id(client, token_b)
+
+        plan_a = _make_plan(db_session, code="PLAN-ISO-A", feature_key="drone_fleet_management", enabled=False)
+        _subscribe(db_session, org_id=org_a_id, plan=plan_a)
 
         plan_b = _make_plan(db_session, code="PLAN-ISO-B", feature_key="drone_fleet_management", enabled=True)
         _subscribe(db_session, org_id=org_b_id, plan=plan_b)
-        # Org A has no subscription at all.
 
         resp = client.get("/api/v1/drones", headers=_auth(token_a))
         assert resp.status_code == 403

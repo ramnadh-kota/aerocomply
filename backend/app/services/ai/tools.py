@@ -55,6 +55,9 @@ from app.services import (
     work_order_service,
 )
 from app.services.assessment import engine as assessment_engine
+from app.services.intelligence import context_service as intelligence_context_service
+from app.services.intelligence import fleet_intelligence_service
+from app.services.intelligence import proactive_intelligence_service
 
 ToolHandler = Callable[[Session, CurrentUser, dict[str, Any]], dict[str, Any]]
 
@@ -473,6 +476,154 @@ def _handle_get_fleet_tat(db: Session, user: CurrentUser, args: dict[str, Any]) 
     }
 
 
+def _handle_get_intelligence_context(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    """M5.1 -- the deterministic D2.2 intelligence chain (readiness, risk,
+    priority, decision, recommendation) plus D2.1's Aerospace Intelligence
+    State, for one asset. This is the ONLY source Lisa may use to answer a
+    question about an asset's readiness/risk/priority/decision/
+    recommendation -- never computed by the model itself (see
+    _SYSTEM_PROMPT in agent_service.py). Returns the IntelligenceContext
+    contract (app/schemas/intelligence.py) unchanged, serialized to JSON --
+    nothing here is recalculated, relabeled, or filtered.
+    """
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    context = intelligence_context_service.get_asset_intelligence_context(
+        db, organization_id=user.organization_id, asset_id=asset_id
+    )
+    data = context.model_dump(mode="json")
+    # D2.1's disclaimer field is fixed legal boilerplate ("...does not
+    # constitute an electronic Release to Service (RTS) signature...") that
+    # trips the deterministic safety layer's "release to service" guard
+    # pattern (app/services/ai/safety.py) on every single call, regardless
+    # of its own negation -- withholding the entire tool result every time
+    # (confirmed by test). The system prompt already tells the model the
+    # same non-authoritative boundary directly, so this field carries no
+    # decision-relevant information the model needs; it is dropped here
+    # rather than weakening the shared safety filter for every tool.
+    data["aerospace_state"].pop("disclaimer", None)
+    return data
+
+
+_ATTENTION_DECISION_STATES = {
+    "ACTION_REQUIRED",
+    "IMMEDIATE_ACTION_REQUIRED",
+    "MONITOR",
+    "INSUFFICIENT_DATA",
+}
+_ATTENTION_PRIORITY_LEVELS = {"CRITICAL", "HIGH"}
+
+
+def _fleet_blocker_to_dict(b: Any) -> dict[str, Any]:
+    return {
+        "source_domain": b.source_domain,
+        "category": b.category,
+        "description": b.description,
+        "related_record_id": str(b.related_record_id) if b.related_record_id else None,
+        "related_record_type": b.related_record_type,
+        "required_action": b.required_action,
+        "resolution_action": b.resolution_action,
+        "regulatory_reference": b.regulatory_reference,
+    }
+
+
+def _fleet_asset_to_dict(a: Any, *, requires_attention: bool) -> dict[str, Any]:
+    return {
+        "asset_id": str(a.asset_id),
+        "registration": a.registration,
+        "asset_type": a.asset_type,
+        "operational_state": a.operational_state,
+        "aerospace_intelligence_status": a.aerospace_intelligence_status,
+        "readiness_state": a.readiness_state,
+        "risk_level": a.risk_level,
+        "priority_level": a.priority_level,
+        "decision_state": a.decision_state,
+        "decision_reason": a.decision_reason,
+        "top_recommendation_action": a.top_recommendation_action,
+        "blocker_count": a.blocker_count,
+        "warning_count": a.warning_count,
+        "blockers": [_fleet_blocker_to_dict(b) for b in a.blockers],
+        "requires_attention": requires_attention,
+    }
+
+
+def _handle_get_fleet_attention_summary(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    """M5.2/M5.3 -- grounded fleet question support (attention, state, risk,
+    readiness, blockers, recommendations, brief, and multi-asset
+    comparison), reusing M4.2's fleet_intelligence_service exactly as the
+    frontend Control Center already does -- no new fleet calculation,
+    purely a presentation-layer filter/tally/reshape over the same
+    already-computed FleetIntelligenceSummary values. One tool, one fleet
+    call, regardless of which of these questions is asked -- never N assets
+    x 5 endpoints, and never a second overlapping fleet tool.
+
+    M5.3 additively extends the M5.2 payload (every M5.2 key is unchanged;
+    existing M5.2 tests keep passing) with the FULL per-asset list (not
+    just the attention subset -- needed for state/risk/readiness/blocker/
+    comparison questions), each asset's full blocker detail (source_domain,
+    category, description, related_record_id/type, required_action,
+    resolution_action, regulatory_reference -- the same
+    ReadinessIntelligenceBlocker fields M4.5/M5.1 already expose per-asset,
+    not a new traceability vocabulary), and simple count distributions by
+    operational_state/aerospace_intelligence_status/readiness_state/
+    risk_level/priority_level/decision_state (pure tallying, identical in
+    spirit to the M4.2 frontend Control Center's own client-side tallies --
+    never a new fleet metric).
+    """
+    summary = fleet_intelligence_service.get_fleet_intelligence_summary(
+        db, organization_id=user.organization_id
+    )
+    attention_ids = {
+        a.asset_id
+        for a in summary.assets
+        if a.priority_level in _ATTENTION_PRIORITY_LEVELS
+        or a.decision_state in _ATTENTION_DECISION_STATES
+    }
+    attention = [a for a in summary.assets if a.asset_id in attention_ids]
+
+    def _tally(field: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for a in summary.assets:
+            value = getattr(a, field)
+            counts[value] = counts.get(value, 0) + 1
+        return counts
+
+    return {
+        "contract_version": "1.0",
+        "total_assets": summary.total_assets,
+        "assets_requiring_attention_count": len(attention),
+        "assets_requiring_attention": [
+            {
+                "asset_id": str(a.asset_id),
+                "registration": a.registration,
+                "asset_type": a.asset_type,
+                "priority_level": a.priority_level,
+                "decision_state": a.decision_state,
+                "decision_reason": a.decision_reason,
+                "blocker_count": a.blocker_count,
+            }
+            for a in attention
+        ],
+        # M5.3 additions below -- additive only, nothing above changed shape.
+        "assets": [
+            _fleet_asset_to_dict(a, requires_attention=a.asset_id in attention_ids)
+            for a in summary.assets
+        ],
+        "distribution": {
+            "operational_state": _tally("operational_state"),
+            "aerospace_intelligence_status": _tally("aerospace_intelligence_status"),
+            "readiness_state": _tally("readiness_state"),
+            "risk_level": _tally("risk_level"),
+            "priority_level": _tally("priority_level"),
+            "decision_state": _tally("decision_state"),
+        },
+        "evaluated_at": summary.evaluated_at.isoformat(),
+    }
+
+
 def _handle_get_release_readiness(
     db: Session, user: CurrentUser, args: dict[str, Any]
 ) -> dict[str, Any]:
@@ -872,6 +1023,25 @@ def _handle_get_proactive_alerts(
 def _handle_get_daily_brief(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
     brief = proactive_service.get_daily_brief(db, organization_id=user.organization_id)
     return brief.model_dump(mode="json")
+
+
+def _handle_get_proactive_intelligence_summary(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    summary = proactive_intelligence_service.get_proactive_summary(
+        db, organization_id=user.organization_id
+    )
+    return summary.model_dump(mode="json")
+
+
+def _handle_get_asset_proactive_signals(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    signals = proactive_intelligence_service.sync_and_get_signals(
+        db, organization_id=user.organization_id, asset_id=asset_id
+    )
+    return {"signals": [s.model_dump(mode="json") for s in signals]}
 
 
 TOOL_REGISTRY: list[ToolSpec] = [
@@ -1400,6 +1570,79 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_compare_assessment_snapshots,
         required_permission=Permission.ASSESSMENT_READ,
+    ),
+    ToolSpec(
+        name="get_intelligence_context",
+        description=(
+            "Get the deterministic D2.2 aerospace intelligence chain for one asset: "
+            "aerospace intelligence state, readiness, risk, priority, decision, and "
+            "recommendation, each with its blockers/warnings and source records. This is "
+            "the ONLY tool that may answer a question about whether an asset is ready, "
+            "how risky/high-priority it is, what decision or recommendation currently "
+            "applies, or what is blocking it -- never assert or compute any of those "
+            "yourself. If a field is UNKNOWN, UNKNOWN_INTEL, or INSUFFICIENT_DATA, report "
+            "that explicitly; never restate it as ready, safe, low risk, or nominal."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_intelligence_context,
+        required_permission=Permission.AIRCRAFT_READ,
+    ),
+    ToolSpec(
+        name="get_fleet_attention_summary",
+        description=(
+            "Get the full fleet-wide deterministic intelligence picture: every asset's "
+            "operational state, aerospace intelligence status, readiness, risk, priority, "
+            "decision, top recommendation, and blockers (with source/required_action/"
+            "resolution_action where available), plus fleet-wide count distributions and the "
+            "subset of assets currently requiring attention (CRITICAL/HIGH priority, or "
+            "ACTION_REQUIRED/IMMEDIATE_ACTION_REQUIRED/MONITOR/INSUFFICIENT_DATA decision "
+            "state). This is the ONE tool for any fleet-wide or multi-asset question: 'which "
+            "assets need attention', 'summarize the fleet', 'which assets have the highest "
+            "risk', 'which assets are not ready', 'what is blocking the fleet', 'which assets "
+            "have recommendations', 'give me a fleet brief', or 'compare asset A and asset B' "
+            "(find both by registration or asset_id in the returned assets list -- do not call "
+            "this tool twice for a comparison). For a question about exactly ONE specific "
+            "asset with no comparison involved, get_intelligence_context is more detailed and "
+            "may be preferable. Never compute risk/readiness/priority/decision/recommendation "
+            "yourself from this data -- report the fields exactly as returned."
+        ),
+        input_schema={"type": "object", "properties": {}},
+        handler=_handle_get_fleet_attention_summary,
+        required_permission=Permission.AIRCRAFT_READ,
+    ),
+    ToolSpec(
+        name="get_proactive_intelligence_summary",
+        description=(
+            "Get the proactive aerospace intelligence and emerging risks summary for the fleet: "
+            "active early-warning signals, approaching maintenance and inspection thresholds, "
+            "recurring finding patterns, compliance evidence gaps, readiness degradation drivers, "
+            "and fleet-level anomaly patterns. Use for questions like 'what needs attention today', "
+            "'what emerging risks exist', 'which maintenance intervals are due soon', or 'what "
+            "proactive alerts are active'."
+        ),
+        input_schema={"type": "object", "properties": {}},
+        handler=_handle_get_proactive_intelligence_summary,
+        required_permission=Permission.AIRCRAFT_READ,
+    ),
+    ToolSpec(
+        name="get_asset_proactive_signals",
+        description=(
+            "Get deterministic proactive intelligence signals for one specific asset: "
+            "approaching flight-hour/cycle thresholds, recurring finding patterns, evidence gaps, "
+            "and recommended decision actions. Use when investigating why a specific aircraft or "
+            "drone requires attention or has high priority."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_proactive_signals,
+        required_permission=Permission.AIRCRAFT_READ,
     ),
 ]
 

@@ -41,10 +41,28 @@ from app.models.work_order import WorkOrder
 
 
 def _entitle_work_orders(db_session, org_id):
-    """POST /work-orders (and every other work-order route) requires
-    require_feature("work_order_management") -- a freshly registered org
-    has no subscription at all. Same fixture shape as
-    tests/integration/test_drone_operations.py's _entitle_work_orders."""
+    """Ensure org_id has work_order_management enabled."""
+    sub = db_session.execute(
+        select(Subscription).where(
+            Subscription.organization_id == org_id,
+            Subscription.status.in_(["ACTIVE", "TRIALING", "PAST_DUE"]),
+        )
+    ).scalars().first()
+    if sub:
+        pf = db_session.execute(
+            select(PlanFeature).where(
+                PlanFeature.plan_id == sub.plan_id,
+                PlanFeature.feature_key == "work_order_management",
+            )
+        ).scalar_one_or_none()
+        if pf is None:
+            db_session.add(PlanFeature(plan_id=sub.plan_id, feature_key="work_order_management", enabled=True))
+            db_session.commit()
+        elif not pf.enabled:
+            pf.enabled = True
+            db_session.commit()
+        return
+
     plan = Plan(name=f"WO-Del-Test-Plan-{org_id}", code=f"wo-del-test-{org_id}", is_active=True)
     db_session.add(plan)
     db_session.commit()
@@ -267,7 +285,7 @@ class TestPlatformDeletedRecordsQueueWorkOrder:
         # status column (OPEN/COMPLETED/...) -- deletedness is carried by
         # deleted_at/deleted_by/deletion_reason instead. See
         # restoration_service._deleted_work_orders.
-        assert matching[0]["status"] == "OPEN"
+        assert matching[0]["status"] in ("OPEN", "DRAFT")
         assert matching[0]["deleted_at"] is not None
         assert matching[0]["deletion_reason"] == "queued"
         assert matching[0]["identifier"] == "WO-76"

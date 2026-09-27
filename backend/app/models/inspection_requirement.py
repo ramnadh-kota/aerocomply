@@ -3,7 +3,7 @@ from enum import StrEnum
 
 from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
 
@@ -39,6 +39,18 @@ class InspectionRequirement(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=True, index=True
     )
+    compliance_obligation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("compliance_obligations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    regulatory_requirement_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("regulatory_requirements.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     inspector_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
@@ -47,3 +59,6 @@ class InspectionRequirement(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base
         String(32), nullable=False, default=InspectionRequirementStatus.PENDING.value
     )
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    compliance_obligation = relationship("ComplianceObligation", back_populates="inspection_requirements")
+    regulatory_requirement = relationship("RegulatoryRequirement")

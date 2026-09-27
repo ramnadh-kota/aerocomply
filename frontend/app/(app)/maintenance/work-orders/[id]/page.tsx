@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, workOrderStatusBadge, priorityBadge, partStatusBadge, inspectorReviewStatusBadge, genericStatusBadge } from "@/components/status/StatusBadge";
+import {
+  StatusBadge,
+  workOrderStatusBadge,
+  priorityBadge,
+  partStatusBadge,
+  inspectorReviewStatusBadge,
+  genericStatusBadge,
+  tatStatusBadge,
+} from "@/components/status/StatusBadge";
 import { EvidenceCard } from "@/components/evidence/EvidenceCard";
 import { ChecklistPanel } from "@/components/maintenance/ChecklistPanel";
 import { getWorkOrderById } from "@/lib/mock/workOrders";
@@ -21,45 +29,88 @@ import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { getChecklistByWorkOrderId } from "@/lib/mock/checklists";
 import { auditEventsForObjectLabelContains } from "@/lib/mock/audit";
 import { Timeline } from "@/components/timeline/Timeline";
-import { useCallback, useEffect, useState as useReactState, use } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
-import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
-import { tasksApi, type BackendTask } from "@/lib/api/tasks";
+import {
+  workOrdersApi,
+  type BackendWorkOrder,
+  type TatStatusResponse,
+} from "@/lib/api/workOrders";
+import { tasksApi, type BackendTask, type TaskCreatePayload } from "@/lib/api/tasks";
+import { partRequirementsApi, type BackendPartRequirement } from "@/lib/api/parts";
+import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { RealTaskGatePanel } from "@/components/evidence/RealTaskGatePanel";
 import { RealReleaseReadinessPanel } from "@/components/evidence/RealReleaseReadinessPanel";
 
+const LIFECYCLE_STEPS = [
+  "DRAFT",
+  "OPEN",
+  "PLANNED",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "INSPECTION",
+  "COMPLETED",
+  "CLOSED",
+];
+
 function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
   const { apiBaseUrl } = useDataMode();
   const { accessToken, isAuthenticated } = useSession();
-  const [wo, setWo] = useReactState<BackendWorkOrder | null>(null);
-  const [tasks, setTasks] = useReactState<BackendTask[]>([]);
-  const [loading, setLoading] = useReactState(true);
-  const [error, setError] = useReactState<NormalizedApiError | null>(null);
-  const [taskActionError, setTaskActionError] = useReactState<string | null>(null);
-  const [busyTaskId, setBusyTaskId] = useReactState<string | null>(null);
-  // Bumped after a task completion to force RealReleaseReadinessPanel to
-  // remount and refetch — it has no externally callable refresh, so a key
-  // change is the simplest "refetch both" mechanism consistent with this
-  // page's existing plain-useEffect data loading (no shared cache layer).
-  const [readinessRefreshKey, setReadinessRefreshKey] = useReactState(0);
 
-  const loadWorkOrderAndTasks = useCallback(() => {
+  const [wo, setWo] = useState<BackendWorkOrder | null>(null);
+  const [tasks, setTasks] = useState<BackendTask[]>([]);
+  const [parts, setParts] = useState<BackendPartRequirement[]>([]);
+  const [findings, setFindings] = useState<BackendFinding[]>([]);
+  const [tat, setTat] = useState<TatStatusResponse | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [readinessRefreshKey, setReadinessRefreshKey] = useState(0);
+  const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+
+  // Modal Dialogs
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assigneeId, setAssigneeId] = useState("");
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
+  const [newTaskNumber, setNewTaskNumber] = useState("");
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDesc, setNewTaskDesc] = useState("");
+  const [newTaskHours, setNewTaskHours] = useState("");
+  const [newTaskEvidence, setNewTaskEvidence] = useState(false);
+  const [newTaskNotes, setNewTaskNotes] = useState("");
+
+  const loadData = useCallback(() => {
     if (!isAuthenticated || !accessToken) {
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
-    return Promise.all([workOrdersApi.get(accessToken, workOrderId), tasksApi.listForWorkOrder(accessToken, workOrderId)])
-      .then(([woData, taskData]) => {
-        setWo(woData);
-        setTasks(taskData);
-      })
-      .catch((err) => {
-        setError(normalizeApiError(err));
+
+    Promise.allSettled([
+      workOrdersApi.get(accessToken, workOrderId),
+      tasksApi.listForWorkOrder(accessToken, workOrderId),
+      partRequirementsApi.listForWorkOrder(accessToken, workOrderId),
+      findingsApi.listForWorkOrder(accessToken, workOrderId),
+      workOrdersApi.getTat(accessToken, workOrderId),
+    ])
+      .then(([woRes, tasksRes, partsRes, findingsRes, tatRes]) => {
+        if (woRes.status === "fulfilled") setWo(woRes.value);
+        else setError(normalizeApiError(woRes.reason));
+
+        if (tasksRes.status === "fulfilled") setTasks(tasksRes.value);
+        if (partsRes.status === "fulfilled") setParts(partsRes.value);
+        if (findingsRes.status === "fulfilled") setFindings(findingsRes.value);
+        if (tatRes.status === "fulfilled") setTat(tatRes.value);
       })
       .finally(() => {
         setLoading(false);
@@ -67,19 +118,162 @@ function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
   }, [accessToken, isAuthenticated, workOrderId]);
 
   useEffect(() => {
-    loadWorkOrderAndTasks();
-  }, [loadWorkOrderAndTasks]);
+    loadData();
+  }, [loadData]);
 
+  // Transition handler
+  const handleTransition = async (targetStatus: string, reason?: string) => {
+    if (!accessToken || isSubmitting) return;
+    setActionError(null);
+    setActionSuccess(null);
+    setIsSubmitting(true);
+    try {
+      const updated = await workOrdersApi.transition(accessToken, workOrderId, {
+        target_status: targetStatus,
+        reason,
+      });
+      setWo(updated);
+      setActionSuccess(`Status transitioned to ${targetStatus.replace(/_/g, " ")}.`);
+      setReadinessRefreshKey((k) => k + 1);
+      loadData();
+    } catch (err) {
+      setActionError(normalizeApiError(err).message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Complete handler
+  const handleComplete = async () => {
+    if (!accessToken || isSubmitting) return;
+    setActionError(null);
+    setActionSuccess(null);
+    setIsSubmitting(true);
+    try {
+      const updated = await workOrdersApi.complete(accessToken, workOrderId);
+      setWo(updated);
+      setActionSuccess("Work order marked as COMPLETED.");
+      setReadinessRefreshKey((k) => k + 1);
+      loadData();
+    } catch (err) {
+      setActionError(normalizeApiError(err).message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Close handler
+  const handleClose = async () => {
+    if (!accessToken || isSubmitting) return;
+    setActionError(null);
+    setActionSuccess(null);
+    setIsSubmitting(true);
+    try {
+      const updated = await workOrdersApi.close(accessToken, workOrderId);
+      setWo(updated);
+      setActionSuccess("Work order successfully CLOSED. Release readiness verified.");
+      setReadinessRefreshKey((k) => k + 1);
+      loadData();
+    } catch (err) {
+      setActionError(normalizeApiError(err).message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Assign handler
+  const handleAssignSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accessToken || !assigneeId.trim() || isSubmitting) return;
+    setActionError(null);
+    setActionSuccess(null);
+    setIsSubmitting(true);
+    try {
+      const updated = await workOrdersApi.assign(accessToken, workOrderId, {
+        assigned_to_user_id: assigneeId.trim(),
+      });
+      setWo(updated);
+      setShowAssignModal(false);
+      setAssigneeId("");
+      setActionSuccess("Technician successfully assigned.");
+      loadData();
+    } catch (err) {
+      setActionError(normalizeApiError(err).message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Cancel handler
+  const handleCancelSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accessToken || cancellationReason.trim().length < 3 || isSubmitting) return;
+    setActionError(null);
+    setActionSuccess(null);
+    setIsSubmitting(true);
+    try {
+      const updated = await workOrdersApi.cancel(accessToken, workOrderId, {
+        cancellation_reason: cancellationReason.trim(),
+      });
+      setWo(updated);
+      setShowCancelModal(false);
+      setCancellationReason("");
+      setActionSuccess("Work order CANCELLED.");
+      loadData();
+    } catch (err) {
+      setActionError(normalizeApiError(err).message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Add Task handler
+  const handleAddTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accessToken || !newTaskDesc.trim() || isSubmitting) return;
+    setActionError(null);
+    setActionSuccess(null);
+    setIsSubmitting(true);
+    try {
+      const payload: TaskCreatePayload = {
+        description: newTaskDesc.trim(),
+        task_number: newTaskNumber.trim() || undefined,
+        title: newTaskTitle.trim() || undefined,
+        estimated_hours: newTaskHours ? parseFloat(newTaskHours) : undefined,
+        evidence_required: newTaskEvidence,
+        notes: newTaskNotes.trim() || undefined,
+      };
+      await tasksApi.create(accessToken, workOrderId, payload);
+      setShowAddTaskModal(false);
+      setNewTaskDesc("");
+      setNewTaskNumber("");
+      setNewTaskTitle("");
+      setNewTaskHours("");
+      setNewTaskEvidence(false);
+      setNewTaskNotes("");
+      setActionSuccess("Task added successfully.");
+      setReadinessRefreshKey((k) => k + 1);
+      loadData();
+    } catch (err) {
+      setActionError(normalizeApiError(err).message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Complete Task handler
   const completeTask = async (taskId: string) => {
     if (!accessToken || busyTaskId) return;
-    setTaskActionError(null);
+    setActionError(null);
+    setActionSuccess(null);
     setBusyTaskId(taskId);
     try {
       await tasksApi.complete(accessToken, workOrderId, taskId);
-      await loadWorkOrderAndTasks();
+      setActionSuccess("Task completed.");
       setReadinessRefreshKey((k) => k + 1);
+      loadData();
     } catch (err) {
-      setTaskActionError(normalizeApiError(err).message);
+      setActionError(normalizeApiError(err).message);
     } finally {
       setBusyTaskId(null);
     }
@@ -95,18 +289,20 @@ function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
           { label: wo?.work_order_number ?? workOrderId },
         ]}
       />
-      <div className="ac-section-header">
+
+      <div className="ac-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 className="ac-h1">{wo?.work_order_number ?? "Work Order"}</h1>
-          <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
+          <p className="ac-subtitle">{wo?.title || "MRO Work Order"}</p>
         </div>
         {wo && (
-          <div className="ac-flex ac-gap-2">
+          <div className="ac-flex ac-gap-2" style={{ alignItems: "center" }}>
             <StatusBadge {...priorityBadge(wo.priority)} />
             <StatusBadge {...workOrderStatusBadge(wo.status)} />
           </div>
         )}
       </div>
+
       {!isAuthenticated ? (
         <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
           <p className="ac-text-sm" style={{ margin: 0 }}>
@@ -114,44 +310,757 @@ function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
           </p>
         </div>
       ) : (
-        <RealDataPanel loading={loading} error={error} isEmpty={!wo} emptyMessage="This work order could not be found in the connected database.">
+        <RealDataPanel
+          loading={loading}
+          error={error}
+          isEmpty={!wo}
+          emptyMessage="This work order could not be found in the connected database."
+        >
           {wo && (
             <>
-              <div className="ac-card" style={{ marginBottom: 16 }}>
-                <p><strong>Aircraft ID:</strong> <span className="ac-mono">{wo.aircraft_id}</span></p>
-                <p><strong>Created:</strong> {new Date(wo.created_at).toLocaleString()}</p>
-              </div>
-              <RealReleaseReadinessPanel key={readinessRefreshKey} workOrderId={workOrderId} />
-              <h2 className="ac-eyebrow" style={{ marginTop: 16, marginBottom: 10 }}>Tasks ({tasks.length})</h2>
-              {taskActionError && (
-                <div className="ac-card ac-section" style={{ borderColor: "var(--ac-status-noncompliant)", padding: "var(--ac-space-3)" }}>
-                  <p className="ac-text-sm" style={{ margin: 0 }}>{taskActionError}</p>
+              {/* Feedback Notifications */}
+              {actionError && (
+                <div
+                  className="ac-card ac-section"
+                  style={{
+                    borderColor: "var(--ac-status-noncompliant)",
+                    background: "rgba(239, 68, 68, 0.08)",
+                    color: "var(--ac-status-noncompliant)",
+                    padding: "var(--ac-space-3)",
+                    marginBottom: 16,
+                  }}
+                >
+                  <p className="ac-text-sm" style={{ margin: 0, fontWeight: 600 }}>
+                    Gate check / transition prevented: {actionError}
+                  </p>
                 </div>
               )}
-              {tasks.length === 0 ? (
-                <div className="ac-card"><p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>No tasks recorded on this work order yet.</p></div>
-              ) : (
-                <div className="ac-flex ac-flex-col ac-gap-2">
-                  {tasks.map((t) => (
-                    <div key={t.id} className="ac-card">
-                      <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 8 }}>
-                        <span>{t.description}</span>
-                        <div className="ac-flex ac-items-center ac-gap-2">
-                          <StatusBadge {...genericStatusBadge(t.execution_state)} />
-                          {t.execution_state !== "COMPLETED" && (
-                            <button
-                              className="ac-btn ac-btn-sm ac-btn-primary"
-                              disabled={busyTaskId === t.id}
-                              onClick={() => completeTask(t.id)}
-                            >
-                              {busyTaskId === t.id ? "Completing…" : "Complete Task"}
-                            </button>
+              {actionSuccess && (
+                <div
+                  className="ac-card ac-section"
+                  style={{
+                    borderColor: "var(--ac-status-compliant)",
+                    background: "rgba(16, 185, 129, 0.08)",
+                    color: "var(--ac-status-compliant)",
+                    padding: "var(--ac-space-3)",
+                    marginBottom: 16,
+                  }}
+                >
+                  <p className="ac-text-sm" style={{ margin: 0 }}>
+                    {actionSuccess}
+                  </p>
+                </div>
+              )}
+
+              {/* Lifecycle Action Bar & Visual Pipeline */}
+              <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)", marginBottom: 16 }}>
+                <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+                  <div>
+                    <span className="ac-eyebrow" style={{ display: "block", marginBottom: 4 }}>
+                      Lifecycle State
+                    </span>
+                    <div className="ac-flex ac-items-center ac-gap-2">
+                      <StatusBadge {...workOrderStatusBadge(wo.status)} />
+                      {wo.status === "ON_HOLD" && (
+                        <span className="ac-badge ac-badge--warning">Work Suspended</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Contextual Action Buttons */}
+                  <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+                    {wo.status === "DRAFT" && (
+                      <button
+                        className="ac-btn ac-btn-primary ac-btn-sm"
+                        disabled={isSubmitting}
+                        onClick={() => handleTransition("OPEN")}
+                      >
+                        Open Work Order
+                      </button>
+                    )}
+                    {wo.status === "OPEN" && (
+                      <button
+                        className="ac-btn ac-btn-primary ac-btn-sm"
+                        disabled={isSubmitting}
+                        onClick={() => handleTransition("PLANNED")}
+                      >
+                        Plan Work Order
+                      </button>
+                    )}
+                    {wo.status === "PLANNED" && (
+                      <button
+                        className="ac-btn ac-btn-primary ac-btn-sm"
+                        disabled={isSubmitting}
+                        onClick={() => setShowAssignModal(true)}
+                      >
+                        Assign Technician
+                      </button>
+                    )}
+                    {wo.status === "ASSIGNED" && (
+                      <>
+                        <button
+                          className="ac-btn ac-btn-primary ac-btn-sm"
+                          disabled={isSubmitting}
+                          onClick={() => handleTransition("IN_PROGRESS")}
+                        >
+                          Start Work (In Progress)
+                        </button>
+                        <button
+                          className="ac-btn ac-btn-sm"
+                          disabled={isSubmitting}
+                          onClick={() => setShowAssignModal(true)}
+                        >
+                          Reassign
+                        </button>
+                      </>
+                    )}
+                    {wo.status === "IN_PROGRESS" && (
+                      <>
+                        <button
+                          className="ac-btn ac-btn-primary ac-btn-sm"
+                          disabled={isSubmitting}
+                          onClick={() => handleTransition("INSPECTION")}
+                        >
+                          Submit for Inspection
+                        </button>
+                        <button
+                          className="ac-btn ac-btn-sm"
+                          disabled={isSubmitting}
+                          onClick={() => handleTransition("ON_HOLD", "Awaiting parts / hold")}
+                        >
+                          Put on Hold
+                        </button>
+                      </>
+                    )}
+                    {wo.status === "ON_HOLD" && (
+                      <button
+                        className="ac-btn ac-btn-primary ac-btn-sm"
+                        disabled={isSubmitting}
+                        onClick={() => handleTransition("IN_PROGRESS")}
+                      >
+                        Resume Work
+                      </button>
+                    )}
+                    {wo.status === "INSPECTION" && (
+                      <>
+                        <button
+                          className="ac-btn ac-btn-primary ac-btn-sm"
+                          disabled={isSubmitting}
+                          onClick={handleComplete}
+                        >
+                          Complete (Sign off)
+                        </button>
+                        <button
+                          className="ac-btn ac-btn-sm"
+                          disabled={isSubmitting}
+                          onClick={() => handleTransition("IN_PROGRESS", "Returned for rework")}
+                        >
+                          Return to Work
+                        </button>
+                      </>
+                    )}
+                    {wo.status === "COMPLETED" && (
+                      <button
+                        className="ac-btn ac-btn-primary ac-btn-sm"
+                        disabled={isSubmitting}
+                        onClick={handleClose}
+                      >
+                        Verify & Close Work Order
+                      </button>
+                    )}
+                    {wo.status !== "CLOSED" && wo.status !== "CANCELLED" && (
+                      <button
+                        className="ac-btn ac-btn-sm"
+                        style={{ color: "var(--ac-status-noncompliant)" }}
+                        disabled={isSubmitting}
+                        onClick={() => setShowCancelModal(true)}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Pipeline Steps Indicator */}
+                {wo.status !== "CANCELLED" ? (
+                  <div
+                    className="ac-flex ac-items-center ac-gap-2"
+                    style={{ flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid var(--ac-border-subtle)" }}
+                  >
+                    {LIFECYCLE_STEPS.map((s, idx) => {
+                      const isCurrent = wo.status === s;
+                      const isPast = LIFECYCLE_STEPS.indexOf(wo.status) > idx;
+                      return (
+                        <div key={s} className="ac-flex ac-items-center ac-gap-2">
+                          <span
+                            className="ac-badge"
+                            style={{
+                              fontSize: 11,
+                              fontWeight: isCurrent ? 700 : 500,
+                              background: isCurrent
+                                ? "var(--ac-accent)"
+                                : isPast
+                                ? "rgba(59, 130, 246, 0.15)"
+                                : "var(--ac-card-subtle)",
+                              color: isCurrent
+                                ? "#ffffff"
+                                : isPast
+                                ? "var(--ac-accent)"
+                                : "var(--ac-text-muted)",
+                            }}
+                          >
+                            {s.replace(/_/g, " ")}
+                          </span>
+                          {idx < LIFECYCLE_STEPS.length - 1 && (
+                            <span className="ac-text-muted" style={{ opacity: isPast ? 0.8 : 0.3 }}>
+                              →
+                            </span>
                           )}
                         </div>
-                      </div>
-                      <RealTaskGatePanel taskId={t.id} />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      paddingTop: 8,
+                      borderTop: "1px solid var(--ac-border-subtle)",
+                      color: "var(--ac-status-noncompliant)",
+                    }}
+                  >
+                    <strong>CANCELLED:</strong> {wo.cancellation_reason || "No reason specified."}
+                    {wo.cancelled_at && (
+                      <span className="ac-text-muted" style={{ marginLeft: 8 }}>
+                        ({new Date(wo.cancelled_at).toLocaleString()})
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Work Order Overview Grid */}
+              <div className="ac-grid-3 ac-section" style={{ marginBottom: 16 }}>
+                <div className="ac-card">
+                  <p className="ac-kpi-label">Asset / Aircraft</p>
+                  <p style={{ fontWeight: 600, marginTop: 4 }} className="ac-mono">
+                    {wo.asset_id ? (
+                      <Link href={`/drones/${wo.asset_id}`}>Drone: {wo.asset_id.slice(0, 8)}…</Link>
+                    ) : wo.aircraft_id ? (
+                      <Link href={`/aircraft/${wo.aircraft_id}`}>Aircraft: {wo.aircraft_id.slice(0, 8)}…</Link>
+                    ) : (
+                      "Ad hoc / None"
+                    )}
+                  </p>
+                  <p className="ac-text-muted ac-text-sm" style={{ margin: 0 }}>
+                    Location: {wo.location || "Unspecified"}
+                  </p>
+                </div>
+
+                <div className="ac-card">
+                  <p className="ac-kpi-label">Type & Category</p>
+                  <p style={{ fontWeight: 600, marginTop: 4 }}>
+                    {wo.work_order_type ? wo.work_order_type.replace(/_/g, " ") : "Standard"}
+                  </p>
+                  <p className="ac-text-muted ac-text-sm" style={{ margin: 0 }}>
+                    Category: {wo.maintenance_category || "General"}
+                  </p>
+                </div>
+
+                <div className="ac-card">
+                  <p className="ac-kpi-label">TAT & Due Date</p>
+                  <div className="ac-flex ac-items-center ac-gap-2" style={{ marginTop: 4 }}>
+                    {tat ? (
+                      <StatusBadge {...tatStatusBadge(tat.status)} />
+                    ) : (
+                      <span className="ac-text-sm">—</span>
+                    )}
+                    <span className="ac-mono ac-text-sm">
+                      {wo.due_at ? new Date(wo.due_at).toLocaleDateString() : "No due date"}
+                    </span>
+                  </div>
+                  {tat?.reason && (
+                    <p className="ac-text-muted ac-text-sm" style={{ margin: "4px 0 0 0" }}>
+                      {tat.reason}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Assignment & Operational Timestamps Grid */}
+              <div className="ac-grid-2 ac-section" style={{ marginBottom: 16 }}>
+                <div className="ac-card">
+                  <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 6 }}>
+                    <p className="ac-kpi-label" style={{ margin: 0 }}>
+                      Assigned Technician
+                    </p>
+                    {wo.status !== "CLOSED" && wo.status !== "CANCELLED" && (
+                      <button
+                        className="ac-btn ac-btn--sm"
+                        onClick={() => setShowAssignModal(true)}
+                      >
+                        {wo.assigned_to_user_id ? "Reassign" : "Assign"}
+                      </button>
+                    )}
+                  </div>
+                  <p style={{ fontWeight: 600, margin: 0 }} className="ac-mono">
+                    {wo.assigned_to_user_id ? wo.assigned_to_user_id : "Unassigned"}
+                  </p>
+                  {wo.source_type && (
+                    <p className="ac-text-muted ac-text-sm" style={{ marginTop: 6, marginBottom: 0 }}>
+                      Source: {wo.source_type} ({wo.source_reference || "N/A"})
+                    </p>
+                  )}
+                </div>
+
+                <div className="ac-card">
+                  <p className="ac-kpi-label">Labour & Schedule</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 4 }}>
+                    <div>
+                      <span className="ac-text-muted ac-text-sm">Est. Hours:</span>{" "}
+                      <strong>{wo.estimated_hours ?? "—"}</strong>
                     </div>
-                  ))}
+                    <div>
+                      <span className="ac-text-muted ac-text-sm">Actual Hours:</span>{" "}
+                      <strong>{wo.actual_hours ?? "—"}</strong>
+                    </div>
+                    <div>
+                      <span className="ac-text-muted ac-text-sm">Started:</span>{" "}
+                      <span>{wo.actual_start ? new Date(wo.actual_start).toLocaleDateString() : "—"}</span>
+                    </div>
+                    <div>
+                      <span className="ac-text-muted ac-text-sm">Completed:</span>{" "}
+                      <span>{wo.completed_at ? new Date(wo.completed_at).toLocaleDateString() : "—"}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Release Readiness Panel */}
+              <div style={{ marginBottom: 16 }}>
+                <RealReleaseReadinessPanel key={readinessRefreshKey} workOrderId={workOrderId} />
+              </div>
+
+              {/* Tasks Section */}
+              <section className="ac-section" style={{ marginBottom: 16 }}>
+                <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
+                  <h2 className="ac-h2" style={{ margin: 0 }}>
+                    Work Order Tasks ({tasks.length})
+                  </h2>
+                  {wo.status !== "CLOSED" && wo.status !== "CANCELLED" && (
+                    <button
+                      className="ac-btn ac-btn--sm ac-btn-primary"
+                      onClick={() => setShowAddTaskModal(true)}
+                    >
+                      + Add Task
+                    </button>
+                  )}
+                </div>
+
+                {tasks.length === 0 ? (
+                  <div className="ac-card">
+                    <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                      No tasks recorded for this work order yet. Add tasks to define maintenance operations.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="ac-flex ac-flex-col ac-gap-2">
+                    {tasks.map((t) => (
+                      <div key={t.id} className="ac-card" style={{ padding: "var(--ac-space-3)" }}>
+                        <div className="ac-flex ac-justify-between ac-items-center" style={{ flexWrap: "wrap", gap: 8 }}>
+                          <div>
+                            <div className="ac-flex ac-items-center ac-gap-2">
+                              {t.task_number && <span className="ac-mono ac-badge">{t.task_number}</span>}
+                              <strong style={{ fontSize: 14 }}>{t.title || t.description}</strong>
+                            </div>
+                            {t.title && t.description && (
+                              <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0 0" }}>
+                                {t.description}
+                              </p>
+                            )}
+                            {t.estimated_hours && (
+                              <span className="ac-text-muted ac-text-sm" style={{ marginRight: 12 }}>
+                                Est: {t.estimated_hours}h
+                              </span>
+                            )}
+                            {t.actual_hours && (
+                              <span className="ac-text-muted ac-text-sm">
+                                Actual: {t.actual_hours}h
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="ac-flex ac-items-center ac-gap-2">
+                            <StatusBadge {...genericStatusBadge(t.execution_state)} />
+                            {t.execution_state !== "COMPLETED" && wo.status !== "CLOSED" && wo.status !== "CANCELLED" && (
+                              <button
+                                className="ac-btn ac-btn-sm ac-btn-primary"
+                                disabled={busyTaskId === t.id}
+                                onClick={() => completeTask(t.id)}
+                              >
+                                {busyTaskId === t.id ? "Completing…" : "Complete Task"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Task Evidence Gate */}
+                        <div style={{ marginTop: 8 }}>
+                          <RealTaskGatePanel taskId={t.id} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* Parts & Findings Grid */}
+              <div className="ac-grid-2 ac-section" style={{ marginBottom: 16 }}>
+                {/* Parts Requirement Panel */}
+                <div className="ac-card">
+                  <h3 className="ac-h3" style={{ marginBottom: 10, fontSize: 16 }}>
+                    Required Parts ({parts.length})
+                  </h3>
+                  {parts.length === 0 ? (
+                    <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                      No specific part requirements linked to this work order.
+                    </p>
+                  ) : (
+                    <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                      {parts.map((p) => (
+                        <li
+                          key={p.id}
+                          className="ac-flex ac-justify-between ac-items-center"
+                          style={{ padding: "6px 0", borderBottom: "1px solid var(--ac-border-subtle)", fontSize: 13 }}
+                        >
+                          <span className="ac-mono">
+                            Part: {p.part_id.slice(0, 8)}… (Req: {p.required_quantity}, Issued: {p.fulfilled_quantity})
+                          </span>
+                          <StatusBadge {...genericStatusBadge(p.status)} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Findings Panel */}
+                <div className="ac-card">
+                  <h3 className="ac-h3" style={{ marginBottom: 10, fontSize: 16 }}>
+                    Linked Findings ({findings.length})
+                  </h3>
+                  {findings.length === 0 ? (
+                    <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                      No defect or inspection findings linked to this work order.
+                    </p>
+                  ) : (
+                    <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                      {findings.map((f) => (
+                        <li
+                          key={f.id}
+                          className="ac-flex ac-justify-between ac-items-center"
+                          style={{ padding: "6px 0", borderBottom: "1px solid var(--ac-border-subtle)", fontSize: 13 }}
+                        >
+                          <div>
+                            <Link href={`/findings/${f.id}`} style={{ fontWeight: 500 }}>
+                              {f.title}
+                            </Link>
+                            <span className="ac-text-muted ac-text-sm" style={{ display: "block" }}>
+                              {f.severity}
+                            </span>
+                          </div>
+                          <StatusBadge {...genericStatusBadge(f.status)} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              {/* Operational Activity Timeline */}
+              <section className="ac-section">
+                <h2 className="ac-h2" style={{ marginBottom: 10 }}>
+                  Activity & Milestone Timeline
+                </h2>
+                <div className="ac-card">
+                  <Timeline
+                    entries={[
+                      {
+                        id: "created",
+                        date: new Date(wo.created_at).toLocaleString(),
+                        title: "Work Order Created",
+                        detail: `Initial state: DRAFT | Created by user: ${wo.created_by_user_id || "System"}`,
+                      },
+                      ...(wo.actual_start
+                        ? [
+                            {
+                              id: "started",
+                              date: new Date(wo.actual_start).toLocaleString(),
+                              title: "Work Started (In Progress)",
+                              detail: `Execution initiated | Technician: ${wo.assigned_to_user_id || "Unassigned"}`,
+                            },
+                          ]
+                        : []),
+                      ...(wo.completed_at
+                        ? [
+                            {
+                              id: "completed",
+                              date: new Date(wo.completed_at).toLocaleString(),
+                              title: "Maintenance Completed",
+                              detail: "All required tasks signed off and verified.",
+                            },
+                          ]
+                        : []),
+                      ...(wo.closed_at
+                        ? [
+                            {
+                              id: "closed",
+                              date: new Date(wo.closed_at).toLocaleString(),
+                              title: "Work Order Closed",
+                              detail: "Release readiness confirmed. Record sealed.",
+                            },
+                          ]
+                        : []),
+                      ...(wo.cancelled_at
+                        ? [
+                            {
+                              id: "cancelled",
+                              date: new Date(wo.cancelled_at).toLocaleString(),
+                              title: "Work Order Cancelled",
+                              detail: `Reason: ${wo.cancellation_reason || "None"}`,
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
+                </div>
+              </section>
+
+              {/* Assign Modal */}
+              {showAssignModal && (
+                <div
+                  className="ac-modal-backdrop"
+                  onMouseDown={(e) => e.target === e.currentTarget && setShowAssignModal(false)}
+                >
+                  <div
+                    className="ac-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="assign-wo-title"
+                    style={{ maxWidth: 460, width: "100%" }}
+                  >
+                    <h2 id="assign-wo-title" className="ac-modal-title">
+                      Assign Technician
+                    </h2>
+                    <form onSubmit={handleAssignSubmit}>
+                      <div className="ac-modal-body">
+                        <label className="ac-label" style={{ display: "block", marginBottom: 6 }}>
+                          Technician User ID (UUID) *
+                        </label>
+                        <input
+                          className="ac-input"
+                          style={{ width: "100%" }}
+                          placeholder="e.g. 7b3117fe-b1ff-4848-9bbd-327c9550e509"
+                          value={assigneeId}
+                          onChange={(e) => setAssigneeId(e.target.value)}
+                          required
+                        />
+                        <p className="ac-text-muted ac-text-sm" style={{ marginTop: 6, margin: 0 }}>
+                          Must belong to the same organization and possess technician role.
+                        </p>
+                      </div>
+                      <div className="ac-modal-actions" style={{ marginTop: 16 }}>
+                        <button
+                          type="button"
+                          className="ac-btn"
+                          onClick={() => setShowAssignModal(false)}
+                          disabled={isSubmitting}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="ac-btn ac-btn-primary"
+                          disabled={isSubmitting || !assigneeId.trim()}
+                        >
+                          {isSubmitting ? "Assigning…" : "Confirm Assignment"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Cancel Work Order Modal */}
+              {showCancelModal && (
+                <div
+                  className="ac-modal-backdrop"
+                  onMouseDown={(e) => e.target === e.currentTarget && setShowCancelModal(false)}
+                >
+                  <div
+                    className="ac-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="cancel-wo-title"
+                    style={{ maxWidth: 480, width: "100%" }}
+                  >
+                    <h2 id="cancel-wo-title" className="ac-modal-title" style={{ color: "var(--ac-status-noncompliant)" }}>
+                      Cancel Work Order
+                    </h2>
+                    <form onSubmit={handleCancelSubmit}>
+                      <div className="ac-modal-body">
+                        <p className="ac-text-sm">
+                          Cancelling is a terminal action. Please provide a mandatory cancellation reason.
+                        </p>
+                        <label className="ac-label" style={{ display: "block", marginBottom: 4 }}>
+                          Cancellation Reason (min 3 chars) *
+                        </label>
+                        <textarea
+                          className="ac-input"
+                          style={{ width: "100%", minHeight: 70 }}
+                          placeholder="e.g. Aircraft grounded permanently / work superseded..."
+                          value={cancellationReason}
+                          onChange={(e) => setCancellationReason(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="ac-modal-actions" style={{ marginTop: 16 }}>
+                        <button
+                          type="button"
+                          className="ac-btn"
+                          onClick={() => setShowCancelModal(false)}
+                          disabled={isSubmitting}
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="submit"
+                          className="ac-btn"
+                          style={{
+                            background: "var(--ac-status-noncompliant)",
+                            color: "#ffffff",
+                            borderColor: "var(--ac-status-noncompliant)",
+                          }}
+                          disabled={isSubmitting || cancellationReason.trim().length < 3}
+                        >
+                          {isSubmitting ? "Cancelling…" : "Confirm Cancellation"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Add Task Modal */}
+              {showAddTaskModal && (
+                <div
+                  className="ac-modal-backdrop"
+                  onMouseDown={(e) => e.target === e.currentTarget && setShowAddTaskModal(false)}
+                >
+                  <div
+                    className="ac-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="add-task-title"
+                    style={{ maxWidth: 500, width: "100%" }}
+                  >
+                    <h2 id="add-task-title" className="ac-modal-title">
+                      Add Work Order Task
+                    </h2>
+                    <form onSubmit={handleAddTaskSubmit}>
+                      <div className="ac-modal-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        <div>
+                          <label className="ac-label" style={{ display: "block", marginBottom: 4 }}>
+                            Description *
+                          </label>
+                          <textarea
+                            className="ac-input"
+                            style={{ width: "100%", minHeight: 60 }}
+                            placeholder="Detailed operational steps..."
+                            value={newTaskDesc}
+                            onChange={(e) => setNewTaskDesc(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                          <div>
+                            <label className="ac-label" style={{ display: "block", marginBottom: 4 }}>
+                              Task Number
+                            </label>
+                            <input
+                              className="ac-input"
+                              style={{ width: "100%" }}
+                              placeholder="e.g. T-01"
+                              value={newTaskNumber}
+                              onChange={(e) => setNewTaskNumber(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="ac-label" style={{ display: "block", marginBottom: 4 }}>
+                              Estimated Hours
+                            </label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              className="ac-input"
+                              style={{ width: "100%" }}
+                              placeholder="e.g. 2.0"
+                              value={newTaskHours}
+                              onChange={(e) => setNewTaskHours(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="ac-label" style={{ display: "block", marginBottom: 4 }}>
+                            Title
+                          </label>
+                          <input
+                            className="ac-input"
+                            style={{ width: "100%" }}
+                            placeholder="Short task label"
+                            value={newTaskTitle}
+                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                          />
+                        </div>
+                        <label className="ac-flex ac-items-center ac-gap-2" style={{ cursor: "pointer", fontSize: 13 }}>
+                          <input
+                            type="checkbox"
+                            checked={newTaskEvidence}
+                            onChange={(e) => setNewTaskEvidence(e.target.checked)}
+                          />
+                          <span>Evidence Required for Completion Gate</span>
+                        </label>
+                        <div>
+                          <label className="ac-label" style={{ display: "block", marginBottom: 4 }}>
+                            Notes
+                          </label>
+                          <input
+                            className="ac-input"
+                            style={{ width: "100%" }}
+                            placeholder="Any special tooling or precautions"
+                            value={newTaskNotes}
+                            onChange={(e) => setNewTaskNotes(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="ac-modal-actions" style={{ marginTop: 16 }}>
+                        <button
+                          type="button"
+                          className="ac-btn"
+                          onClick={() => setShowAddTaskModal(false)}
+                          disabled={isSubmitting}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="ac-btn ac-btn-primary"
+                          disabled={isSubmitting || !newTaskDesc.trim()}
+                        >
+                          {isSubmitting ? "Adding…" : "Add Task"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               )}
             </>
@@ -165,9 +1074,6 @@ function RealWorkOrderDetail({ workOrderId }: { workOrderId: string }) {
 export default function WorkOrderDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const { isReal, hydrated } = useDataMode();
-  // See identical comment in app/(app)/aircraft/[id]/page.tsx — must wait
-  // for hydration before choosing a branch to avoid an irrecoverable
-  // notFound() on the DEMO branch for a REAL-only id.
   if (!hydrated) return null;
   if (isReal) return <RealWorkOrderDetail workOrderId={params.id} />;
   return <DemoWorkOrderDetailPage params={params} />;

@@ -4,16 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataTable, type Column } from "@/components/tables/DataTable";
-import { StatusBadge, assetStatusBadge as statusBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, assetStatusBadge as statusBadge, operationalStateBadge } from "@/components/status/StatusBadge";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import {
   assetsApi,
   type AssetResponse,
-  type AssetCreateRequest,
 } from "@/lib/api/assets";
-import { DEMO_ASSETS } from "@/lib/demo/demoAssets";
+import {
+  controlCenterApi,
+  type ControlCenterFleetOperationRow,
+} from "@/lib/api/controlCenter";
 import { AssetRegistrationModal } from "@/components/assets/AssetRegistrationModal";
 import { demoStore } from "@/lib/demo/demoStore";
 
@@ -33,6 +35,22 @@ const ASSET_TYPE_LABELS: Record<string, string> = {
   HELICOPTER: "Rotorcraft / Helicopters",
   EVTOL: "eVTOL / Advanced Mobility",
 };
+
+interface FleetDisplayRow {
+  id: string;
+  asset_type: string;
+  registration: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  serial_number: string | null;
+  status: string;
+  operational_state?: string;
+  readiness_state?: string;
+  total_flight_hours?: number;
+  total_cycles?: number;
+  last_flight_at?: string | null;
+  next_action?: string | null;
+}
 
 function DemoAssets() {
   const [assets, setAssets] = useState<AssetResponse[]>(demoStore.getAssets());
@@ -153,8 +171,6 @@ function DemoAssets() {
       ),
     },
   ];
-
-
 
   return (
     <div className="ac-page">
@@ -311,7 +327,7 @@ function DemoAssets() {
 
 function RealAssets() {
   const { accessToken } = useSession();
-  const [assets, setAssets] = useState<AssetResponse[]>([]);
+  const [fleetOps, setFleetOps] = useState<ControlCenterFleetOperationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -324,12 +340,8 @@ function RealAssets() {
     setLoading(true);
     setError(null);
     try {
-      const data = await assetsApi.listAssets(accessToken, {
-        asset_type: typeFilter === "ALL" ? undefined : typeFilter,
-        status: statusFilter === "ALL" ? undefined : statusFilter,
-        search: searchTerm.trim() || undefined,
-      });
-      setAssets(data);
+      const ops = await controlCenterApi.getFleetOperations(accessToken);
+      setFleetOps(ops);
     } catch (err) {
       setError(normalizeApiError(err));
     } finally {
@@ -339,11 +351,45 @@ function RealAssets() {
 
   useEffect(() => {
     fetchAssets();
-  }, [accessToken, typeFilter, statusFilter, searchTerm]);
+  }, [accessToken]);
 
+  const filteredFleet = useMemo(() => {
+    return fleetOps.filter((a) => {
+      const q = searchTerm.toLowerCase();
+      const matchesSearch =
+        !q ||
+        (a.registration?.toLowerCase() ?? "").includes(q) ||
+        (a.manufacturer?.toLowerCase() ?? "").includes(q) ||
+        (a.model?.toLowerCase() ?? "").includes(q) ||
+        (a.serial_number?.toLowerCase() ?? "").includes(q);
 
+      const matchesType =
+        typeFilter === "ALL" ||
+        a.asset_type === typeFilter ||
+        (typeFilter === "EVTOL" && a.asset_type === "AAM");
 
-  const columns: Column<AssetResponse>[] = [
+      const matchesStatus =
+        statusFilter === "ALL" ||
+        a.lifecycle_status === statusFilter ||
+        a.operational_state === statusFilter;
+
+      return matchesSearch && matchesType && matchesStatus;
+    });
+  }, [fleetOps, searchTerm, typeFilter, statusFilter]);
+
+  const stats = useMemo(() => {
+    return {
+      total: fleetOps.length,
+      aircraft: fleetOps.filter((a) => a.asset_type === "AIRCRAFT").length,
+      drones: fleetOps.filter((a) => a.asset_type === "DRONE").length,
+      helicopters: fleetOps.filter((a) => a.asset_type === "HELICOPTER").length,
+      evtol: fleetOps.filter((a) => a.asset_type === "EVTOL" || a.asset_type === "AAM").length,
+      ready: fleetOps.filter((a) => a.readiness_state === "READY").length,
+      blocked: fleetOps.filter((a) => a.readiness_state === "BLOCKED").length,
+    };
+  }, [fleetOps]);
+
+  const columns: Column<ControlCenterFleetOperationRow>[] = [
     {
       key: "asset_type",
       header: "Class",
@@ -367,37 +413,135 @@ function RealAssets() {
       key: "registration",
       header: "Registration / Identifier",
       render: (a) => (
-        <Link href={`/assets/${a.id}`} className="ac-link" style={{ fontWeight: 700 }}>
-          {a.registration}
+        <Link href={`/assets/${a.asset_id}`} className="ac-link" style={{ fontWeight: 700 }}>
+          {a.registration || "—"}
         </Link>
       ),
     },
-    { key: "manufacturer", header: "Manufacturer", render: (a) => a.manufacturer ?? "—" },
-    { key: "model", header: "Model", render: (a) => a.model ?? "—" },
-    { key: "serial_number", header: "Serial / MSN", render: (a) => a.serial_number ?? "—" },
+    { key: "manufacturer", header: "Manufacturer / Model", render: (a) => `${a.manufacturer || "—"} ${a.model ? `· ${a.model}` : ""}` },
     {
-      key: "status",
-      header: "Lifecycle Status",
-      render: (a) => <StatusBadge {...statusBadge(a.status)} />,
+      key: "operational_state",
+      header: "Operational State",
+      render: (a) => <StatusBadge {...operationalStateBadge(a.operational_state)} />,
+    },
+    {
+      key: "readiness_state",
+      header: "Readiness",
+      render: (a) => (
+        <span
+          style={{
+            fontSize: "0.75rem",
+            fontWeight: 700,
+            padding: "3px 8px",
+            borderRadius: 4,
+            background: a.readiness_state === "READY" ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)",
+            color: a.readiness_state === "READY" ? "#10b981" : "#ef4444",
+          }}
+        >
+          {a.readiness_state}
+        </span>
+      ),
+    },
+    {
+      key: "total_flight_hours",
+      header: "Flight Hours",
+      render: (a) => <span className="ac-mono">{a.total_flight_hours} hrs</span>,
+    },
+    {
+      key: "total_cycles",
+      header: "Cycles",
+      render: (a) => <span className="ac-mono">{a.total_cycles}</span>,
+    },
+    {
+      key: "next_action",
+      header: "Next Required Action",
+      render: (a) => <span className="ac-text-sm" style={{ color: "#d1d5db" }}>{a.next_action || "Ready"}</span>,
+    },
+    {
+      key: "actions",
+      header: "Console",
+      render: (a) => (
+        <div style={{ display: "flex", gap: 6 }}>
+          <Link
+            href={`/assets/${a.asset_id}`}
+            className="ac-button-secondary"
+            style={{ fontSize: "0.75rem", padding: "4px 8px" }}
+          >
+            Workspace →
+          </Link>
+        </div>
+      ),
     },
   ];
 
   return (
     <div className="ac-page">
       <PageHeader
-        title="Aerospace Fleet Registry"
-        subtitle="Unified domain registry for fixed-wing aircraft, unmanned aerial systems (drones), rotorcraft/helicopters, and eVTOL/AAM assets."
+        title="Aerospace Fleet Operations"
+        subtitle="Unified operational workspace across fixed-wing aircraft, drones (sUAS), helicopters, and eVTOL assets."
         actions={
-          <button
-            type="button"
-            className="ac-btn"
-            style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
-            onClick={() => setIsModalOpen(true)}
-          >
-            + Add Asset
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link
+              href="/import"
+              className="ac-btn"
+              style={{ background: "#374151", color: "#fff" }}
+            >
+              Import Flight Data
+            </Link>
+            <button
+              type="button"
+              className="ac-btn"
+              style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+              onClick={() => setIsModalOpen(true)}
+            >
+              + Add Asset
+            </button>
+          </div>
         }
       />
+
+      {/* KPI Highlights */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: 12,
+          marginBottom: 20,
+        }}
+      >
+        <div className="ac-card" style={{ padding: "16px 20px" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-muted, #9ca3af)", textTransform: "uppercase" }}>
+            Total Airframes
+          </div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#fff", marginTop: 4 }}>
+            {stats.total}
+          </div>
+        </div>
+        <div className="ac-card" style={{ padding: "16px 20px" }}>
+          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+            Operational Ready
+          </div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#10b981", marginTop: 4 }}>
+            {stats.ready} <span style={{ fontSize: "0.85rem", color: "#9ca3af" }}>/ {stats.total}</span>
+          </div>
+        </div>
+        <div className="ac-card" style={{ padding: "16px 20px" }}>
+          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+            Restricted / Blocked
+          </div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: stats.blocked > 0 ? "#ef4444" : "#10b981", marginTop: 4 }}>
+            {stats.blocked}
+          </div>
+        </div>
+        <div className="ac-card" style={{ padding: "16px 20px" }}>
+          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+            ✈ Aircraft / ◆ Drones
+          </div>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#38bdf8", marginTop: 4 }}>
+            {stats.aircraft} / {stats.drones}
+          </div>
+        </div>
+      </div>
 
       {/* Asset Type Filter Tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
@@ -415,18 +559,69 @@ function RealAssets() {
         ))}
       </div>
 
+      {/* Search & Status Filters */}
+      <div
+        className="ac-card"
+        style={{
+          padding: "12px 16px",
+          display: "flex",
+          gap: 12,
+          flexWrap: "wrap",
+          marginBottom: 16,
+          alignItems: "center",
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Search tail, model, manufacturer, serial..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{
+            flex: 1,
+            minWidth: 240,
+            padding: "8px 12px",
+            background: "#1f2937",
+            border: "1px solid #374151",
+            borderRadius: 6,
+            color: "#fff",
+            fontSize: "0.875rem",
+          }}
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          style={{
+            padding: "8px 12px",
+            background: "#1f2937",
+            border: "1px solid #374151",
+            borderRadius: 6,
+            color: "#fff",
+            fontSize: "0.875rem",
+          }}
+        >
+          <option value="ALL">All Operational States</option>
+          <option value="AVAILABLE">AVAILABLE</option>
+          <option value="IN_MISSION">IN_MISSION</option>
+          <option value="MAINTENANCE">MAINTENANCE</option>
+          <option value="UNDER_INSPECTION">UNDER_INSPECTION</option>
+          <option value="GROUNDED">GROUNDED</option>
+          <option value="AOG">AOG</option>
+          <option value="INACTIVE">INACTIVE</option>
+        </select>
+      </div>
+
       <RealDataPanel
         loading={loading}
         error={error}
-        isEmpty={assets.length === 0}
+        isEmpty={fleetOps.length === 0}
         emptyMessage="No assets registered in this fleet yet."
       >
         <div className="ac-card" style={{ padding: 0 }}>
           <div className="ac-table-desktop">
             <DataTable
               columns={columns}
-              rows={assets}
-              getRowHref={(a) => `/assets/${a.id}`}
+              rows={filteredFleet}
+              getRowHref={(a) => `/assets/${a.asset_id}`}
             />
           </div>
         </div>

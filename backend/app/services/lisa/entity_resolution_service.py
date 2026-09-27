@@ -116,9 +116,10 @@ def resolve_work_order(
             return NotFound("work_order", identifier)
 
     needle = identifier.strip().upper()
+    work_orders, _ = work_order_service.list_work_orders(db, organization_id=organization_id)
     matches = [
         w
-        for w in work_order_service.list_work_orders(db, organization_id=organization_id)
+        for w in work_orders
         if w.work_order_number.strip().upper() == needle
     ]
     if not matches:

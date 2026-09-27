@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge } from "@/components/status/StatusBadge";
 import { getComplianceAnalytics, getInspectionAnalytics } from "@/lib/mock/ai/analytics";
 import { aircraft, getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { assessmentsForAircraft, assessmentsForRequirement } from "@/lib/mock/assessments";
@@ -23,42 +22,26 @@ import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
 import {
   regulatoryRequirementsApi,
   complianceAssessmentsApi,
+  complianceObligationsApi,
   type BackendRegulatoryRequirement,
   type BackendComplianceAssessment,
+  type BackendComplianceObligation,
+  type BackendComplianceOverview,
 } from "@/lib/api/compliance";
+import {
+  StatusBadge,
+  complianceObligationStatusBadge,
+  priorityBadge,
+} from "@/components/status/StatusBadge";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 
-// Statuses recorded by ComplianceAssessment (backend/app/models/compliance.py)
-// that count as an "open gap" needing human attention.
-const GAP_STATUSES = new Set(["NON_COMPLIANT", "REVIEW_REQUIRED", "UNKNOWN"]);
+const GAP_STATUSES = new Set(["NON_COMPLIANT", "REVIEW_REQUIRED", "UNKNOWN", "BLOCKED", "OVERDUE"]);
 
 function badgeKindForStatus(status: string): Parameters<typeof StatusBadge>[0]["status"] {
   return status === "COMPLIANT" || status === "NON_COMPLIANT" || status === "REVIEW_REQUIRED" || status === "UNKNOWN"
     ? status
     : "UNKNOWN";
-}
-
-/**
- * Honesty banner shown on every REAL-mode compliance view. The backend's own
- * tool layer (backend/app/services/ai/tools.py) documents that regulatory
- * applicability condition-tree evaluation is NOT backend-resident — every
- * status below is a manually recorded assessment (and optional human
- * override), never the output of an automated applicability engine.
- */
-function ManualAssessmentNotice() {
-  return (
-    <div className="ac-card" style={{ padding: "var(--ac-space-3)", borderColor: "var(--ac-status-review)" }}>
-      <p className="ac-text-sm" style={{ margin: 0 }}>
-        <strong>Manually recorded, not automated.</strong> Statuses below are compliance
-        determinations entered (and, where noted, overridden) by your organization&apos;s
-        staff. Aerocomply does not currently run an automated regulatory
-        applicability engine — no AD/SB condition tree is evaluated by the
-        backend on your behalf. Treat every status as a human record, not a
-        system-verified guarantee of FAA/EASA/Part 145 compliance.
-      </p>
-    </div>
-  );
 }
 
 interface RealRow {
@@ -71,7 +54,10 @@ function RealCompliancePage() {
   const { accessToken, isAuthenticated } = useSession();
   const [aircraftList, setAircraftList] = useState<BackendAircraft[]>([]);
   const [requirements, setRequirements] = useState<BackendRegulatoryRequirement[]>([]);
+  const [overview, setOverview] = useState<BackendComplianceOverview | null>(null);
+  const [obligations, setObligations] = useState<BackendComplianceObligation[]>([]);
   const [assessments, setAssessments] = useState<BackendComplianceAssessment[]>([]);
+  const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
 
@@ -83,19 +69,28 @@ function RealCompliancePage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([aircraftApi.list(accessToken), regulatoryRequirementsApi.list(accessToken)])
-      .then(async ([acList, reqList]) => {
+
+    Promise.all([
+      aircraftApi.list(accessToken).catch(() => []),
+      regulatoryRequirementsApi.list(accessToken).catch(() => []),
+      complianceObligationsApi.overview(accessToken).catch(() => null),
+      complianceObligationsApi.list(accessToken).catch(() => []),
+    ])
+      .then(async ([acList, reqList, ovData, obList]) => {
         if (cancelled) return;
         setAircraftList(acList);
         setRequirements(reqList);
-        // No "list all assessments" endpoint exists — assessments are only
-        // exposed per-aircraft, so they're fetched per-aircraft and merged
-        // client-side (no client-side recomputation of status, only display).
-        const perAircraft = await Promise.all(
-          acList.map((a) => complianceAssessmentsApi.listForAircraft(accessToken, a.id))
-        );
-        if (cancelled) return;
-        setAssessments(perAircraft.flat());
+        setOverview(ovData);
+        setObligations(obList);
+
+        try {
+          const perAircraft = await Promise.all(
+            acList.map((a) => complianceAssessmentsApi.listForAircraft(accessToken, a.id).catch(() => []))
+          );
+          if (!cancelled) setAssessments(perAircraft.flat());
+        } catch {
+          // ignore legacy assessment errors
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(normalizeApiError(err));
@@ -111,19 +106,10 @@ function RealCompliancePage() {
   const registrationFor = (aircraftId: string | null) =>
     aircraftId ? (aircraftList.find((a) => a.id === aircraftId)?.registration ?? null) : null;
 
-  const counts: Record<string, number> = {};
-  for (const a of assessments) counts[a.status] = (counts[a.status] ?? 0) + 1;
-
-  const openGaps = assessments
-    .filter((a) => GAP_STATUSES.has(a.status))
-    .sort((a, b) => b.evaluated_at.localeCompare(a.evaluated_at));
-
-  const rows: RealRow[] = requirements.map((requirement) => ({
-    requirement,
-    assessments: assessments
-      .filter((a) => a.requirement_id === requirement.id)
-      .map((a) => ({ ...a, aircraftRegistration: registrationFor(a.aircraft_id) })),
-  }));
+  const filteredObligations = obligations.filter((ob) => {
+    if (selectedStatus === "ALL") return true;
+    return ob.status === selectedStatus;
+  });
 
   return (
     <div>
@@ -131,8 +117,8 @@ function RealCompliancePage() {
       <div className="ac-section-header">
         <div>
           <p className="ac-eyebrow" style={{ marginBottom: 4 }}>{PLATFORM_NAME}</p>
-          <h1 className="ac-h1">{MODULE_AEROCOMPLY_NAME}</h1>
-          <p className="ac-subtitle">REAL data mode — connected to {apiBaseUrl}</p>
+          <h1 className="ac-h1">{MODULE_AEROCOMPLY_NAME} — Digital Thread</h1>
+          <p className="ac-subtitle">Deterministic Compliance Obligations & Evidence Verification — {apiBaseUrl}</p>
         </div>
         <div className="ac-flex ac-gap-2">
           <Link href="/compliance/regulatory-register" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Regulatory Register →</Link>
@@ -149,48 +135,151 @@ function RealCompliancePage() {
         <RealDataPanel
           loading={loading}
           error={error}
-          isEmpty={requirements.length === 0}
-          emptyMessage="No regulatory requirements are recorded for this organization yet."
+          isEmpty={requirements.length === 0 && obligations.length === 0}
+          emptyMessage="No regulatory requirements or compliance obligations on record for this tenant."
         >
+          {/* Milestone D2-2 Overview KPIs */}
           <section className="ac-section">
-            <ManualAssessmentNotice />
-          </section>
-
-          <section className="ac-section">
-            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Assessment Distribution</h2>
-            <div className="ac-card">
-              <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
-                <StatusBadge status="COMPLIANT" label={`Compliant: ${counts.COMPLIANT ?? 0}`} />
-                <StatusBadge status="NON_COMPLIANT" label={`Non-Compliant: ${counts.NON_COMPLIANT ?? 0}`} />
-                <StatusBadge status="REVIEW_REQUIRED" label={`Review Required: ${counts.REVIEW_REQUIRED ?? 0}`} />
-                <StatusBadge status="UNKNOWN" label={`Unknown: ${counts.UNKNOWN ?? 0}`} />
+            <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
+              <h2 className="ac-h2">Compliance Thread Overview</h2>
+              {overview && (
+                <span className="ac-eyebrow" style={{ color: "var(--ac-accent)", fontWeight: 600 }}>
+                  Deterministic Compliance Rate: {overview.compliance_rate_percent}%
+                </span>
+              )}
+            </div>
+            <div className="ac-kpi-grid">
+              <div className="ac-kpi-card">
+                <p className="ac-kpi-label">Applicable Requirements</p>
+                <p className="ac-kpi-value">{overview ? overview.applicable_requirements : requirements.length}</p>
               </div>
-              <p className="ac-text-sm ac-text-muted" style={{ marginTop: 8 }}>
-                Counts reflect only the {assessments.length} assessment record(s) that exist
-                today across {aircraftList.length} aircraft — an aircraft/requirement pair with
-                no recorded assessment is not counted here at all (it is neither compliant nor
-                non-compliant; it is simply not yet assessed).
-              </p>
+              <div className="ac-kpi-card">
+                <p className="ac-kpi-label">Due Obligations</p>
+                <p className="ac-kpi-value" style={{ color: "var(--ac-text-primary)" }}>{overview?.due_count ?? 0}</p>
+              </div>
+              <div className="ac-kpi-card">
+                <p className="ac-kpi-label">Overdue</p>
+                <p className="ac-kpi-value" style={{ color: (overview?.overdue_count ?? 0) > 0 ? "var(--ac-status-non_compliant)" : "inherit" }}>
+                  {overview?.overdue_count ?? 0}
+                </p>
+              </div>
+              <div className="ac-kpi-card">
+                <p className="ac-kpi-label">Compliant</p>
+                <p className="ac-kpi-value" style={{ color: "var(--ac-status-compliant)" }}>{overview?.compliant_count ?? 0}</p>
+              </div>
+              <div className="ac-kpi-card">
+                <p className="ac-kpi-label">Blocked</p>
+                <p className="ac-kpi-value" style={{ color: (overview?.blocked_count ?? 0) > 0 ? "var(--ac-status-insufficient_data)" : "inherit" }}>
+                  {overview?.blocked_count ?? 0}
+                </p>
+              </div>
+              <div className="ac-kpi-card">
+                <p className="ac-kpi-label">Review Required</p>
+                <p className="ac-kpi-value" style={{ color: (overview?.review_required_count ?? 0) > 0 ? "var(--ac-status-review_required)" : "inherit" }}>
+                  {overview?.review_required_count ?? 0}
+                </p>
+              </div>
             </div>
           </section>
 
+          {/* Compliance Obligations Digital Thread Table */}
           <section className="ac-section">
-            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Open Gaps — Human Review Needed</h2>
+            <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <div>
+                <h2 className="ac-h2" style={{ margin: 0 }}>Compliance Obligations ({filteredObligations.length})</h2>
+                <p className="ac-subtitle" style={{ fontSize: 12, margin: "2px 0 0" }}>
+                  Active obligations mapped from applicability engine evaluations to required actions & evidence.
+                </p>
+              </div>
+              <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+                {["ALL", "DUE", "OVERDUE", "IN_PROGRESS", "COMPLIANT", "NON_COMPLIANT", "BLOCKED", "REVIEW_REQUIRED"].map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => setSelectedStatus(st)}
+                    className={`ac-btn ${selectedStatus === st ? "ac-btn-primary" : ""}`}
+                    style={{ fontSize: 11, padding: "4px 8px" }}
+                  >
+                    {st.replace(/_/g, " ")}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="ac-card" style={{ padding: 0 }}>
-              {openGaps.length === 0 ? (
-                <p className="ac-text-sm ac-text-muted" style={{ padding: 12 }}>No open gaps recorded.</p>
+              {filteredObligations.length === 0 ? (
+                <p className="ac-text-sm ac-text-muted" style={{ padding: 20, margin: 0, textAlign: "center" }}>
+                  No compliance obligations match the selected filter ({selectedStatus}).
+                </p>
               ) : (
-                <table className="ac-table">
-                  <thead><tr><th>Requirement</th><th>Aircraft</th><th>Status</th><th>Evaluated</th></tr></thead>
+                <table className="ac-table" style={{ width: "100%" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", padding: "10px 16px" }}>Requirement</th>
+                      <th style={{ textAlign: "left", padding: "10px 16px" }}>Asset / Aircraft</th>
+                      <th style={{ textAlign: "left", padding: "10px 16px" }}>State</th>
+                      <th style={{ textAlign: "left", padding: "10px 16px" }}>Priority</th>
+                      <th style={{ textAlign: "left", padding: "10px 16px" }}>Due Date</th>
+                      <th style={{ textAlign: "left", padding: "10px 16px" }}>Required Action</th>
+                      <th style={{ textAlign: "left", padding: "10px 16px" }}>Digital Thread</th>
+                    </tr>
+                  </thead>
                   <tbody>
-                    {openGaps.slice(0, 20).map((a) => {
-                      const req = requirements.find((r) => r.id === a.requirement_id);
+                    {filteredObligations.map((ob) => {
+                      const req = requirements.find((r) => r.id === ob.requirement_id);
+                      const acReg = registrationFor(ob.aircraft_id);
+                      const obBadge = complianceObligationStatusBadge(ob.status);
+                      const pBadge = priorityBadge(ob.priority);
+
                       return (
-                        <tr key={a.id}>
-                          <td className="ac-mono">{req?.requirement_number ?? a.requirement_id}</td>
-                          <td className="ac-mono">{registrationFor(a.aircraft_id) ?? a.aircraft_id}</td>
-                          <td><StatusBadge status={badgeKindForStatus(a.status)} /></td>
-                          <td className="ac-text-sm">{a.evaluated_at}</td>
+                        <tr key={ob.id} style={{ borderTop: "1px solid var(--ac-border)" }}>
+                          <td style={{ padding: "12px 16px" }}>
+                            <span className="ac-mono" style={{ fontWeight: 600 }}>
+                              {req?.requirement_number ?? ob.requirement_id.slice(0, 8)}
+                            </span>
+                            <div className="ac-text-xs ac-text-muted" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {req?.title ?? "Regulatory Requirement"}
+                            </div>
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <span className="ac-mono" style={{ fontWeight: 500 }}>
+                              {acReg ?? (ob.aircraft_id ? `AC-${ob.aircraft_id.slice(0, 6)}` : ob.asset_id ? `AST-${ob.asset_id.slice(0, 6)}` : "Fleet")}
+                            </span>
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <StatusBadge status={obBadge.status} label={obBadge.label} />
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <StatusBadge status={pBadge.status} label={pBadge.label} />
+                          </td>
+                          <td style={{ padding: "12px 16px", color: "var(--ac-text-secondary)" }}>
+                            {ob.due_date ? new Date(ob.due_date).toLocaleDateString() : "—"}
+                          </td>
+                          <td style={{ padding: "12px 16px", maxWidth: 260 }}>
+                            <div className="ac-text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {ob.required_action || "Technical action pending"}
+                            </div>
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <div className="ac-flex ac-gap-2">
+                              <Link
+                                href={`/compliance/obligations/${ob.id}`}
+                                className="ac-btn"
+                                style={{ fontSize: 11, padding: "4px 10px", color: "var(--ac-accent)", borderColor: "var(--ac-accent)" }}
+                              >
+                                Trace Thread →
+                              </Link>
+                              {(ob.asset_id || ob.aircraft_id) && (
+                                <Link
+                                  href={`/compliance/assets/${ob.asset_id || ob.aircraft_id}/impact`}
+                                  className="ac-btn"
+                                  style={{ fontSize: 11, padding: "4px 8px" }}
+                                  title="View flight readiness & blockers for this asset"
+                                >
+                                  Readiness Impact →
+                                </Link>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       );
                     })}
@@ -200,29 +289,49 @@ function RealCompliancePage() {
             </div>
           </section>
 
+          {/* Regulatory Requirements Summary */}
           <section className="ac-section">
-            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Regulatory Requirements</h2>
+            <h2 className="ac-h2" style={{ marginBottom: 10 }}>Ingested Regulatory Requirements ({requirements.length})</h2>
             <div className="ac-card" style={{ padding: 0 }}>
-              <table className="ac-table">
-                <thead><tr><th>Requirement</th><th>Authority</th><th>Compliance Time</th><th>Assessments</th></tr></thead>
+              <table className="ac-table" style={{ width: "100%" }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: "10px 16px" }}>Requirement</th>
+                    <th style={{ textAlign: "left", padding: "10px 16px" }}>Authority</th>
+                    <th style={{ textAlign: "left", padding: "10px 16px" }}>Compliance Time</th>
+                    <th style={{ textAlign: "left", padding: "10px 16px" }}>Linked Obligations</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {rows.map(({ requirement, assessments: reqAssessments }) => (
-                    <tr key={requirement.id}>
-                      <td className="ac-mono">{requirement.requirement_number}<div className="ac-text-sm ac-text-muted">{requirement.title}</div></td>
-                      <td>{requirement.authority}</td>
-                      <td className="ac-text-sm">{requirement.compliance_time ?? "—"}</td>
-                      <td className="ac-text-sm">
-                        {reqAssessments.length === 0
-                          ? "Not yet assessed"
-                          : reqAssessments.map((a, i) => (
-                              <span key={a.id}>
-                                {i > 0 && ", "}
-                                {a.aircraftRegistration ?? a.aircraft_id}: <StatusBadge status={badgeKindForStatus(a.status)} />
-                              </span>
-                            ))}
-                      </td>
-                    </tr>
-                  ))}
+                  {requirements.map((req) => {
+                    const reqObs = obligations.filter((o) => o.requirement_id === req.id);
+                    return (
+                      <tr key={req.id} style={{ borderTop: "1px solid var(--ac-border)" }}>
+                        <td style={{ padding: "12px 16px" }}>
+                          <span className="ac-mono" style={{ fontWeight: 600 }}>{req.requirement_number}</span>
+                          <div className="ac-text-sm ac-text-muted">{req.title}</div>
+                        </td>
+                        <td style={{ padding: "12px 16px" }}>{req.authority}</td>
+                        <td style={{ padding: "12px 16px" }} className="ac-text-sm">{req.compliance_time ?? "—"}</td>
+                        <td style={{ padding: "12px 16px" }}>
+                          {reqObs.length === 0 ? (
+                            <span className="ac-text-muted ac-text-sm">0 active obligations</span>
+                          ) : (
+                            <div className="ac-flex ac-gap-1" style={{ flexWrap: "wrap" }}>
+                              {reqObs.map((o) => {
+                                const obB = complianceObligationStatusBadge(o.status);
+                                return (
+                                  <Link key={o.id} href={`/compliance/obligations/${o.id}`}>
+                                    <StatusBadge status={obB.status} label={obB.label} />
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

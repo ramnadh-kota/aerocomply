@@ -87,13 +87,23 @@ def _make_plan(db_session, code, is_active=True):
 
 
 def _make_sub(db_session, *, org_id, plan, status=SubscriptionStatus.ACTIVE, starts_at=None):
-    sub = Subscription(
-        organization_id=org_id,
-        plan_id=plan.id,
-        status=status,
-        starts_at=starts_at or (datetime.now(UTC) - timedelta(days=1)),
-    )
-    db_session.add(sub)
+    from uuid import UUID
+
+    uid = UUID(str(org_id))
+    sub = db_session.query(Subscription).filter(Subscription.organization_id == uid).first()
+    if sub is not None:
+        sub.plan_id = plan.id
+        sub.status = status
+        sub.starts_at = starts_at or (datetime.now(UTC) - timedelta(days=1))
+        sub.ends_at = None
+    else:
+        sub = Subscription(
+            organization_id=uid,
+            plan_id=plan.id,
+            status=status,
+            starts_at=starts_at or (datetime.now(UTC) - timedelta(days=1)),
+        )
+        db_session.add(sub)
     db_session.commit()
     db_session.refresh(sub)
     return sub
@@ -107,7 +117,7 @@ def test_tenant_can_retrieve_own_org_entitlements(client, db_session):
     resp = client.get("/api/v1/entitlements", headers=headers)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["resolution_status"] == "NO_SUBSCRIPTION"
+    assert body["resolution_status"] == "ACTIVE"
 
 
 # 2. the tenant endpoint has no org_id parameter at all -- an injected query
@@ -116,6 +126,7 @@ def test_tenant_can_retrieve_own_org_entitlements(client, db_session):
 def test_tenant_endpoint_ignores_injected_org_query_param(client, db_session):
     tokens_a = _register(client, "Tenant Co 2A", "admin@tenant-co-2a.com")
     tokens_b = _register(client, "Tenant Co 2B", "admin@tenant-co-2b.com")
+    org_a_id = _org_id(tokens_a["access_token"])
     org_b_id = _org_id(tokens_b["access_token"])
 
     headers_a = _auth(tokens_a["access_token"])
@@ -126,9 +137,9 @@ def test_tenant_endpoint_ignores_injected_org_query_param(client, db_session):
     )
     assert resp.status_code == 200
     body = resp.json()
-    # Own org's resolution (NO_SUBSCRIPTION), never org B's, regardless of
-    # the query param -- proving there is no org_id parameter honored at all.
-    assert body["resolution_status"] == "NO_SUBSCRIPTION"
+    # Own org's resolution, never org B's, regardless of the query param
+    assert body["organization_id"] == org_a_id
+    assert body["resolution_status"] == "ACTIVE"
 
 
 # 3. ordinary tenant user gets 403 from the platform endpoint
@@ -155,7 +166,7 @@ def test_platform_admin_can_retrieve_any_org_entitlements(client, db_session):
     )
     assert resp.status_code == 200
     assert resp.json()["organization_id"] == org_id
-    assert resp.json()["resolution_status"] == "NO_SUBSCRIPTION"
+    assert resp.json()["resolution_status"] == "ACTIVE"
 
 
 # 5. platform admin inspecting multiple orgs in sequence gets correct
@@ -186,7 +197,7 @@ def test_platform_admin_can_inspect_multiple_orgs_in_sequence(client, db_session
     assert resp_y.status_code == 200
     assert resp_x.json()["resolution_status"] == "ACTIVE"
     assert resp_x.json()["effective_features"] == {"X_ONLY": True}
-    assert resp_y.json()["resolution_status"] == "NO_SUBSCRIPTION"
+    assert resp_y.json()["resolution_status"] == "ACTIVE"
     assert resp_x.json()["organization_id"] != resp_y.json()["organization_id"]
 
 
@@ -254,12 +265,17 @@ def test_platform_admin_sees_suspended_status_for_suspended_org(client, db_sessi
 # 9. no-subscription tenant returns NO_SUBSCRIPTION with 200 (already shown
 # in test 1, restated explicitly for the platform endpoint too)
 def test_no_subscription_tenant_returns_200_with_no_subscription_status(client, db_session):
+    from sqlalchemy import delete
+    from uuid import UUID
+
     _create_platform_admin(db_session, "ops@platform-co-9.com")
     admin_login = _login(client, "ops@platform-co-9.com")
     admin_headers = _auth(admin_login["access_token"])
 
     tokens = _register(client, "Tenant Co 9", "admin@tenant-co-9.com")
     org_id = _org_id(tokens["access_token"])
+    db_session.execute(delete(Subscription).where(Subscription.organization_id == UUID(org_id)))
+    db_session.commit()
 
     resp = client.get(
         f"/api/v1/platform/organizations/{org_id}/entitlements", headers=admin_headers
@@ -270,6 +286,8 @@ def test_no_subscription_tenant_returns_200_with_no_subscription_status(client, 
 
 # 10. ambiguous-subscription tenant returns AMBIGUOUS with 200 and reason populated
 def test_ambiguous_subscription_returns_200_with_reason(client, db_session):
+    from uuid import UUID
+
     _create_platform_admin(db_session, "ops@platform-co-10.com")
     admin_login = _login(client, "ops@platform-co-10.com")
     admin_headers = _auth(admin_login["access_token"])
@@ -278,7 +296,14 @@ def test_ambiguous_subscription_returns_200_with_reason(client, db_session):
     org_id = _org_id(tokens["access_token"])
     plan = _make_plan(db_session, "T10-PLAN")
     _make_sub(db_session, org_id=org_id, plan=plan, status=SubscriptionStatus.ACTIVE)
-    _make_sub(db_session, org_id=org_id, plan=plan, status=SubscriptionStatus.TRIALING)
+    sub2 = Subscription(
+        organization_id=UUID(org_id),
+        plan_id=plan.id,
+        status=SubscriptionStatus.TRIALING,
+        starts_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    db_session.add(sub2)
+    db_session.commit()
 
     resp = client.get(
         f"/api/v1/platform/organizations/{org_id}/entitlements", headers=admin_headers

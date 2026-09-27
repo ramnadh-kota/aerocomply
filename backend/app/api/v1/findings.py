@@ -7,6 +7,7 @@ from app.core.deps import get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.finding import (
+    FindingCorrelateComplianceRequest,
     FindingCreateRequest,
     FindingDispositionRequest,
     FindingResponse,
@@ -42,6 +43,10 @@ def create_finding(
         work_order_id=payload.work_order_id,
         task_id=payload.task_id,
         responsible_user_id=payload.responsible_user_id,
+        compliance_obligation_id=payload.compliance_obligation_id,
+        regulatory_requirement_id=payload.regulatory_requirement_id,
+        safety_significance=payload.safety_significance,
+        compliance_relevance=payload.compliance_relevance,
     )
     return FindingResponse.model_validate(finding)
 
@@ -51,6 +56,8 @@ def list_findings(
     aircraft_id: uuid.UUID | None = Query(default=None),
     asset_id: uuid.UUID | None = Query(default=None),
     work_order_id: uuid.UUID | None = Query(default=None),
+    compliance_obligation_id: uuid.UUID | None = Query(default=None),
+    regulatory_requirement_id: uuid.UUID | None = Query(default=None),
     status: str | None = Query(default=None),
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.INSPECTION_READ)),
@@ -61,6 +68,8 @@ def list_findings(
         aircraft_id=aircraft_id,
         asset_id=asset_id,
         work_order_id=work_order_id,
+        compliance_obligation_id=compliance_obligation_id,
+        regulatory_requirement_id=regulatory_requirement_id,
         status=status,
     )
     return [FindingResponse.model_validate(f) for f in findings]
@@ -74,6 +83,28 @@ def get_finding(
 ) -> FindingResponse:
     finding = finding_service.get_finding(
         db, organization_id=current_user.organization_id, finding_id=finding_id
+    )
+    return FindingResponse.model_validate(finding)
+
+
+@router.post("/{finding_id}/correlate-compliance", response_model=FindingResponse)
+def correlate_finding_compliance(
+    finding_id: uuid.UUID,
+    payload: FindingCorrelateComplianceRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.INSPECTION_WRITE)),
+) -> FindingResponse:
+    finding = finding_service.get_finding(
+        db, organization_id=current_user.organization_id, finding_id=finding_id
+    )
+    finding = finding_service.correlate_compliance(
+        db,
+        finding,
+        actor_user_id=current_user.id,
+        compliance_obligation_id=payload.compliance_obligation_id,
+        regulatory_requirement_id=payload.regulatory_requirement_id,
+        safety_significance=payload.safety_significance,
+        compliance_relevance=payload.compliance_relevance,
     )
     return FindingResponse.model_validate(finding)
 

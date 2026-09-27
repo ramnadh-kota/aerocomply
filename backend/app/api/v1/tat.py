@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import get_db_session, require_feature, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.tat import FleetTatSummary, TatStatus
@@ -17,6 +17,7 @@ def get_work_order_tat(
     work_order_id: uuid.UUID,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+    _ = Depends(require_feature("work_order_management")),
 ) -> TatStatus:
     return tat_service.get_work_order_tat_status(
         db, organization_id=current_user.organization_id, work_order_id=work_order_id
@@ -27,5 +28,6 @@ def get_work_order_tat(
 def get_fleet_tat(
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+    _ = Depends(require_feature("work_order_management")),
 ) -> FleetTatSummary:
     return tat_service.get_fleet_tat_status(db, organization_id=current_user.organization_id)

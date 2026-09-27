@@ -91,6 +91,14 @@ class AssetFlightCreateRequest(BaseModel):
     flown_at: datetime
     duration_minutes: int = Field(gt=0)
     cycles: int = Field(default=1, gt=0)
+    flight_number: str | None = Field(default=None, max_length=64)
+    origin: str | None = Field(default=None, max_length=64)
+    destination: str | None = Field(default=None, max_length=64)
+    departure_time: datetime | None = None
+    arrival_time: datetime | None = None
+    mission_type: str | None = Field(default=None, max_length=64)
+    status: str = Field(default="COMPLETED", max_length=32)
+    source: str = Field(default="MANUAL", max_length=32)
     pilot_user_id: uuid.UUID | None = None
     mission_id: uuid.UUID | None = None
     notes: str | None = None
@@ -103,11 +111,19 @@ class AssetFlightResponse(BaseModel):
     organization_id: uuid.UUID
     asset_id: uuid.UUID
     mission_id: uuid.UUID | None = None
+    flight_number: str | None = None
+    origin: str | None = None
+    destination: str | None = None
+    departure_time: datetime | None = None
+    arrival_time: datetime | None = None
     flown_at: datetime
     duration_minutes: int
     cycles: int
-    pilot_user_id: uuid.UUID | None
-    notes: str | None
+    mission_type: str | None = None
+    status: str = "COMPLETED"
+    source: str = "MANUAL"
+    pilot_user_id: uuid.UUID | None = None
+    notes: str | None = None
     created_at: datetime
 
 

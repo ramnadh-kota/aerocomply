@@ -1,6 +1,13 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, priorityBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, priorityBadge, workOrderStatusBadge } from "@/components/status/StatusBadge";
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { useSession } from "@/lib/auth/SessionContext";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
 import { getOperationsAnalytics } from "@/lib/mock/ai/analytics";
 import { maintenanceProjects } from "@/lib/mock/maintenanceProjects";
 import { workOrders, MOCK_TODAY } from "@/lib/mock/workOrders";
@@ -14,7 +21,96 @@ function daysSince(iso: string | null | undefined): number {
   return Math.max(0, Math.round((new Date(MOCK_TODAY).getTime() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24)));
 }
 
+const WO_TERMINAL_STATUSES = new Set(["COMPLETED", "CLOSED", "CANCELLED"]);
+// Real backend WorkOrderStatus vocabulary (backend/app/models/work_order.py)
+// -- distinct from the DEMO/mock page's fictional WAITING_PARTS/
+// WAITING_INSPECTION labels below, which were already flagged and removed
+// from the shared StatusBadge map as dead values in an earlier sprint.
+const REAL_WORK_ORDER_STATUSES = [
+  "DRAFT",
+  "OPEN",
+  "PLANNED",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "ON_HOLD",
+  "INSPECTION",
+  "COMPLETED",
+  "CLOSED",
+  "CANCELLED",
+] as const;
+
+/** Fleet-wide open work order count and status breakdown: REAL mode calls
+ * the real Work Order API directly (the one authoritative source, same
+ * backend endpoint the /maintenance/work-orders list page and Dashboard's
+ * Fleet Overview panel already use) -- never a locally-invented count. */
+function RealWorkOrderSnapshot() {
+  const { accessToken, isAuthenticated, sessionType } = useSession();
+  const [realWorkOrders, setRealWorkOrders] = useState<BackendWorkOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || sessionType === "DEMO") {
+      setLoading(false);
+      return;
+    }
+    if (!accessToken) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    workOrdersApi
+      .list(accessToken, { limit: 100 })
+      .then(setRealWorkOrders)
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setLoading(false));
+  }, [accessToken, isAuthenticated, sessionType]);
+
+  if (!isAuthenticated || sessionType === "DEMO") return null;
+
+  const openCount = realWorkOrders.filter((w) => !WO_TERMINAL_STATUSES.has(w.status)).length;
+  const byStatus = realWorkOrders.reduce<Record<string, number>>((acc, w) => {
+    acc[w.status] = (acc[w.status] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return (
+    <section className="ac-section">
+      <div className="ac-section-header">
+        <h2 className="ac-h2" style={{ margin: 0 }}>Work Orders (Live)</h2>
+        <span className="ac-badge ac-badge-active">REAL DATA</span>
+      </div>
+      <RealDataPanel
+        loading={loading}
+        error={error}
+        isEmpty={!loading && !error && realWorkOrders.length === 0}
+        emptyMessage="No work orders exist for this organization yet."
+      >
+        <div className="ac-kpi-grid">
+          <div className="ac-kpi-card-real">
+            <p className="ac-kpi-label">Open Work Orders</p>
+            <p className="ac-kpi-value">{openCount}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>of {realWorkOrders.length} total</p>
+          </div>
+        </div>
+        <div className="ac-card" style={{ marginTop: "var(--ac-space-4)" }}>
+          <p className="ac-eyebrow" style={{ marginBottom: 10 }}>Work Orders by Status</p>
+          <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+            {REAL_WORK_ORDER_STATUSES.filter((s) => (byStatus[s] ?? 0) > 0).map((s) => (
+              <Link key={s} href="/maintenance/work-orders" style={{ display: "inline-block" }}>
+                <StatusBadge {...workOrderStatusBadge(s)} label={`${s.replace(/_/g, " ")}: ${byStatus[s]}`} />
+              </Link>
+            ))}
+          </div>
+        </div>
+      </RealDataPanel>
+    </section>
+  );
+}
+
 export default function MaintenanceOperationsPage() {
+  const { sessionType } = useSession();
   const ops = getOperationsAnalytics(["wo-1042"]);
   const findingsRequiringAttention = findings.filter((f) => f.requiresDefect);
   const pendingInspectionWos = workOrders
@@ -29,7 +125,11 @@ export default function MaintenanceOperationsPage() {
       <div className="ac-section-header">
         <div>
           <h1 className="ac-h1">Maintenance Operations</h1>
-          <p className="ac-subtitle">Fleet-wide MRO operational command center — every value is derived from current demo data.</p>
+          <p className="ac-subtitle">
+            Fleet-wide MRO operational command center — the &ldquo;Work Orders (Live)&rdquo; section below is
+            real backend data; every other section on this page is illustrative demo data
+            {sessionType === "DEMO" ? "" : " (not yet wired to the backend)"}.
+          </p>
         </div>
         <div className="ac-flex ac-gap-2">
           <Link href="/ai" className="ac-btn" style={{ fontSize: 12, padding: "4px 10px" }}>Ask AI</Link>
@@ -38,8 +138,13 @@ export default function MaintenanceOperationsPage() {
         </div>
       </div>
 
+      <RealWorkOrderSnapshot />
+
       <section className="ac-section">
-        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Fleet Maintenance</h2>
+        <div className="ac-section-header">
+          <h2 className="ac-h2" style={{ margin: 0 }}>Fleet Maintenance</h2>
+          <span className="ac-illustrative-badge">Illustrative Data</span>
+        </div>
         <div className="ac-kpi-grid">
           <Link href="/aircraft" className="ac-kpi-card" style={{ display: "block" }}>
             <p className="ac-kpi-label">Aircraft Requiring Maintenance</p>
@@ -66,7 +171,10 @@ export default function MaintenanceOperationsPage() {
       </section>
 
       <section className="ac-section">
-        <h2 className="ac-h2" style={{ marginBottom: 10 }}>Work Orders by Status</h2>
+        <div className="ac-section-header">
+          <h2 className="ac-h2" style={{ margin: 0 }}>Work Orders by Status (Demo Fleet)</h2>
+          <span className="ac-illustrative-badge">Illustrative Data</span>
+        </div>
         <div className="ac-card">
           <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
             {(["DRAFT", "ASSIGNED", "IN_PROGRESS", "WAITING_PARTS", "WAITING_INSPECTION", "COMPLETED", "CANCELLED"] as const).map((s) => (

@@ -42,11 +42,30 @@ def _auth(token):
 
 
 def _entitle_work_orders(db_session, org_id):
-    """M21.5 fixture maintenance: POST /work-orders (and all work-order
-    sub-routes) now require require_feature("work_order_management").
-    Grant only that one feature to the given org so tests that exercise
-    RBAC, tenancy, or task-completion logic are not blocked at the
-    entitlement gate before they reach their actual assertion."""
+    """Ensure org_id has work_order_management enabled."""
+    from sqlalchemy import select
+
+    sub = db_session.execute(
+        select(Subscription).where(
+            Subscription.organization_id == org_id,
+            Subscription.status.in_(["ACTIVE", "TRIALING", "PAST_DUE"]),
+        )
+    ).scalars().first()
+    if sub:
+        pf = db_session.execute(
+            select(PlanFeature).where(
+                PlanFeature.plan_id == sub.plan_id,
+                PlanFeature.feature_key == "work_order_management",
+            )
+        ).scalar_one_or_none()
+        if pf is None:
+            db_session.add(PlanFeature(plan_id=sub.plan_id, feature_key="work_order_management", enabled=True))
+            db_session.commit()
+        elif not pf.enabled:
+            pf.enabled = True
+            db_session.commit()
+        return
+
     plan = Plan(
         name=f"WO-Test-Plan-{org_id}",
         code=f"wo-test-{org_id}",

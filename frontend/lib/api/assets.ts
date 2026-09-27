@@ -96,9 +96,17 @@ export interface AssetFlightResponse {
   organization_id: string;
   asset_id: string;
   mission_id: string | null;
+  flight_number?: string | null;
+  origin?: string | null;
+  destination?: string | null;
+  departure_time?: string | null;
+  arrival_time?: string | null;
   flown_at: string;
   duration_minutes: number;
   cycles: number;
+  mission_type?: string | null;
+  status?: string;
+  source?: string;
   pilot_user_id: string | null;
   notes: string | null;
   created_at: string;
@@ -108,8 +116,40 @@ export interface AssetFlightCreateRequest {
   flown_at: string;
   duration_minutes: number;
   cycles?: number;
+  flight_number?: string | null;
+  origin?: string | null;
+  destination?: string | null;
+  departure_time?: string | null;
+  arrival_time?: string | null;
+  mission_type?: string | null;
+  status?: string;
+  source?: string;
   pilot_user_id?: string | null;
   mission_id?: string | null;
+  notes?: string | null;
+}
+
+export interface AssetHistoricalBaseline {
+  id: string;
+  organization_id: string;
+  asset_id: string;
+  flight_hours: number;
+  flight_cycles: number;
+  effective_at: string;
+  source: string;
+  evidence_reference: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_by_user_id: string | null;
+  created_at: string;
+}
+
+export interface AssetHistoricalBaselineCreateRequest {
+  flight_hours: number;
+  flight_cycles?: number;
+  effective_at: string;
+  source?: string;
+  evidence_reference?: string | null;
   notes?: string | null;
 }
 
@@ -344,6 +384,27 @@ export const assetsApi = {
 
   getContext: (accessToken: string, assetId: string) =>
     apiRequest<AssetDomainContextResponse>(`/assets/${assetId}/context`, {
+      accessToken,
+    }),
+
+  createBaseline: (
+    accessToken: string,
+    assetId: string,
+    data: AssetHistoricalBaselineCreateRequest
+  ) =>
+    apiRequest<AssetHistoricalBaseline>(`/assets/${assetId}/baseline`, {
+      accessToken,
+      method: "POST",
+      body: data,
+    }),
+
+  getBaseline: (accessToken: string, assetId: string) =>
+    apiRequest<AssetHistoricalBaseline | null>(`/assets/${assetId}/baseline`, {
+      accessToken,
+    }),
+
+  listBaselines: (accessToken: string, assetId: string) =>
+    apiRequest<AssetHistoricalBaseline[]>(`/assets/${assetId}/baselines`, {
       accessToken,
     }),
 };

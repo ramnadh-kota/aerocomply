@@ -140,6 +140,88 @@ def test_compliance_manager_can_read_compliance_assessments(db_session):
     assert result["assessments"] == []
 
 
+def test_get_intelligence_context_tool_returns_the_deterministic_contract(db_session):
+    org_id = uuid.uuid4()
+    aircraft = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_id,
+        payload=AircraftCreateRequest(registration="N5AI", msn="MSN-AI-5", aircraft_type="A320"),
+    )
+    user = _user(org_id, ["ORG_ADMIN"])
+
+    result = execute_tool(
+        db_session, user, "get_intelligence_context", {"asset_id": str(aircraft.asset_id)}
+    )
+
+    assert result["contract_version"] == "1.0"
+    assert result["asset"]["asset_id"] == str(aircraft.asset_id)
+    assert "readiness" in result and "risk" in result and "priority" in result
+    assert "decision" in result and "recommendation" in result and "aerospace_state" in result
+
+
+def test_get_intelligence_context_tool_never_collapses_unknown_to_positive(db_session):
+    # A brand-new aircraft with zero evaluated compliance obligations is
+    # UNKNOWN_INTEL/UNKNOWN/INSUFFICIENT_DATA end-to-end (see D2.2's own
+    # Invariant #23 tests) -- the tool must pass this through unchanged for
+    # the LLM to see, never resolve it into a positive claim itself.
+    org_id = uuid.uuid4()
+    aircraft = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_id,
+        payload=AircraftCreateRequest(registration="N6AI", msn="MSN-AI-6", aircraft_type="A320"),
+    )
+    user = _user(org_id, ["ORG_ADMIN"])
+
+    result = execute_tool(
+        db_session, user, "get_intelligence_context", {"asset_id": str(aircraft.asset_id)}
+    )
+
+    assert result["aerospace_state"]["status"] == "UNKNOWN_INTEL"
+    assert result["readiness"]["state"] == "UNKNOWN"
+    assert result["risk"]["level"] == "UNKNOWN"
+    assert result["decision"]["state"] == "INSUFFICIENT_DATA"
+    assert result["decision"]["state"] != "NO_ACTION_REQUIRED"
+    assert len(result["uncertainty"]) > 0
+
+
+def test_get_intelligence_context_tool_is_tenant_scoped(db_session):
+    org_a = uuid.uuid4()
+    org_b = uuid.uuid4()
+    aircraft = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_a,
+        payload=AircraftCreateRequest(registration="N7AI", msn="MSN-AI-7", aircraft_type="A320"),
+    )
+    user_b = _user(org_b, ["ORG_ADMIN"])
+
+    with pytest.raises(NotFoundError):
+        execute_tool(
+            db_session, user_b, "get_intelligence_context", {"asset_id": str(aircraft.asset_id)}
+        )
+
+
+def test_get_intelligence_context_tool_requires_aircraft_read_permission(db_session):
+    org_id = uuid.uuid4()
+    aircraft = aircraft_service.create_aircraft(
+        db_session,
+        organization_id=org_id,
+        payload=AircraftCreateRequest(registration="N8AI", msn="MSN-AI-8", aircraft_type="A320"),
+    )
+    user = _user(org_id, [])
+
+    with pytest.raises(ForbiddenError):
+        execute_tool(
+            db_session, user, "get_intelligence_context", {"asset_id": str(aircraft.asset_id)}
+        )
+
+
+def test_get_intelligence_context_appears_in_anthropic_tool_schemas():
+    from app.services.ai.tools import anthropic_tool_schemas
+
+    names = [t["name"] for t in anthropic_tool_schemas()]
+    assert "get_intelligence_context" in names
+
+
 def test_no_mutation_tools_exist_in_registry(db_session):
     # Every tool in the Lisa registry is READ-only today (see
     # app/services/ai/tools.py module docstring and the M4 "Lisa Actions"

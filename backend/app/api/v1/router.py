@@ -1,8 +1,10 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    aerospace_intelligence,
     aircraft,
     aog,
+    applicability,
     assessments,
     assets,
     auth,
@@ -17,6 +19,7 @@ from app.api.v1 import (
     findings,
     health,
     inspections,
+    intelligence,
     inventory,
     lisa,
     maintenance,
@@ -67,9 +70,11 @@ api_router.include_router(receiving.router)
 api_router.include_router(maintenance.router)
 api_router.include_router(deferred_items.router)
 api_router.include_router(compliance.router)
+api_router.include_router(applicability.router, prefix="/applicability")
 api_router.include_router(regulatory.router)
 api_router.include_router(control_center.router)
 api_router.include_router(proactive.router)
+api_router.include_router(intelligence.router)
 api_router.include_router(warehouses.router)
 api_router.include_router(technicians.router)
 api_router.include_router(users.router)
@@ -80,3 +85,4 @@ api_router.include_router(product_catalog.router)
 api_router.include_router(data_import.router)
 api_router.include_router(entitlements.router)
 api_router.include_router(tenant.router)
+api_router.include_router(aerospace_intelligence.router)

@@ -35,6 +35,7 @@ class FindingSeverity:
     MAJOR = "MAJOR"
     MINOR = "MINOR"
     OBSERVATION = "OBSERVATION"
+    INFORMATIONAL = "INFORMATIONAL"
 
 
 class FindingStatus:
@@ -48,6 +49,7 @@ ALL_FINDING_SEVERITIES = {
     FindingSeverity.MAJOR,
     FindingSeverity.MINOR,
     FindingSeverity.OBSERVATION,
+    FindingSeverity.INFORMATIONAL,
 }
 
 ALL_FINDING_STATUSES = {
@@ -100,6 +102,20 @@ class Finding(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     task_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=True, index=True
     )
+    compliance_obligation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("compliance_obligations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    regulatory_requirement_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("regulatory_requirements.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    safety_significance: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    compliance_relevance: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
@@ -126,6 +142,8 @@ class Finding(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     dispositions: Mapped[list["FindingDisposition"]] = relationship(
         back_populates="finding", cascade="all, delete-orphan", order_by="FindingDisposition.created_at"
     )
+    compliance_obligation = relationship("ComplianceObligation", back_populates="findings")
+    regulatory_requirement = relationship("RegulatoryRequirement")
 
 
 class FindingDisposition(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):

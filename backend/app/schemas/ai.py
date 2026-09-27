@@ -37,3 +37,13 @@ class LisaAskResponse(BaseModel):
     confidenceState: str = "PARTIAL_DATA"
     actionCategory: str = "INFORMATION"
     source: str = "AI_AGENT"
+    # M5.2 -- populated only when a get_intelligence_context tool call
+    # occurred during this request; reuses the frontend's existing
+    # `missing` field name/semantics (frontend/lib/mock/ai/engine.ts's
+    # `insufficient()` helper) rather than inventing a competing
+    # "uncertainty" field. Verbatim from IntelligenceContext.uncertainty --
+    # never derived from or overridable by the model's own prose.
+    missing: list[str] = Field(default_factory=list)
+    # Machine-readable pointer to which authoritative context grounded this
+    # answer, independent of whatever the model's narrative text says.
+    grounding: dict | None = None

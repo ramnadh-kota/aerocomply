@@ -42,18 +42,41 @@ def _auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _entitle(db_session, org_id, feature_key):
-    """M21.5 fixture maintenance: grant org_id the named feature on an
-    active plan subscription so entitlement-gated routes are reachable."""
+def _entitle(db_session, org_id, *feature_keys):
+    """Ensure org_id has the named features enabled on an active subscription."""
+    from sqlalchemy import select
+
+    sub = db_session.execute(
+        select(Subscription).where(
+            Subscription.organization_id == org_id,
+            Subscription.status.in_(["ACTIVE", "TRIALING", "PAST_DUE"]),
+        )
+    ).scalars().first()
+    if sub:
+        for fk in feature_keys:
+            pf = db_session.execute(
+                select(PlanFeature).where(
+                    PlanFeature.plan_id == sub.plan_id,
+                    PlanFeature.feature_key == fk,
+                )
+            ).scalar_one_or_none()
+            if pf is None:
+                db_session.add(PlanFeature(plan_id=sub.plan_id, feature_key=fk, enabled=True))
+            elif not pf.enabled:
+                pf.enabled = True
+        db_session.commit()
+        return
+
     plan = Plan(
-        name=f"RR-Plan-{feature_key}-{org_id}",
-        code=f"rr-{feature_key}-{org_id}",
+        name=f"RR-Plan-{org_id}",
+        code=f"rr-plan-{org_id}",
         is_active=True,
     )
     db_session.add(plan)
     db_session.commit()
     db_session.refresh(plan)
-    db_session.add(PlanFeature(plan_id=plan.id, feature_key=feature_key, enabled=True))
+    for fk in feature_keys:
+        db_session.add(PlanFeature(plan_id=plan.id, feature_key=fk, enabled=True))
     db_session.add(
         Subscription(
             organization_id=org_id,
@@ -74,8 +97,7 @@ def test_full_readiness_chain(client, db_session):
     # require their respective feature entitlements.
     org_id_str = client.get("/api/v1/auth/me", headers=headers).json()["organization_id"]
     chain_org_id = uuid.UUID(org_id_str)
-    _entitle(db_session, chain_org_id, "work_order_management")
-    _entitle(db_session, chain_org_id, "procurement_management")
+    _entitle(db_session, chain_org_id, "work_order_management", "procurement_management")
 
     aircraft_resp = client.post(
         "/api/v1/aircraft",

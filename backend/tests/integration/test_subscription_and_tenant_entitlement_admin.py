@@ -7,7 +7,7 @@ share one flat transaction, never call db_session.rollback() mid-test.
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.deps import get_db_session
 from app.core.security import hash_password
@@ -106,13 +106,22 @@ def _seed_plan_with_feature(db_session, admin, code, feature_key, enabled):
 
 
 def _seed_active_subscription(db_session, org_id, plan_id):
-    sub = Subscription(
-        organization_id=org_id,
-        plan_id=plan_id,
-        status=SubscriptionStatus.ACTIVE,
-        starts_at=datetime.now(UTC) - timedelta(days=1),
-    )
-    db_session.add(sub)
+    sub = db_session.execute(
+        select(Subscription).where(Subscription.organization_id == org_id)
+    ).scalars().first()
+    if sub:
+        sub.plan_id = plan_id
+        sub.status = SubscriptionStatus.ACTIVE
+        sub.starts_at = datetime.now(UTC) - timedelta(days=1)
+        sub.ends_at = None
+    else:
+        sub = Subscription(
+            organization_id=org_id,
+            plan_id=plan_id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(sub)
     db_session.commit()
     return sub
 
@@ -158,6 +167,8 @@ def test_platform_manage_normal_operations_succeed(client, db_session):
     headers = _auth(_login(client, "ops@m6-co-4.com")["access_token"])
     tokens = _register(client, "M6 Tenant 4", "admin@m6-tenant-4.com")
     org_id = _org_id_for(client, tokens)
+    db_session.execute(delete(Subscription).where(Subscription.organization_id == org_id))
+    db_session.commit()
     plan = _seed_plan_with_feature(db_session, admin, "M6-P4", "LISA", False)
 
     resp = client.post(
@@ -223,6 +234,8 @@ def test_create_read_subscription(client, db_session):
     headers = _auth(_login(client, "ops@m6-co-7.com")["access_token"])
     tokens = _register(client, "M6 Tenant 7", "admin@m6-tenant-7.com")
     org_id = _org_id_for(client, tokens)
+    db_session.execute(delete(Subscription).where(Subscription.organization_id == org_id))
+    db_session.commit()
     plan = _seed_plan_with_feature(db_session, admin, "M6-P7", "LISA", True)
 
     resp = client.post(
@@ -627,6 +640,8 @@ def test_exactly_one_audit_event_per_mutation(client, db_session):
     admin = _create_platform_admin(db_session, "ops@m6-co-30.com")
     tokens = _register(client, "M6 Tenant 30", "admin@m6-tenant-30.com")
     org_id = _org_id_for(client, tokens)
+    db_session.execute(delete(Subscription).where(Subscription.organization_id == org_id))
+    db_session.commit()
     plan = _seed_plan_with_feature(db_session, admin, "M6-P30", "LISA", True)
 
     from app.services.subscription_service import create_subscription
@@ -759,6 +774,8 @@ def test_m2_subscription_to_resolver(client, db_session):
     admin = _create_platform_admin(db_session, "ops@m6-co-34.com")
     tokens = _register(client, "M6 Tenant 34", "admin@m6-tenant-34.com")
     org_id = _org_id_for(client, tokens)
+    db_session.execute(delete(Subscription).where(Subscription.organization_id == org_id))
+    db_session.commit()
     plan = _seed_plan_with_feature(db_session, admin, "M6-P34", "LISA", False)
 
     result = resolve_entitlements(db_session, organization_id=org_id)
@@ -843,6 +860,8 @@ def test_cross_tenant_subscription_access_impossible_via_org_scoping(client, db_
     tokens_b = _register(client, "M6 Tenant 41b", "admin@m6-tenant-41b.com")
     org_a = _org_id_for(client, tokens_a)
     org_b = _org_id_for(client, tokens_b)
+    db_session.execute(delete(Subscription).where(Subscription.organization_id == org_b))
+    db_session.commit()
     plan = _seed_plan_with_feature(db_session, admin, "M6-P41", "LISA", True)
     _seed_active_subscription(db_session, org_a, plan.id)
 

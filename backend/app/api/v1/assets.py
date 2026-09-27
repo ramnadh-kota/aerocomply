@@ -6,6 +6,7 @@ Enforces server-side tenant isolation and RBAC.
 """
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
@@ -29,9 +30,13 @@ from app.schemas.asset import (
     AssetUpdateRequest,
     AssetUtilizationResponse,
 )
+from app.schemas.asset_baseline import (
+    AssetHistoricalBaselineCreateRequest,
+    AssetHistoricalBaselineResponse,
+)
 from app.schemas.auth import CurrentUser
 from app.schemas.deletion import AssetDeleteRequest
-from app.services import asset_service, deletion_service
+from app.services import asset_service, deletion_service, flight_service
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -275,6 +280,58 @@ def get_asset_utilization(
 
 
 # ---------------------------------------------------------------------------
+# Historical Baselines (M5.13)
+# ---------------------------------------------------------------------------
+
+@router.post("/{asset_id}/baseline", response_model=AssetHistoricalBaselineResponse, status_code=status.HTTP_201_CREATED)
+def set_asset_baseline(
+    asset_id: uuid.UUID,
+    payload: AssetHistoricalBaselineCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_asset_write),
+) -> AssetHistoricalBaselineResponse:
+    baseline = flight_service.create_asset_baseline(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        asset_id=asset_id,
+        flight_hours=payload.flight_hours,
+        flight_cycles=payload.flight_cycles,
+        effective_at=payload.effective_at,
+        source=payload.source,
+        evidence_reference=payload.evidence_reference,
+        notes=payload.notes,
+    )
+    return AssetHistoricalBaselineResponse.model_validate(baseline)
+
+
+@router.get("/{asset_id}/baseline", response_model=AssetHistoricalBaselineResponse | None)
+def get_asset_baseline(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_asset_read),
+) -> AssetHistoricalBaselineResponse | None:
+    baseline = flight_service.get_asset_baseline(
+        db, organization_id=current_user.organization_id, asset_id=asset_id
+    )
+    if baseline is None:
+        return None
+    return AssetHistoricalBaselineResponse.model_validate(baseline)
+
+
+@router.get("/{asset_id}/baselines", response_model=list[AssetHistoricalBaselineResponse])
+def list_asset_baselines(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_asset_read),
+) -> list[AssetHistoricalBaselineResponse]:
+    baselines = flight_service.list_asset_baselines(
+        db, organization_id=current_user.organization_id, asset_id=asset_id
+    )
+    return [AssetHistoricalBaselineResponse.model_validate(b) for b in baselines]
+
+
+# ---------------------------------------------------------------------------
 # Maintenance, Inspections, Evidence, Findings, Compliance, History
 # ---------------------------------------------------------------------------
 
@@ -337,9 +394,27 @@ def get_asset_compliance(
 def get_asset_history(
     asset_id: uuid.UUID,
     limit: int = Query(default=50, ge=1, le=100),
+    event_type: str | None = Query(
+        default=None,
+        description=(
+            "Filter to one lifecycle event type, e.g. MISSION_COMPLETED, "
+            "WORK_ORDER_COMPLETED, COMPONENT_INSTALLATION, FINDING_CREATED."
+        ),
+    ),
+    date_from: datetime | None = Query(default=None, description="Inclusive lower bound on occurred_at."),
+    date_to: datetime | None = Query(default=None, description="Exclusive upper bound on occurred_at."),
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_asset_read),
 ) -> AssetHistoryResponse:
+    """The asset's unified operational lifecycle timeline (Asset -> Mission ->
+    Flight -> Component -> Finding -> Work Order -> Inspection). See
+    KOTA_AEROSPACE_DEVELOPER_1_LIFECYCLE.md for the full event-type catalog."""
     return asset_service.get_asset_history(
-        db, organization_id=current_user.organization_id, asset_id=asset_id, limit=limit
+        db,
+        organization_id=current_user.organization_id,
+        asset_id=asset_id,
+        limit=limit,
+        event_type=event_type,
+        date_from=date_from,
+        date_to=date_to,
     )

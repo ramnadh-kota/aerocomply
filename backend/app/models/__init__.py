@@ -1,5 +1,12 @@
 from app.models.aircraft import Aircraft
 from app.models.aircraft_detail import AircraftDetail
+from app.models.applicability import (
+    ApplicabilityCondition,
+    ApplicabilityEvaluation,
+    ApplicabilityRule,
+    ConditionType,
+    EvaluationResult,
+)
 from app.models.approval_request import (
     ALL_APPROVAL_REQUEST_TYPES,
     ALL_APPROVAL_STATUSES,
@@ -18,9 +25,17 @@ from app.models.assessment import (
     AssessmentSnapshot,
 )
 from app.models.asset import Asset, AssetType
+from app.models.asset_baseline import AssetHistoricalBaseline
 from app.models.audit_event import AuditEvent
 from app.models.auth_verification import AuthVerificationCode, VerificationPurpose
 from app.models.battery import Battery, BatteryStatus
+from app.models.compliance import (
+    ComplianceAssessment,
+    ComplianceAssessmentStatus,
+    ComplianceObligation,
+    ComplianceState,
+    RegulatoryRequirement,
+)
 from app.models.component import Component, ComponentStatus, ComponentType
 from app.models.evidence import Evidence, EvidenceFile, EvidenceFileStatus, EvidenceStatus
 from app.models.facility import Facility, FacilityStatus, FacilityType
@@ -36,6 +51,7 @@ from app.models.finding import (
 )
 from app.models.flight import Flight
 from app.models.import_job import ImportDomain, ImportJob, ImportJobStatus
+from app.models.import_mapping import TenantImportMapping
 from app.models.inspection_requirement import InspectionRequirement
 from app.models.installation_history import BatteryInstallation, ComponentInstallation
 from app.models.lisa_conversation_context import LisaConversationContext
@@ -43,6 +59,7 @@ from app.models.mission import Mission, MissionStatus
 from app.models.organization import Organization
 from app.models.part import Part
 from app.models.plan import Plan, PlanFeature, PlanLimit
+from app.models.proactive_signal import ProactiveSignalRecord
 from app.models.product_catalog import ProductFeature, ProductModule, ProductPage, ProductSuite
 from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.task import Task
@@ -125,4 +142,18 @@ __all__ = [
     "ALL_FINDING_SEVERITIES",
     "ALL_FINDING_STATUSES",
     "ALL_DISPOSITION_TYPES",
+    "ApplicabilityRule",
+    "ApplicabilityCondition",
+    "ApplicabilityEvaluation",
+    "ConditionType",
+    "EvaluationResult",
+    "ComplianceObligation",
+    "ComplianceState",
+    "ComplianceAssessment",
+    "ComplianceAssessmentStatus",
+    "RegulatoryRequirement",
+    "AssetHistoricalBaseline",
+    "TenantImportMapping",
+    "ProactiveSignalRecord",
 ]
+

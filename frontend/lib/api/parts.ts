@@ -26,3 +26,24 @@ export interface BackendPart {
 export const partsApi = {
   list: (accessToken: string) => apiRequest<BackendPart[]>("/parts", { accessToken }),
 };
+
+export interface BackendPartRequirement {
+  id: string;
+  organization_id: string;
+  work_order_id: string;
+  task_id: string | null;
+  part_id: string;
+  required_quantity: number;
+  fulfilled_quantity: number;
+  status: string;
+  priority: string;
+  created_at: string;
+}
+
+export const partRequirementsApi = {
+  listForWorkOrder: (accessToken: string, workOrderId: string) =>
+    apiRequest<BackendPartRequirement[]>(`/part-requirements/by-work-order/${workOrderId}`, {
+      accessToken,
+    }),
+};
+

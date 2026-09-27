@@ -23,10 +23,14 @@ const TYPE_LABEL: Record<string, string> = {
   REGULATORY_DOCUMENT: "Regulatory Document",
 };
 
+import ComplianceEvidenceDetailPage from "../../compliance/evidence/[id]/page";
+
 export default async function EvidenceDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const item = evidenceRepository.getById(params.id);
-  if (!item) notFound();
+  if (!item) {
+    return <ComplianceEvidenceDetailPage />;
+  }
 
   const assessment = getAssessmentById(item.applicabilityAssessmentId);
   const subjectAircraft = assessment?.subjectType === "AIRCRAFT" ? getAircraftById(assessment.subjectId) : undefined;

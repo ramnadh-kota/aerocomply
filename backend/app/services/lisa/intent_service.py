@@ -16,10 +16,35 @@ class Intent(StrEnum):
     PROCUREMENT_CHAIN = "PROCUREMENT_CHAIN"  # material / procurement / PO / receiving
     COMPLIANCE = "COMPLIANCE"
     ASSESSMENT = "ASSESSMENT"
+    PROACTIVE_INTELLIGENCE = "PROACTIVE_INTELLIGENCE"
     UNKNOWN = "UNKNOWN"
 
 
 _KEYWORDS: tuple[tuple[Intent, tuple[str, ...]], ...] = (
+    (
+        Intent.PROACTIVE_INTELLIGENCE,
+        (
+            "what needs attention",
+            "needs attention today",
+            "needs attention",
+            "proactive alert",
+            "proactive alerts",
+            "emerging risk",
+            "emerging risks",
+            "approaching maintenance",
+            "approaching threshold",
+            "upcoming inspection",
+            "upcoming inspections",
+            "recurring finding",
+            "recurring findings",
+            "evidence gap",
+            "evidence gaps",
+            "high priority",
+            "readiness degradation",
+            "proactive intelligence",
+            "attention required",
+        ),
+    ),
     (
         Intent.ASSESSMENT,
         (

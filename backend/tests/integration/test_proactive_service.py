@@ -118,6 +118,7 @@ def test_release_blocker_produces_alert_for_incomplete_task(db_session):
     work_order_service.create_task(
         db_session,
         organization_id=org_id,
+        actor_user_id=None,
         payload=TaskCreateRequest(work_order_id=work_order.id, description="Inspect panel"),
     )
 

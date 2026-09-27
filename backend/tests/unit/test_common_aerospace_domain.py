@@ -241,9 +241,10 @@ def test_utilization_hours_and_cycles_calculation():
         status="ACTIVE",
     )
 
-    # Mock get_asset, then stats (count=10, sum_minutes=1200, sum_cycles=10)
+    # Mock get_asset, baseline (None), then stats (count=10, sum_minutes=1200, sum_cycles=10)
     db.execute.side_effect = [
         MagicMock(scalar_one_or_none=MagicMock(return_value=asset)),
+        MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=None)))),
         MagicMock(one=MagicMock(return_value=(10, 1200, 10))),
     ]
 
@@ -400,6 +401,7 @@ def test_utilization_reflects_recorded_aircraft_flight():
 
     db.execute.side_effect = [
         MagicMock(scalar_one_or_none=MagicMock(return_value=asset)),
+        MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=None)))),
         MagicMock(one=MagicMock(return_value=(1, 90, 2))),
     ]
 

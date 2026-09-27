@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import get_db_session, require_any_permission, require_permission
 from app.core.errors import AeroComplyError, ConflictError
 from app.core.logging import get_logger
 from app.core.permissions import Permission
@@ -16,8 +16,10 @@ from app.schemas.evidence import (
     EvidenceCreateRequest,
     EvidenceFileDownloadResponse,
     EvidenceFileResponse,
+    EvidenceRejectRequest,
     EvidenceResponse,
     EvidenceTransitionRequest,
+    EvidenceVerifyRequest,
 )
 from app.services import evidence_file_service, evidence_service
 from app.services.storage import (
@@ -53,8 +55,74 @@ def create_evidence(
         organization_id=current_user.organization_id,
         task_id=payload.task_id,
         uploaded_by_user_id=current_user.id,
+        compliance_obligation_id=payload.compliance_obligation_id,
+        regulatory_requirement_id=payload.regulatory_requirement_id,
+        asset_id=payload.asset_id,
+        aircraft_id=payload.aircraft_id,
+        component_id=payload.component_id,
+        inspection_requirement_id=payload.inspection_requirement_id,
+        finding_id=payload.finding_id,
+        work_order_id=payload.work_order_id,
+        title=payload.title,
+        description=payload.description,
+        evidence_type=payload.evidence_type,
+        source=payload.source,
+        captured_at=payload.captured_at,
+        provenance=payload.provenance,
     )
     return EvidenceResponse.model_validate(evidence)
+
+
+@router.post("/{evidence_id}/verify", response_model=EvidenceResponse)
+def verify_evidence(
+    evidence_id: uuid.UUID,
+    payload: EvidenceVerifyRequest | None = None,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(
+        require_any_permission(
+            Permission.COMPLIANCE_DECIDE,
+            Permission.COMPLIANCE_ASSESS,
+            Permission.EVIDENCE_WRITE,
+        )
+    ),
+) -> EvidenceResponse:
+    evidence = evidence_service.get_evidence(
+        db, organization_id=current_user.organization_id, evidence_id=evidence_id
+    )
+    notes = payload.verification_notes if payload else None
+    evidence = evidence_service.verify_evidence(
+        db,
+        evidence,
+        verifier_user_id=current_user.id,
+        verification_notes=notes,
+    )
+    return EvidenceResponse.model_validate(evidence)
+
+
+@router.post("/{evidence_id}/reject", response_model=EvidenceResponse)
+def reject_evidence(
+    evidence_id: uuid.UUID,
+    payload: EvidenceRejectRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(
+        require_any_permission(
+            Permission.COMPLIANCE_DECIDE,
+            Permission.COMPLIANCE_ASSESS,
+            Permission.EVIDENCE_WRITE,
+        )
+    ),
+) -> EvidenceResponse:
+    evidence = evidence_service.get_evidence(
+        db, organization_id=current_user.organization_id, evidence_id=evidence_id
+    )
+    evidence = evidence_service.reject_evidence(
+        db,
+        evidence,
+        verifier_user_id=current_user.id,
+        rejection_reason=payload.rejection_reason,
+    )
+    return EvidenceResponse.model_validate(evidence)
+
 
 
 @router.get("/{evidence_id}", response_model=EvidenceResponse)

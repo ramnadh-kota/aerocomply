@@ -2,72 +2,40 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CoreLoopDiagram } from "@/components/core-loop/CoreLoopDiagram";
-import { assessments } from "@/lib/mock/assessments";
-import { getAircraftById, currentRegistration, getAircraftVariant } from "@/lib/mock/aircraft";
-import { getRequirementById } from "@/lib/mock/regulations";
-import { evidenceForAssessment } from "@/lib/mock/evidence";
-import { overdueMaintenanceEvents, upcomingMaintenanceEvents } from "@/lib/mock/maintenance";
-import { activeProjects } from "@/lib/mock/maintenanceProjects";
-import { openWorkOrders, overdueWorkOrders, awaitingPartsWorkOrders, awaitingReviewWorkOrders } from "@/lib/mock/workOrders";
-import { techniciansOnShift } from "@/lib/mock/technicians";
-import { StatusBadge, workOrderStatusBadge, priorityBadge, projectStatusBadge } from "@/components/status/StatusBadge";
-import { inspectorReviews } from "@/lib/mock/inspectorReviews";
-import { findings } from "@/lib/mock/findings";
-import { getFleetAnalytics, getMaintenanceAnalytics, getComplianceAnalytics, getInspectionAnalytics } from "@/lib/mock/ai/analytics";
-import { DailyBriefCard } from "@/components/dashboard/DailyBriefCard";
-import { OperationalPriorityQueue } from "@/components/dashboard/OperationalPriorityQueue";
-import { FleetTatSummary } from "@/components/dashboard/FleetTatSummary";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { ViewingAsBadge } from "@/components/layout/ViewingAsBadge";
-import { PLATFORM_AI_NAME } from "@/lib/brand";
 import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { StatusBadge, operationalStateBadge, priorityBadge } from "@/components/status/StatusBadge";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
-import { aircraftApi, type BackendAircraft } from "@/lib/api/aircraft";
-import { dronesApi, type DroneResponse } from "@/lib/api/drones";
-import { workOrdersApi, type BackendWorkOrder } from "@/lib/api/workOrders";
-import { deferredItemsApi, type BackendDeferredItem } from "@/lib/api/deferred-items";
-import { findingsApi, type BackendFinding } from "@/lib/api/findings";
-
 import {
-  DEMO_DRONES,
-  DEMO_FINDINGS,
-  getDemoFleetStatistics,
-} from "@/lib/demo/demoDrones";
+  controlCenterApi,
+  type ControlCenterSummary,
+  type ControlCenterFleetOperationRow,
+  type OperationalTimelineEvent,
+  type ControlCenterAttentionItem,
+} from "@/lib/api/controlCenter";
+import { AI_NAME, PLATFORM_NAME } from "@/lib/brand";
 
-const DISTRIBUTION = [
-  { label: "Compliant", pct: 92, color: "var(--ac-status-compliant)" },
-  { label: "Review Required", pct: 5, color: "var(--ac-status-review)" },
-  { label: "Insufficient Data", pct: 2, color: "var(--ac-status-insufficient)" },
-  { label: "Non-Compliant", pct: 1, color: "var(--ac-status-non-compliant)" },
-];
+const ASSET_TYPE_ICONS: Record<string, string> = {
+  AIRCRAFT: "✈",
+  DRONE: "◆",
+  HELICOPTER: "🚁",
+  EVTOL: "⚡",
+  AAM: "✦",
+  OTHER: "▤",
+};
 
-const ATTENTION_ITEMS = [
-  { text: "3 assessments require engineering review", href: "/assessments" },
-  { text: "2 aircraft have incomplete configuration evidence", href: "/aircraft" },
-  { text: "1 component installation history has a missing removal date", href: "/components" },
-  { text: "1 applicability condition cannot be resolved", href: "/assessments/asmt-1" },
-];
-
-const WO_CLOSED_STATUSES = new Set(["COMPLETED", "CANCELLED", "CLOSED"]);
-
-function IllustrativeBadge() {
-  return <span className="ac-illustrative-badge">Illustrative Data</span>;
-}
-
-/** Fleet overview KPI panel: uses live backend APIs in REAL mode, and deterministic
- * synthetic fleet data in DEMO mode. */
-function RealFleetPanel() {
+export default function DashboardPage() {
   const { accessToken, isAuthenticated, sessionType } = useSession();
-  const [aircraft, setAircraft] = useState<BackendAircraft[]>([]);
-  const [drones, setDrones] = useState<DroneResponse[]>([]);
-  const [workOrders, setWorkOrders] = useState<BackendWorkOrder[]>([]);
-  const [deferredItems, setDeferredItems] = useState<BackendDeferredItem[]>([]);
+  const [summary, setSummary] = useState<ControlCenterSummary | null>(null);
+  const [fleetOps, setFleetOps] = useState<ControlCenterFleetOperationRow[]>([]);
+  const [timeline, setTimeline] = useState<OperationalTimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
   const [asOf, setAsOf] = useState<string | null>(null);
+  const [timelineFilter, setTimelineFilter] = useState<string>("ALL");
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -76,10 +44,107 @@ function RealFleetPanel() {
     }
 
     if (sessionType === "DEMO") {
-      setAircraft([]);
-      setDrones(DEMO_DRONES);
-      setWorkOrders([]);
-      setDeferredItems([]);
+      setSummary({
+        total_aircraft: 12,
+        operational: 9,
+        under_maintenance: 2,
+        aog: 1,
+        open_work_orders_total: 4,
+        open_deferred_items_total: 2,
+        open_part_shortages_total: 1,
+        total_assets: 24,
+        operational_states: {
+          AVAILABLE: 16,
+          IN_MISSION: 3,
+          MAINTENANCE: 3,
+          UNDER_INSPECTION: 1,
+          GROUNDED: 1,
+        },
+        fleet_health: {
+          total_assets: 24,
+          ready_count: 19,
+          restricted_count: 5,
+          maintenance_due_count: 4,
+          grounded_count: 1,
+          available_count: 16,
+          in_mission_count: 3,
+          unknown_count: 0,
+          asset_class_counts: {
+            AIRCRAFT: 8,
+            DRONE: 12,
+            HELICOPTER: 2,
+            EVTOL: 2,
+          },
+        },
+        operational_activity: {
+          flights_today: 6,
+          flights_this_week: 38,
+          total_flight_hours: 1420.5,
+          total_cycles: 2840,
+          total_flights: 512,
+          active_missions: 3,
+        },
+        attention_items: [
+          {
+            id: "demo-att-1",
+            asset_id: "demo-dr-019",
+            registration: "DR-019",
+            asset_type: "DRONE",
+            priority: "CRITICAL",
+            category: "INSPECTION",
+            title: "Overdue 100-Hour Structural Inspection",
+            reason: "Inspection interval exceeded by 4.2 flight hours.",
+            blocking_condition: "Inspection INS-104 Overdue",
+            recommended_action: "Perform structural integrity check and upload non-destructive testing (NDT) evidence.",
+            link_href: "/assets",
+          },
+          {
+            id: "demo-att-2",
+            asset_id: "demo-vt-abc",
+            registration: "VT-ABC",
+            asset_type: "AIRCRAFT",
+            priority: "HIGH",
+            category: "FINDING",
+            title: "Hydraulic System Minor Pressure Drop",
+            reason: "High severity finding discovered during pre-flight sector.",
+            blocking_condition: "Finding FND-892 (HIGH)",
+            recommended_action: "Inspect line B connector, replace seal, and record corrective disposition.",
+            link_href: "/findings",
+          },
+          {
+            id: "demo-att-3",
+            asset_id: "demo-dr-004",
+            registration: "DR-004",
+            asset_type: "DRONE",
+            priority: "MEDIUM",
+            category: "BATTERY",
+            title: "Battery Approaching Lifecycle Limit",
+            reason: "Battery pack cycle count at 285/300 cycles (95%).",
+            blocking_condition: null,
+            recommended_action: "Schedule battery replacement before next mission sortie.",
+            link_href: "/drones",
+          },
+        ],
+        daily_brief: {
+          date_str: new Date().toLocaleDateString(undefined, { day: "2-digit", month: "long", year: "numeric" }),
+          total_assets: 24,
+          ready_assets: 19,
+          attention_required_count: 3,
+          restricted_assets: 5,
+          maintenance_due_count: 4,
+          pending_inspections_count: 2,
+          open_findings_count: 2,
+          summary_headline: "3 operational priorities require attention across the fleet.",
+          key_bullet_points: [
+            "5 assets are currently restricted or under maintenance.",
+            "2 open findings require technical disposition.",
+            "4 active work orders in progress across the fleet.",
+          ],
+          generated_at: new Date().toISOString(),
+        },
+        readiness_distribution: { READY: 19, BLOCKED: 5, UNKNOWN: 0 },
+        compliance_distribution: { COMPLIANT: 20, REVIEW_REQUIRED: 3, NON_COMPLIANT: 1 },
+      });
       setAsOf("Demo Environment (Deterministic Synthetic Fleet)");
       setLoading(false);
       return;
@@ -93,705 +158,403 @@ function RealFleetPanel() {
     setLoading(true);
     setError(null);
     Promise.all([
-      aircraftApi.list(accessToken),
-      dronesApi.listDrones(accessToken),
-      workOrdersApi.list(accessToken),
-      deferredItemsApi.listForFleet(accessToken, true),
+      controlCenterApi.getSummary(accessToken),
+      controlCenterApi.getFleetOperations(accessToken).catch(() => []),
+      controlCenterApi.getTimeline(accessToken, { limit: 25 }).catch(() => []),
     ])
-      .then(([ac, dr, wo, di]) => {
-        setAircraft(ac);
-        setDrones(dr);
-        setWorkOrders(wo);
-        setDeferredItems(di);
+      .then(([summ, ops, time]) => {
+        setSummary(summ);
+        setFleetOps(ops);
+        setTimeline(time);
         setAsOf(new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
       })
       .catch((err) => setError(normalizeApiError(err)))
       .finally(() => setLoading(false));
   }, [accessToken, isAuthenticated, sessionType]);
 
-  const totalAssets = aircraft.length + drones.length;
-  const activeAssets =
-    aircraft.filter((a) => a.status === "ACTIVE").length + drones.filter((d) => d.status === "ACTIVE").length;
-  const groundedAssets =
-    aircraft.filter((a) => a.status === "GROUNDED").length + drones.filter((d) => d.status === "GROUNDED").length;
-  const unknownAssets = totalAssets - activeAssets - groundedAssets;
-  const openWorkOrderCount = workOrders.filter((w) => !WO_CLOSED_STATUSES.has(w.status)).length;
+  const health = summary?.fleet_health;
+  const activity = summary?.operational_activity;
+  const brief = summary?.daily_brief;
+  const attentionItems = summary?.attention_items ?? [];
 
-  const woByStatus = workOrders.reduce<Record<string, number>>((acc, w) => {
-    acc[w.status] = (acc[w.status] ?? 0) + 1;
-    return acc;
-  }, {});
-  const maxWoCount = Math.max(1, ...Object.values(woByStatus));
-
-  const statusColor = {
-    ACTIVE: "var(--ac-status-compliant)",
-    GROUNDED: "var(--ac-status-non-compliant)",
-    UNKNOWN: "var(--ac-status-unknown)",
-  } as const;
+  const filteredTimeline = timeline.filter((e) => {
+    if (timelineFilter === "ALL") return true;
+    if (timelineFilter === "FLIGHTS") return e.event_type === "FLIGHT_SORTIE";
+    if (timelineFilter === "MAINTENANCE") return e.event_type.startsWith("WORK_ORDER");
+    if (timelineFilter === "FINDINGS") return e.event_type.startsWith("FINDING");
+    if (timelineFilter === "COMPONENTS") return e.event_type.startsWith("COMPONENT");
+    return true;
+  });
 
   return (
-    <>
-      <section className="ac-section">
-        <PageHeader
-          title="Fleet Overview"
-          subtitle={
-            sessionType === "DEMO"
-              ? "Synthetic drone operations fleet overview (KOTA Aerospace Demo Tenant)"
-              : "Live counts from the connected backend (aircraft + drone assets, work orders, MEL items)"
-          }
-          actions={<ViewingAsBadge />}
-        />
-
-        {!isAuthenticated ? (
-          <div className="ac-card" style={{ padding: "var(--ac-space-4)" }}>
-            <p className="ac-text-sm" style={{ margin: 0 }}>
-              Sign in to view live fleet data. <Link href="/login">Sign in →</Link>
-            </p>
-          </div>
-        ) : (
-          <RealDataPanel
-            loading={loading}
-            error={error}
-            isEmpty={!loading && !error && totalAssets === 0 && workOrders.length === 0}
-            emptyMessage="No aircraft, drones, or work orders exist for this organization yet."
-          >
-            <div className="ac-kpi-grid">
-              <div className="ac-kpi-card-real">
-                <p className="ac-kpi-label">Total Assets</p>
-                <p className="ac-kpi-value">{totalAssets}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-                  {aircraft.length} aircraft · {drones.length} drones
-                </p>
-              </div>
-              <div className="ac-kpi-card-real">
-                <p className="ac-kpi-label">Active Assets</p>
-                <p className="ac-kpi-value">{activeAssets}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-                  status = ACTIVE
-                </p>
-              </div>
-              <div className="ac-kpi-card-real">
-                <p className="ac-kpi-label">Grounded / Attention</p>
-                <p className="ac-kpi-value">{groundedAssets}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-                  status = GROUNDED
-                </p>
-              </div>
-              <div className="ac-kpi-card-real">
-                <p className="ac-kpi-label">Open Work Orders</p>
-                <p className="ac-kpi-value">{openWorkOrderCount}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-                  of {workOrders.length} total
-                </p>
-              </div>
-              <div className="ac-kpi-card-real">
-                <p className="ac-kpi-label">Open MEL / Deferred Items</p>
-                <p className="ac-kpi-value">{deferredItems.length}</p>
-                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-                  fleet-wide, open only
-                </p>
-              </div>
-            </div>
-            {asOf && <p className="ac-kpi-asof">{asOf}</p>}
-
-            <div className="ac-grid-2" style={{ marginTop: "var(--ac-space-5)" }}>
-              <div className="ac-card">
-                <p className="ac-eyebrow" style={{ marginBottom: 10 }}>
-                  Fleet Status Distribution
-                </p>
-                {totalAssets === 0 ? (
-                  <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-                    No aircraft or drone assets yet.
-                  </p>
-                ) : (
-                  [
-                    { label: "Active", count: activeAssets, color: statusColor.ACTIVE },
-                    { label: "Grounded", count: groundedAssets, color: statusColor.GROUNDED },
-                    { label: "Unknown", count: unknownAssets, color: statusColor.UNKNOWN },
-                  ].map((row) => (
-                    <div className="ac-chart-bar-row" key={row.label}>
-                      <span className="ac-text-sm">{row.label}</span>
-                      <div className="ac-chart-bar-track">
-                        <div
-                          className="ac-chart-bar-fill"
-                          style={{
-                            width: `${totalAssets > 0 ? (row.count / totalAssets) * 100 : 0}%`,
-                            background: row.color,
-                          }}
-                        />
-                      </div>
-                      <span className="ac-chart-bar-count">{row.count}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div className="ac-card">
-                <p className="ac-eyebrow" style={{ marginBottom: 10 }}>
-                  Work Order Status Breakdown
-                </p>
-                {workOrders.length === 0 ? (
-                  <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-                    {sessionType === "DEMO" ? "No work orders in current demo batch." : "No work orders yet."}
-                  </p>
-                ) : (
-                  Object.entries(woByStatus)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([status, count]) => (
-                      <div className="ac-chart-bar-row" key={status}>
-                        <span className="ac-text-sm">{status.replace(/_/g, " ")}</span>
-                        <div className="ac-chart-bar-track">
-                          <div
-                            className="ac-chart-bar-fill"
-                            style={{ width: `${(count / maxWoCount) * 100}%`, background: "var(--ac-accent)" }}
-                          />
-                        </div>
-                        <span className="ac-chart-bar-count">{count}</span>
-                      </div>
-                    ))
-                )}
-              </div>
-            </div>
-          </RealDataPanel>
-        )}
-      </section>
-    </>
-  );
-}
-
-function RealFindingsPanel() {
-  const { accessToken, isAuthenticated, sessionType } = useSession();
-  const [openFindings, setOpenFindings] = useState<BackendFinding[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<NormalizedApiError | null>(null);
-  const [asOf, setAsOf] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setLoading(false);
-      return;
-    }
-
-    if (sessionType === "DEMO") {
-      setOpenFindings(DEMO_FINDINGS.filter((f) => f.status === "OPEN"));
-      setAsOf("Demo Environment (Deterministic Findings)");
-      setLoading(false);
-      return;
-    }
-
-    if (!accessToken) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    findingsApi
-      .listForOrganization(accessToken, "OPEN")
-      .then((f) => {
-        setOpenFindings(f);
-        setAsOf(new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
-      })
-      .catch((err) => setError(normalizeApiError(err)))
-      .finally(() => setLoading(false));
-  }, [accessToken, isAuthenticated, sessionType]);
-
-  if (!isAuthenticated) return null;
-
-  return (
-    <section className="ac-section">
-      <div className="ac-section-header">
-        <div>
-          <h2 className="ac-h2" style={{ margin: 0 }}>
-            Open Findings
-          </h2>
-          <p className="ac-subtitle" style={{ margin: 0 }}>
-            {sessionType === "DEMO"
-              ? "Open findings from synthetic demo drone fleet"
-              : "Live from the connected backend (Finding/Disposition model)"}
-          </p>
-        </div>
-      </div>
-      <RealDataPanel
-        loading={loading}
-        error={error}
-        isEmpty={!loading && !error && openFindings.length === 0}
-        emptyMessage="No open findings for this organization."
-      >
-        <div className="ac-kpi-grid">
-          <div className="ac-kpi-card-real">
-            <p className="ac-kpi-label">Open Findings</p>
-            <p className="ac-kpi-value">{openFindings.length}</p>
-            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>status = OPEN, fleet-wide</p>
-          </div>
-        </div>
-        {asOf && <p className="ac-kpi-asof">As of {asOf} · live backend query</p>}
-
-        {openFindings.length > 0 && (
-          <div className="ac-card" style={{ marginTop: "var(--ac-space-5)" }}>
-            <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-              {openFindings.slice(0, 8).map((f) => (
-                <li key={f.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--ac-border-subtle)" }}>
-                  <div className="ac-flex ac-justify-between ac-items-center" style={{ gap: 12 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{f.title}</p>
-                      <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
-                        Severity: {f.severity} · Discovered {new Date(f.discovered_at).toLocaleDateString()}
-                        {f.aircraft_id ? null : f.asset_id ? " · drone asset" : ""}
-                      </p>
-                    </div>
-                    <div className="ac-flex ac-gap-2">
-                      <Link href={`/findings/${f.id}`} className="ac-btn ac-btn-primary">View Finding →</Link>
-                      {f.aircraft_id ? (
-                        <Link href={`/aircraft/${f.aircraft_id}`} className="ac-btn">View Asset →</Link>
-                      ) : f.asset_id ? (
-                        <Link href={`/drones/${f.asset_id}`} className="ac-btn">View Asset →</Link>
-                      ) : null}
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </RealDataPanel>
-    </section>
-  );
-}
-
-export default function DashboardPage() {
-  const recent = [...assessments].sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt)).slice(0, 6);
-  const openReviews = assessments.filter((a) => a.humanDecision === "PENDING" || a.humanDecision === "REQUEST_MORE_EVIDENCE");
-  const overdue = overdueMaintenanceEvents();
-  const upcoming = upcomingMaintenanceEvents(5);
-  const projects = activeProjects();
-  const openWOs = openWorkOrders();
-  const overdueWOs = overdueWorkOrders();
-  const awaitingPartsWOs = awaitingPartsWorkOrders();
-  const awaitingReviewWOs = awaitingReviewWorkOrders();
-  const onShift = techniciansOnShift();
-  const criticalWOs = openWOs.filter((w) => w.priority === "CRITICAL" || w.priority === "HIGH").slice(0, 5);
-  const inspectionsAwaitingReview = inspectorReviews.filter((r) => r.status === "PENDING_INSPECTION").length;
-  const checklistExceptions = findings.filter((f) => f.requiresDefect).length;
-  const fleetAnalytics = getFleetAnalytics();
-  const maintAnalytics = getMaintenanceAnalytics();
-  const complianceAnalytics = getComplianceAnalytics();
-  const inspectionAnalytics = getInspectionAnalytics();
-
-  return (
-    <div>
-      {/* Fleet-wide hero treatment: no single aircraft is "the" dashboard
-          aircraft, so this renders the generic multi-aircraft silhouette
-          pairing (same logic FleetContextLayer already uses on /aircraft)
-          at the higher hero opacity tier, with the blueprint grid. */}
+    <div className="ac-page">
       <AircraftContextLayer showGrid />
       <PageHeader
-        title="Compliance Intelligence"
-        subtitle="Fleet regulatory applicability and assessment overview"
+        title="Operational Command Center"
+        subtitle="Real-time aerospace command, fleet health, maintenance readiness, and grounded intelligence."
         actions={<ViewingAsBadge />}
       />
 
-      <RealFleetPanel />
+      <RealDataPanel
+        loading={loading}
+        error={error}
+        isEmpty={!loading && !error && (!summary || summary.total_assets === 0)}
+        emptyMessage="No assets registered yet. Add assets or import legacy flight records to activate Command Center."
+      >
+        {/* 1. Daily Operational Briefing Banner */}
+        {brief && (
+          <div
+            className="ac-card ac-card-glass"
+            style={{
+              marginBottom: 20,
+              padding: "20px 24px",
+              borderColor: "var(--ac-accent)",
+              background: "linear-gradient(135deg, rgba(17, 24, 39, 0.85) 0%, rgba(31, 41, 55, 0.6) 100%)",
+            }}
+          >
+            <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+              <div className="ac-flex ac-items-center ac-gap-2">
+                <span style={{ fontSize: "1.1rem" }}>⚡</span>
+                <span className="ac-eyebrow" style={{ margin: 0, letterSpacing: "1px", fontWeight: 700 }}>
+                  KOTA OPERATIONAL BRIEF · {brief.date_str}
+                </span>
+              </div>
+              <span className="ac-text-sm ac-text-muted">
+                {asOf ? `Updated ${asOf}` : "Grounded Live Tenant Truth"}
+              </span>
+            </div>
+            <h3 style={{ margin: "4px 0 10px 0", fontSize: "1.15rem", fontWeight: 700, color: "#fff" }}>
+              {brief.summary_headline}
+            </h3>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                gap: 10,
+                marginBottom: 14,
+              }}
+            >
+              <div style={{ background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.3)", padding: "8px 12px", borderRadius: 8 }}>
+                <div style={{ fontSize: "0.7rem", color: "#10b981", textTransform: "uppercase", fontWeight: 600 }}>Ready Assets</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#10b981" }}>{brief.ready_assets} <span style={{ fontSize: "0.8rem", color: "#9ca3af" }}>/ {brief.total_assets}</span></div>
+              </div>
+              <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", padding: "8px 12px", borderRadius: 8 }}>
+                <div style={{ fontSize: "0.7rem", color: "#ef4444", textTransform: "uppercase", fontWeight: 600 }}>Restricted / Blocked</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#ef4444" }}>{brief.restricted_assets}</div>
+              </div>
+              <div style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.3)", padding: "8px 12px", borderRadius: 8 }}>
+                <div style={{ fontSize: "0.7rem", color: "#f59e0b", textTransform: "uppercase", fontWeight: 600 }}>Maintenance Due</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#f59e0b" }}>{brief.maintenance_due_count}</div>
+              </div>
+              <div style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px solid rgba(56, 189, 248, 0.3)", padding: "8px 12px", borderRadius: 8 }}>
+                <div style={{ fontSize: "0.7rem", color: "#38bdf8", textTransform: "uppercase", fontWeight: 600 }}>Open Findings</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#38bdf8" }}>{brief.open_findings_count}</div>
+              </div>
+            </div>
 
-      <RealFindingsPanel />
+            <ul style={{ margin: "0 0 12px 18px", padding: 0, fontSize: "0.875rem", color: "#d1d5db" }}>
+              {brief.key_bullet_points.map((pt, i) => (
+                <li key={i} style={{ marginBottom: 4 }}>{pt}</li>
+              ))}
+            </ul>
 
-      <section className="ac-section">
-        <div className="ac-section-header">
-          <h2 className="ac-h2" style={{ margin: 0 }}>Daily Brief, Priority Queue &amp; TAT Summary</h2>
-          <IllustrativeBadge />
-        </div>
-        <DailyBriefCard />
-      </section>
+            <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+              <Link href="/ai" className="ac-btn ac-btn-primary">
+                Ask {AI_NAME} Intelligence →
+              </Link>
+              <Link href="/assets" className="ac-btn">
+                Fleet Operations Workspace
+              </Link>
+              <Link href="/maintenance/control-center" className="ac-btn">
+                Maintenance Control Center
+              </Link>
+            </div>
+          </div>
+        )}
 
-      <section className="ac-section">
-        <OperationalPriorityQueue />
-      </section>
-
-      <section className="ac-section">
-        <FleetTatSummary />
-      </section>
-
-      <section className="ac-section">
-        <div className="ac-card">
-          <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 10 }}>
-            <p className="ac-eyebrow" style={{ margin: 0 }}>
-              The AeroComply Loop
+        {/* 2. Fleet Health & Operational Activity Metrics */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 20 }}>
+          <div className="ac-kpi-card-real">
+            <p className="ac-kpi-label">Total Fleet Airframes</p>
+            <p className="ac-kpi-value">{health?.total_assets ?? summary?.total_assets ?? 0}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              {health?.available_count ?? 0} Available · {health?.in_mission_count ?? 0} In Mission
             </p>
           </div>
-          <CoreLoopDiagram />
+          <div className="ac-kpi-card-real">
+            <p className="ac-kpi-label">Flight Hours (TTAF)</p>
+            <p className="ac-kpi-value" style={{ color: "var(--ac-primary, #38bdf8)" }}>
+              {activity?.total_flight_hours ?? 0} <span style={{ fontSize: "0.9rem" }}>hrs</span>
+            </p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              {activity?.total_cycles ?? 0} total cycles logged
+            </p>
+          </div>
+          <div className="ac-kpi-card-real">
+            <p className="ac-kpi-label">Sorties Flown Today</p>
+            <p className="ac-kpi-value">{activity?.flights_today ?? 0}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              {activity?.flights_this_week ?? 0} flights this week
+            </p>
+          </div>
+          <div className="ac-kpi-card-real">
+            <p className="ac-kpi-label">Active Missions</p>
+            <p className="ac-kpi-value" style={{ color: "#10b981" }}>{activity?.active_missions ?? 0}</p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              currently airborne / in progress
+            </p>
+          </div>
+          <div className="ac-kpi-card-real">
+            <p className="ac-kpi-label">Open Maintenance WOs</p>
+            <p className="ac-kpi-value" style={{ color: (summary?.open_work_orders_total ?? 0) > 0 ? "#f59e0b" : "#10b981" }}>
+              {summary?.open_work_orders_total ?? 0}
+            </p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+              {summary?.open_part_shortages_total ?? 0} part shortages
+            </p>
+          </div>
         </div>
-      </section>
 
-      <section className="ac-section">
-        <div className="ac-section-header">
-          <h2 className="ac-h2" style={{ margin: 0 }}>Maintenance Operations Snapshot</h2>
-          <IllustrativeBadge />
-        </div>
-        <div className="ac-kpi-grid">
-          <Link href="/maintenance/projects" className="ac-kpi-card" style={{ display: "block" }}>
-            <p className="ac-kpi-label">Active Maintenance Projects</p>
-            <p className="ac-kpi-value">{projects.length}</p>
-          </Link>
-          <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
-            <p className="ac-kpi-label">Open Work Orders</p>
-            <p className="ac-kpi-value">{openWOs.length}</p>
-          </Link>
-          <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
-            <p className="ac-kpi-label">Overdue Tasks</p>
-            <p className="ac-kpi-value">{overdueWOs.length}</p>
-          </Link>
-          <Link href="/maintenance/technicians" className="ac-kpi-card" style={{ display: "block" }}>
-            <p className="ac-kpi-label">Technicians On Shift</p>
-            <p className="ac-kpi-value">{onShift.length}</p>
-          </Link>
-          <Link href="/maintenance/parts" className="ac-kpi-card" style={{ display: "block" }}>
-            <p className="ac-kpi-label">Awaiting Parts</p>
-            <p className="ac-kpi-value">{awaitingPartsWOs.length}</p>
-          </Link>
-          <Link href="/maintenance/work-orders" className="ac-kpi-card" style={{ display: "block" }}>
-            <p className="ac-kpi-label">Work Orders Waiting Inspection</p>
-            <p className="ac-kpi-value">{awaitingReviewWOs.length}</p>
-          </Link>
-          <Link href="/maintenance/inspections" className="ac-kpi-card" style={{ display: "block" }}>
-            <p className="ac-kpi-label">Inspections Awaiting Review</p>
-            <p className="ac-kpi-value">{inspectionsAwaitingReview}</p>
-          </Link>
-          <Link href="/maintenance/defects" className="ac-kpi-card" style={{ display: "block" }}>
-            <p className="ac-kpi-label">Checklist Exceptions</p>
-            <p className="ac-kpi-value">{checklistExceptions}</p>
-          </Link>
-        </div>
-      </section>
+        {/* 3. Attention Required Priority Queue */}
+        <section className="ac-section" style={{ marginBottom: 24 }}>
+          <div className="ac-section-header">
+            <div>
+              <h2 className="ac-h2" style={{ margin: 0 }}>What Needs Attention Now</h2>
+              <p className="ac-subtitle" style={{ margin: 0 }}>
+                Prioritized aerospace operational items requiring immediate operator action.
+              </p>
+            </div>
+            <span className="ac-text-sm ac-text-muted">{attentionItems.length} active priority item(s)</span>
+          </div>
 
-      <section className="ac-section">
-        <div className="ac-section-header">
-          <h2 className="ac-h2">AI &amp; Operations Intelligence</h2>
-          <span className="ac-text-sm ac-text-muted">AI Prototype · Non-authoritative</span>
-        </div>
-        <div className="ac-grid-4">
-          <div className="ac-card">
-            <p className="ac-kpi-label">Fleet Risk</p>
-            <p className="ac-kpi-value">{fleetAnalytics.aircraftAtRisk.length} / {fleetAnalytics.fleetSize}</p>
-            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>aircraft at elevated risk</p>
-          </div>
-          <div className="ac-card">
-            <p className="ac-kpi-label">Maintenance Risk</p>
-            <p className="ac-kpi-value">{maintAnalytics.overdue.length}</p>
-            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>overdue work orders</p>
-          </div>
-          <div className="ac-card">
-            <p className="ac-kpi-label">Compliance Exposure</p>
-            <p className="ac-kpi-value">{complianceAnalytics.nonCompliant + complianceAnalytics.reviewRequired}</p>
-            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>assessments needing attention</p>
-          </div>
-          <div className="ac-card">
-            <p className="ac-kpi-label">Inspection Queue</p>
-            <p className="ac-kpi-value">{inspectionAnalytics.pending.length}</p>
-            <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>awaiting review</p>
-          </div>
-        </div>
-        <div className="ac-flex ac-gap-2 ac-items-center" style={{ marginTop: 12, flexWrap: "wrap" }}>
-          <Link href="/ai" className="ac-btn ac-btn-primary">Ask {PLATFORM_AI_NAME}</Link>
-          <Link href="/executive" className="ac-btn">Executive Intelligence</Link>
-          <Link href="/maintenance/operations" className="ac-btn">Maintenance Operations</Link>
-          <Link href="/maintenance/inspections" className="ac-btn">Inspection Queue</Link>
-          <Link href="/compliance" className="ac-btn">Compliance Intelligence</Link>
-          <Link href="/reports/fleet-risk" className="ac-btn">Generate Operations Report</Link>
-          <Link href="/reports" className="ac-btn">Reports</Link>
-          <Link href="/organization/roles" className="ac-btn">Role Management</Link>
-          <ViewingAsBadge />
-        </div>
-      </section>
-
-      <section className="ac-section">
-        <div className="ac-section-header">
-          <h2 className="ac-h2">Maintenance Operations</h2>
-          <Link href="/maintenance/projects" className="ac-text-sm">View all →</Link>
-        </div>
-        <div className="ac-grid-2">
-          <div>
-            <p className="ac-eyebrow" style={{ marginBottom: 8 }}>Active Projects</p>
-            <div className="ac-flex ac-flex-col ac-gap-2">
-              {projects.map((p) => {
-                const ac = getAircraftById(p.aircraftId);
+          {attentionItems.length === 0 ? (
+            <div className="ac-card" style={{ padding: "20px", textAlign: "center" }}>
+              <p style={{ color: "#10b981", fontWeight: 600, margin: 0 }}>
+                ✓ Zero active blockers. All aircraft and drone assets nominal.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {attentionItems.slice(0, 6).map((item) => {
+                const pBadge = priorityBadge(item.priority);
                 return (
-                  <Link key={p.id} href={`/maintenance/projects/${p.id}`} className="ac-card" style={{ display: "block" }}>
-                    <div className="ac-flex ac-justify-between ac-items-center">
-                      <span className="ac-mono" style={{ fontWeight: 600, fontSize: 13 }}>{p.title}</span>
-                      <StatusBadge {...projectStatusBadge(p.status)} />
+                  <div
+                    key={item.id}
+                    className="ac-card"
+                    style={{
+                      padding: "16px 20px",
+                      background: item.priority === "CRITICAL" ? "rgba(239, 68, 68, 0.06)" : "rgba(31, 41, 55, 0.7)",
+                      border: item.priority === "CRITICAL" ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid #374151",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+                      <div style={{ flex: 1, minWidth: 260 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <StatusBadge {...pBadge} />
+                          <span style={{ fontSize: "0.75rem", background: "#374151", padding: "2px 8px", borderRadius: 4, textTransform: "uppercase" }}>
+                            {item.category}
+                          </span>
+                          {item.registration && (
+                            <strong style={{ fontSize: "0.95rem", color: "#38bdf8" }}>
+                              {item.registration}
+                            </strong>
+                          )}
+                          {item.asset_type && (
+                            <span style={{ fontSize: "0.75rem", color: "#9ca3af" }}>
+                              [{item.asset_type}]
+                            </span>
+                          )}
+                        </div>
+                        <h4 style={{ margin: "0 0 4px 0", fontSize: "1rem", fontWeight: 700 }}>
+                          {item.title}
+                        </h4>
+                        <p style={{ margin: "0 0 6px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                          {item.reason}
+                        </p>
+                        {item.blocking_condition && (
+                          <div style={{ fontSize: "0.8rem", color: "#f87171", marginBottom: 4 }}>
+                            <strong>Blocking Condition:</strong> {item.blocking_condition}
+                          </div>
+                        )}
+                        {item.recommended_action && (
+                          <div style={{ fontSize: "0.8rem", color: "#93c5fd" }}>
+                            <strong>Recommended Action:</strong> {item.recommended_action}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        {item.link_href ? (
+                          <Link href={item.link_href} className="ac-btn ac-btn-primary" style={{ padding: "6px 14px", fontSize: "0.85rem" }}>
+                            Take Action →
+                          </Link>
+                        ) : item.asset_id ? (
+                          <Link href={`/assets/${item.asset_id}`} className="ac-btn ac-btn-primary" style={{ padding: "6px 14px", fontSize: "0.85rem" }}>
+                            View Asset →
+                          </Link>
+                        ) : null}
+                      </div>
                     </div>
-                    <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>
-                      {ac ? currentRegistration(ac) : p.aircraftId} · {p.progressPercent}% complete
-                    </p>
-                  </Link>
+                  </div>
                 );
               })}
             </div>
-          </div>
-          <div>
-            <p className="ac-eyebrow" style={{ marginBottom: 8 }}>Critical Work Orders</p>
-            <div className="ac-flex ac-flex-col ac-gap-2">
-              {criticalWOs.map((w) => (
-                <Link key={w.id} href={`/maintenance/work-orders/${w.id}`} className="ac-card" style={{ display: "block" }}>
-                  <div className="ac-flex ac-justify-between ac-items-center">
-                    <span className="ac-mono" style={{ fontWeight: 600, fontSize: 13 }}>{w.workOrderNumber}</span>
-                    <div className="ac-flex ac-gap-2">
-                      <StatusBadge {...priorityBadge(w.priority)} />
-                      <StatusBadge {...workOrderStatusBadge(w.status)} />
-                    </div>
-                  </div>
-                  <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>{w.title} · Due {w.dueDate}</p>
-                </Link>
+          )}
+        </section>
+
+        {/* 4. Fleet Operations Workspace Strip */}
+        {fleetOps.length > 0 && (
+          <section className="ac-section" style={{ marginBottom: 24 }}>
+            <div className="ac-section-header">
+              <div>
+                <h2 className="ac-h2" style={{ margin: 0 }}>Fleet Operations</h2>
+                <p className="ac-subtitle" style={{ margin: 0 }}>
+                  Live operational tracking across all airframe classes.
+                </p>
+              </div>
+              <Link href="/assets" className="ac-text-sm">View Full Fleet Registry →</Link>
+            </div>
+
+            <div className="ac-card" style={{ padding: 0, overflowX: "auto" }}>
+              <table className="ac-table" style={{ width: "100%" }}>
+                <thead>
+                  <tr>
+                    <th>Identifier</th>
+                    <th>Class</th>
+                    <th>Operational State</th>
+                    <th>Readiness</th>
+                    <th>Flight Hours</th>
+                    <th>Cycles</th>
+                    <th>Last Flight</th>
+                    <th>Next Required Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fleetOps.slice(0, 10).map((row) => (
+                    <tr key={row.asset_id}>
+                      <td>
+                        <Link href={`/assets/${row.asset_id}`} className="ac-mono" style={{ fontWeight: 700 }}>
+                          {row.registration || "—"}
+                        </Link>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: "0.8rem", color: "#38bdf8" }}>
+                          {ASSET_TYPE_ICONS[row.asset_type] || "✈"} {row.asset_type}
+                        </span>
+                      </td>
+                      <td>
+                        <StatusBadge {...operationalStateBadge(row.operational_state)} />
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            padding: "3px 8px",
+                            borderRadius: 4,
+                            background: row.readiness_state === "READY" ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                            color: row.readiness_state === "READY" ? "#10b981" : "#ef4444",
+                          }}
+                        >
+                          {row.readiness_state}
+                        </span>
+                      </td>
+                      <td className="ac-mono">{row.total_flight_hours} hrs</td>
+                      <td className="ac-mono">{row.total_cycles}</td>
+                      <td className="ac-text-sm">
+                        {row.last_flight_at ? new Date(row.last_flight_at).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="ac-text-sm" style={{ color: "#d1d5db" }}>
+                        {row.next_action || "Ready"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* 5. Unified Operational Timeline */}
+        <section className="ac-section" style={{ marginBottom: 24 }}>
+          <div className="ac-section-header">
+            <div>
+              <h2 className="ac-h2" style={{ margin: 0 }}>Unified Operational Timeline</h2>
+              <p className="ac-subtitle" style={{ margin: 0 }}>
+                Chronological live feed of flight sorties, maintenance completions, findings, and component installations.
+              </p>
+            </div>
+            {/* Timeline Filter Pills */}
+            <div style={{ display: "flex", gap: 6 }}>
+              {["ALL", "FLIGHTS", "MAINTENANCE", "FINDINGS", "COMPONENTS"].map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setTimelineFilter(f)}
+                  style={{
+                    fontSize: "0.75rem",
+                    padding: "4px 10px",
+                    borderRadius: 14,
+                    border: "1px solid #374151",
+                    background: timelineFilter === f ? "var(--ac-primary, #38bdf8)" : "#1f2937",
+                    color: timelineFilter === f ? "#000" : "#9ca3af",
+                    fontWeight: timelineFilter === f ? 700 : 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  {f}
+                </button>
               ))}
             </div>
           </div>
-        </div>
-      </section>
 
-      {awaitingReviewWOs.length > 0 && (
-        <section className="ac-section">
-          <div className="ac-card" style={{ borderColor: "var(--ac-status-insufficient)", background: "var(--ac-status-insufficient-bg)" }}>
-            <p className="ac-eyebrow" style={{ color: "var(--ac-status-insufficient)", marginBottom: 6 }}>AI Maintenance Insight — Prototype</p>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
-              {projects[0]?.title ?? "The active check"} is currently 8% behind the planned schedule.
-            </p>
-            <p className="ac-text-sm ac-text-secondary" style={{ margin: "6px 0" }}>Potential contributors:</p>
-            <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13 }}>
-              {overdueWOs.length > 0 && <li>{overdueWOs.length} overdue task{overdueWOs.length > 1 ? "s" : ""}</li>}
-              {awaitingPartsWOs.length > 0 && <li>{awaitingPartsWOs.length} part{awaitingPartsWOs.length > 1 ? "s" : ""} awaiting receipt</li>}
-              <li>{awaitingReviewWOs.length} compliance/task review pending</li>
-            </ul>
-            <p className="ac-text-sm" style={{ margin: 0 }}>
-              Recommended action: Prioritize <Link href={`/maintenance/work-orders/${awaitingReviewWOs[0].id}`} className="ac-mono">{awaitingReviewWOs[0].workOrderNumber}</Link> and the pending compliance review.
-            </p>
-          </div>
+          {filteredTimeline.length === 0 ? (
+            <div className="ac-card" style={{ padding: 20, textAlign: "center" }}>
+              <p style={{ color: "#9ca3af", fontStyle: "italic", margin: 0 }}>
+                No recent timeline events recorded.
+              </p>
+            </div>
+          ) : (
+            <div className="ac-card" style={{ padding: 0 }}>
+              <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                {filteredTimeline.map((ev, i) => (
+                  <li
+                    key={ev.event_id}
+                    style={{
+                      padding: "12px 18px",
+                      borderBottom: i < filteredTimeline.length - 1 ? "1px solid #374151" : "none",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                        <span style={{ fontSize: "0.7rem", background: "#374151", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>
+                          {ev.event_type.replace(/_/g, " ")}
+                        </span>
+                        {ev.asset_registration && (
+                          <Link href={`/assets/${ev.asset_id}`} className="ac-mono" style={{ fontWeight: 700 }}>
+                            {ev.asset_registration}
+                          </Link>
+                        )}
+                        <strong style={{ fontSize: "0.9rem" }}>{ev.title}</strong>
+                      </div>
+                      <p style={{ margin: 0, fontSize: "0.85rem", color: "#9ca3af" }}>
+                        {ev.description}
+                      </p>
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "#6b7280", whiteSpace: "nowrap" }}>
+                      {new Date(ev.occurred_at).toLocaleDateString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
-      )}
-
-      <section className="ac-section">
-        <div className="ac-section-header">
-          <h2 className="ac-h2">Fleet Compliance Overview</h2>
-          <span className="ac-flex ac-items-center ac-gap-2 ac-text-sm ac-text-muted">
-            128 aircraft (demo scenario) <IllustrativeBadge />
-          </span>
-        </div>
-        <div className="ac-card">
-          <div className="ac-flex" style={{ height: 10, borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
-            {DISTRIBUTION.map((d) => (
-              <div key={d.label} style={{ width: `${d.pct}%`, background: d.color }} title={`${d.label}: ${d.pct}%`} />
-            ))}
-          </div>
-          <div className="ac-flex ac-gap-6" style={{ flexWrap: "wrap" }}>
-            {DISTRIBUTION.map((d) => (
-              <div key={d.label} className="ac-flex ac-items-center ac-gap-2 ac-text-sm">
-                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, display: "inline-block" }} />
-                <span>{d.label}</span>
-                <span className="ac-text-muted">{d.pct}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="ac-section">
-        <div className="ac-section-header">
-          <h2 className="ac-h2">Recent Assessments</h2>
-          <Link href="/assessments" className="ac-text-sm">
-            View all →
-          </Link>
-        </div>
-        <div className="ac-card" style={{ padding: 0 }}>
-          <table className="ac-table">
-            <thead>
-              <tr>
-                <th>Requirement</th>
-                <th>Aircraft</th>
-                <th>Registration</th>
-                <th>Assessment Date</th>
-                <th>System Result</th>
-                <th>Human Decision</th>
-                <th>Evidence</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((a) => {
-                const aircraft = a.subjectType === "AIRCRAFT" ? getAircraftById(a.subjectId) : undefined;
-                const requirement = getRequirementById(a.regulatoryRequirementId);
-                const variant = aircraft ? getAircraftVariant(aircraft.aircraftVariantId) : undefined;
-                const evCount = evidenceForAssessment(a.id).length;
-                return (
-                  <tr key={a.id}>
-                    <td>
-                      <Link href={`/regulations/${requirement?.id}`} className="ac-mono">
-                        {requirement?.requirementNumber}
-                      </Link>
-                    </td>
-                    <td>{variant?.modelDesignation ?? "—"}</td>
-                    <td>
-                      <Link href={`/aircraft/${aircraft?.id}`} className="ac-mono">
-                        {aircraft ? currentRegistration(aircraft) : a.subjectId}
-                      </Link>
-                    </td>
-                    <td>{new Date(a.evaluatedAt).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}</td>
-                    <td>
-                      <StatusBadge status={a.systemResult} />
-                    </td>
-                    <td className="ac-text-sm">{a.humanDecision.replace(/_/g, " ")}</td>
-                    <td className="ac-text-sm">
-                      {evCount} Evidence
-                    </td>
-                    <td>
-                      <Link href={`/assessments/${a.id}`}>
-                        <StatusBadge status={a.finalStatus} />
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <div className="ac-grid-2 ac-section">
-        <section>
-          <div className="ac-section-header">
-            <h2 className="ac-h2">Upcoming AD/SB Deadlines</h2>
-            <Link href="/audit" className="ac-text-sm">View all →</Link>
-          </div>
-          <div className="ac-card" style={{ padding: 0 }}>
-            <table className="ac-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Aircraft</th>
-                  <th>Event</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {upcoming.length === 0 && (
-                  <tr><td colSpan={4} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>No scheduled items.</td></tr>
-                )}
-                {upcoming.map((m) => {
-                  const ac = getAircraftById(m.aircraftId);
-                  return (
-                    <tr key={m.id}>
-                      <td className="ac-mono ac-text-sm">{m.date}</td>
-                      <td>
-                        <Link href={`/aircraft/${m.aircraftId}`} className="ac-mono">{ac ? currentRegistration(ac) : m.aircraftId}</Link>
-                      </td>
-                      <td className="ac-text-sm">{m.description}</td>
-                      <td><StatusBadge status="PENDING" label="Scheduled" /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <div className="ac-section-header">
-            <h2 className="ac-h2">Overdue Compliance Items</h2>
-            <Link href="/audit" className="ac-text-sm">View all →</Link>
-          </div>
-          <div className="ac-card" style={{ padding: 0 }}>
-            <table className="ac-table">
-              <thead>
-                <tr>
-                  <th>Due</th>
-                  <th>Aircraft</th>
-                  <th>Event</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overdue.length === 0 && (
-                  <tr><td colSpan={4} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>Nothing overdue.</td></tr>
-                )}
-                {overdue.map((m) => {
-                  const ac = getAircraftById(m.aircraftId);
-                  return (
-                    <tr key={m.id}>
-                      <td className="ac-mono ac-text-sm">{m.date}</td>
-                      <td>
-                        <Link href={`/aircraft/${m.aircraftId}`} className="ac-mono">{ac ? currentRegistration(ac) : m.aircraftId}</Link>
-                      </td>
-                      <td className="ac-text-sm">{m.description}</td>
-                      <td><StatusBadge status="NON_COMPLIANT" label="Overdue" /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <section className="ac-section">
-        <div className="ac-section-header">
-          <h2 className="ac-h2">Open Review Decisions</h2>
-          <Link href="/assessments" className="ac-text-sm">View all →</Link>
-        </div>
-        <div className="ac-card" style={{ padding: 0 }}>
-          <table className="ac-table">
-            <thead>
-              <tr>
-                <th>Requirement</th>
-                <th>Aircraft</th>
-                <th>System Result</th>
-                <th>Human Decision</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {openReviews.length === 0 && (
-                <tr><td colSpan={5} className="ac-text-sm ac-text-muted" style={{ textAlign: "center", padding: 16 }}>No open review decisions.</td></tr>
-              )}
-              {openReviews.map((a) => {
-                const aircraft = a.subjectType === "AIRCRAFT" ? getAircraftById(a.subjectId) : undefined;
-                const requirement = getRequirementById(a.regulatoryRequirementId);
-                return (
-                  <tr key={a.id}>
-                    <td className="ac-mono">{requirement?.requirementNumber}</td>
-                    <td>
-                      <Link href={`/aircraft/${aircraft?.id ?? ""}`} className="ac-mono">{aircraft ? currentRegistration(aircraft) : a.subjectId}</Link>
-                    </td>
-                    <td><StatusBadge status={a.systemResult} /></td>
-                    <td className="ac-text-sm">{a.humanDecision.replace(/_/g, " ")}</td>
-                    <td>
-                      <Link href={`/assessments/${a.id}/review`} className="ac-btn">Review</Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="ac-section">
-        <div className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 12 }}>
-          <h2 className="ac-h2" style={{ margin: 0 }}>Attention Required</h2>
-          <IllustrativeBadge />
-        </div>
-        <div className="ac-card">
-          <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-            {ATTENTION_ITEMS.map((item) => (
-              <li key={item.text} style={{ padding: "8px 0", borderBottom: "1px solid var(--ac-border-subtle)" }}>
-                <Link href={item.href} className="ac-flex ac-items-center ac-gap-2" style={{ fontSize: 13 }}>
-                  <span aria-hidden="true" style={{ color: "var(--ac-status-review)" }}>
-                    ⚠
-                  </span>
-                  {item.text}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
+      </RealDataPanel>
     </div>
   );
 }

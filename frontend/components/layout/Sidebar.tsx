@@ -43,6 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/pilot", label: "Pilot Workflow", glyph: "▶" },
       { href: "/maintenance/control-center", label: "Maintenance Control Center", glyph: "◈" },
       { href: "/maintenance/control-tower", label: "Control Tower", glyph: "◉" },
+      { href: "/intelligence/fleet", label: "Fleet Intelligence", glyph: "◈" },
       { href: "/maintenance/hangar", label: "Hangar Floor", glyph: "⛭" },
       { href: "/automation", label: "Automation Queue", glyph: "⚙" },
       { href: "/ai", label: "AI Command Center", glyph: "✦" },

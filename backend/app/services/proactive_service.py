@@ -76,7 +76,7 @@ def get_proactive_alerts(db: Session, *, organization_id: uuid.UUID) -> list[Pro
             )
         )
 
-    work_orders = work_order_service.list_work_orders(db, organization_id=organization_id)
+    work_orders, _ = work_order_service.list_work_orders(db, organization_id=organization_id)
     open_work_orders = [wo for wo in work_orders if wo.status != "COMPLETED"]
 
     for work_order in open_work_orders:

@@ -87,6 +87,21 @@ def require_permission(permission: Permission):
     return _check
 
 
+def require_any_permission(*permissions: Permission):
+    """Dependency factory enforcing that the caller holds AT LEAST ONE of the
+    specified RBAC permissions.
+    """
+
+    def _check(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        granted = permissions_for_roles(current_user.roles)
+        if not any(perm.value in granted for perm in permissions):
+            perm_names = ", ".join(p.value for p in permissions)
+            raise ForbiddenError(f"Missing required permission (need one of): {perm_names}")
+        return current_user
+
+    return _check
+
+
 # M17.3: the commercial-entitlement counterpart to require_permission above.
 #
 # RBAC (require_permission) answers "is this USER allowed to perform this

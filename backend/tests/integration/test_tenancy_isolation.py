@@ -23,13 +23,30 @@ NOT_FOUND = 404
 
 
 def _entitle(db_session, org_id, feature_key):
-    """M21.5 test-fixture maintenance: GET /api/v1/work-orders/{id} is now
-    additionally gated by require_feature("work_order_management") (see
-    app/api/v1/work_orders.py). Without a subscription, that check denies
-    with 403 before the tenant-isolation NotFoundError(404) this test is
-    actually about is ever reached -- so entitle the calling org exactly
-    like a real customer would be, leaving the isolation assertion itself
-    untouched."""
+    """Ensure org_id has feature_key enabled on an active subscription."""
+    from sqlalchemy import select
+
+    sub = db_session.execute(
+        select(Subscription).where(
+            Subscription.organization_id == org_id,
+            Subscription.status.in_(["ACTIVE", "TRIALING", "PAST_DUE"]),
+        )
+    ).scalars().first()
+    if sub:
+        pf = db_session.execute(
+            select(PlanFeature).where(
+                PlanFeature.plan_id == sub.plan_id,
+                PlanFeature.feature_key == feature_key,
+            )
+        ).scalar_one_or_none()
+        if pf is None:
+            db_session.add(PlanFeature(plan_id=sub.plan_id, feature_key=feature_key, enabled=True))
+            db_session.commit()
+        elif not pf.enabled:
+            pf.enabled = True
+            db_session.commit()
+        return
+
     plan = Plan(name=f"Iso-Plan-{org_id}", code=f"iso-plan-{org_id}", is_active=True)
     db_session.add(plan)
     db_session.commit()

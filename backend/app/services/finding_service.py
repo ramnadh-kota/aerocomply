@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import ConflictError, NotFoundError
 from app.models.aircraft import Aircraft
 from app.models.asset import Asset
+from app.models.compliance import ComplianceObligation, RegulatoryRequirement
 from app.models.component import Component
 from app.models.evidence import Evidence
 from app.models.finding import (
@@ -81,6 +82,10 @@ def create_finding(
     work_order_id: uuid.UUID | None = None,
     task_id: uuid.UUID | None = None,
     responsible_user_id: uuid.UUID | None = None,
+    compliance_obligation_id: uuid.UUID | None = None,
+    regulatory_requirement_id: uuid.UUID | None = None,
+    safety_significance: str | None = None,
+    compliance_relevance: str | None = None,
 ) -> Finding:
     if severity not in ALL_FINDING_SEVERITIES:
         raise ConflictError(f"Invalid severity: {severity}")
@@ -90,6 +95,8 @@ def create_finding(
         (Component, component_id, "Component"),
         (InspectionRequirement, inspection_requirement_id, "Inspection requirement"),
         (Task, task_id, "Task"),
+        (ComplianceObligation, compliance_obligation_id, "Compliance obligation"),
+        (RegulatoryRequirement, regulatory_requirement_id, "Regulatory requirement"),
     )
     for model, resource_id, label in references:
         if resource_id is not None:
@@ -115,6 +122,10 @@ def create_finding(
         inspection_requirement_id=inspection_requirement_id,
         work_order_id=work_order_id,
         task_id=task_id,
+        compliance_obligation_id=compliance_obligation_id,
+        regulatory_requirement_id=regulatory_requirement_id,
+        safety_significance=safety_significance,
+        compliance_relevance=compliance_relevance,
         title=title,
         description=description,
         severity=severity,
@@ -138,6 +149,76 @@ def create_finding(
     return finding
 
 
+def correlate_compliance(
+    db: Session,
+    finding: Finding,
+    *,
+    actor_user_id: uuid.UUID | None,
+    compliance_obligation_id: uuid.UUID | None = None,
+    regulatory_requirement_id: uuid.UUID | None = None,
+    safety_significance: str | None = None,
+    compliance_relevance: str | None = None,
+) -> Finding:
+    """Correlate a finding with a compliance obligation and/or regulatory requirement."""
+    if compliance_obligation_id is not None:
+        _assert_reference_in_organization(
+            db,
+            organization_id=finding.organization_id,
+            model=ComplianceObligation,
+            resource_id=compliance_obligation_id,
+            label="Compliance obligation",
+        )
+        finding.compliance_obligation_id = compliance_obligation_id
+        # Automatically inherit the requirement_id from the obligation if not supplied
+        if regulatory_requirement_id is None:
+            obligation = db.execute(
+                select(ComplianceObligation).where(
+                    ComplianceObligation.id == compliance_obligation_id,
+                    ComplianceObligation.organization_id == finding.organization_id,
+                )
+            ).scalar_one_or_none()
+            if obligation is not None:
+                finding.regulatory_requirement_id = obligation.requirement_id
+
+    if regulatory_requirement_id is not None:
+        _assert_reference_in_organization(
+            db,
+            organization_id=finding.organization_id,
+            model=RegulatoryRequirement,
+            resource_id=regulatory_requirement_id,
+            label="Regulatory requirement",
+        )
+        finding.regulatory_requirement_id = regulatory_requirement_id
+
+    if safety_significance is not None:
+        finding.safety_significance = safety_significance
+    if compliance_relevance is not None:
+        finding.compliance_relevance = compliance_relevance
+
+    record_audit_event(
+        db,
+        organization_id=finding.organization_id,
+        user_id=actor_user_id,
+        action="finding.compliance_correlated",
+        entity_type="Finding",
+        entity_id=finding.id,
+        metadata={
+            "compliance_obligation_id": str(finding.compliance_obligation_id)
+            if finding.compliance_obligation_id
+            else None,
+            "regulatory_requirement_id": str(finding.regulatory_requirement_id)
+            if finding.regulatory_requirement_id
+            else None,
+            "safety_significance": finding.safety_significance,
+            "compliance_relevance": finding.compliance_relevance,
+        },
+    )
+    db.add(finding)
+    db.commit()
+    db.refresh(finding)
+    return finding
+
+
 def get_finding(db: Session, *, organization_id: uuid.UUID, finding_id: uuid.UUID) -> Finding:
     finding = db.execute(
         select(Finding).where(Finding.id == finding_id, Finding.organization_id == organization_id)
@@ -154,6 +235,8 @@ def list_findings(
     aircraft_id: uuid.UUID | None = None,
     asset_id: uuid.UUID | None = None,
     work_order_id: uuid.UUID | None = None,
+    compliance_obligation_id: uuid.UUID | None = None,
+    regulatory_requirement_id: uuid.UUID | None = None,
     status: str | None = None,
 ) -> list[Finding]:
     stmt = select(Finding).where(Finding.organization_id == organization_id)
@@ -163,6 +246,10 @@ def list_findings(
         stmt = stmt.where(Finding.asset_id == asset_id)
     if work_order_id is not None:
         stmt = stmt.where(Finding.work_order_id == work_order_id)
+    if compliance_obligation_id is not None:
+        stmt = stmt.where(Finding.compliance_obligation_id == compliance_obligation_id)
+    if regulatory_requirement_id is not None:
+        stmt = stmt.where(Finding.regulatory_requirement_id == regulatory_requirement_id)
     if status is not None:
         stmt = stmt.where(Finding.status == status)
     stmt = stmt.order_by(Finding.discovered_at.desc())

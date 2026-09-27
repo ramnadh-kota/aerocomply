@@ -26,10 +26,30 @@ from app.models.user import User, UserRole
 
 
 def _entitle_drone_ops(db_session, org_id):
-    """Same fixture as tests/integration/test_drone_operations.py's
-    _entitle_drone_ops -- POST/GET /drones is gated by
-    require_feature("drone_fleet_management"), which a freshly registered
-    org has no subscription for at all."""
+    """Ensure org_id has drone_fleet_management enabled."""
+    from sqlalchemy import select
+
+    sub = db_session.execute(
+        select(Subscription).where(
+            Subscription.organization_id == org_id,
+            Subscription.status.in_(["ACTIVE", "TRIALING", "PAST_DUE"]),
+        )
+    ).scalars().first()
+    if sub:
+        pf = db_session.execute(
+            select(PlanFeature).where(
+                PlanFeature.plan_id == sub.plan_id,
+                PlanFeature.feature_key == "drone_fleet_management",
+            )
+        ).scalar_one_or_none()
+        if pf is None:
+            db_session.add(PlanFeature(plan_id=sub.plan_id, feature_key="drone_fleet_management", enabled=True))
+            db_session.commit()
+        elif not pf.enabled:
+            pf.enabled = True
+            db_session.commit()
+        return
+
     plan = Plan(name=f"Drone-Test-Plan-{org_id}", code=f"drone-test-{org_id}", is_active=True)
     db_session.add(plan)
     db_session.commit()

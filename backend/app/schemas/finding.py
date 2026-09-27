@@ -15,6 +15,10 @@ class FindingCreateRequest(BaseModel):
     work_order_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     responsible_user_id: uuid.UUID | None = None
+    compliance_obligation_id: uuid.UUID | None = None
+    regulatory_requirement_id: uuid.UUID | None = None
+    safety_significance: str | None = None
+    compliance_relevance: str | None = None
 
     @model_validator(mode="after")
     def _require_some_traceability(self) -> "FindingCreateRequest":
@@ -29,13 +33,23 @@ class FindingCreateRequest(BaseModel):
                 self.inspection_requirement_id,
                 self.work_order_id,
                 self.task_id,
+                self.compliance_obligation_id,
+                self.regulatory_requirement_id,
             ]
         ):
             raise ValueError(
                 "A finding must reference at least one of: aircraft_id, asset_id, "
-                "component_id, inspection_requirement_id, work_order_id, task_id"
+                "component_id, inspection_requirement_id, work_order_id, task_id, "
+                "compliance_obligation_id, regulatory_requirement_id"
             )
         return self
+
+
+class FindingCorrelateComplianceRequest(BaseModel):
+    compliance_obligation_id: uuid.UUID | None = None
+    regulatory_requirement_id: uuid.UUID | None = None
+    safety_significance: str | None = None
+    compliance_relevance: str | None = None
 
 
 class FindingDispositionRequest(BaseModel):
@@ -68,6 +82,10 @@ class FindingResponse(BaseModel):
     inspection_requirement_id: uuid.UUID | None
     work_order_id: uuid.UUID | None
     task_id: uuid.UUID | None
+    compliance_obligation_id: uuid.UUID | None = None
+    regulatory_requirement_id: uuid.UUID | None = None
+    safety_significance: str | None = None
+    compliance_relevance: str | None = None
     title: str
     description: str
     severity: str

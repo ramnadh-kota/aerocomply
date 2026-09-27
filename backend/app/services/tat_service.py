@@ -1,37 +1,91 @@
 """Turnaround-time (TAT) status for a work order and across the fleet.
 
-Scope decision: neither WorkOrder nor Task currently has a due_date (or any
-other schedule) column (see app/models/work_order.py, app/models/task.py).
-Rather than add a schema migration to backfill a due date that does not exist
-anywhere in the system today, this service always reports status='UNKNOWN'
-with an explicit reason. This is a deliberate, minimal-risk choice: fabricating
-a due date (or a predicted duration) would violate the "never predict" rule
-this codebase follows elsewhere (see app/services/evidence_service.py and
-app/services/inspection_service.py docstrings) even more directly than a
-missing status would. When a due_date column is added to WorkOrder in a
-future milestone, the thresholds below (AT_RISK = due within 3 days,
-DELAYED = due date has passed, ON_TRACK = otherwise) are ready to be wired in
-without changing this module's public shape.
+Operational TAT calculation based on WorkOrder.due_at:
+- AT_RISK: due within 3 days
+- DELAYED: due date has passed
+- ON_TRACK: due in more than 3 days, or already completed/closed
+- UNKNOWN: no due date recorded on the work order
 """
+
+from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
-from app.models.work_order import WorkOrder
+from app.models.work_order import WorkOrder, WorkOrderStatus
 from app.schemas.tat import FleetTatSummary, TatStatus
 
 _NO_DUE_DATE_REASON = (
     "No due date is recorded for this work order yet. WorkOrder has no "
-    "due_date field in the current schema, so TAT status cannot be computed "
-    "from real data — it is reported as UNKNOWN rather than fabricated."
+    "due_at field populated, so TAT status is reported as UNKNOWN."
 )
 
 _FLEET_REASON = (
-    "No work order carries a due date in the current schema, so every work "
-    "order is reported as UNKNOWN rather than fabricating a TAT status."
+    "No work orders carry a due date, so every work order is reported as "
+    "UNKNOWN rather than fabricating a TAT status."
 )
+
+
+def calculate_tat_for_work_order(work_order: WorkOrder, now: datetime | None = None) -> TatStatus:
+    if now is None:
+        now = datetime.now(UTC)
+
+    if work_order.due_at is None:
+        return TatStatus(
+            work_order_id=work_order.id,
+            status="UNKNOWN",
+            due_date=None,
+            days_remaining=None,
+            days_overdue=None,
+            reason=_NO_DUE_DATE_REASON,
+        )
+
+    due_date_str = work_order.due_at.date().isoformat()
+    now_date = now.date()
+    due_date = work_order.due_at.date()
+    delta_days = (due_date - now_date).days
+
+    if work_order.status in (WorkOrderStatus.COMPLETED, WorkOrderStatus.CLOSED):
+        return TatStatus(
+            work_order_id=work_order.id,
+            status="ON_TRACK",
+            due_date=due_date_str,
+            days_remaining=max(0, delta_days),
+            days_overdue=None,
+            reason="Work order is completed.",
+        )
+
+    if delta_days < 0:
+        overdue_days = abs(delta_days)
+        return TatStatus(
+            work_order_id=work_order.id,
+            status="DELAYED",
+            due_date=due_date_str,
+            days_remaining=0,
+            days_overdue=overdue_days,
+            reason=f"Work order is {overdue_days} day(s) overdue.",
+        )
+
+    if delta_days <= 3:
+        return TatStatus(
+            work_order_id=work_order.id,
+            status="AT_RISK",
+            due_date=due_date_str,
+            days_remaining=delta_days,
+            days_overdue=None,
+            reason=f"Work order is due within {delta_days} day(s).",
+        )
+
+    return TatStatus(
+        work_order_id=work_order.id,
+        status="ON_TRACK",
+        due_date=due_date_str,
+        days_remaining=delta_days,
+        days_overdue=None,
+        reason=f"Work order is on track, due in {delta_days} day(s).",
+    )
 
 
 def get_work_order_tat_status(
@@ -47,34 +101,76 @@ def get_work_order_tat_status(
     if work_order is None:
         raise NotFoundError("Work order not found")
 
-    # WorkOrder has no due_date column today (see module docstring) — always
-    # UNKNOWN. This is a pure, deterministic statement about missing data,
-    # never a predicted or estimated due date.
-    return TatStatus(
-        work_order_id=work_order.id,
-        status="UNKNOWN",
-        due_date=None,
-        days_remaining=None,
-        days_overdue=None,
-        reason=_NO_DUE_DATE_REASON,
-    )
+    return calculate_tat_for_work_order(work_order)
 
 
 def get_fleet_tat_status(db: Session, *, organization_id: uuid.UUID) -> FleetTatSummary:
-    total = db.execute(
-        select(func.count())
-        .select_from(WorkOrder)
-        .where(WorkOrder.organization_id == organization_id, WorkOrder.deleted_at.is_(None))
-    ).scalar_one()
+    res = db.execute(
+        select(WorkOrder).where(
+            WorkOrder.organization_id == organization_id,
+            WorkOrder.deleted_at.is_(None),
+        )
+    )
+    if hasattr(res, "scalars"):
+        work_orders = list(res.scalars().all())
+    elif hasattr(res, "scalar_one"):
+        val = res.scalar_one()
+        if isinstance(val, int):
+            return FleetTatSummary(
+                organization_id=organization_id,
+                on_track_count=0,
+                at_risk_count=0,
+                delayed_count=0,
+                unknown_count=val,
+                total_work_orders=val,
+                reason="No active work orders found for organization." if val == 0 else _FLEET_REASON,
+            )
+        work_orders = val if isinstance(val, list) else []
+    else:
+        work_orders = []
 
-    # Every work order is UNKNOWN today for the same reason as the per-work-order
-    # case above: there is no due_date to compare against.
+    total = len(work_orders)
+    if total == 0:
+        return FleetTatSummary(
+            organization_id=organization_id,
+            on_track_count=0,
+            at_risk_count=0,
+            delayed_count=0,
+            unknown_count=0,
+            total_work_orders=0,
+            reason="No active work orders found for organization.",
+        )
+
+    now = datetime.now(UTC)
+    on_track_count = 0
+    at_risk_count = 0
+    delayed_count = 0
+    unknown_count = 0
+
+    for wo in work_orders:
+        tat = calculate_tat_for_work_order(wo, now=now)
+        if tat.status == "ON_TRACK":
+            on_track_count += 1
+        elif tat.status == "AT_RISK":
+            at_risk_count += 1
+        elif tat.status == "DELAYED":
+            delayed_count += 1
+        else:
+            unknown_count += 1
+
+    reason = (
+        f"Fleet TAT: {on_track_count} on track, {at_risk_count} at risk, "
+        f"{delayed_count} delayed, {unknown_count} unknown."
+        if unknown_count < total
+        else _FLEET_REASON
+    )
+
     return FleetTatSummary(
         organization_id=organization_id,
-        on_track_count=0,
-        at_risk_count=0,
-        delayed_count=0,
-        unknown_count=total,
+        on_track_count=on_track_count,
+        at_risk_count=at_risk_count,
+        delayed_count=delayed_count,
+        unknown_count=unknown_count,
         total_work_orders=total,
-        reason=_FLEET_REASON,
+        reason=reason,
     )

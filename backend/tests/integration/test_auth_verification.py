@@ -92,10 +92,7 @@ class TestEmailVerification:
         assert confirm.status_code == 200
 
         me_after = client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()
-        # Stale until next login/refresh (email_verified is baked into the
-        # access token at issuance, see auth_service._issue_tokens) -- this
-        # is the same known staleness as email/full_name already have.
-        assert me_after["email_verified"] is False
+        assert me_after["email_verified"] is True
 
         relogin = client.post(
             "/api/v1/auth/login", json={"email": email, "password": "supersecret123"}

@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
+from app.models.compliance import ComplianceObligation, RegulatoryRequirement
 from app.models.evidence import Evidence
 from app.models.inspection_requirement import InspectionRequirement, InspectionRequirementStatus
 from app.models.user import User
@@ -214,6 +215,8 @@ def create_inspection_requirement(
     task_id: uuid.UUID | None,
     work_order_id: uuid.UUID | None,
     required: bool,
+    compliance_obligation_id: uuid.UUID | None = None,
+    regulatory_requirement_id: uuid.UUID | None = None,
 ) -> InspectionRequirement:
     # task_id / work_order_id are client-supplied; verify whichever is given
     # belongs to this organization before attaching the requirement to it
@@ -224,10 +227,31 @@ def create_inspection_requirement(
         work_order_service.get_work_order(
             db, organization_id=organization_id, work_order_id=work_order_id
         )
+    if compliance_obligation_id is not None:
+        exists = db.execute(
+            select(ComplianceObligation.id).where(
+                ComplianceObligation.id == compliance_obligation_id,
+                ComplianceObligation.organization_id == organization_id,
+            )
+        ).scalar_one_or_none()
+        if exists is None:
+            raise NotFoundError("Compliance obligation not found")
+    if regulatory_requirement_id is not None:
+        exists = db.execute(
+            select(RegulatoryRequirement.id).where(
+                RegulatoryRequirement.id == regulatory_requirement_id,
+                RegulatoryRequirement.organization_id == organization_id,
+            )
+        ).scalar_one_or_none()
+        if exists is None:
+            raise NotFoundError("Regulatory requirement not found")
+
     requirement = InspectionRequirement(
         organization_id=organization_id,
         task_id=task_id,
         work_order_id=work_order_id,
+        compliance_obligation_id=compliance_obligation_id,
+        regulatory_requirement_id=regulatory_requirement_id,
         required=required,
         status=InspectionRequirementStatus.PENDING.value,
     )

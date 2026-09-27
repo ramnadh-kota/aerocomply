@@ -5,7 +5,21 @@ from pydantic import BaseModel, Field
 
 
 class EvidenceCreateRequest(BaseModel):
-    task_id: uuid.UUID
+    task_id: uuid.UUID | None = None
+    compliance_obligation_id: uuid.UUID | None = None
+    regulatory_requirement_id: uuid.UUID | None = None
+    asset_id: uuid.UUID | None = None
+    aircraft_id: uuid.UUID | None = None
+    component_id: uuid.UUID | None = None
+    inspection_requirement_id: uuid.UUID | None = None
+    finding_id: uuid.UUID | None = None
+    work_order_id: uuid.UUID | None = None
+    title: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+    evidence_type: str = Field(default="INSPECTION_RECORD", max_length=64)
+    source: str | None = Field(default=None, max_length=255)
+    captured_at: datetime | None = None
+    provenance: dict | None = None
 
 
 class EvidenceTransitionRequest(BaseModel):
@@ -13,15 +27,42 @@ class EvidenceTransitionRequest(BaseModel):
     rejection_reason: str | None = None
 
 
+class EvidenceVerifyRequest(BaseModel):
+    verification_notes: str | None = None
+
+
+class EvidenceRejectRequest(BaseModel):
+    rejection_reason: str = Field(min_length=1)
+
+
 class EvidenceResponse(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
-    task_id: uuid.UUID
-    uploaded_by_user_id: uuid.UUID | None
+    task_id: uuid.UUID | None = None
+    compliance_obligation_id: uuid.UUID | None = None
+    regulatory_requirement_id: uuid.UUID | None = None
+    asset_id: uuid.UUID | None = None
+    aircraft_id: uuid.UUID | None = None
+    component_id: uuid.UUID | None = None
+    inspection_requirement_id: uuid.UUID | None = None
+    finding_id: uuid.UUID | None = None
+    work_order_id: uuid.UUID | None = None
+    title: str | None = None
+    description: str | None = None
+    evidence_type: str
+    source: str | None = None
+    captured_at: datetime | None = None
+    uploaded_by_user_id: uuid.UUID | None = None
     status: str
-    reviewer_user_id: uuid.UUID | None
-    rejection_reason: str | None
+    reviewer_user_id: uuid.UUID | None = None
+    rejection_reason: str | None = None
+    verification_status: str
+    verified_at: datetime | None = None
+    verifier_user_id: uuid.UUID | None = None
+    verification_notes: str | None = None
+    provenance: dict | None = None
     created_at: datetime
+    updated_at: datetime | None = None
 
     class Config:
         from_attributes = True

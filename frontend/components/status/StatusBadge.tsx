@@ -71,16 +71,30 @@ export function StatusBadge({ status, label }: { status: BadgeKind; label?: stri
 
 const WORK_ORDER_STATUS_MAP: Record<string, BadgeKind> = {
   DRAFT: "PENDING",
+  OPEN: "PENDING",
+  PLANNED: "PENDING",
   ASSIGNED: "PENDING",
   IN_PROGRESS: "REVIEW_REQUIRED",
-  WAITING_PARTS: "REVIEW_REQUIRED",
-  WAITING_INSPECTION: "INSUFFICIENT_DATA",
+  ON_HOLD: "REVIEW_REQUIRED",
+  INSPECTION: "INSUFFICIENT_DATA",
   COMPLETED: "COMPLIANT",
+  CLOSED: "COMPLIANT",
   CANCELLED: "UNKNOWN",
 };
 
 export function workOrderStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: WORK_ORDER_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
+
+const TAT_STATUS_MAP: Record<string, BadgeKind> = {
+  ON_TRACK: "COMPLIANT",
+  AT_RISK: "REVIEW_REQUIRED",
+  DELAYED: "NON_COMPLIANT",
+  UNKNOWN: "INSUFFICIENT_DATA",
+};
+
+export function tatStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: TAT_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
 
 /** "Overdue" is a derived fact (see workOrders.isOverdue), not a status value — this renders it as a distinct badge alongside the real status. */
@@ -133,6 +147,40 @@ const PRIORITY_MAP: Record<string, BadgeKind> = {
 export function priorityBadge(priority: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: PRIORITY_MAP[priority] ?? "UNKNOWN", label: priority };
 }
+
+const COMPLIANCE_OBLIGATION_STATUS_MAP: Record<string, BadgeKind> = {
+  COMPLIANT: "COMPLIANT",
+  NON_COMPLIANT: "NON_COMPLIANT",
+  DUE: "PENDING",
+  OVERDUE: "NON_COMPLIANT",
+  IN_PROGRESS: "REVIEW_REQUIRED",
+  BLOCKED: "INSUFFICIENT_DATA",
+  REVIEW_REQUIRED: "REVIEW_REQUIRED",
+  NOT_APPLICABLE: "NOT_APPLICABLE",
+  NOT_EVALUATED: "UNKNOWN",
+  PENDING: "PENDING",
+};
+
+export function complianceObligationStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return {
+    status: COMPLIANCE_OBLIGATION_STATUS_MAP[status] ?? "UNKNOWN",
+    label: status.replace(/_/g, " "),
+  };
+}
+
+const EVIDENCE_VERIFICATION_MAP: Record<string, BadgeKind> = {
+  VERIFIED: "VERIFIED",
+  UNVERIFIED: "UNVERIFIED",
+  REJECTED: "NON_COMPLIANT",
+};
+
+export function evidenceVerificationBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return {
+    status: EVIDENCE_VERIFICATION_MAP[status] ?? "UNKNOWN",
+    label: status.replace(/_/g, " "),
+  };
+}
+
 
 // Checklist item result: UNKNOWN is explicitly distinct from FAIL — never
 // coerced together (see docs/ontology "unknown is not false" invariant,
@@ -331,4 +379,102 @@ export function findingStatusBadge(status: string): { status: Parameters<typeof 
     status: status === "CLOSED" ? "COMPLIANT" : status === "IN_PROGRESS" ? "REVIEW_REQUIRED" : "PENDING",
     label: status.replace(/_/g, " "),
   };
+}
+
+// Developer 1 Lifecycle sprint -- the backend's authoritative factual
+// operational state (backend/app/services/asset_service.py::
+// compute_operational_state, surfaced on GET /assets/{id}/context's
+// operational_status field). This is the ONE operational-state vocabulary
+// the frontend should ever render for "what is this asset doing right now" --
+// do not derive a second one locally from asset.status alone (that column is
+// only the static lifecycle status, and misses active missions, open work
+// orders, and pending inspections that the backend's computation accounts for).
+const OPERATIONAL_STATE_MAP: Record<string, BadgeKind> = {
+  AVAILABLE: "COMPLIANT",
+  IN_MISSION: "ACTIVE",
+  UNDER_INSPECTION: "INSUFFICIENT_DATA",
+  MAINTENANCE: "REVIEW_REQUIRED",
+  GROUNDED: "NON_COMPLIANT",
+  AOG: "NON_COMPLIANT",
+  INACTIVE: "UNKNOWN",
+  RETIRED: "WRITTEN_OFF",
+};
+
+export function operationalStateBadge(state: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: OPERATIONAL_STATE_MAP[state] ?? "UNKNOWN", label: state.replace(/_/g, " ") };
+}
+
+// M4 -- D2.2 Intelligence layer (backend/app/schemas/intelligence.py).
+// Deliberately NOT reusing the existing riskLevelBadge/priorityBadge above:
+// those only cover LOW/MEDIUM/HIGH (risk) and LOW/MEDIUM/HIGH/CRITICAL
+// (priority) with no UNKNOWN mapping, so a CRITICAL or UNKNOWN value from
+// this backend contract would silently render as the ambiguous default
+// grey rather than its correct color. This one mapper covers the shared
+// CRITICAL/HIGH/MEDIUM/LOW/UNKNOWN vocabulary risk_level and priority_level
+// both use (PriorityLevel = RiskLevel upstream -- one scale, not two).
+const INTELLIGENCE_RISK_PRIORITY_MAP: Record<string, BadgeKind> = {
+  LOW: "COMPLIANT",
+  MEDIUM: "PENDING",
+  HIGH: "REVIEW_REQUIRED",
+  CRITICAL: "NON_COMPLIANT",
+  UNKNOWN: "INSUFFICIENT_DATA",
+};
+
+export function intelligenceRiskLevelBadge(level: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: INTELLIGENCE_RISK_PRIORITY_MAP[level] ?? "UNKNOWN", label: level };
+}
+
+// M4 -- readiness_state (READY/BLOCKED/UNKNOWN). UNKNOWN is never rendered
+// as READY/compliant -- see backend readiness_intelligence_service.py's own
+// Invariant #23 documentation ("UNKNOWN is not FALSE").
+const INTELLIGENCE_READINESS_MAP: Record<string, BadgeKind> = {
+  READY: "COMPLIANT",
+  BLOCKED: "NON_COMPLIANT",
+  UNKNOWN: "INSUFFICIENT_DATA",
+};
+
+export function intelligenceReadinessBadge(state: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: INTELLIGENCE_READINESS_MAP[state] ?? "UNKNOWN", label: state };
+}
+
+// M4 -- decision_state / recommendation_state (both use the same
+// DecisionState vocabulary -- decision_service.py / recommendation_service.py).
+// ACTION_REQUIRED and IMMEDIATE_ACTION_REQUIRED intentionally share the same
+// red color: the label text (never color alone) is what distinguishes them.
+const INTELLIGENCE_DECISION_MAP: Record<string, BadgeKind> = {
+  NO_ACTION_REQUIRED: "COMPLIANT",
+  MONITOR: "REVIEW_REQUIRED",
+  ACTION_REQUIRED: "NON_COMPLIANT",
+  IMMEDIATE_ACTION_REQUIRED: "NON_COMPLIANT",
+  INSUFFICIENT_DATA: "INSUFFICIENT_DATA",
+};
+
+const INTELLIGENCE_DECISION_LABEL_MAP: Record<string, string> = {
+  NO_ACTION_REQUIRED: "No Action Required",
+  MONITOR: "Monitor",
+  ACTION_REQUIRED: "Action Required",
+  IMMEDIATE_ACTION_REQUIRED: "Immediate Action Required",
+  INSUFFICIENT_DATA: "Insufficient Data",
+};
+
+export function intelligenceDecisionBadge(state: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return {
+    status: INTELLIGENCE_DECISION_MAP[state] ?? "UNKNOWN",
+    label: INTELLIGENCE_DECISION_LABEL_MAP[state] ?? state.replace(/_/g, " "),
+  };
+}
+
+// M4 -- D2-4 Aerospace Intelligence State vocabulary
+// (NOMINAL/DEGRADED/RESTRICTED/GROUNDED_INTEL/UNKNOWN_INTEL), surfaced via
+// AssetReadinessIntelligence.contributing_factors.aerospace_intelligence_status.
+const INTELLIGENCE_AEROSPACE_STATUS_MAP: Record<string, BadgeKind> = {
+  NOMINAL: "COMPLIANT",
+  DEGRADED: "REVIEW_REQUIRED",
+  RESTRICTED: "NON_COMPLIANT",
+  GROUNDED_INTEL: "NON_COMPLIANT",
+  UNKNOWN_INTEL: "INSUFFICIENT_DATA",
+};
+
+export function intelligenceAerospaceStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: INTELLIGENCE_AEROSPACE_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }

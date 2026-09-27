@@ -15,24 +15,77 @@ import { apiRequest } from "@/lib/apiClient";
 export interface BackendEvidence {
   id: string;
   organization_id: string;
-  task_id: string;
+  task_id: string | null;
+  compliance_obligation_id?: string | null;
+  regulatory_requirement_id?: string | null;
+  asset_id?: string | null;
+  aircraft_id?: string | null;
+  component_id?: string | null;
+  inspection_requirement_id?: string | null;
+  finding_id?: string | null;
+  work_order_id?: string | null;
+  title?: string | null;
+  description?: string | null;
+  evidence_type?: string | null;
+  source?: string | null;
+  captured_at?: string | null;
   uploaded_by_user_id: string | null;
   status: string;
+  verification_status?: string;
+  verifier_user_id?: string | null;
+  verified_at?: string | null;
+  verification_notes?: string | null;
   reviewer_user_id: string | null;
   rejection_reason: string | null;
+  provenance?: Record<string, any> | null;
   created_at: string;
+  updated_at?: string;
+}
+
+export interface EvidenceCreatePayload {
+  task_id?: string | null;
+  compliance_obligation_id?: string | null;
+  regulatory_requirement_id?: string | null;
+  asset_id?: string | null;
+  aircraft_id?: string | null;
+  component_id?: string | null;
+  inspection_requirement_id?: string | null;
+  finding_id?: string | null;
+  work_order_id?: string | null;
+  title?: string | null;
+  description?: string | null;
+  evidence_type?: string | null;
+  source?: string | null;
+  captured_at?: string | null;
+  provenance?: Record<string, any> | null;
 }
 
 export const evidenceApi = {
-  create: (accessToken: string, taskId: string) =>
-    apiRequest<BackendEvidence>("/evidence", {
+  create: (accessToken: string, payload: EvidenceCreatePayload | string) => {
+    const body = typeof payload === "string" ? { task_id: payload } : payload;
+    return apiRequest<BackendEvidence>("/evidence", {
       method: "POST",
       accessToken,
-      body: { task_id: taskId },
-    }),
+      body,
+    });
+  },
 
   get: (accessToken: string, evidenceId: string) =>
     apiRequest<BackendEvidence>(`/evidence/${evidenceId}`, { accessToken }),
+
+  verify: (accessToken: string, evidenceId: string, notes?: string) =>
+    apiRequest<BackendEvidence>(`/evidence/${evidenceId}/verify`, {
+      method: "POST",
+      accessToken,
+      body: { verification_notes: notes ?? null },
+    }),
+
+  reject: (accessToken: string, evidenceId: string, reason: string) =>
+    apiRequest<BackendEvidence>(`/evidence/${evidenceId}/reject`, {
+      method: "POST",
+      accessToken,
+      body: { rejection_reason: reason },
+    }),
 
   transition: (
     accessToken: string,

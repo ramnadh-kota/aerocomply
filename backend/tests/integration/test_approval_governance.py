@@ -97,13 +97,21 @@ def _seed_plan_with_feature(db_session, admin, code, feature_key, enabled):
 
 
 def _seed_active_subscription(db_session, org_id, plan_id):
-    sub = Subscription(
-        organization_id=org_id,
-        plan_id=plan_id,
-        status=SubscriptionStatus.ACTIVE,
-        starts_at=datetime.now(UTC) - timedelta(days=1),
-    )
-    db_session.add(sub)
+    uid = uuid.UUID(str(org_id))
+    sub = db_session.query(Subscription).filter(Subscription.organization_id == uid).first()
+    if sub is not None:
+        sub.plan_id = plan_id
+        sub.status = SubscriptionStatus.ACTIVE
+        sub.starts_at = datetime.now(UTC) - timedelta(days=1)
+        sub.ends_at = None
+    else:
+        sub = Subscription(
+            organization_id=uid,
+            plan_id=plan_id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        db_session.add(sub)
     db_session.commit()
     return sub
 

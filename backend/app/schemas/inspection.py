@@ -7,12 +7,14 @@ from pydantic import BaseModel, Field, model_validator
 class InspectionRequirementCreateRequest(BaseModel):
     task_id: uuid.UUID | None = None
     work_order_id: uuid.UUID | None = None
+    compliance_obligation_id: uuid.UUID | None = None
+    regulatory_requirement_id: uuid.UUID | None = None
     required: bool = True
 
     @model_validator(mode="after")
     def _require_task_or_work_order(self) -> "InspectionRequirementCreateRequest":
-        if self.task_id is None and self.work_order_id is None:
-            raise ValueError("Either task_id or work_order_id must be provided")
+        if self.task_id is None and self.work_order_id is None and self.compliance_obligation_id is None:
+            raise ValueError("At least one of task_id, work_order_id, or compliance_obligation_id must be provided")
         return self
 
 
@@ -27,6 +29,8 @@ class InspectionRequirementResponse(BaseModel):
     organization_id: uuid.UUID
     task_id: uuid.UUID | None
     work_order_id: uuid.UUID | None
+    compliance_obligation_id: uuid.UUID | None = None
+    regulatory_requirement_id: uuid.UUID | None = None
     required: bool
     inspector_user_id: uuid.UUID | None
     status: str

@@ -30,15 +30,28 @@ from app.models.work_order import WorkOrder
 
 
 def _entitle_drone_ops(db_session, org_id):
-    """M21.5: GET /api/v1/drones and GET /api/v1/drones/{id} are now gated
-    by require_feature("drone_fleet_management") in addition to
-    Permission.DRONE_READ (see app/api/v1/drones.py). Pre-existing tests in
-    this file registered organizations with no subscription at all, which
-    require_feature correctly denies -- this helper is test-fixture
-    maintenance, not a product behavior change, giving the org a real
-    ACTIVE subscription on a plan that includes the feature so the tests
-    keep exercising what they always meant to exercise (RBAC/tenancy on the
-    drone endpoints), not the newly-added entitlement gate."""
+    """M21.5 fixture maintenance: ensure org_id has drone_fleet_management enabled."""
+    sub = db_session.execute(
+        select(Subscription).where(
+            Subscription.organization_id == org_id,
+            Subscription.status.in_(["ACTIVE", "TRIALING", "PAST_DUE"]),
+        )
+    ).scalars().first()
+    if sub:
+        pf = db_session.execute(
+            select(PlanFeature).where(
+                PlanFeature.plan_id == sub.plan_id,
+                PlanFeature.feature_key == "drone_fleet_management",
+            )
+        ).scalar_one_or_none()
+        if pf is None:
+            db_session.add(PlanFeature(plan_id=sub.plan_id, feature_key="drone_fleet_management", enabled=True))
+            db_session.commit()
+        elif not pf.enabled:
+            pf.enabled = True
+            db_session.commit()
+        return
+
     plan = Plan(name=f"Drone-Test-Plan-{org_id}", code=f"drone-test-{org_id}", is_active=True)
     db_session.add(plan)
     db_session.commit()
@@ -59,8 +72,28 @@ def _entitle_drone_ops(db_session, org_id):
 
 
 def _entitle_work_orders(db_session, org_id):
-    """M21.5 fixture maintenance: POST /work-orders requires
-    work_order_management. Grant only that feature."""
+    """M21.5 fixture maintenance: ensure org_id has work_order_management enabled."""
+    sub = db_session.execute(
+        select(Subscription).where(
+            Subscription.organization_id == org_id,
+            Subscription.status.in_(["ACTIVE", "TRIALING", "PAST_DUE"]),
+        )
+    ).scalars().first()
+    if sub:
+        pf = db_session.execute(
+            select(PlanFeature).where(
+                PlanFeature.plan_id == sub.plan_id,
+                PlanFeature.feature_key == "work_order_management",
+            )
+        ).scalar_one_or_none()
+        if pf is None:
+            db_session.add(PlanFeature(plan_id=sub.plan_id, feature_key="work_order_management", enabled=True))
+            db_session.commit()
+        elif not pf.enabled:
+            pf.enabled = True
+            db_session.commit()
+        return
+
     plan = Plan(name=f"WO-Test-Plan-{org_id}", code=f"wo-test-{org_id}", is_active=True)
     db_session.add(plan)
     db_session.commit()

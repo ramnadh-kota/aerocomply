@@ -2,12 +2,27 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { StatusBadge, assetStatusBadge as statusBadge } from "@/components/status/StatusBadge";
+import {
+  StatusBadge,
+  assetStatusBadge as statusBadge,
+  operationalStateBadge,
+  intelligenceReadinessBadge,
+  intelligenceRiskLevelBadge,
+  intelligenceDecisionBadge,
+} from "@/components/status/StatusBadge";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import {
+  intelligenceApi,
+  type AssetReadinessIntelligence,
+  type AssetRiskIntelligence,
+  type AssetPriorityIntelligence,
+  type AssetDecision as AssetDecisionIntelligence,
+  type AssetRecommendation,
+} from "@/lib/api/intelligence";
 import {
   assetsApi,
   type AssetResponse,
@@ -21,6 +36,7 @@ import {
   type AssetComplianceResponse,
   type AssetReadinessResponse,
   type AssetHistoryResponse,
+  type AssetDomainContextResponse,
   type AssetInstallComponentRequest,
   type AssetFlightCreateRequest,
 } from "@/lib/api/assets";
@@ -35,6 +51,7 @@ import {
   getDemoCompliance,
   getDemoReadiness,
   getDemoHistory,
+  getDemoDomainContext,
 } from "@/lib/demo/demoAssets";
 
 type TabKey =
@@ -48,7 +65,8 @@ type TabKey =
   | "FINDINGS"
   | "COMPLIANCE"
   | "READINESS"
-  | "HISTORY";
+  | "HISTORY"
+  | "INTELLIGENCE";
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: "OVERVIEW", label: "Overview", icon: "◧" },
@@ -62,6 +80,7 @@ const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: "COMPLIANCE", label: "Compliance", icon: "§" },
   { key: "READINESS", label: "Readiness", icon: "✓" },
   { key: "HISTORY", label: "History", icon: "≡" },
+  { key: "INTELLIGENCE", label: "Intelligence", icon: "◈" },
 ];
 
 function InstallComponentModal({
@@ -354,9 +373,12 @@ function LogFlightModal({
 export default function AssetDetailPage() {
   const params = useParams();
   const assetId = (params?.id as string) || "";
+  const searchParams = useSearchParams();
   const { accessToken, sessionType } = useSession();
 
-  const [activeTab, setActiveTab] = useState<TabKey>("OVERVIEW");
+  const requestedTab = searchParams?.get("tab") as TabKey | null;
+  const initialTab: TabKey = TABS.some((t) => t.key === requestedTab) ? (requestedTab as TabKey) : "OVERVIEW";
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
 
@@ -372,6 +394,14 @@ export default function AssetDetailPage() {
   const [compliance, setCompliance] = useState<AssetComplianceResponse | null>(null);
   const [readiness, setReadiness] = useState<AssetReadinessResponse | null>(null);
   const [history, setHistory] = useState<AssetHistoryResponse | null>(null);
+  const [context, setContext] = useState<AssetDomainContextResponse | null>(null);
+
+  // D2.2 Intelligence layer (M4.3) -- REAL mode only, see fetch effect below.
+  const [intelReadiness, setIntelReadiness] = useState<AssetReadinessIntelligence | null>(null);
+  const [intelRisk, setIntelRisk] = useState<AssetRiskIntelligence | null>(null);
+  const [intelPriority, setIntelPriority] = useState<AssetPriorityIntelligence | null>(null);
+  const [intelDecision, setIntelDecision] = useState<AssetDecisionIntelligence | null>(null);
+  const [intelRecommendation, setIntelRecommendation] = useState<AssetRecommendation | null>(null);
 
   // Modals
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
@@ -391,6 +421,7 @@ export default function AssetDetailPage() {
         setCompliance(getDemoCompliance(assetId));
         setReadiness(getDemoReadiness(assetId));
         setHistory(getDemoHistory(assetId));
+        setContext(getDemoDomainContext(assetId));
       }
       setLoading(false);
       return;
@@ -413,6 +444,12 @@ export default function AssetDetailPage() {
       assetsApi.getCompliance(accessToken, assetId).catch(() => null),
       assetsApi.getReadiness(accessToken, assetId).catch(() => null),
       assetsApi.getHistory(accessToken, assetId).catch(() => null),
+      assetsApi.getContext(accessToken, assetId).catch(() => null),
+      intelligenceApi.getReadiness(accessToken, assetId).catch(() => null),
+      intelligenceApi.getRisk(accessToken, assetId).catch(() => null),
+      intelligenceApi.getPriority(accessToken, assetId).catch(() => null),
+      intelligenceApi.getDecision(accessToken, assetId).catch(() => null),
+      intelligenceApi.getRecommendations(accessToken, assetId).catch(() => null),
     ])
       .then(
         ([
@@ -427,6 +464,12 @@ export default function AssetDetailPage() {
           comp,
           rdy,
           hist,
+          ctx,
+          intelRdy,
+          intelRsk,
+          intelPri,
+          intelDec,
+          intelRec,
         ]) => {
           setAsset(a);
           setConfig(cfg);
@@ -439,6 +482,12 @@ export default function AssetDetailPage() {
           setCompliance(comp);
           setReadiness(rdy);
           setHistory(hist);
+          setContext(ctx);
+          setIntelReadiness(intelRdy);
+          setIntelRisk(intelRsk);
+          setIntelPriority(intelPri);
+          setIntelDecision(intelDec);
+          setIntelRecommendation(intelRec);
         }
       )
       .catch((err) => {
@@ -551,7 +600,12 @@ export default function AssetDetailPage() {
   }
 
   const isGrounded = asset.status === "GROUNDED" || asset.status === "MAINTENANCE";
-  const operationalStatus = isGrounded ? "GROUNDED" : "READY";
+  // The backend's compute_operational_state (GET /assets/{id}/context) is
+  // the one authoritative operational-state computation -- it accounts for
+  // active missions, open work orders, and pending inspections, not just
+  // the static lifecycle status column. Falling back to the coarser
+  // asset.status-only heuristic only if the context call itself failed.
+  const operationalStatus = context?.operational_status ?? (isGrounded ? "GROUNDED" : "AVAILABLE");
   const readinessStatus = readiness?.overall_status || (isGrounded ? "AT_RISK" : "READY");
   const complianceStatus = compliance?.overall_status || "COMPLIANT";
 
@@ -614,10 +668,7 @@ export default function AssetDetailPage() {
               <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "#9ca3af", marginBottom: 2 }}>
                 Operational
               </div>
-              <StatusBadge
-                status={operationalStatus === "READY" ? "ACTIVE" : "NON_COMPLIANT"}
-                label={operationalStatus}
-              />
+              <StatusBadge {...operationalStateBadge(operationalStatus)} />
             </div>
 
             <div style={{ background: "#1f2937", padding: "8px 12px", borderRadius: 8, border: "1px solid #374151" }}>
@@ -1377,6 +1428,241 @@ export default function AssetDetailPage() {
             </div>
           ) : (
             <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No historical events recorded for this airframe.</p>
+          )}
+        </div>
+      )}
+
+      {/* TAB 12: INTELLIGENCE (D2.2 -- M4.3) */}
+      {activeTab === "INTELLIGENCE" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {sessionType === "DEMO" ? (
+            <div
+              style={{
+                padding: "12px 16px",
+                background: "rgba(245, 158, 11, 0.08)",
+                border: "1px solid rgba(245, 158, 11, 0.3)",
+                borderRadius: 8,
+                fontSize: "0.85rem",
+                color: "#fcd34d",
+              }}
+            >
+              The D2.2 Intelligence layer (readiness, risk, priority, decision,
+              recommendation) is not available in demo mode. Sign in to a real
+              organization to view it.
+            </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  padding: "12px 16px",
+                  background: "rgba(56, 189, 248, 0.08)",
+                  border: "1px solid rgba(56, 189, 248, 0.3)",
+                  borderRadius: 8,
+                  fontSize: "0.85rem",
+                  color: "#93c5fd",
+                }}
+              >
+                <strong>Deterministic Intelligence:</strong> Every value below is computed by
+                the backend (readiness → risk → priority → decision → recommendation). This
+                page only labels and formats that output — it never re-derives it.
+              </div>
+
+              {/* READINESS */}
+              <div className="ac-card" style={{ padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Readiness</h3>
+                  {intelReadiness && <StatusBadge {...intelligenceReadinessBadge(intelReadiness.readiness_state)} />}
+                </div>
+                {intelReadiness ? (
+                  <>
+                    <p style={{ margin: "0 0 10px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                      {intelReadiness.explanation.join(" ")}
+                    </p>
+                    {intelReadiness.blockers.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <span style={{ fontSize: "0.75rem", color: "#f87171", fontWeight: 600 }}>
+                          Blockers ({intelReadiness.blockers.length}):
+                        </span>
+                        {intelReadiness.blockers.map((b, idx) => (
+                          <div
+                            key={idx}
+                            style={{ padding: "8px 12px", background: "#1f2937", borderRadius: 6, fontSize: "0.8rem" }}
+                          >
+                            <span style={{ color: "#9ca3af" }}>[{b.source_domain}] </span>
+                            {b.description}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>Readiness intelligence unavailable.</p>
+                )}
+              </div>
+
+              {/* RISK */}
+              <div className="ac-card" style={{ padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Risk</h3>
+                  {intelRisk && <StatusBadge {...intelligenceRiskLevelBadge(intelRisk.risk_level)} />}
+                </div>
+                {intelRisk ? (
+                  <>
+                    <p style={{ margin: "0 0 10px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                      {intelRisk.explanation.join(" ")}
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
+                      {intelRisk.factors.map((f) => (
+                        <div key={f.name} style={{ padding: "8px 12px", background: "#1f2937", borderRadius: 6 }}>
+                          <div style={{ fontSize: "0.7rem", color: "#9ca3af", textTransform: "uppercase" }}>{f.name}</div>
+                          <div style={{ fontSize: "0.85rem", fontWeight: 700, marginTop: 2 }}>{f.value}</div>
+                          <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: 2 }}>{f.explanation}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>Risk intelligence unavailable.</p>
+                )}
+              </div>
+
+              {/* PRIORITY */}
+              <div className="ac-card" style={{ padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Priority</h3>
+                  {intelPriority && <StatusBadge {...intelligenceRiskLevelBadge(intelPriority.priority_level)} />}
+                </div>
+                {intelPriority ? (
+                  <>
+                    <p style={{ margin: "0 0 6px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                      {intelPriority.explanation.join(" ")}
+                    </p>
+                    {intelPriority.escalated && (
+                      <p style={{ margin: 0, color: "#f59e0b", fontSize: "0.8rem" }}>
+                        ⚠ Escalated from base risk level ({intelPriority.blocker_count} concurrent blocker(s)).
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>Priority intelligence unavailable.</p>
+                )}
+              </div>
+
+              {/* DECISION */}
+              <div className="ac-card" style={{ padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Decision</h3>
+                  {intelDecision && <StatusBadge {...intelligenceDecisionBadge(intelDecision.decision_state)} />}
+                </div>
+                {intelDecision ? (
+                  <>
+                    <p style={{ margin: "0 0 10px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                      {intelDecision.decision_reason}
+                    </p>
+                    {intelDecision.required_information.length > 0 && (
+                      <div>
+                        <span style={{ fontSize: "0.75rem", color: "#fcd34d", fontWeight: 600 }}>
+                          Required Information:
+                        </span>
+                        <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: "0.8rem", color: "#fde68a" }}>
+                          {intelDecision.required_information.map((info, idx) => (
+                            <li key={idx}>{info}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>Decision intelligence unavailable.</p>
+                )}
+              </div>
+
+              {/* RECOMMENDATION */}
+              <div className="ac-card" style={{ padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Recommendation</h3>
+                  {intelRecommendation && (
+                    <StatusBadge {...intelligenceDecisionBadge(intelRecommendation.recommendation_state)} />
+                  )}
+                </div>
+                {intelRecommendation && intelRecommendation.items.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {intelRecommendation.items.map((item, idx) => (
+                      <div
+                        key={idx}
+                        style={{ padding: "12px 16px", background: "#1f2937", borderRadius: 8, border: "1px solid #374151" }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <span
+                            style={{
+                              fontSize: "0.7rem",
+                              background: "#374151",
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            {item.action_category.replace(/_/g, " ")}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "0.9rem", color: "#fff" }}>{item.action}</div>
+                        {item.resolution_condition && (
+                          <div style={{ fontSize: "0.8rem", color: "#9ca3af", marginTop: 4 }}>
+                            Resolution: {item.resolution_condition}
+                          </div>
+                        )}
+                        {item.source_blocker && (
+                          <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: 6 }}>
+                            Source: {item.source_blocker.related_record_type ?? item.source_blocker.source_domain}
+                            {item.source_blocker.related_record_id ? ` #${item.source_blocker.related_record_id.slice(0, 8)}` : ""}
+                            {item.source_blocker.regulatory_reference ? ` · ${item.source_blocker.regulatory_reference}` : ""}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No recommendation available.</p>
+                )}
+              </div>
+
+              {/* TRACEABILITY */}
+              {intelRecommendation && intelRecommendation.blockers.length > 0 && (
+                <div className="ac-card" style={{ padding: 20 }}>
+                  <h3 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 700 }}>Source Traceability</h3>
+                  <p style={{ margin: "0 0 12px 0", color: "#9ca3af", fontSize: "0.85rem" }}>
+                    Every blocker below traces back to a real backend record — never an
+                    unsupported or invented explanation.
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {intelRecommendation.blockers.map((b, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: "10px 14px",
+                          background: "#1f2937",
+                          borderRadius: 6,
+                          fontSize: "0.8rem",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 2,
+                        }}
+                      >
+                        <div>
+                          <strong>{b.category}</strong>
+                          <span style={{ color: "#9ca3af" }}> — {b.description}</span>
+                        </div>
+                        <div style={{ color: "#6b7280" }}>
+                          {b.related_record_type ?? b.source_domain}
+                          {b.related_record_id ? ` #${b.related_record_id.slice(0, 8)}` : ""}
+                          {b.regulatory_reference ? ` · ${b.regulatory_reference}` : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

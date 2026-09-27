@@ -681,7 +681,18 @@ export function getDemoDomainContext(assetId: string): AssetDomainContextRespons
 
   return {
     identity: asset,
-    operational_status: asset.status === "MAINTENANCE" ? "GROUNDED" : "READY",
+    // Mirrors the real backend's 8-value compute_operational_state
+    // vocabulary (AVAILABLE/IN_MISSION/UNDER_INSPECTION/MAINTENANCE/
+    // GROUNDED/AOG/INACTIVE/RETIRED) so demo mode never looks like a
+    // different, narrower state model than REAL mode.
+    operational_status:
+      asset.status === "MAINTENANCE"
+        ? "MAINTENANCE"
+        : asset.status === "GROUNDED"
+          ? "GROUNDED"
+          : asset.status === "RETIRED"
+            ? "RETIRED"
+            : "AVAILABLE",
     lifecycle_status: asset.status,
     readiness,
     configuration,

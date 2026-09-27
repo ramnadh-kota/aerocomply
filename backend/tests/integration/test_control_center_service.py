@@ -165,3 +165,34 @@ def test_fleet_scoped_to_tenant(db_session):
     rows_b = control_center_service.get_fleet_rows(db_session, organization_id=org_b)
     assert len(rows_a) == 1
     assert rows_b == []
+
+
+def test_summary_operational_state_distribution_uses_asset_service(db_session):
+    """Developer 1 Lifecycle sprint Phase 6 consolidation: the fleet-wide
+    operational_states distribution must come from the same
+    asset_service.compute_operational_state() this endpoint's per-aircraft
+    row now delegates to, not an independently-computed count."""
+    org_id = uuid.uuid4()
+    aircraft = _create_aircraft(db_session, org_id, registration="N-DIST-1", msn="MSN-DIST-1")
+    assert aircraft.asset_id is not None
+
+    summary = control_center_service.get_summary(db_session, organization_id=org_id)
+    assert summary.total_assets == 1
+    assert summary.operational_states["AVAILABLE"] == 1
+    assert sum(summary.operational_states.values()) == 1
+
+    work_order_service.create_work_order(
+        db_session,
+        organization_id=org_id,
+        created_by_user_id=None,
+        payload=WorkOrderCreateRequest(aircraft_id=aircraft.id, work_order_number="WO-DIST-1"),
+    )
+
+    summary2 = control_center_service.get_summary(db_session, organization_id=org_id)
+    assert summary2.operational_states["MAINTENANCE"] == 1
+    assert summary2.operational_states["AVAILABLE"] == 0
+    # The legacy 3-value row status must agree with the new 8-value state
+    # for the same asset -- exactly the "one authoritative path" invariant
+    # this consolidation exists to guarantee.
+    rows = control_center_service.get_fleet_rows(db_session, organization_id=org_id)
+    assert rows[0].operational_status == "UNDER_MAINTENANCE"

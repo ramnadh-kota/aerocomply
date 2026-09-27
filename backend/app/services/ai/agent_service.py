@@ -46,6 +46,42 @@ fact that isn't returned by a tool call, and you never calculate or assert
 a number yourself (TAT status, release readiness, vendor score, etc.) —
 those are always computed by the tool, never by you.
 
+For any question about an asset's deterministic READINESS, RISK, PRIORITY,
+DECISION, or RECOMMENDATION (e.g. "why is this aircraft not ready", "what
+is blocking this asset", "how risky is it", "what should happen next"),
+call get_intelligence_context and report ONLY what it returns. Clearly
+distinguish, in your answer: the FACT (e.g. the asset's current
+aerospace-intelligence status), the DETERMINISTIC DECISION (e.g.
+ACTION_REQUIRED), the DETERMINISTIC RECOMMENDATION (e.g. its recommended
+next step), and your own EXPLANATION of what that means operationally —
+never merge these into one blended claim. You never override, recompute,
+or second-guess these deterministic values. If any field is UNKNOWN,
+UNKNOWN_INTEL, or INSUFFICIENT_DATA, say so explicitly (e.g. "I don't have
+sufficient intelligence context to determine that") — never restate it as
+ready, safe, low risk, or nominal. Every blocker/finding you cite must come
+from that tool's own blockers/warnings/source records — never invent a
+regulatory requirement, evidence item, or citation.
+
+For any FLEET-WIDE or MULTI-ASSET question (e.g. "which assets need
+attention", "summarize the fleet", "which assets have the highest risk",
+"what is blocking the fleet", "compare aircraft A and aircraft B"), call
+get_fleet_attention_summary ONCE and answer entirely from its returned
+assets/distribution/attention data — never call it more than once per
+question, and never call get_intelligence_context per-asset in a loop when
+the fleet tool's own assets list already contains what you need. When
+comparing two or more assets, state only the factual differences in their
+returned fields (e.g. "Asset B has risk_level=MEDIUM and
+readiness_state=READY, while Asset A has risk_level=HIGH and
+readiness_state=RESTRICTED") — never declare a subjective "better" or
+"worse" aircraft, and only compare fields that actually exist for both.
+Every fleet count, percentage, or distribution you state must come
+directly from that tool's own numbers — never estimate, round suggestively,
+or extrapolate a trend it did not report. This system has no predictive
+capability (no failure probabilities, no future readiness/risk forecasts,
+no estimated repair dates or costs) — if asked for one, say plainly that
+the current intelligence does not provide that prediction, never invent a
+plausible-sounding number.
+
 Distinguish two kinds of question:
 1. GENERAL / GLOSSARY questions ("what is RII?", "what does TAT mean?",
    "tell me what not to do", "what is an evidence gate?") — answer directly
@@ -167,6 +203,8 @@ async def ask_lisa(
     tools = anthropic_tool_schemas()
     tool_calls_made = 0
     final_text = ""
+    last_grounding: dict[str, Any] | None = None
+    last_missing: list[str] = []
 
     for _ in range(MAX_TOOL_ROUND_TRIPS):
         response = await provider.complete(messages, tools)
@@ -197,7 +235,15 @@ async def ask_lisa(
         tool_result_content: list[dict[str, Any]] = []
         for call in response.tool_calls:
             tool_calls_made += 1
-            tool_result_content.append(_run_tool(db, user, call))
+            message, grounding, missing = _run_tool(db, user, call)
+            tool_result_content.append(message)
+            if grounding is not None:
+                # Last call wins -- same "most recent entity" convention
+                # already used elsewhere in this file (current_aircraft_id
+                # etc.), and matches the common case of one asset per
+                # question.
+                last_grounding = grounding
+                last_missing = missing
 
         messages.append({"role": "user", "content": tool_result_content})
     else:
@@ -216,6 +262,8 @@ async def ask_lisa(
         "narrative": [line for line in final_text.strip().splitlines() if line.strip()] or [
             "The agent did not produce a synthesized answer."
         ],
+        "missing": last_missing,
+        "grounding": last_grounding,
         "priority": None,
         "whatIFound": [],
         "whyItMatters": None,
@@ -229,28 +277,69 @@ async def ask_lisa(
     }
 
 
-def _run_tool(db: Session, user: CurrentUser, call: AIToolCall) -> dict[str, Any]:
+# Tool names whose result carries a machine-readable IntelligenceContext-
+# shaped payload (contract_version + asset/fleet identity + uncertainty) —
+# used to populate the response's `grounding`/`missing` fields independent
+# of, and never derived from, the model's own synthesized prose.
+_GROUNDING_CAPABLE_TOOLS = {"get_intelligence_context", "get_fleet_attention_summary"}
+
+
+def _extract_grounding(
+    tool_name: str, result: Any
+) -> tuple[dict[str, Any] | None, list[str]]:
+    if tool_name not in _GROUNDING_CAPABLE_TOOLS or not isinstance(result, dict):
+        return None, []
+    grounding = {
+        "tool": tool_name,
+        "contract_version": result.get("contract_version"),
+        "evaluation_version": result.get("aerospace_state", {}).get("evaluation_version")
+        if tool_name == "get_intelligence_context"
+        else None,
+    }
+    if tool_name == "get_intelligence_context":
+        asset = result.get("asset", {})
+        grounding["asset_id"] = asset.get("asset_id")
+        grounding["aerospace_intelligence_status"] = result.get("aerospace_state", {}).get("status")
+    else:
+        grounding["total_assets"] = result.get("total_assets")
+    missing = result.get("uncertainty", []) if isinstance(result.get("uncertainty"), list) else []
+    return grounding, missing
+
+
+def _run_tool(
+    db: Session, user: CurrentUser, call: AIToolCall
+) -> tuple[dict[str, Any], dict[str, Any] | None, list[str]]:
     try:
         result = execute_tool(db, user, call.name, call.input)
+        grounding, missing = _extract_grounding(call.name, result)
         # Gate tool results through the safety layer before they ever reach
         # the model for synthesis (belt-and-suspenders alongside the
         # question-level and final-answer-level checks above).
         result_text = str(result)
         if is_safety_restricted(result_text):
             result = {"note": "Result withheld by safety layer."}
-        return {
-            "type": "tool_result",
-            "tool_use_id": call.id,
-            "content": str(result),
-        }
+            grounding, missing = None, []
+        return (
+            {
+                "type": "tool_result",
+                "tool_use_id": call.id,
+                "content": str(result),
+            },
+            grounding,
+            missing,
+        )
     except Exception as exc:  # noqa: BLE001 - surfaced to the model as a tool error, not raised
         logger.warning("ai_tool_execution_failed", tool=call.name, error=str(exc))
-        return {
-            "type": "tool_result",
-            "tool_use_id": call.id,
-            "content": f"Tool error: {exc}",
-            "is_error": True,
-        }
+        return (
+            {
+                "type": "tool_result",
+                "tool_use_id": call.id,
+                "content": f"Tool error: {exc}",
+                "is_error": True,
+            },
+            None,
+            [],
+        )
 
 
 _GRAPH_FIELD_TO_CONTEXT_FIELD = {

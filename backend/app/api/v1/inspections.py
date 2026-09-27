@@ -31,6 +31,8 @@ def create_inspection_requirement(
         task_id=payload.task_id,
         work_order_id=payload.work_order_id,
         required=payload.required,
+        compliance_obligation_id=payload.compliance_obligation_id,
+        regulatory_requirement_id=payload.regulatory_requirement_id,
     )
     return InspectionRequirementResponse.model_validate(requirement)
 

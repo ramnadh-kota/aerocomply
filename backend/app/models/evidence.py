@@ -2,8 +2,8 @@ import datetime
 import uuid
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPKMixin
@@ -45,8 +45,65 @@ class EvidenceFileStatus(StrEnum):
 class Evidence(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     __tablename__ = "evidence"
 
-    task_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False, index=True
+    # task_id is nullable: evidence can attach directly to tasks (MRO release gate)
+    # or to compliance obligations, regulatory requirements, assets, aircraft, etc.
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=True, index=True
+    )
+    compliance_obligation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("compliance_obligations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    regulatory_requirement_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("regulatory_requirements.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("assets.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    aircraft_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("aircraft.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    component_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("components.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    inspection_requirement_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("inspection_requirements.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    finding_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("findings.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # First-class metadata
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="INSPECTION_RECORD"
+    )
+    source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    captured_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
@@ -59,16 +116,31 @@ class Evidence(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     )
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Verification workflow
+    verification_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="UNVERIFIED", index=True
+    )
+    verified_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    verifier_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    verification_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provenance: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
     # cascade="all, delete-orphan" only affects ORM-level deletion of
-    # EvidenceFile *rows* if an Evidence row is ever deleted (there is
-    # currently no code path that deletes one) — it never touches the
-    # underlying object-storage content. Deleting the physical S3 object is
-    # always a separate, explicit StorageService.delete() call made by a
-    # future milestone's service layer, never an implicit side effect of an
-    # ORM relationship.
+    # EvidenceFile *rows* if an Evidence row is ever deleted
     files: Mapped[list["EvidenceFile"]] = relationship(
         back_populates="evidence", cascade="all, delete-orphan"
     )
+    obligation = relationship("ComplianceObligation", back_populates="evidence_items")
+    requirement = relationship("RegulatoryRequirement")
+    verifier = relationship("User", foreign_keys=[verifier_user_id])
+
 
 
 class EvidenceFile(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):

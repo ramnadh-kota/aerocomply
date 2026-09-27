@@ -1,13 +1,75 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { StatusBadge, operationalStatusBadge, riskLevelBadge } from "@/components/status/StatusBadge";
+import { StatusBadge, operationalStatusBadge, riskLevelBadge, operationalStateBadge } from "@/components/status/StatusBadge";
+import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
+import { useSession } from "@/lib/auth/SessionContext";
+import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
+import { controlCenterApi, type ControlCenterSummary } from "@/lib/api/controlCenter";
 import { PLATFORM_NAME } from "@/lib/brand";
 import { getControlTowerFleet, getControlTowerSummary, getWorkOrderPlanning, type ControlTowerAircraftRow, type OperationalStatus } from "@/lib/mock/ai/analytics";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import { getCurrentUser } from "@/lib/domain/currentUser";
+
+/** Real fleet-wide operational-state summary, sourced from the same
+ * authoritative /control-center/summary endpoint Dashboard/Operations/
+ * Hangar already use -- distinct from the rich filterable fleet table below
+ * it, which is a demo-only prototype (per-aircraft risk scoring, material
+ * shortages, next-maintenance-due are heuristics with no backend model, and
+ * risk scoring is Developer 2's domain, not something to fabricate here). */
+function RealOperationalStateSummary() {
+  const { accessToken, isAuthenticated, sessionType } = useSession();
+  const [summary, setSummary] = useState<ControlCenterSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || sessionType === "DEMO") {
+      setLoading(false);
+      return;
+    }
+    if (!accessToken) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    controlCenterApi
+      .getSummary(accessToken)
+      .then(setSummary)
+      .catch((err) => setError(normalizeApiError(err)))
+      .finally(() => setLoading(false));
+  }, [accessToken, isAuthenticated, sessionType]);
+
+  if (!isAuthenticated || sessionType === "DEMO") return null;
+
+  const states = summary?.operational_states ?? {};
+  const nonZero = (Object.keys(states) as (keyof typeof states)[]).filter((k) => (states[k] ?? 0) > 0);
+
+  return (
+    <section className="ac-section">
+      <div className="ac-section-header">
+        <h2 className="ac-h2" style={{ margin: 0 }}>Fleet Operational State (Live)</h2>
+        <span className="ac-badge ac-badge-active">REAL DATA</span>
+      </div>
+      <RealDataPanel
+        loading={loading}
+        error={error}
+        isEmpty={!loading && !error && (summary?.total_assets ?? 0) === 0}
+        emptyMessage="No assets exist for this organization yet."
+      >
+        <div className="ac-flex ac-gap-2" style={{ flexWrap: "wrap" }}>
+          <span className="ac-badge ac-badge-unknown">Total Assets: {summary?.total_assets ?? 0}</span>
+          {nonZero.map((state) => (
+            <StatusBadge key={state} {...operationalStateBadge(state)} label={`${state.replace(/_/g, " ")}: ${states[state]}`} />
+          ))}
+        </div>
+      </RealDataPanel>
+    </section>
+  );
+}
 
 // M12.1 — Maintenance Control Tower. A single operational fleet view built
 // entirely on existing repositories/analytics (getControlTowerFleet /
@@ -94,7 +156,13 @@ export default function MaintenanceControlTowerPage() {
         </div>
       </div>
 
+      <RealOperationalStateSummary />
+
       <section className="ac-section">
+        <div className="ac-section-header">
+          <p className="ac-eyebrow" style={{ margin: 0 }}>Demo Fleet Risk Board</p>
+          <span className="ac-illustrative-badge">Illustrative Data</span>
+        </div>
         <div className="ac-kpi-grid">
           {kpis.map((k) => (
             <div

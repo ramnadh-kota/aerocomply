@@ -339,7 +339,7 @@ def test_list_work_orders_filters_by_asset_id_and_preserves_tenant():
 
     db.execute.return_value.scalars.return_value.all.return_value = [mock_wo]
 
-    results = work_order_service.list_work_orders(
+    results, _ = work_order_service.list_work_orders(
         db, organization_id=org_id, asset_id=drone_asset_id
     )
     assert len(results) == 1

@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db_session
+from app.core.logging import get_logger
 from app.schemas.ai import LisaAskRequest, LisaAskResponse
 from app.schemas.auth import CurrentUser
 from app.schemas.lisa_context import LisaConversationContextResponse
@@ -11,6 +12,7 @@ from app.services.ai.provider import AIProviderError, AIProviderNotConfiguredErr
 from app.services.lisa import context_service
 
 router = APIRouter(prefix="/lisa", tags=["lisa"])
+logger = get_logger(__name__)
 
 
 @router.post("/ask", response_model=None)
@@ -46,6 +48,23 @@ async def ask(
         return JSONResponse(
             status_code=502,
             content={"error": {"code": "ai_provider_error", "message": str(exc)}},
+        )
+    except Exception as exc:  # noqa: BLE001 - honest, controlled failure; never a fabricated response
+        # M5.2: a provider that raises anything other than the two typed
+        # errors above (malformed/unexpected output, a client-library bug,
+        # a network error the provider itself didn't wrap) must still
+        # surface as a controlled failure, not an unhandled 500 with an
+        # internal stack trace. The message is deliberately generic --
+        # exc's own text may contain provider-internal details.
+        logger.warning("ai_provider_unexpected_failure", error=str(exc))
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": {
+                    "code": "ai_provider_error",
+                    "message": "The AI provider returned an unexpected error. Please try again.",
+                }
+            },
         )
     return LisaAskResponse.model_validate(result)
 
