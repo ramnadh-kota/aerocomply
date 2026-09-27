@@ -34,6 +34,19 @@ export default function TenantUsersPage() {
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
+  // Add User Modal State (admin sets the password directly)
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [addForm, setAddForm] = useState({ email: "", full_name: "", role: "VIEWER", password: "" });
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  // Reset Password Modal State
+  const [resettingUser, setResettingUser] = useState<TenantUser | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetSaving, setResetSaving] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
+
   const loadUsers = () => {
     if (isDemo) {
       setUsers(DEMO_TENANT_USERS);
@@ -151,6 +164,64 @@ export default function TenantUsersPage() {
     }
   };
 
+  const handleOpenAddUser = () => {
+    setAddForm({ email: "", full_name: "", role: "VIEWER", password: "" });
+    setAddError(null);
+    setShowAddUser(true);
+  };
+
+  const handleCreateUser = async () => {
+    if (!accessToken) return;
+    if (!addForm.email || !addForm.full_name || !addForm.password) {
+      setAddError("Email, full name, and password are all required.");
+      return;
+    }
+    if (addForm.password.length < 8) {
+      setAddError("Password must be at least 8 characters.");
+      return;
+    }
+
+    setAddSaving(true);
+    setAddError(null);
+    try {
+      const created = await tenantApi.createUser(accessToken, addForm);
+      setUsers((prev) => [...prev, created]);
+      setShowAddUser(false);
+    } catch (err) {
+      setAddError(normalizeApiError(err).message);
+    } finally {
+      setAddSaving(false);
+    }
+  };
+
+  const handleOpenResetPassword = (user: TenantUser) => {
+    setResettingUser(user);
+    setResetPassword("");
+    setResetError(null);
+    setResetSuccessMessage(null);
+  };
+
+  const handleResetPassword = async () => {
+    if (!accessToken || !resettingUser) return;
+    if (resetPassword.length < 8) {
+      setResetError("Password must be at least 8 characters.");
+      return;
+    }
+
+    setResetSaving(true);
+    setResetError(null);
+    try {
+      await tenantApi.resetUserPassword(accessToken, resettingUser.id, resetPassword);
+      setResetSuccessMessage(
+        `Password reset. Share the new password with ${resettingUser.full_name} directly — it will not be shown again.`
+      );
+    } catch (err) {
+      setResetError(normalizeApiError(err).message);
+    } finally {
+      setResetSaving(false);
+    }
+  };
+
   return (
     <div>
       <PageHeader
@@ -164,8 +235,11 @@ export default function TenantUsersPage() {
         subtitle="Manage user accounts, assign operational roles, and enforce organization boundaries."
         actions={
           <div className="ac-flex ac-gap-2">
-            <Link href="/tenant/invitations" className="ac-btn ac-btn-primary">
-              + Invite Team Member
+            <button type="button" className="ac-btn ac-btn-primary" onClick={handleOpenAddUser}>
+              + Add User
+            </button>
+            <Link href="/tenant/invitations" className="ac-btn">
+              Invite Team Member
             </Link>
             <Link href="/tenant/roles" className="ac-btn">
               Role Grants &amp; Permissions
@@ -313,6 +387,14 @@ export default function TenantUsersPage() {
                         <button
                           type="button"
                           className="ac-btn"
+                          style={{ fontSize: 12, padding: "4px 8px" }}
+                          onClick={() => handleOpenResetPassword(u)}
+                        >
+                          Reset Password
+                        </button>
+                        <button
+                          type="button"
+                          className="ac-btn"
                           style={{
                             fontSize: 12,
                             padding: "4px 8px",
@@ -419,6 +501,197 @@ export default function TenantUsersPage() {
               >
                 {modalSaving ? "Saving..." : "Save Roles"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add User Modal */}
+      {showAddUser && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.65)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+        >
+          <div className="ac-card" style={{ maxWidth: 480, width: "90%", padding: 24 }}>
+            <h3 className="ac-h3" style={{ marginBottom: 4 }}>
+              Add User
+            </h3>
+            <p className="ac-text-sm" style={{ opacity: 0.7, marginBottom: 16 }}>
+              Set the user&apos;s password directly and share it with them yourself. They can
+              change it after logging in.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+              <label style={{ fontSize: 13 }}>
+                Full Name
+                <input
+                  type="text"
+                  className="ac-input"
+                  style={{ width: "100%", marginTop: 4 }}
+                  value={addForm.full_name}
+                  onChange={(e) => setAddForm((f) => ({ ...f, full_name: e.target.value }))}
+                />
+              </label>
+              <label style={{ fontSize: 13 }}>
+                Email
+                <input
+                  type="email"
+                  className="ac-input"
+                  style={{ width: "100%", marginTop: 4 }}
+                  value={addForm.email}
+                  onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
+                />
+              </label>
+              <label style={{ fontSize: 13 }}>
+                Role
+                <select
+                  className="ac-input"
+                  style={{ width: "100%", marginTop: 4 }}
+                  value={addForm.role}
+                  onChange={(e) => setAddForm((f) => ({ ...f, role: e.target.value }))}
+                >
+                  {AVAILABLE_TENANT_ROLES.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ fontSize: 13 }}>
+                Password
+                <input
+                  type="text"
+                  className="ac-input"
+                  style={{ width: "100%", marginTop: 4 }}
+                  placeholder="Minimum 8 characters"
+                  value={addForm.password}
+                  onChange={(e) => setAddForm((f) => ({ ...f, password: e.target.value }))}
+                />
+              </label>
+            </div>
+
+            {addError && (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  color: "var(--danger, #ef4444)",
+                  borderRadius: 4,
+                  marginBottom: 16,
+                  fontSize: 13,
+                }}
+              >
+                ⚠ {addError}
+              </div>
+            )}
+
+            <div className="ac-flex ac-gap-2" style={{ justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="ac-btn"
+                onClick={() => setShowAddUser(false)}
+                disabled={addSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ac-btn ac-btn-primary"
+                onClick={handleCreateUser}
+                disabled={addSaving}
+              >
+                {addSaving ? "Creating..." : "Add User"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {resettingUser && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.65)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+        >
+          <div className="ac-card" style={{ maxWidth: 440, width: "90%", padding: 24 }}>
+            <h3 className="ac-h3" style={{ marginBottom: 4 }}>
+              Reset Password: {resettingUser.full_name}
+            </h3>
+            <p className="ac-text-sm" style={{ opacity: 0.7, marginBottom: 16 }}>
+              Sets a new password immediately. Share it with the user directly — it is never
+              emailed or shown again after this dialog closes.
+            </p>
+
+            {resetSuccessMessage ? (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "rgba(16, 185, 129, 0.15)",
+                  color: "var(--success, #10b981)",
+                  borderRadius: 4,
+                  marginBottom: 16,
+                  fontSize: 13,
+                }}
+              >
+                ✓ {resetSuccessMessage}
+              </div>
+            ) : (
+              <label style={{ fontSize: 13, display: "block", marginBottom: 20 }}>
+                New Password
+                <input
+                  type="text"
+                  className="ac-input"
+                  style={{ width: "100%", marginTop: 4 }}
+                  placeholder="Minimum 8 characters"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                />
+              </label>
+            )}
+
+            {resetError && (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  color: "var(--danger, #ef4444)",
+                  borderRadius: 4,
+                  marginBottom: 16,
+                  fontSize: 13,
+                }}
+              >
+                ⚠ {resetError}
+              </div>
+            )}
+
+            <div className="ac-flex ac-gap-2" style={{ justifyContent: "flex-end" }}>
+              <button type="button" className="ac-btn" onClick={() => setResettingUser(null)}>
+                {resetSuccessMessage ? "Done" : "Cancel"}
+              </button>
+              {!resetSuccessMessage && (
+                <button
+                  type="button"
+                  className="ac-btn ac-btn-primary"
+                  onClick={handleResetPassword}
+                  disabled={resetSaving}
+                >
+                  {resetSaving ? "Resetting..." : "Reset Password"}
+                </button>
+              )}
             </div>
           </div>
         </div>

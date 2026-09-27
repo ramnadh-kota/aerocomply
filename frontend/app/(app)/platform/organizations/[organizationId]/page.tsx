@@ -100,6 +100,15 @@ function resolutionStatusBadge(status: string) {
   return { status: map[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
 
+const ASSIGNABLE_TENANT_ROLES = [
+  { value: "ORG_ADMIN", label: "Organization Administrator" },
+  { value: "CAMO_MANAGER", label: "CAMO Manager" },
+  { value: "COMPLIANCE_MANAGER", label: "Compliance Manager" },
+  { value: "QUALITY_MANAGER", label: "Quality Manager" },
+  { value: "MAINTENANCE_ENGINEER", label: "Maintenance Engineer" },
+  { value: "VIEWER", label: "Stakeholder / Viewer" },
+];
+
 export default function PlatformOrganizationDetailPage({
   params,
 }: {
@@ -132,6 +141,25 @@ export default function PlatformOrganizationDetailPage({
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<NormalizedApiError | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState(false);
+
+  // Add User State (admin sets the password directly, any tenant role)
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [addUserForm, setAddUserForm] = useState({
+    full_name: "",
+    email: "",
+    role: "VIEWER",
+    password: "",
+  });
+  const [addUserBusy, setAddUserBusy] = useState(false);
+  const [addUserError, setAddUserError] = useState<NormalizedApiError | null>(null);
+  const [addUserSuccess, setAddUserSuccess] = useState(false);
+
+  // Reset Password State
+  const [resettingUser, setResettingUser] = useState<PlatformUser | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState<NormalizedApiError | null>(null);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
 
   // Lifecycle & Status Action
   const [confirmSuspend, setConfirmSuspend] = useState(false);
@@ -337,6 +365,94 @@ export default function PlatformOrganizationDetailPage({
       })
       .catch((err) => setInviteError(normalizeApiError(err)))
       .finally(() => setInviteBusy(false));
+  };
+
+  const handleCreateOrgUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addUserForm.email.trim() || !addUserForm.full_name.trim() || !addUserForm.password) return;
+    if (addUserForm.password.length < 8) {
+      setAddUserError({ kind: "validation", message: "Password must be at least 8 characters." });
+      return;
+    }
+
+    if (mode === "DEMO") {
+      const syntheticUser: PlatformUser = {
+        id: `40000000-0000-0000-0000-${String(Date.now()).slice(-12)}`,
+        organization_id: organizationId,
+        email: addUserForm.email.trim(),
+        full_name: addUserForm.full_name.trim(),
+        is_active: true,
+        roles: [addUserForm.role],
+        created_at: new Date().toISOString(),
+      };
+      setUsers([syntheticUser, ...users]);
+      setAddUserSuccess(true);
+      setTimeout(() => {
+        setShowAddUser(false);
+        setAddUserSuccess(false);
+        setAddUserForm({ full_name: "", email: "", role: "VIEWER", password: "" });
+      }, 1000);
+      return;
+    }
+
+    if (!accessToken) return;
+    setAddUserBusy(true);
+    setAddUserError(null);
+
+    platformApi
+      .createOrganizationUser(accessToken, organizationId, {
+        email: addUserForm.email.trim(),
+        full_name: addUserForm.full_name.trim(),
+        role: addUserForm.role,
+        password: addUserForm.password,
+      })
+      .then(() => {
+        setAddUserSuccess(true);
+        loadData();
+        setTimeout(() => {
+          setShowAddUser(false);
+          setAddUserSuccess(false);
+          setAddUserForm({ full_name: "", email: "", role: "VIEWER", password: "" });
+        }, 1200);
+      })
+      .catch((err) => setAddUserError(normalizeApiError(err)))
+      .finally(() => setAddUserBusy(false));
+  };
+
+  const handleOpenResetPassword = (u: PlatformUser) => {
+    setResettingUser(u);
+    setResetPasswordValue("");
+    setResetError(null);
+    setResetSuccessMessage(null);
+  };
+
+  const handleResetOrgUserPassword = () => {
+    if (!resettingUser) return;
+    if (resetPasswordValue.length < 8) {
+      setResetError({ kind: "validation", message: "Password must be at least 8 characters." });
+      return;
+    }
+
+    if (mode === "DEMO") {
+      setResetSuccessMessage(
+        `Password reset. Share the new password with ${resettingUser.full_name} directly.`
+      );
+      return;
+    }
+
+    if (!accessToken) return;
+    setResetBusy(true);
+    setResetError(null);
+
+    platformApi
+      .resetOrganizationUserPassword(accessToken, organizationId, resettingUser.id, resetPasswordValue)
+      .then(() => {
+        setResetSuccessMessage(
+          `Password reset. Share the new password with ${resettingUser.full_name} directly — it will not be shown again.`
+        );
+      })
+      .catch((err) => setResetError(normalizeApiError(err)))
+      .finally(() => setResetBusy(false));
   };
 
   const handleOpenOverrideModal = (f: FeatureRow) => {
@@ -809,10 +925,92 @@ export default function PlatformOrganizationDetailPage({
                         Inspecting tenant users without cross-tenant operational data exposure.
                       </p>
                     </div>
-                    <button className="ac-btn" onClick={() => setShowInviteAdmin(!showInviteAdmin)}>
-                      {showInviteAdmin ? "Cancel" : "+ Invite Org Admin"}
-                    </button>
+                    <div className="ac-flex ac-gap-2">
+                      <button className="ac-btn ac-btn-primary" onClick={() => setShowAddUser(!showAddUser)}>
+                        {showAddUser ? "Cancel" : "+ Add User"}
+                      </button>
+                      <button className="ac-btn" onClick={() => setShowInviteAdmin(!showInviteAdmin)}>
+                        {showInviteAdmin ? "Cancel" : "+ Invite Org Admin"}
+                      </button>
+                    </div>
                   </div>
+
+                  {showAddUser && (
+                    <div className="ac-card" style={{ padding: "var(--ac-space-3)", background: "rgba(255,255,255,0.03)" }}>
+                      <h3 className="ac-h3" style={{ margin: "0 0 4px", fontSize: 14 }}>
+                        Add User Directly
+                      </h3>
+                      <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 10px" }}>
+                        Set the user&apos;s password yourself and relay it to them out-of-band —
+                        no onboarding email is sent for this path.
+                      </p>
+                      <form onSubmit={handleCreateOrgUser} style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+                        <div>
+                          <label className="ac-text-sm" style={{ display: "block", marginBottom: 4 }}>Full Name</label>
+                          <input
+                            className="ac-input"
+                            style={{ width: 200 }}
+                            placeholder="Alex Morgan"
+                            value={addUserForm.full_name}
+                            onChange={(e) => setAddUserForm((f) => ({ ...f, full_name: e.target.value }))}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="ac-text-sm" style={{ display: "block", marginBottom: 4 }}>Email</label>
+                          <input
+                            type="email"
+                            className="ac-input"
+                            style={{ width: 220 }}
+                            placeholder="staff@tenant.com"
+                            value={addUserForm.email}
+                            onChange={(e) => setAddUserForm((f) => ({ ...f, email: e.target.value }))}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="ac-text-sm" style={{ display: "block", marginBottom: 4 }}>Role</label>
+                          <select
+                            className="ac-input"
+                            style={{ width: 200 }}
+                            value={addUserForm.role}
+                            onChange={(e) => setAddUserForm((f) => ({ ...f, role: e.target.value }))}
+                          >
+                            {ASSIGNABLE_TENANT_ROLES.map((r) => (
+                              <option key={r.value} value={r.value}>
+                                {r.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="ac-text-sm" style={{ display: "block", marginBottom: 4 }}>Password</label>
+                          <input
+                            type="text"
+                            className="ac-input"
+                            style={{ width: 180 }}
+                            placeholder="Minimum 8 characters"
+                            value={addUserForm.password}
+                            onChange={(e) => setAddUserForm((f) => ({ ...f, password: e.target.value }))}
+                            required
+                          />
+                        </div>
+                        <button className="ac-btn" type="submit" disabled={addUserBusy}>
+                          {addUserBusy ? "Adding…" : "Add User"}
+                        </button>
+                        {addUserSuccess && (
+                          <span className="ac-text-sm" style={{ color: "var(--ac-status-compliant)" }}>
+                            ✓ User added successfully.
+                          </span>
+                        )}
+                        {addUserError && (
+                          <span className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)" }}>
+                            {addUserError.message}
+                          </span>
+                        )}
+                      </form>
+                    </div>
+                  )}
 
                   {showInviteAdmin && (
                     <div className="ac-card" style={{ padding: "var(--ac-space-3)", background: "rgba(255,255,255,0.03)" }}>
@@ -869,12 +1067,13 @@ export default function PlatformOrganizationDetailPage({
                           <th>Roles</th>
                           <th>Status</th>
                           <th>Created</th>
+                          <th style={{ textAlign: "right" }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {users.length === 0 ? (
                           <tr>
-                            <td colSpan={5} style={{ textAlign: "center", padding: 24 }} className="ac-text-muted">
+                            <td colSpan={6} style={{ textAlign: "center", padding: 24 }} className="ac-text-muted">
                               No users found in this organization.
                             </td>
                           </tr>
@@ -899,6 +1098,16 @@ export default function PlatformOrganizationDetailPage({
                                 />
                               </td>
                               <td className="ac-text-muted">{new Date(u.created_at).toLocaleDateString()}</td>
+                              <td style={{ textAlign: "right" }}>
+                                <button
+                                  type="button"
+                                  className="ac-btn"
+                                  style={{ fontSize: 12, padding: "4px 8px" }}
+                                  onClick={() => handleOpenResetPassword(u)}
+                                >
+                                  Reset Password
+                                </button>
+                              </td>
                             </tr>
                           ))
                         )}
@@ -1329,6 +1538,82 @@ export default function PlatformOrganizationDetailPage({
         onConfirm={handleToggleOrgStatus}
         onCancel={() => setConfirmSuspend(false)}
       />
+
+      {/* Reset Password Dialog */}
+      {resettingUser && (
+        <div
+          className="ac-modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !resetBusy) setResettingUser(null);
+          }}
+        >
+          <div className="ac-modal" role="dialog" aria-modal="true" style={{ maxWidth: 440, width: "100%" }}>
+            <h2 className="ac-modal-title">Reset Password: {resettingUser.full_name}</h2>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 16px" }}>
+              Sets a new password immediately. Share it with the user directly — it is never
+              emailed or shown again after this dialog closes.
+            </p>
+
+            {resetSuccessMessage ? (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "rgba(16, 185, 129, 0.15)",
+                  color: "var(--ac-status-compliant, #10b981)",
+                  borderRadius: 4,
+                  marginBottom: 16,
+                  fontSize: 13,
+                }}
+              >
+                ✓ {resetSuccessMessage}
+              </div>
+            ) : (
+              <label className="ac-text-sm" style={{ display: "block", marginBottom: 16 }}>
+                New Password
+                <input
+                  type="text"
+                  className="ac-input"
+                  style={{ width: "100%", marginTop: 4 }}
+                  placeholder="Minimum 8 characters"
+                  value={resetPasswordValue}
+                  onChange={(e) => setResetPasswordValue(e.target.value)}
+                />
+              </label>
+            )}
+
+            {resetError && (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  color: "var(--ac-status-non-compliant, #ef4444)",
+                  borderRadius: 4,
+                  marginBottom: 16,
+                  fontSize: 13,
+                }}
+              >
+                {resetError.message}
+              </div>
+            )}
+
+            <div className="ac-flex ac-gap-2" style={{ justifyContent: "flex-end" }}>
+              <button type="button" className="ac-btn" onClick={() => setResettingUser(null)}>
+                {resetSuccessMessage ? "Done" : "Cancel"}
+              </button>
+              {!resetSuccessMessage && (
+                <button
+                  type="button"
+                  className="ac-btn ac-btn-primary"
+                  onClick={handleResetOrgUserPassword}
+                  disabled={resetBusy}
+                >
+                  {resetBusy ? "Resetting…" : "Reset Password"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Feature Override Dialog */}
       {overrideModal.open && (

@@ -67,6 +67,13 @@ export interface TenantInvitationPayload {
   role: string;
 }
 
+export interface TenantUserCreatePayload {
+  email: string;
+  full_name: string;
+  role: string;
+  password: string;
+}
+
 export interface TenantTeamMember {
   user_id: string;
   full_name: string;
@@ -163,6 +170,23 @@ export const tenantApi = {
 
   listUsers: (accessToken: string) =>
     apiRequest<TenantUser[]>("/tenant/users", { accessToken }),
+
+  // Admin-driven direct creation: the admin chooses the password and relays
+  // it to the user out-of-band, instead of the OTP invite flow (inviteUser
+  // below), which the user completes themselves.
+  createUser: (accessToken: string, payload: TenantUserCreatePayload) =>
+    apiRequest<TenantUser>("/tenant/users", {
+      accessToken,
+      method: "POST",
+      body: payload,
+    }),
+
+  resetUserPassword: (accessToken: string, userId: string, password: string) =>
+    apiRequest<{ message: string }>(`/tenant/users/${userId}/reset-password`, {
+      accessToken,
+      method: "POST",
+      body: { password },
+    }),
 
   getUser: (accessToken: string, userId: string) =>
     apiRequest<TenantUser>(`/tenant/users/${userId}`, { accessToken }),

@@ -86,6 +86,30 @@ export const platformApi = {
       accessToken,
     }),
 
+  // Admin-driven direct creation of a staff user (any customer tenant role,
+  // not just ORG_ADMIN) within an org, mirroring createOrganizationAdmin
+  // below but generalized to any SUPPORTED_TENANT_ROLES role.
+  createOrganizationUser: (
+    accessToken: string,
+    organizationId: string,
+    payload: { email: string; full_name: string; role: string; password: string }
+  ) =>
+    apiRequest<{ id: string; email: string; full_name: string }>(
+      `/platform/organizations/${organizationId}/users`,
+      { method: "POST", body: payload, accessToken }
+    ),
+
+  resetOrganizationUserPassword: (
+    accessToken: string,
+    organizationId: string,
+    userId: string,
+    password: string
+  ) =>
+    apiRequest<{ message: string }>(
+      `/platform/organizations/${organizationId}/users/${userId}/reset-password`,
+      { method: "POST", body: { password }, accessToken }
+    ),
+
   createOrganizationAdmin: (
     accessToken: string,
     organizationId: string,
