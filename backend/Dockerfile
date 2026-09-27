@@ -30,4 +30,4 @@ EXPOSE 8000
 
 # Uvicorn reads $PORT so this image works unmodified on platforms that
 # assign the port at runtime (Render, Railway, Fly, Cloud Run, etc).
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn app.main:asgi_app --host 0.0.0.0 --port ${PORT}"]

@@ -79,3 +79,24 @@ app.add_exception_handler(RequestValidationError, cast(ExceptionHandler, validat
 app.add_exception_handler(Exception, unhandled_error_handler)
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+# Starlette always places its own ServerErrorMiddleware (which handles any
+# exception with no matching `app.exception_handlers` entry, and specifically
+# the handler registered above for the bare `Exception` class -- Starlette
+# special-cases that key into ServerErrorMiddleware rather than the inner
+# ExceptionMiddleware) *outside* every middleware added via `app.add_middleware`,
+# including CORSMiddleware above. That means a truly unhandled exception's 500
+# response never passes through CORSMiddleware and is sent back with no
+# Access-Control-Allow-Origin header at all -- which browsers then report as a
+# CORS failure, masking the real 500. `app` (the FastAPI instance, needed as-is
+# by tests for `dependency_overrides`/TestClient) is left untouched; `asgi_app`
+# wraps it in a second, outermost CORSMiddleware layer so every response,
+# including ones from ServerErrorMiddleware, carries the right CORS headers.
+# This is what the deployed process (see Dockerfile) actually serves.
+asgi_app = CORSMiddleware(
+    app,
+    allow_origins=settings.cors_allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
