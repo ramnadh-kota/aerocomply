@@ -19,6 +19,8 @@ from app.schemas.tenant import (
     TenantSettingsUpdateRequest,
     TenantTeamResponse,
     TenantUsageResponse,
+    TenantUserCreateRequest,
+    TenantUserPasswordResetRequest,
     TenantUserResponse,
     TenantUserRoleUpdateRequest,
     TenantUserStatusUpdateRequest,
@@ -140,6 +142,49 @@ def get_tenant_user(
     return tenant_service.get_tenant_user(
         db, organization_id=current_user.organization_id, user_id=user_id
     )
+
+
+@router.post(
+    "/users", response_model=TenantUserResponse, status_code=status.HTTP_201_CREATED
+)
+def create_tenant_user(
+    payload: TenantUserCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.USER_MANAGE)),
+) -> TenantUserResponse:
+    """Admin-driven direct creation with an admin-chosen password -- see
+    TenantUserCreateRequest / tenant_service.create_tenant_user_direct.
+    Distinct from POST /invitations, which sends an OTP the user completes
+    onboarding with themselves."""
+    return tenant_service.create_tenant_user_direct(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        email=payload.email,
+        full_name=payload.full_name,
+        password=payload.password,
+        role=payload.role,
+    )
+
+
+@router.post("/users/{user_id}/reset-password", response_model=MessageResponse)
+def reset_tenant_user_password(
+    user_id: uuid.UUID,
+    payload: TenantUserPasswordResetRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.USER_MANAGE)),
+) -> MessageResponse:
+    """Tenant-Admin-initiated password reset -- bypasses the OTP self-service
+    flow entirely (see tenant_service.admin_reset_tenant_user_password). The
+    admin relays the new password to the user out-of-band."""
+    tenant_service.admin_reset_tenant_user_password(
+        db,
+        organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        user_id=user_id,
+        new_password=payload.password,
+    )
+    return MessageResponse(message="Password reset.")
 
 
 @router.patch("/users/{user_id}/roles", response_model=TenantUserResponse)

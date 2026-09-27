@@ -55,6 +55,21 @@ class OrganizationAdminCreateRequest(BaseModel):
     password: str = Field(min_length=8, max_length=255)
 
 
+class OrganizationUserCreateRequest(BaseModel):
+    """Platform-admin equivalent of TenantUserCreateRequest -- add a staff
+    user (any SUPPORTED_TENANT_ROLES role, not just ORG_ADMIN) to an existing
+    organization with a platform-admin-chosen password."""
+
+    email: EmailStr
+    full_name: str = Field(min_length=1, max_length=255)
+    role: str = Field(min_length=1)
+    password: str = Field(min_length=8, max_length=255)
+
+
+class OrganizationUserPasswordResetRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=255)
+
+
 class OrganizationAdminInviteRequest(BaseModel):
     """Invite an ORG_ADMIN into an EXISTING organization by email -- no
     password is ever supplied by the platform admin (see

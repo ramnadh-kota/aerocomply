@@ -520,6 +520,91 @@ def cancel_tenant_invitation(
     auth_service.revoke_account_onboarding(db, actor_user_id=actor_user_id, user_id=user.id)
 
 
+def create_tenant_user_direct(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    email: str,
+    full_name: str,
+    password: str,
+    role: str,
+) -> TenantUserResponse:
+    """Admin-driven counterpart to invite_tenant_user: the Tenant Admin
+    chooses the new user's password directly and relays it out-of-band,
+    instead of the user setting their own password via the OTP onboarding
+    flow. is_active=True, email_verified stays False (no email ownership
+    proof happened) -- mirrors platform_service.create_organization_admin's
+    shape for the same reason (a platform admin already has that direct-
+    password precedent; this is the tenant-scoped equivalent)."""
+    allowed_roles = {r.value for r in SUPPORTED_TENANT_ROLES}
+    if role not in allowed_roles:
+        raise ForbiddenError(f"Role '{role}' cannot be assigned in customer organizations.")
+
+    check_user_creation_limit(db, organization_id=organization_id)
+
+    existing_user = db.execute(
+        select(User).where(User.email == email, User.organization_id == organization_id)
+    ).scalar_one_or_none()
+    if existing_user is not None:
+        raise ConflictError(f"User with email '{email}' already exists in this organization.")
+
+    new_user = User(
+        organization_id=organization_id,
+        email=email,
+        full_name=full_name,
+        hashed_password=hash_password(password),
+        is_active=True,
+        email_verified=False,
+    )
+    db.add(new_user)
+    db.flush()
+    db.add(UserRole(user_id=new_user.id, role_name=role, organization_id=organization_id))
+
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=actor_user_id,
+        action="tenant.user.created_by_admin",
+        entity_type="User",
+        entity_id=new_user.id,
+        metadata={"email": email, "role": role},
+    )
+    db.commit()
+
+    return get_tenant_user(db, organization_id=organization_id, user_id=new_user.id)
+
+
+def admin_reset_tenant_user_password(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    user_id: uuid.UUID,
+    new_password: str,
+) -> None:
+    """Tenant-Admin-initiated password reset for a user in their own
+    organization -- bypasses the OTP/self-service reset flow in
+    auth_service.py entirely. Never logs the new password itself; only the
+    fact that a reset happened is audited."""
+    user = db.get(User, user_id)
+    if user is None or user.organization_id != organization_id:
+        raise NotFoundError("User not found in this organization")
+
+    user.hashed_password = hash_password(new_password)
+    db.add(user)
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=actor_user_id,
+        action="tenant.user.password_reset_by_admin",
+        entity_type="User",
+        entity_id=user.id,
+        metadata={"email": user.email},
+    )
+    db.commit()
+
+
 def get_tenant_teams(db: Session, *, organization_id: uuid.UUID) -> list[TenantTeamResponse]:
     # Resolve personnel by functional team mapping from UserRole and User
     users = list_tenant_users(db, organization_id=organization_id)

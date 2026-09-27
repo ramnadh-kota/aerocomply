@@ -324,3 +324,86 @@ def create_organization_admin(
         db.commit()
         db.refresh(user)
     return user
+
+
+def create_organization_user(
+    db: Session,
+    *,
+    actor_user_id: uuid.UUID | None,
+    organization_id: uuid.UUID,
+    email: str,
+    full_name: str,
+    password: str,
+    role: str,
+) -> User:
+    """Platform-admin equivalent of tenant_service.create_tenant_user_direct --
+    add a staff user to an existing organization with an admin-chosen password
+    (no OTP/onboarding email, mirroring create_organization_admin above), but
+    for any SUPPORTED_TENANT_ROLES role rather than only ORG_ADMIN."""
+    from app.services.tenant_service import SUPPORTED_TENANT_ROLES
+
+    get_organization(db, organization_id=organization_id)  # raises NotFoundError if missing
+
+    allowed_role_names = {r.value for r in SUPPORTED_TENANT_ROLES}
+    if role not in allowed_role_names:
+        raise ConflictError(f"Role '{role}' is not a valid customer tenant role.")
+
+    existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if existing is not None:
+        raise ConflictError("A user with this email already exists")
+
+    user = User(
+        organization_id=organization_id,
+        email=email,
+        hashed_password=hash_password(password),
+        full_name=full_name,
+        is_active=True,
+    )
+    db.add(user)
+    db.flush()
+    db.add(UserRole(user_id=user.id, role_name=role, organization_id=organization_id))
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=actor_user_id,
+        action="platform.organization.user_created",
+        entity_type="User",
+        entity_id=user.id,
+        metadata={"email": email, "role": role},
+    )
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def admin_reset_organization_user_password(
+    db: Session,
+    *,
+    actor_user_id: uuid.UUID | None,
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID,
+    new_password: str,
+) -> User:
+    """Platform-admin-initiated password reset for a user within a specific
+    organization -- bypasses the OTP/self-service reset flow in
+    auth_service.py entirely (the platform admin sets the password directly
+    and relays it to the user out-of-band). Never logs the new password
+    itself; only the fact that a reset happened is audited."""
+    user = db.get(User, user_id)
+    if user is None or user.organization_id != organization_id:
+        raise NotFoundError("User not found in this organization")
+
+    user.hashed_password = hash_password(new_password)
+    db.add(user)
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=actor_user_id,
+        action="platform.organization.user_password_reset",
+        entity_type="User",
+        entity_id=user.id,
+        metadata={"email": user.email},
+    )
+    db.commit()
+    db.refresh(user)
+    return user

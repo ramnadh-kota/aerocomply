@@ -40,6 +40,8 @@ from app.schemas.platform import (
     OrganizationAdminInviteResponse,
     OrganizationCreateRequest,
     OrganizationIndustrySetRequest,
+    OrganizationUserCreateRequest,
+    OrganizationUserPasswordResetRequest,
     PlatformHealthResponse,
     PlatformOrganizationResponse,
     PlatformUserResponse,
@@ -343,6 +345,51 @@ def list_organization_users(
     Gated by PLATFORM_MANAGE: customer tenant users receive a 403."""
     users = platform_service.list_organization_users(db, organization_id=organization_id)
     return [PlatformUserResponse.model_validate(u) for u in users]
+
+
+@router.post("/organizations/{organization_id}/users", status_code=201)
+def create_organization_user(
+    organization_id: uuid.UUID,
+    payload: OrganizationUserCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> dict:
+    """Platform-admin equivalent of POST /tenant/users -- add a staff user
+    (any customer tenant role) to an existing organization with a
+    platform-admin-chosen password. See create_organization_admin above for
+    the same pattern restricted to ORG_ADMIN."""
+    user = platform_service.create_organization_user(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        email=payload.email,
+        full_name=payload.full_name,
+        password=payload.password,
+        role=payload.role,
+    )
+    return {"id": str(user.id), "email": user.email, "full_name": user.full_name}
+
+
+@router.post("/organizations/{organization_id}/users/{user_id}/reset-password", response_model=MessageResponse)
+def reset_organization_user_password(
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: OrganizationUserPasswordResetRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> MessageResponse:
+    """Platform-admin-initiated password reset for a user within a specific
+    organization -- bypasses the OTP self-service flow entirely (see
+    platform_service.admin_reset_organization_user_password). The platform
+    admin relays the new password to the user out-of-band."""
+    platform_service.admin_reset_organization_user_password(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        user_id=user_id,
+        new_password=payload.password,
+    )
+    return MessageResponse(message="Password reset.")
 
 
 @router.get(

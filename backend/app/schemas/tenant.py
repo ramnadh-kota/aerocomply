@@ -68,6 +68,21 @@ class TenantInvitationRequest(BaseModel):
     role: str = Field(..., min_length=1)
 
 
+class TenantUserCreateRequest(BaseModel):
+    """Admin-driven direct creation -- the admin chooses the password (see
+    tenant_service.create_tenant_user_direct) instead of the user setting
+    their own via the OTP onboarding flow (TenantInvitationRequest above)."""
+
+    email: EmailStr
+    full_name: str = Field(..., min_length=1, max_length=255)
+    role: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=8, max_length=255)
+
+
+class TenantUserPasswordResetRequest(BaseModel):
+    password: str = Field(..., min_length=8, max_length=255)
+
+
 class TenantInvitationResponse(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
