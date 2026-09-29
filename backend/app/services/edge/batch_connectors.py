@@ -417,6 +417,11 @@ class JSONBatchConnector:
                 except (TypeError, ValueError):
                     continue
 
+        if not readings:
+            # Every field was non-numeric, non-finite or out of range: there is nothing to store,
+            # and counting an empty event as "accepted" would hide a data problem.
+            raise ValueError("record has no valid numeric measurements")
+
         return NormalizedTelemetryEvent(
             source_system=self.source_system,
             source_event_id=content_event_id(

@@ -31,9 +31,10 @@ from typing import Any
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import AeroComplyError, ConflictError, NotFoundError
 from app.models.asset import Asset
 from app.models.data_source import DataSource, DataSourceConnectorType, DataSourceStatus
 from app.models.telemetry import TelemetryProcessingStatus
@@ -234,6 +235,39 @@ def ingest(
 ) -> AcquisitionReport:
     """Ingest one payload for a data source and record its health evidence."""
     source = _load_source(db, organization_id, data_source_id)
+    # every log line emitted while processing this payload (persistence, HUMS, errors) now carries
+    # the source, so an operator can follow one source through the whole pipeline
+    structlog.contextvars.bind_contextvars(data_source_id=str(source.id), connector_type=source.connector_type)
+    try:
+        return _ingest_bound(db, source, raw=raw, topic=topic, actor_user_id=actor_user_id)
+    finally:
+        structlog.contextvars.unbind_contextvars("data_source_id", "connector_type")
+
+
+def _ingest_bound(
+    db: Session, source: DataSource, *, raw: bytes, topic: str | None, actor_user_id: uuid.UUID | None
+) -> AcquisitionReport:
+    from app.core import metrics
+
+    with metrics.Timer() as timer:
+        report = _ingest_core(db, source, raw=raw, topic=topic, actor_user_id=actor_user_id)
+    ctype = source.connector_type
+    metrics.INGEST_REQUESTS.inc(connector=ctype)
+    metrics.INGEST_LATENCY.observe(timer.seconds, connector=ctype)
+    for outcome in ("accepted", "duplicates", "quarantined", "rejected", "failed"):
+        n = getattr(report, outcome)
+        if n:
+            metrics.INGEST_EVENTS.inc(n, connector=ctype, outcome=outcome)
+    if report.packets_lost:
+        metrics.INGEST_PACKETS_LOST.inc(report.packets_lost, connector=ctype)
+    if report.latency_ms_avg is not None and report.accepted:
+        metrics.INGEST_EVENT_AGE.observe(report.latency_ms_avg / 1000.0, connector=ctype)
+    return report
+
+
+def _ingest_core(
+    db: Session, source: DataSource, *, raw: bytes, topic: str | None, actor_user_id: uuid.UUID | None
+) -> AcquisitionReport:
     if source.status != DataSourceStatus.ACTIVE:
         raise ConflictError(
             f"Data source is {source.status}; only ACTIVE sources accept data",
@@ -251,7 +285,19 @@ def ingest(
         _record_health(db, source, report, received_at)
         return report
 
-    events = _decode(source, raw, topic, report)
+    try:
+        events = _decode(source, raw, topic, report)
+    except AeroComplyError:
+        raise  # structured, intentional errors (e.g. unsupported connector) keep their status
+    except Exception as exc:  # noqa: BLE001 -- payload CONTENT must never crash the endpoint
+        events = []
+        report.rejected += 1
+        report.errors.append(_sanitise(f"payload could not be processed ({type(exc).__name__})"))
+        log.warning(
+            "acquisition.decode_failed",
+            organization_id=str(source.organization_id), data_source_id=str(source.id),
+            error=type(exc).__name__,
+        )
     report.received = len(events)
     latencies: list[float] = []
 
@@ -261,6 +307,15 @@ def ingest(
                 res = telemetry_service.process_normalized_event(
                     db, organization_id=source.organization_id, event=event
                 )
+        except IntegrityError as exc:
+            if "uq_telemetry_event_org_source_eventid" in str(exc.orig):
+                # Two workers processed the same event at once; the database let exactly one win.
+                report.duplicates += 1
+                continue
+            report.failed += 1
+            if len(report.errors) < _MAX_ERROR_SAMPLES:
+                report.errors.append(_sanitise(f"IntegrityError: {exc.orig}"))
+            continue
         except Exception as exc:  # noqa: BLE001 -- isolated, logged, counted
             report.failed += 1
             if len(report.errors) < _MAX_ERROR_SAMPLES:

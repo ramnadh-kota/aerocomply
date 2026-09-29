@@ -32,9 +32,13 @@ from app.schemas.data_source import (
 from app.services import acquisition_service, data_source_service
 from app.services.data_source_service import DataSourceError
 
+# The whole acquisition surface (configure, health, ingest) is a commercial capability: an
+# organization without an active flight_telemetry entitlement (expired, cancelled, or a plan
+# that does not include it) cannot read or change sources either -- RBAC alone is not enough.
 router = APIRouter(
     prefix="/data-sources",
     tags=["data-sources"],
+    dependencies=[Depends(require_feature("flight_telemetry"))],
 )
 
 
@@ -238,10 +242,7 @@ MAX_INGEST_BYTES = 25 * 1024 * 1024  # 25 MB per request; larger batches must be
 
 @router.post(
     "/{data_source_id}/ingest",
-    dependencies=[
-        Depends(require_permission(Permission.DRONE_WRITE)),
-        Depends(require_feature("flight_telemetry")),
-    ],
+    dependencies=[Depends(require_permission(Permission.DRONE_WRITE))],
     summary="Push raw data (MAVLink bytes, MQTT payload, CSV/JSON file) into an ACTIVE data source",
 )
 async def ingest_into_data_source(

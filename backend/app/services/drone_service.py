@@ -9,6 +9,7 @@ architecture decision.
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
@@ -50,8 +51,14 @@ def create_drone(
         status="ACTIVE",
         facility_id=facility_id,
     )
-    db.add(drone)
-    db.flush()
+    try:
+        with db.begin_nested():  # a lost race must not abort the caller's wider transaction
+            db.add(drone)
+            db.flush()
+    except IntegrityError as exc:
+        raise ConflictError(
+            f"Asset registration {registration!r} already in use", code="duplicate_registration"
+        ) from exc
     record_audit_event(
         db,
         organization_id=organization_id,

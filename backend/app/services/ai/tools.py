@@ -2282,6 +2282,15 @@ def execute_tool(db: Session, user: CurrentUser, name: str, args: dict[str, Any]
     spec = TOOL_REGISTRY_BY_NAME.get(name)
     if spec is None:
         raise AeroComplyError(f"Unknown tool: {name}", code="unknown_tool")
-    _require_permission(user, spec.required_permission)
-    _require_entitlement(db, user, spec)
-    return spec.handler(db, user, args)
+    from app.core import metrics
+
+    with metrics.Timer() as timer:
+        try:
+            _require_permission(user, spec.required_permission)
+            _require_entitlement(db, user, spec)
+            return spec.handler(db, user, args)
+        except AeroComplyError as exc:
+            metrics.LISA_TOOL_ERRORS.inc(tool=name, code=str(getattr(exc, "code", None) or "error"))
+            raise
+        finally:
+            metrics.LISA_TOOL_LATENCY.observe(timer.seconds, tool=name)

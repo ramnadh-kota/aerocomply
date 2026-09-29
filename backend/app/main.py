@@ -15,6 +15,7 @@ from app.core.errors import (
     validation_error_handler,
 )
 from app.core.logging import configure_logging
+from app.core.metrics import MetricsMiddleware
 from app.core.request_context import RequestContextMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 
@@ -58,6 +59,7 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(MetricsMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins,

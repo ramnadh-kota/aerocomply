@@ -12,6 +12,8 @@ from app.api.v1 import (
     compliance,
     control_center,
     data_import,
+    billing,
+    observability,
     data_sources,
     deferred_items,
     digital_twin,
@@ -105,3 +107,5 @@ api_router.include_router(edge_hardware.router)
 api_router.include_router(commercial_platform.router)
 api_router.include_router(mro_intelligence.router)
 api_router.include_router(data_sources.router)
+api_router.include_router(billing.router)
+api_router.include_router(observability.router)

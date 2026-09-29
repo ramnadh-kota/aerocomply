@@ -110,9 +110,16 @@ def _assert_no_ambiguity(
     exclude_subscription_id: uuid.UUID | None = None,
 ) -> None:
     """Reject a create/update that would produce two simultaneously-current
-    (per M2's own candidacy rule) subscriptions for the same organization and suite."""
+    (per M2's own candidacy rule) subscriptions for the same organization and suite.
+
+    This is a read-then-write check, so two concurrent requests could both pass it. The
+    organization row is locked (SELECT ... FOR UPDATE) first: subscription mutations for one
+    organization are serialised until the transaction ends, and the loser then sees the winner's
+    row and is rejected. (A range-exclusion constraint would need the btree_gist extension and a
+    clean production dataset; the row lock needs neither.)"""
     if status not in _CURRENT_GRANTING_STATUSES:
         return
+    db.execute(select(Organization.id).where(Organization.id == organization_id).with_for_update()).first()
     stmt = select(Subscription).where(
         Subscription.organization_id == organization_id,
         Subscription.status.in_(tuple(_CURRENT_GRANTING_STATUSES)),
@@ -232,6 +239,7 @@ def update_subscription(
     plan_id: uuid.UUID | None = None,
     starts_at: datetime | None = None,
     ends_at: datetime | None = None,
+    commit: bool = True,
 ) -> Subscription:
     sub = get_subscription(db, subscription_id=subscription_id)
 
@@ -325,13 +333,16 @@ def update_subscription(
             entity_id=sub.id,
             metadata=updates,
         )
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(sub)
     return sub
 
 
 def cancel_subscription(
-    db: Session, *, actor_user_id: uuid.UUID | None, subscription_id: uuid.UUID
+    db: Session, *, actor_user_id: uuid.UUID | None, subscription_id: uuid.UUID, commit: bool = True
 ) -> Subscription:
     sub = get_subscription(db, subscription_id=subscription_id)
     allowed = _ALLOWED_TRANSITIONS.get(sub.status, set())
@@ -352,7 +363,10 @@ def cancel_subscription(
         entity_type="Subscription",
         entity_id=sub.id,
     )
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(sub)
     return sub
 

@@ -157,7 +157,7 @@ class MQTTConnector(TelemetryConnector):
 
         try:
             payload_dict = json.loads(raw_bytes.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
             self.stats.parse_errors += 1
             log.warning(
                 "mqtt_connector.parse_error",
@@ -294,6 +294,8 @@ class MQTTConnector(TelemetryConnector):
             except (TypeError, ValueError):
                 continue  # non-numeric field, skip
 
+        if not readings:
+            raise ValueError("payload has no valid numeric measurements")
         device_ts = _payload_timestamp(payload)
         return NormalizedTelemetryEvent(
             source_system=self.source_system,

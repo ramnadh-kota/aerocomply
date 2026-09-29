@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AeroComplyError, NotFoundError
@@ -442,6 +443,13 @@ def process_normalized_event(
     # 3. Domain Processing: Flight Operation
     if event.flight:
         flown_at = event.flight.flown_at or event.event_timestamp
+        # No unique constraint can protect "one Flight per streaming session" (historical rows may
+        # already contain duplicates), so resolution is serialised per (organization, asset) with a
+        # transaction-scoped advisory lock: a second worker waits, then finds the first one's row.
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+            {"k": f"flight:{organization_id}:{asset.id}"},
+        )
 
         # Double-counting check: does a flight already exist with this source_row_id or exact match?
         existing_flight = db.execute(
@@ -523,19 +531,31 @@ def process_normalized_event(
         ).scalar_one_or_none()
 
         if not sensor:
-            sensor = HUMSSensor(
-                organization_id=organization_id,
-                asset_id=asset.id,
-                component_id=r_item.component_id,
-                sensor_code=r_item.sensor_code,
-                sensor_type=r_item.sensor_type,
-                measurement_type=r_item.measurement_type,
-                unit=r_item.unit,
-                source="TELEMETRY",
-                status="ACTIVE",
-            )
-            db.add(sensor)
-            db.flush()
+            try:
+                # Two events for a brand-new sensor can arrive in parallel; the unique
+                # (org, asset, sensor_code) constraint lets one create it and the other adopts it.
+                with db.begin_nested():
+                    sensor = HUMSSensor(
+                        organization_id=organization_id,
+                        asset_id=asset.id,
+                        component_id=r_item.component_id,
+                        sensor_code=r_item.sensor_code,
+                        sensor_type=r_item.sensor_type,
+                        measurement_type=r_item.measurement_type,
+                        unit=r_item.unit,
+                        source="TELEMETRY",
+                        status="ACTIVE",
+                    )
+                    db.add(sensor)
+                    db.flush()
+            except IntegrityError:
+                sensor = db.execute(
+                    select(HUMSSensor).where(
+                        HUMSSensor.organization_id == organization_id,
+                        HUMSSensor.asset_id == asset.id,
+                        HUMSSensor.sensor_code == r_item.sensor_code,
+                    )
+                ).scalar_one()
 
         reading = HUMSSensorReading(
             organization_id=organization_id,

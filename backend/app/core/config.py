@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # Shared HMAC secret for the DJI FlightHub webhook. No default: when unset the
     # webhook is disabled (fails closed) rather than trusting a well-known value.
     dji_webhook_secret: str | None = None
+    # Billing provider adapter name. "test" is a deterministic double and is refused in production;
+    # a real provider must be registered via billing_service.register_provider.
+    billing_provider: str = "test"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
