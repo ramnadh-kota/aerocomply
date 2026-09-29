@@ -12,6 +12,7 @@ from app.api.v1 import (
     compliance,
     control_center,
     data_import,
+    data_sources,
     deferred_items,
     digital_twin,
     drones,
@@ -103,3 +104,4 @@ api_router.include_router(digital_twin.router)
 api_router.include_router(edge_hardware.router)
 api_router.include_router(commercial_platform.router)
 api_router.include_router(mro_intelligence.router)
+api_router.include_router(data_sources.router)

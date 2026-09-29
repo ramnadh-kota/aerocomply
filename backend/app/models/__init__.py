@@ -94,6 +94,7 @@ from app.models.sso import (
 from app.models.subscription import Subscription, SubscriptionStatus
 from app.models.task import Task
 from app.models.technician_qualification import TechnicianQualification
+from app.models.data_source import DataSource, DataSourceConnectorType, DataSourceStatus
 from app.models.telemetry import (
     EdgeDevice,
     ExternalAssetMapping,
@@ -218,6 +219,9 @@ __all__ = [
     "HUMSDiagnosticCandidate",
     "HUMSDegradationModel",
     "HUMSPrognosticRecord",
+    "DataSource",
+    "DataSourceConnectorType",
+    "DataSourceStatus",
     "ExternalAssetMapping",
     "TelemetryEventLog",
     "TelemetryFreshnessPolicy",
