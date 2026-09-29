@@ -34,10 +34,34 @@ from app.services.ai.tools import execute_tool
 from app.services.compliance import obligation_service
 
 
-def _user(db_session, org_id: uuid.UUID, roles: list[str] | None = None) -> CurrentUser:
+def _ensure_org(db_session, org_id: uuid.UUID) -> None:
+    from tests.integration.conftest import grant_features
+
     if db_session.get(Organization, org_id) is None:
         db_session.add(Organization(id=org_id, name=f"M5.3 Test Org {org_id.hex[:8]}"))
+        db_session.flush()
+        grant_features(
+            db_session,
+            org_id,
+            "aircraft_fleet_management",
+            "work_order_management",
+            "inspections_management",
+            "procurement_management",
+            "compliance_management",
+            "advanced_compliance_intelligence",
+            "predictive_maintenance",
+            "hums",
+            "flight_telemetry",
+            "digital_twin",
+            "mro_intelligence",
+            "lisa_ai_copilot",
+            "release_readiness",
+        )
         db_session.commit()
+
+
+def _user(db_session, org_id: uuid.UUID, roles: list[str] | None = None) -> CurrentUser:
+    _ensure_org(db_session, org_id)
     user_row = User(
         organization_id=org_id,
         email=f"{uuid.uuid4()}@example.com",
@@ -54,12 +78,6 @@ def _user(db_session, org_id: uuid.UUID, roles: list[str] | None = None) -> Curr
         full_name=user_row.full_name,
         roles=["ORG_ADMIN"] if roles is None else roles,
     )
-
-
-def _ensure_org(db_session, org_id: uuid.UUID) -> None:
-    if db_session.get(Organization, org_id) is None:
-        db_session.add(Organization(id=org_id, name=f"M5.3 Test Org {org_id.hex[:8]}"))
-        db_session.commit()
 
 
 def _nominal_aircraft(db_session, org_id, **overrides):

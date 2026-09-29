@@ -472,9 +472,16 @@ def test_duplicate_create_plan_leaves_no_partial_row_or_audit_event(db_session, 
     admin = _create_platform_admin(db_session, "ops@plan-co-14.com")
 
     with engine.connect() as raw_conn:
+        # plans.suite_id is NOT NULL (migration 0061); a Core insert bypasses
+        # the ORM/service default so the suite must be given explicitly.
+        from app.models.product_catalog import ProductSuite
+
+        suite_id = raw_conn.execute(
+            select(ProductSuite.id).where(ProductSuite.code == "DRONE_UAV")
+        ).scalar_one()
         raw_conn.execute(
             Plan.__table__.insert().values(
-                id=uuid.uuid4(), name="First", code="PT14-DUP", is_active=True
+                id=uuid.uuid4(), name="First", code="PT14-DUP", is_active=True, suite_id=suite_id
             )
         )
         raw_conn.commit()

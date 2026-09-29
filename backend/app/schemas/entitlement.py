@@ -41,9 +41,14 @@ class EntitlementResolutionResponse(BaseModel):
     organization_status: str
     subscription_id: uuid.UUID | None
     subscription_status: str | None
+    suite_id: uuid.UUID | None = None
+    suite_code: str | None = None
+    suite_name: str | None = None
     plan_id: uuid.UUID | None
     plan_code: str | None
     plan_name: str | None = None
+    modules: list[str] = []
+    pages: list[str] = []
     effective_features: dict[str, bool]
     usage_limits: list[UsageLimitConfigurationResponse]
     reason: str
@@ -58,9 +63,14 @@ class EntitlementResolutionResponse(BaseModel):
             organization_status=result.organization_status,
             subscription_id=result.subscription_id,
             subscription_status=result.subscription_status,
+            suite_id=getattr(result, "suite_id", None),
+            suite_code=getattr(result, "suite_code", None),
+            suite_name=getattr(result, "suite_name", None),
             plan_id=result.plan_id,
             plan_code=result.plan_code,
-            plan_name=plan_name,
+            plan_name=plan_name or getattr(result, "plan_name", None),
+            modules=getattr(result, "modules", []),
+            pages=getattr(result, "pages", []),
             effective_features=result.effective_features,
             usage_limits=[
                 UsageLimitConfigurationResponse.from_configuration(limit)

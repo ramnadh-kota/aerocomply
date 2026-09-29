@@ -16,6 +16,12 @@ import {
   type OperationalTimelineEvent,
   type ControlCenterAttentionItem,
 } from "@/lib/api/controlCenter";
+import {
+  intelligenceApi,
+  type ProactiveIntelligenceSummary,
+  type ProactiveSignal,
+} from "@/lib/api/intelligence";
+import { ProactiveSignalsSection } from "@/components/intelligence/ProactiveSignalsSection";
 import { AI_NAME, PLATFORM_NAME } from "@/lib/brand";
 
 const ASSET_TYPE_ICONS: Record<string, string> = {
@@ -30,12 +36,15 @@ const ASSET_TYPE_ICONS: Record<string, string> = {
 export default function DashboardPage() {
   const { accessToken, isAuthenticated, sessionType } = useSession();
   const [summary, setSummary] = useState<ControlCenterSummary | null>(null);
+  const [proactiveSummary, setProactiveSummary] = useState<ProactiveIntelligenceSummary | null>(null);
+  const [proactiveSignals, setProactiveSignals] = useState<ProactiveSignal[]>([]);
   const [fleetOps, setFleetOps] = useState<ControlCenterFleetOperationRow[]>([]);
   const [timeline, setTimeline] = useState<OperationalTimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
   const [asOf, setAsOf] = useState<string | null>(null);
   const [timelineFilter, setTimelineFilter] = useState<string>("ALL");
+
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -145,6 +154,25 @@ export default function DashboardPage() {
         readiness_distribution: { READY: 19, BLOCKED: 5, UNKNOWN: 0 },
         compliance_distribution: { COMPLIANT: 20, REVIEW_REQUIRED: 3, NON_COMPLIANT: 1 },
       });
+      setProactiveSummary({
+        total_active_signals: 3,
+        critical_signals: 1,
+        high_signals: 1,
+        medium_signals: 1,
+        low_signals: 0,
+        signals_by_priority: { IMMEDIATE: 1, UPCOMING: 1, WATCHLIST: 1, INFORMATIONAL: 0 },
+        signals_by_type: {
+          INSPECTION_INTERVAL_EARLY_WARNING: 1,
+          BATTERY_HEALTH_DEGRADATION: 1,
+          COMPLIANCE_VERIFICATION_GAP: 1,
+        },
+        top_signals: [],
+        fleet_insights: [
+          "2 aircraft show accelerated utilization pace (>40 hrs/wk) nearing 100-hour inspection thresholds.",
+          "Drone battery DR-019 pack degradation rate suggests replacement within 15 sorties.",
+        ],
+        evaluated_at: new Date().toISOString(),
+      });
       setAsOf("Demo Environment (Deterministic Synthetic Fleet)");
       setLoading(false);
       return;
@@ -161,16 +189,32 @@ export default function DashboardPage() {
       controlCenterApi.getSummary(accessToken),
       controlCenterApi.getFleetOperations(accessToken).catch(() => []),
       controlCenterApi.getTimeline(accessToken, { limit: 25 }).catch(() => []),
+      intelligenceApi.getProactiveSummary(accessToken).catch(() => null),
+      intelligenceApi.getSignals(accessToken).catch(() => []),
     ])
-      .then(([summ, ops, time]) => {
+      .then(([summ, ops, time, pSumm, pSigs]) => {
         setSummary(summ);
         setFleetOps(ops);
         setTimeline(time);
+        setProactiveSummary(pSumm);
+        setProactiveSignals(pSigs);
         setAsOf(new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
       })
       .catch((err) => setError(normalizeApiError(err)))
       .finally(() => setLoading(false));
   }, [accessToken, isAuthenticated, sessionType]);
+
+  const refreshSignals = () => {
+    if (!accessToken) return;
+    Promise.all([
+      intelligenceApi.getProactiveSummary(accessToken).catch(() => null),
+      intelligenceApi.getSignals(accessToken).catch(() => []),
+    ]).then(([pSumm, pSigs]) => {
+      if (pSumm) setProactiveSummary(pSumm);
+      if (pSigs) setProactiveSignals(pSigs);
+    });
+  };
+
 
   const health = summary?.fleet_health;
   const activity = summary?.operational_activity;
@@ -315,6 +359,14 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* 2b. M7 Proactive Intelligence & Emerging Risks */}
+        <ProactiveSignalsSection
+          summary={proactiveSummary}
+          signals={proactiveSignals}
+          accessToken={accessToken}
+          onSignalUpdated={refreshSignals}
+        />
+
         {/* 3. Attention Required Priority Queue */}
         <section className="ac-section" style={{ marginBottom: 24 }}>
           <div className="ac-section-header">
@@ -324,6 +376,7 @@ export default function DashboardPage() {
                 Prioritized aerospace operational items requiring immediate operator action.
               </p>
             </div>
+
             <span className="ac-text-sm ac-text-muted">{attentionItems.length} active priority item(s)</span>
           </div>
 

@@ -3,13 +3,16 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import get_db_session, require_feature, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.release_readiness import ReleaseReadiness
 from app.services import release_readiness_service
 
-router = APIRouter(tags=["release-readiness"])
+router = APIRouter(
+    tags=["release-readiness"],
+    dependencies=[Depends(require_feature("release_readiness"))],
+)
 
 
 @router.get("/work-orders/{work_order_id}/release-readiness", response_model=ReleaseReadiness)

@@ -41,7 +41,14 @@ export interface LisaAskResponse {
   source: "AI_AGENT";
 }
 
+export interface LisaStatusResponse {
+  configured: boolean;
+  provider: string;
+}
+
 export const lisaApi = {
+  status: (accessToken: string) =>
+    apiRequest<LisaStatusResponse>("/lisa/status", { method: "GET", accessToken }),
   ask: (accessToken: string, payload: LisaAskRequest) =>
     apiRequest<LisaAskResponse>("/lisa/ask", { method: "POST", body: payload, accessToken }),
 };

@@ -362,7 +362,7 @@ def _validate_drone_rows(
             select(Asset.registration).where(
                 Asset.organization_id == organization_id,
                 Asset.asset_type == AssetType.DRONE.value,
-                Asset.is_deleted.is_(False),
+                Asset.deleted_at.is_(None),
             )
         ).scalars()
     }

@@ -39,8 +39,28 @@ from app.services.compliance import obligation_service
 
 
 def _user(db_session, org_id: uuid.UUID, roles: list[str] | None = None) -> CurrentUser:
+    from tests.integration.conftest import grant_features
+
     if db_session.get(Organization, org_id) is None:
         db_session.add(Organization(id=org_id, name=f"M5.2 Test Org {org_id.hex[:8]}"))
+        db_session.flush()
+        grant_features(
+            db_session,
+            org_id,
+            "aircraft_fleet_management",
+            "work_order_management",
+            "inspections_management",
+            "procurement_management",
+            "compliance_management",
+            "advanced_compliance_intelligence",
+            "predictive_maintenance",
+            "hums",
+            "flight_telemetry",
+            "digital_twin",
+            "mro_intelligence",
+            "lisa_ai_copilot",
+            "release_readiness",
+        )
         db_session.commit()
     user_row = User(
         organization_id=org_id,

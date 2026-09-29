@@ -12,7 +12,12 @@ from app.core.security import InvalidTokenError, decode_token
 from app.db.session import get_db
 from app.models.organization import Organization, OrganizationStatus
 from app.schemas.auth import CurrentUser
-from app.services.entitlement_service import EntitlementResolutionStatus, resolve_entitlements
+from app.core.feature_keys import canonicalize_feature_key, is_default_on_feature
+from app.services.entitlement_service import (
+    EntitlementResolutionStatus,
+    is_feature_allowed_for_suite,
+    resolve_entitlements,
+)
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -124,6 +129,36 @@ def require_any_permission(*permissions: Permission):
 # features are plan-catalog data (Plan/PlanFeature rows, see
 # app/models/plan.py), not a fixed enum the codebase controls, exactly like
 # entitlement_service.resolve_entitlements's own feature_key parameters.
+def require_suite(*suite_codes: str):
+    """Dependency factory enforcing that the caller's organization is subscribed
+    to one of `suite_codes` (e.g. 'AIRCRAFT', 'DRONE_UAV', 'HELICOPTER', 'EVTOL_AAM').
+    """
+    _GRANTING_STATUSES = frozenset(
+        {EntitlementResolutionStatus.ACTIVE, EntitlementResolutionStatus.INACTIVE_PLAN}
+    )
+    normalized = {c.strip().upper() for c in suite_codes}
+
+    def _check(
+        current_user: CurrentUser = Depends(get_current_user),
+        db: Session = Depends(get_db_session),
+    ) -> CurrentUser:
+        result = resolve_entitlements(db, organization_id=current_user.organization_id)
+        if result.resolution_status not in _GRANTING_STATUSES:
+            raise ForbiddenError(
+                "Organization has no active subscription or suite entitlement",
+                code="SUITE_ENTITLEMENT_REQUIRED",
+            )
+        current_suite = (result.suite_code or "").strip().upper()
+        if current_suite and current_suite not in normalized:
+            raise ForbiddenError(
+                f"Organization product suite ({current_suite}) is not entitled to access this domain. Required one of: {', '.join(suite_codes)}",
+                code="SUITE_ENTITLEMENT_REQUIRED",
+            )
+        return current_user
+
+    return _check
+
+
 def require_feature(feature_key: str):
     """Dependency factory enforcing that the caller's organization currently
     has `feature_key` enabled, per entitlement_service.resolve_entitlements.
@@ -144,20 +179,36 @@ def require_feature(feature_key: str):
     _GRANTING_STATUSES = frozenset(
         {EntitlementResolutionStatus.ACTIVE, EntitlementResolutionStatus.INACTIVE_PLAN}
     )
+    canonical = canonicalize_feature_key(feature_key)
 
     def _check(
         current_user: CurrentUser = Depends(get_current_user),
         db: Session = Depends(get_db_session),
     ) -> CurrentUser:
-        # organization_id comes only from the already-authenticated
-        # CurrentUser (itself derived only from the validated JWT in
-        # get_current_user above) -- never from any request body/query
-        # param, exactly like require_permission's own contract.
         result = resolve_entitlements(db, organization_id=current_user.organization_id)
-        if result.resolution_status not in _GRANTING_STATUSES or not result.effective_features.get(
-            feature_key, False
-        ):
-            raise ForbiddenError(f"Organization is not entitled to feature: {feature_key}")
+        configured = [
+            v for v in (
+                result.effective_features.get(feature_key),
+                result.effective_features.get(canonical),
+            ) if v is not None
+        ]
+        if configured:
+            is_entitled = any(configured)
+        else:
+            # Not configured anywhere: only baseline (default-on) features pass.
+            is_entitled = is_default_on_feature(canonical)
+        if result.resolution_status not in _GRANTING_STATUSES or not is_entitled:
+            # SUITE_ENTITLEMENT_REQUIRED means "outside this organization's
+            # suite domain" (deterministic, from the suite boundary rules), not
+            # a name heuristic. A feature inside the suite that the plan simply
+            # doesn't include keeps the default forbidden code.
+            outside_suite = bool(result.suite_code) and not is_feature_allowed_for_suite(
+                result.suite_code, feature_key
+            )
+            raise ForbiddenError(
+                f"Organization is not entitled to feature: {feature_key}",
+                code="SUITE_ENTITLEMENT_REQUIRED" if outside_suite else None,
+            )
         return current_user
 
     return _check

@@ -24,23 +24,89 @@ foreign key between them).
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.errors import ConflictError, NotFoundError
+from app.models.plan import Plan
 from app.models.product_catalog import ProductFeature, ProductModule, ProductPage, ProductSuite
+from app.models.subscription import Subscription
 from app.services.audit_service import record_audit_event
 
 # --- Suite -------------------------------------------------------------
 
 
+def _attach_suite_counts(db: Session, suites: list[ProductSuite]) -> None:
+    if not suites:
+        return
+    suite_ids = [s.id for s in suites]
+
+    plans_counts: dict[uuid.UUID, int] = dict(
+        db.execute(
+            select(Plan.suite_id, func.count(Plan.id))
+            .where(Plan.suite_id.in_(suite_ids))
+            .group_by(Plan.suite_id)
+        ).all()  # type: ignore[arg-type]
+    )
+
+    modules_counts: dict[uuid.UUID, int] = dict(
+        db.execute(
+            select(ProductModule.suite_id, func.count(ProductModule.id))
+            .where(ProductModule.suite_id.in_(suite_ids))
+            .group_by(ProductModule.suite_id)
+        ).all()  # type: ignore[arg-type]
+    )
+
+    features_counts: dict[uuid.UUID, int] = dict(
+        db.execute(
+            select(ProductModule.suite_id, func.count(ProductFeature.id))
+            .join(ProductFeature, ProductFeature.module_id == ProductModule.id)
+            .where(ProductModule.suite_id.in_(suite_ids))
+            .group_by(ProductModule.suite_id)
+        ).all()  # type: ignore[arg-type]
+    )
+
+    orgs_counts: dict[uuid.UUID, int] = dict(
+        db.execute(
+            select(Plan.suite_id, func.count(func.distinct(Subscription.organization_id)))
+            .join(Subscription, Subscription.plan_id == Plan.id)
+            .where(
+                Plan.suite_id.in_(suite_ids),
+                Subscription.status.in_(["ACTIVE", "TRIALING", "PAST_DUE"]),
+            )
+            .group_by(Plan.suite_id)
+        ).all()  # type: ignore[arg-type]
+    )
+
+    subs_counts: dict[uuid.UUID, int] = dict(
+        db.execute(
+            select(Plan.suite_id, func.count(Subscription.id))
+            .join(Subscription, Subscription.plan_id == Plan.id)
+            .where(
+                Plan.suite_id.in_(suite_ids),
+                Subscription.status.in_(["ACTIVE", "TRIALING", "PAST_DUE"]),
+            )
+            .group_by(Plan.suite_id)
+        ).all()  # type: ignore[arg-type]
+    )
+
+    for s in suites:
+        s.plans_count = plans_counts.get(s.id, 0)
+        s.modules_count = modules_counts.get(s.id, 0)
+        s.features_count = features_counts.get(s.id, 0)
+        s.organizations_count = orgs_counts.get(s.id, 0)
+        s.active_subscriptions_count = subs_counts.get(s.id, 0)
+
+
 def list_suites(db: Session) -> list[ProductSuite]:
-    return list(
+    suites = list(
         db.execute(select(ProductSuite).order_by(ProductSuite.display_order, ProductSuite.code))
         .scalars()
         .all()
     )
+    _attach_suite_counts(db, suites)
+    return suites
 
 
 def get_catalog_tree(db: Session) -> list[ProductSuite]:
@@ -48,7 +114,7 @@ def get_catalog_tree(db: Session) -> list[ProductSuite]:
     loaded in a bounded number of queries -- used by the single
     GET /platform/product-catalog endpoint that renders the whole
     hierarchy at once (e.g. for an admin UI tree view)."""
-    return list(
+    suites = list(
         db.execute(
             select(ProductSuite)
             .options(
@@ -60,12 +126,25 @@ def get_catalog_tree(db: Session) -> list[ProductSuite]:
         .scalars()
         .all()
     )
+    _attach_suite_counts(db, suites)
+    return suites
 
 
 def get_suite(db: Session, *, suite_id: uuid.UUID) -> ProductSuite:
     suite = db.get(ProductSuite, suite_id)
     if suite is None:
         raise NotFoundError("Product suite not found")
+    _attach_suite_counts(db, [suite])
+    return suite
+
+
+def get_suite_by_code(db: Session, *, code: str) -> ProductSuite:
+    suite = db.execute(
+        select(ProductSuite).where(ProductSuite.code == code)
+    ).scalar_one_or_none()
+    if suite is None:
+        raise NotFoundError(f"Product suite with code {code!r} not found")
+    _attach_suite_counts(db, [suite])
     return suite
 
 
@@ -77,6 +156,7 @@ def create_suite(
     code: str,
     name: str,
     description: str | None = None,
+    icon: str | None = None,
     display_order: int = 0,
     is_active: bool = True,
 ) -> ProductSuite:
@@ -84,6 +164,7 @@ def create_suite(
         code=code,
         name=name,
         description=description,
+        icon=icon,
         display_order=display_order,
         is_active=is_active,
     )
@@ -106,6 +187,7 @@ def create_suite(
     )
     db.commit()
     db.refresh(suite)
+    _attach_suite_counts(db, [suite])
     return suite
 
 
@@ -117,6 +199,7 @@ def update_suite(
     suite_id: uuid.UUID,
     name: str | None = None,
     description: str | None = None,
+    icon: str | None = None,
     display_order: int | None = None,
     is_active: bool | None = None,
 ) -> ProductSuite:
@@ -129,6 +212,9 @@ def update_suite(
     if description is not None:
         suite.description = description
         updates["description"] = description
+    if icon is not None:
+        suite.icon = icon
+        updates["icon"] = icon
     if display_order is not None:
         suite.display_order = display_order
         updates["display_order"] = display_order
@@ -150,6 +236,7 @@ def update_suite(
         )
     db.commit()
     db.refresh(suite)
+    _attach_suite_counts(db, [suite])
     return suite
 
 

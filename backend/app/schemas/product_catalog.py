@@ -14,6 +14,7 @@ class ProductSuiteCreateRequest(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    icon: str | None = None
     display_order: int = 0
     is_active: bool = True
 
@@ -21,6 +22,7 @@ class ProductSuiteCreateRequest(BaseModel):
 class ProductSuiteUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    icon: str | None = None
     display_order: int | None = None
     is_active: bool | None = None
 
@@ -30,8 +32,14 @@ class ProductSuiteResponse(BaseModel):
     code: str
     name: str
     description: str | None
+    icon: str | None = None
     display_order: int
     is_active: bool
+    plans_count: int = 0
+    modules_count: int = 0
+    features_count: int = 0
+    organizations_count: int = 0
+    active_subscriptions_count: int = 0
     created_at: datetime
     updated_at: datetime
 

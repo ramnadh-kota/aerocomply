@@ -13,8 +13,14 @@ export interface ProductSuiteResponse {
   code: string;
   name: string;
   description: string | null;
+  icon?: string | null;
   display_order: number;
   is_active: boolean;
+  plan_count?: number;
+  module_count?: number;
+  feature_count?: number;
+  org_count?: number;
+  active_sub_count?: number;
   created_at: string;
   updated_at: string;
 }

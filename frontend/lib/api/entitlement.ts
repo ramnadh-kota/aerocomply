@@ -28,9 +28,14 @@ export interface EntitlementResolutionResponse {
   organization_status: string;
   subscription_id: string | null;
   subscription_status: string | null;
+  suite_id?: string | null;
+  suite_code?: string | null;
+  suite_name?: string | null;
   plan_id: string | null;
   plan_code: string | null;
   plan_name: string | null;
+  modules?: string[];
+  pages?: string[];
   effective_features: Record<string, boolean>;
   usage_limits: UsageLimitConfiguration[];
   reason: string;

@@ -20,6 +20,7 @@ import {
   ACCESS_TOKEN_STORAGE_KEY,
   REFRESH_TOKEN_STORAGE_KEY,
   authApi,
+  requestTokenRefresh,
   type CurrentUser,
 } from "@/lib/apiClient";
 
@@ -87,6 +88,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     clearSession();
   }, [clearSession]);
 
+  // Sync token updates from automatic single-flight refreshes across tabs/requests
+  useEffect(() => {
+    const handleRefreshed = (e: Event) => {
+      const detail = (e as CustomEvent<{ access_token: string; refresh_token: string }>).detail;
+      if (detail?.access_token) {
+        setAccessToken(detail.access_token);
+      }
+    };
+    const handleLogout = () => {
+      clearSession();
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("aerocomply_token_refreshed", handleRefreshed);
+      window.addEventListener("aerocomply_auth_logout", handleLogout);
+      return () => {
+        window.removeEventListener("aerocomply_token_refreshed", handleRefreshed);
+        window.removeEventListener("aerocomply_auth_logout", handleLogout);
+      };
+    }
+  }, [clearSession]);
+
   // Session restoration on first load
   useEffect(() => {
     let cancelled = false;
@@ -111,7 +134,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           setSessionType("REAL");
         }
       } catch {
-        if (!cancelled) clearSession();
+        // If expired, attempt automatic refresh before dropping session
+        try {
+          const newToken = await requestTokenRefresh();
+          const me = await authApi.me(newToken);
+          if (!cancelled) {
+            setAccessToken(newToken);
+            setUser(me);
+            setSessionType("REAL");
+          }
+        } catch {
+          if (!cancelled) clearSession();
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

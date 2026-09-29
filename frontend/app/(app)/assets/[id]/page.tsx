@@ -22,7 +22,18 @@ import {
   type AssetPriorityIntelligence,
   type AssetDecision as AssetDecisionIntelligence,
   type AssetRecommendation,
+  type ProactiveSignal,
 } from "@/lib/api/intelligence";
+import { ProactiveSignalsSection } from "@/components/intelligence/ProactiveSignalsSection";
+import { humsApi, type HUMSAssetHealthSummary } from "@/lib/api/hums";
+import { HUMSHealthPanel } from "@/components/intelligence/HUMSHealthPanel";
+import { HUMSHealthIntelligencePanel } from "@/components/intelligence/HUMSHealthIntelligencePanel";
+import { HUMSDiagnosticsPanel } from "@/components/intelligence/HUMSDiagnosticsPanel";
+import { HUMSPrognosticsPanel } from "@/components/intelligence/HUMSPrognosticsPanel";
+import { DigitalTwinPanel } from "@/components/intelligence/DigitalTwinPanel";
+import { MROIntelligencePanel } from "@/components/intelligence/MROIntelligencePanel";
+import { useEntitlements } from "@/lib/entitlements/EntitlementContext";
+
 import {
   assetsApi,
   type AssetResponse,
@@ -375,6 +386,7 @@ export default function AssetDetailPage() {
   const assetId = (params?.id as string) || "";
   const searchParams = useSearchParams();
   const { accessToken, sessionType } = useSession();
+  const { hasFeature } = useEntitlements();
 
   const requestedTab = searchParams?.get("tab") as TabKey | null;
   const initialTab: TabKey = TABS.some((t) => t.key === requestedTab) ? (requestedTab as TabKey) : "OVERVIEW";
@@ -396,16 +408,27 @@ export default function AssetDetailPage() {
   const [history, setHistory] = useState<AssetHistoryResponse | null>(null);
   const [context, setContext] = useState<AssetDomainContextResponse | null>(null);
 
-  // D2.2 Intelligence layer (M4.3) -- REAL mode only, see fetch effect below.
+  // D2.2 Intelligence layer (M4.3 & M7) -- REAL mode only, see fetch effect below.
   const [intelReadiness, setIntelReadiness] = useState<AssetReadinessIntelligence | null>(null);
   const [intelRisk, setIntelRisk] = useState<AssetRiskIntelligence | null>(null);
   const [intelPriority, setIntelPriority] = useState<AssetPriorityIntelligence | null>(null);
   const [intelDecision, setIntelDecision] = useState<AssetDecisionIntelligence | null>(null);
   const [intelRecommendation, setIntelRecommendation] = useState<AssetRecommendation | null>(null);
+  const [assetSignals, setAssetSignals] = useState<ProactiveSignal[]>([]);
+  // H1: HUMS foundation -- REAL mode only, same fail-soft fetch pattern as the D2.2 intelligence fields above.
+  const [humsHealth, setHumsHealth] = useState<HUMSAssetHealthSummary | null>(null);
 
   // Modals
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [isLogFlightModalOpen, setIsLogFlightModalOpen] = useState(false);
+
+  const refreshAssetSignals = () => {
+    if (!accessToken || !assetId) return;
+    intelligenceApi
+      .getAssetSignals(accessToken, assetId)
+      .then((sigs) => setAssetSignals(sigs))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     if (sessionType === "DEMO") {
@@ -450,6 +473,8 @@ export default function AssetDetailPage() {
       intelligenceApi.getPriority(accessToken, assetId).catch(() => null),
       intelligenceApi.getDecision(accessToken, assetId).catch(() => null),
       intelligenceApi.getRecommendations(accessToken, assetId).catch(() => null),
+      intelligenceApi.getAssetSignals(accessToken, assetId).catch(() => []),
+      humsApi.getAssetHealth(accessToken, assetId).catch(() => null),
     ])
       .then(
         ([
@@ -470,6 +495,8 @@ export default function AssetDetailPage() {
           intelPri,
           intelDec,
           intelRec,
+          sigs,
+          humsHlth,
         ]) => {
           setAsset(a);
           setConfig(cfg);
@@ -488,6 +515,8 @@ export default function AssetDetailPage() {
           setIntelPriority(intelPri);
           setIntelDecision(intelDec);
           setIntelRecommendation(intelRec);
+          setAssetSignals(sigs);
+          setHumsHealth(humsHlth);
         }
       )
       .catch((err) => {
@@ -497,6 +526,7 @@ export default function AssetDetailPage() {
         setLoading(false);
       });
   }, [assetId, sessionType, accessToken]);
+
 
   async function handleInstallComponent(data: AssetInstallComponentRequest) {
     if (sessionType === "DEMO") {
@@ -1467,12 +1497,64 @@ export default function AssetDetailPage() {
                 page only labels and formats that output — it never re-derives it.
               </div>
 
+              {/* M7 Proactive Intelligence Signals for Asset */}
+              <ProactiveSignalsSection
+                signals={assetSignals}
+                accessToken={accessToken}
+                assetId={assetId}
+                onSignalUpdated={refreshAssetSignals}
+                title="Active Airframe Proactive Signals"
+                subtitle="Live degradation trends, recurring defect patterns, and early-warning proximity triggers for this asset."
+              />
+
+              {/* H1: HUMS Foundation Health */}
+              {hasFeature("hums") && (
+                <div className="ac-card" style={{ padding: 20 }}>
+                  <h3 style={{ margin: "0 0 12px", fontSize: "1.1rem", fontWeight: 700 }}>HUMS Health</h3>
+                  <HUMSHealthPanel health={humsHealth} accessToken={accessToken} />
+                  <div style={{ marginTop: 16, borderTop: "1px solid #27272a", paddingTop: 16 }}>
+                    <HUMSHealthIntelligencePanel assetId={assetId} accessToken={accessToken} />
+                  </div>
+                  <div style={{ marginTop: 16, borderTop: "1px solid #27272a", paddingTop: 16 }}>
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      HUMS Diagnostics
+                    </div>
+                    <HUMSDiagnosticsPanel assetId={assetId} accessToken={accessToken} canWrite />
+                  </div>
+                  <div style={{ marginTop: 16, borderTop: "1px solid #27272a", paddingTop: 16 }}>
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      HUMS Prognostics (Remaining Useful Life)
+                    </div>
+                    <HUMSPrognosticsPanel assetId={assetId} accessToken={accessToken} />
+                  </div>
+                </div>
+              )}
+
+              {/* Digital Twin */}
+              {hasFeature("digital_twin") && (
+                <div className="ac-card" style={{ padding: 20 }}>
+                  <h3 style={{ margin: "0 0 12px", fontSize: "1.1rem", fontWeight: 700 }}>Digital Twin</h3>
+                  <DigitalTwinPanel assetId={assetId} accessToken={accessToken} />
+                </div>
+              )}
+
+              {/* H7: MRO + Compliance + Readiness Intelligence Integration */}
+              {hasFeature("mro_intelligence") && (
+                <div className="ac-card" style={{ padding: 20 }}>
+                  <h3 style={{ margin: "0 0 12px", fontSize: "1.1rem", fontWeight: 700 }}>
+                    MRO + Compliance + Readiness Intelligence (H7)
+                  </h3>
+                  <MROIntelligencePanel assetId={assetId} accessToken={accessToken} canWrite />
+                </div>
+              )}
+
               {/* READINESS */}
               <div className="ac-card" style={{ padding: 20 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Readiness</h3>
                   {intelReadiness && <StatusBadge {...intelligenceReadinessBadge(intelReadiness.readiness_state)} />}
                 </div>
+
                 {intelReadiness ? (
                   <>
                     <p style={{ margin: "0 0 10px 0", color: "#d1d5db", fontSize: "0.85rem" }}>

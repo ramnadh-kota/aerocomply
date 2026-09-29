@@ -1,7 +1,11 @@
-from sqlalchemy import String
+from __future__ import annotations
+
+import uuid
+from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPKMixin
+from app.db.base import Base, SoftDeleteMixin, TenantScopedMixin, TimestampMixin, UUIDPKMixin
 
 
 class OrganizationStatus:
@@ -9,33 +13,21 @@ class OrganizationStatus:
     SUSPENDED = "SUSPENDED"
 
 
+class OnboardingStage:
+    PROSPECT = "PROSPECT"
+    CONTRACTED = "CONTRACTED"
+    PROVISIONING = "PROVISIONING"
+    CONFIGURATION = "CONFIGURATION"
+    DATA_MIGRATION = "DATA_MIGRATION"
+    INTEGRATION = "INTEGRATION"
+    UAT = "UAT"
+    GO_LIVE = "GO_LIVE"
+    HYPERCARE = "HYPERCARE"
+    ACTIVE = "ACTIVE"
+
+
 class OrganizationIndustry:
-    """M21.4: which aerospace vertical this tenant operates in. A plain
-    string-constant class, matching this codebase's existing convention for
-    small classification concepts (OrganizationStatus above,
-    SubscriptionStatus, DeferredItemStatus, etc.) rather than a Postgres/
-    SQLAlchemy Enum type or a separate lookup table.
-
-    Deliberately NOT a new table: this was considered (an `industries`
-    catalog row per value, mirroring ProductSuite) and rejected because
-    nothing in this codebase's real usage needs industry rows to carry their
-    own metadata (description, display_order, activation state) the way
-    ProductSuite genuinely does for platform-catalog administration --
-    Organization.industry is a pure classification tag on the tenant, exactly
-    the same shape as Organization.status, and a four-value fixed set with no
-    admin-editable metadata does not warrant a table.
-
-    Deliberately NOT modeled on ProductSuite: ProductSuite already exists in
-    this codebase (app/models/product_catalog.py) but its real seeded content
-    (backend/scripts/seed_product_catalog.py: code="maintenance") represents
-    a WORKFLOW DOMAIN ("Maintenance"), not an aerospace asset vertical -- the
-    two axes are orthogonal (e.g. a "Maintenance" suite's work-order-tracking
-    module applies equally to a drone operator or a fixed-wing operator).
-    Overloading ProductSuite to also mean "industry" would conflate two
-    genuinely different classification axes into one field, which is exactly
-    the kind of conflation docs/PLATFORM_CONTROL_PLANE_ARCHITECTURE.md
-    Section 19 warns against for OrganizationStatus vs. subscription status.
-    """
+    """Which aerospace vertical this tenant operates in."""
 
     DRONE_UAV = "DRONE_UAV"
     AIRCRAFT = "AIRCRAFT"
@@ -44,37 +36,34 @@ class OrganizationIndustry:
 
 
 class Organization(UUIDPKMixin, TimestampMixin, SoftDeleteMixin, Base):
-    """The second entity (after Asset) using the Platform Control Plane's
-    soft-delete lifecycle (SoftDeleteMixin, see app/db/base.py). deleted_at
-    is deliberately independent of `status` (SUSPENDED vs. ACTIVE), same
-    separation Asset keeps between its own `status` and `deleted_at` --
-    "is this org deletion-requested" and "is this org suspended" are
-    orthogonal facts.
-
-    Unlike Asset, organization_id columns elsewhere in this codebase
-    (TenantScopedMixin) are plain UUID columns, never a real foreign key to
-    organizations.id -- so there is no ondelete=RESTRICT to lean on the way
-    deletion_service.permanently_delete_asset does. permanently_delete_
-    organization (app/services/deletion_service.py) instead explicitly
-    checks for existing Users/Assets before allowing a physical delete.
-    """
+    """Core tenant organization entity."""
 
     __tablename__ = "organizations"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # Platform-managed tenant lifecycle status — never a billing/subscription
-    # engine (none exists in this codebase); a plain field a platform admin
-    # toggles. A SUSPENDED organization's users are refused at login (see
-    # auth_service) rather than merely hidden in the UI. A deletion-requested
-    # organization (deleted_at set) is refused the same way -- see
-    # app/core/deps.py's get_current_user and both checks in auth_service.py.
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=OrganizationStatus.ACTIVE
     )
-    # M21.4: nullable because every organization created before this column
-    # existed has no industry on record -- there is no sensible default to
-    # backfill (guessing wrong is worse than leaving it unset), so existing
-    # orgs simply read back NULL until a platform admin sets one explicitly.
-    # See OrganizationIndustry above for why this lives here rather than on
-    # Plan or ProductSuite.
     industry: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    onboarding_stage: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=OnboardingStage.ACTIVE
+    )
+    logo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    primary_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class TenantRetentionPolicy(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
+    """Configurable data retention lifecycle policy per tenant and data category."""
+
+    __tablename__ = "tenant_retention_policies"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "data_category",
+            name="uq_retention_policies_org_category",
+        ),
+    )
+
+    data_category: Mapped[str] = mapped_column(String(64), nullable=False)  # e.g. TELEMETRY, AUDIT_LOGS, FLIGHTS
+    retention_days: Mapped[int] = mapped_column(Integer, nullable=False, default=2555)  # 7 years default
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

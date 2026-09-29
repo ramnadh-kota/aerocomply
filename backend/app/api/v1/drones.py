@@ -120,7 +120,7 @@ def update_drone(
     return DroneResponse.model_validate(drone)
 
 
-@router.get("/drones/{asset_id}/batteries", response_model=list[BatteryResponse])
+@router.get("/drones/{asset_id}/batteries", response_model=list[BatteryResponse], dependencies=[Depends(require_feature("battery_analytics"))])
 def list_batteries(
     asset_id: uuid.UUID,
     db: Session = Depends(get_db_session),
@@ -132,7 +132,7 @@ def list_batteries(
     return [BatteryResponse.model_validate(b) for b in batteries]
 
 
-@router.post("/drones/{asset_id}/batteries", response_model=BatteryResponse, status_code=201)
+@router.post("/drones/{asset_id}/batteries", response_model=BatteryResponse, status_code=201, dependencies=[Depends(require_feature("battery_analytics"))])
 def attach_battery(
     asset_id: uuid.UUID,
     payload: BatteryCreateRequest,
@@ -153,7 +153,7 @@ def attach_battery(
     return BatteryResponse.model_validate(battery)
 
 
-@router.patch("/batteries/{battery_id}", response_model=BatteryResponse)
+@router.patch("/batteries/{battery_id}", response_model=BatteryResponse, dependencies=[Depends(require_feature("battery_analytics"))])
 def update_battery(
     battery_id: uuid.UUID,
     payload: BatteryUpdateRequest,
@@ -297,7 +297,7 @@ def get_deployment_readiness(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/batteries/{battery_id}", response_model=BatteryResponse)
+@router.get("/batteries/{battery_id}", response_model=BatteryResponse, dependencies=[Depends(require_feature("battery_analytics"))])
 def get_battery(
     battery_id: uuid.UUID,
     db: Session = Depends(get_db_session),
@@ -309,7 +309,7 @@ def get_battery(
     return BatteryResponse.model_validate(battery)
 
 
-@router.get("/batteries/{battery_id}/history", response_model=BatteryInstallationListResponse)
+@router.get("/batteries/{battery_id}/history", response_model=BatteryInstallationListResponse, dependencies=[Depends(require_feature("battery_analytics"))])
 def get_battery_history(
     battery_id: uuid.UUID,
     limit: int = Query(default=installation_service.LIFECYCLE_HISTORY_DEFAULT_LIMIT, ge=1),
@@ -472,6 +472,7 @@ def get_maintenance_due(
     "/batteries/{battery_id}/maintenance-requirements/{requirement_id}/applicability",
     response_model=MaintenanceRequirementResponse,
     status_code=201,
+    dependencies=[Depends(require_feature("battery_analytics"))],
 )
 def add_battery_maintenance_applicability(
     battery_id: uuid.UUID,
@@ -493,6 +494,7 @@ def add_battery_maintenance_applicability(
     "/batteries/{battery_id}/maintenance-requirements/{requirement_id}/accomplishments",
     response_model=MaintenanceAccomplishmentResponse,
     status_code=201,
+    dependencies=[Depends(require_feature("battery_analytics"))],
 )
 def record_battery_maintenance_accomplishment(
     battery_id: uuid.UUID,
@@ -512,7 +514,7 @@ def record_battery_maintenance_accomplishment(
     return MaintenanceAccomplishmentResponse.model_validate(accomplishment)
 
 
-@router.get("/batteries/{battery_id}/maintenance-due", response_model=list[MaintenanceDueItem])
+@router.get("/batteries/{battery_id}/maintenance-due", response_model=list[MaintenanceDueItem], dependencies=[Depends(require_feature("battery_analytics"))])
 def get_battery_maintenance_due(
     battery_id: uuid.UUID,
     db: Session = Depends(get_db_session),

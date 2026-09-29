@@ -82,10 +82,13 @@ export default function TenantSubscriptionPage() {
         {/* Plan Summary Card */}
         <div className="ac-card">
           <div className="ac-eyebrow" style={{ marginBottom: 4 }}>
-            COMMERCIAL TIER
+            PRODUCT SUITE &amp; COMMERCIAL TIER
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ac-primary, #3b82f6)", marginBottom: 4 }}>
+            {entitlements?.suite_name ?? (entitlements?.suite_code ? `${entitlements.suite_code} Suite` : "Commercial Aerospace Suite")}
           </div>
           <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>
-            {entitlements?.plan_name ?? entitlements?.plan_code ?? "ENTERPRISE"}
+            {entitlements?.plan_name ?? entitlements?.plan_code ?? "ENTERPRISE"} Plan
           </div>
           <div className="ac-flex ac-gap-2 ac-items-center" style={{ marginBottom: 16 }}>
             <StatusBadge
@@ -97,12 +100,12 @@ export default function TenantSubscriptionPage() {
               label={entitlements?.subscription_status ?? "ACTIVE"}
             />
             <span className="ac-mono" style={{ fontSize: 12, opacity: 0.7 }}>
-              ANNUAL / ENTERPRISE SLA
+              SUITE CODE: {entitlements?.suite_code ?? "AEROSPACE"}
             </span>
           </div>
 
           <p className="ac-text-sm" style={{ opacity: 0.8, marginBottom: 20 }}>
-            Includes multi-fleet operations, continuing airworthiness management (CAMO), drone UAV mission flight logs, regulatory pre-audits, and RII inspection workflows.
+            Operational domain boundaries, MRO workflows, telemetrics, regulatory registers, and AI intelligence are scoped exclusively to this product suite.
           </p>
 
           <div
@@ -114,9 +117,9 @@ export default function TenantSubscriptionPage() {
               fontSize: 12,
             }}
           >
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>Billing Engine State</div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Platform Governance</div>
             <div style={{ opacity: 0.8 }}>
-              Billing is <strong>PLATFORM-MANAGED / DIRECT INVOICE</strong>. Self-service credit card billing is not enabled for enterprise aerospace compliance tiers.
+              Product Suite and Plan assignments are <strong>PLATFORM-MANAGED</strong>. Suite domain changes and tier upgrades are provisioned by your platform administrator.
             </div>
           </div>
         </div>

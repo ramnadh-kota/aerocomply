@@ -47,13 +47,42 @@ from app.models.plan import Plan, PlanFeature, PlanLimit
 from app.models.product_catalog import ProductSuite
 from app.models.subscription import Subscription
 from app.services.audit_service import record_audit_event
+from app.services.entitlement_service import is_feature_allowed_for_suite
 
 
-def _validate_suite_id(db: Session, *, suite_id: uuid.UUID | None) -> None:
-    if suite_id is None:
-        return
-    if db.get(ProductSuite, suite_id) is None:
-        raise NotFoundError("Product suite not found")
+def _resolve_or_validate_suite_id(
+    db: Session, *, suite_id: uuid.UUID | None, asset_scope: str | None = None
+) -> uuid.UUID:
+    if suite_id is not None:
+        suite = db.get(ProductSuite, suite_id)
+        if suite is None:
+            raise NotFoundError("Product suite not found")
+        return suite.id
+
+    if asset_scope:
+        scope_code = asset_scope.strip().upper()
+        if scope_code == "DRONE":
+            scope_code = "DRONE_UAV"
+        elif scope_code == "EVTOL":
+            scope_code = "EVTOL_AAM"
+        suite = db.execute(
+            select(ProductSuite).where(ProductSuite.code == scope_code)
+        ).scalar_one_or_none()
+        if suite:
+            return suite.id
+
+    default_suite = db.execute(
+        select(ProductSuite).where(ProductSuite.code == "DRONE_UAV")
+    ).scalar_one_or_none()
+    if default_suite is None:
+        default_suite = db.execute(
+            select(ProductSuite).where(ProductSuite.code == "AIRCRAFT")
+        ).scalar_one_or_none()
+    if default_suite is None:
+        default_suite = db.execute(select(ProductSuite)).scalars().first()
+    if default_suite is None:
+        raise NotFoundError("No product suites exist in catalog")
+    return default_suite.id
 
 
 def _attach_counts(db: Session, plans: list[Plan]) -> None:
@@ -80,6 +109,13 @@ def _attach_counts(db: Session, plans: list[Plan]) -> None:
     for p in plans:
         p.included_features_count = feature_counts.get(p.id, 0)
         p.tenant_count = tenant_counts.get(p.id, 0)
+        if p.suite:
+            p.suite_code = p.suite.code
+            p.suite_name = p.suite.name
+        else:
+            suite_obj = db.get(ProductSuite, p.suite_id) if p.suite_id else None
+            p.suite_code = suite_obj.code if suite_obj else None
+            p.suite_name = suite_obj.name if suite_obj else None
 
 
 def create_plan(
@@ -94,13 +130,13 @@ def create_plan(
     suite_id: uuid.UUID | None = None,
     asset_scope: str | None = None,
 ) -> Plan:
-    _validate_suite_id(db, suite_id=suite_id)
+    actual_suite_id = _resolve_or_validate_suite_id(db, suite_id=suite_id, asset_scope=asset_scope)
     plan = Plan(
         name=name,
         code=code,
         description=description,
         is_active=is_active,
-        suite_id=suite_id,
+        suite_id=actual_suite_id,
         asset_scope=asset_scope,
     )
     db.add(plan)
@@ -109,7 +145,7 @@ def create_plan(
     except IntegrityError as exc:
         db.rollback()
         raise ConflictError(
-            f"Plan code {code!r} already exists", code="duplicate_plan_code"
+            f"Plan code {code!r} already exists for this product suite", code="duplicate_plan_code"
         ) from exc
     record_audit_event(
         db,
@@ -121,7 +157,7 @@ def create_plan(
         metadata={
             "code": code,
             "name": name,
-            "suite_id": str(suite_id) if suite_id else None,
+            "suite_id": str(actual_suite_id),
             "asset_scope": asset_scope,
         },
     )
@@ -139,8 +175,11 @@ def get_plan(db: Session, *, plan_id: uuid.UUID) -> Plan:
     return plan
 
 
-def list_plans(db: Session) -> list[Plan]:
-    plans = list(db.execute(select(Plan).order_by(Plan.created_at.desc())).scalars().all())
+def list_plans(db: Session, *, suite_id: uuid.UUID | None = None) -> list[Plan]:
+    stmt = select(Plan)
+    if suite_id is not None:
+        stmt = stmt.where(Plan.suite_id == suite_id)
+    plans = list(db.execute(stmt.order_by(Plan.created_at.desc())).scalars().all())
     _attach_counts(db, plans)
     return plans
 
@@ -170,9 +209,34 @@ def update_plan(
         plan.description = description
         updates["description"] = description
     if suite_id is not None and suite_id != plan.suite_id:
-        _validate_suite_id(db, suite_id=suite_id)
-        plan.suite_id = suite_id
-        updates["suite_id"] = str(suite_id)
+        # A plan belongs to exactly one suite. Moving it is only safe while it
+        # has no subscribers and none of its features fall outside the target
+        # suite's boundary; otherwise existing subscriptions would silently
+        # end up on a different suite than the one they were sold.
+        new_suite_id = _resolve_or_validate_suite_id(db, suite_id=suite_id)
+        if db.execute(
+            select(Subscription.id).where(Subscription.plan_id == plan.id).limit(1)
+        ).first():
+            raise ConflictError(
+                "Cannot move a plan that has subscriptions to a different product suite",
+                code="plan_has_subscribers",
+            )
+        target_suite = db.get(ProductSuite, new_suite_id)
+        out_of_suite = [
+            pf.feature_key
+            for pf in db.execute(
+                select(PlanFeature).where(PlanFeature.plan_id == plan.id)
+            ).scalars()
+            if not is_feature_allowed_for_suite(target_suite.code, pf.feature_key)
+        ]
+        if out_of_suite:
+            raise ConflictError(
+                f"Plan features {sorted(out_of_suite)} are outside the target suite boundary",
+                code="feature_outside_suite_boundary",
+            )
+        updates["previous_suite_id"] = str(plan.suite_id)
+        plan.suite_id = new_suite_id
+        updates["suite_id"] = str(new_suite_id)
     if asset_scope is not None:
         plan.asset_scope = asset_scope
         updates["asset_scope"] = asset_scope
@@ -233,6 +297,18 @@ def list_plan_features(db: Session, *, plan_id: uuid.UUID) -> list[PlanFeature]:
     )
 
 
+def _assert_feature_in_plan_suite(db: Session, plan: Plan, feature_key: str) -> None:
+    """A plan may only carry features that belong to its suite's domain
+    (e.g. a Drone plan cannot include aircraft_fleet_management)."""
+    suite = db.get(ProductSuite, plan.suite_id)
+    if suite is not None and not is_feature_allowed_for_suite(suite.code, feature_key):
+        raise ConflictError(
+            f"Feature {feature_key!r} is outside the {suite.code} suite boundary and cannot be "
+            "added to a plan of this suite",
+            code="feature_outside_suite_boundary",
+        )
+
+
 def create_plan_feature(
     db: Session,
     *,
@@ -242,7 +318,8 @@ def create_plan_feature(
     feature_key: str,
     enabled: bool = True,
 ) -> PlanFeature:
-    get_plan(db, plan_id=plan_id)  # 404 if the plan itself doesn't exist
+    plan = get_plan(db, plan_id=plan_id)  # 404 if the plan itself doesn't exist
+    _assert_feature_in_plan_suite(db, plan, feature_key)
     feature = PlanFeature(plan_id=plan_id, feature_key=feature_key, enabled=enabled)
     db.add(feature)
     try:
@@ -340,6 +417,7 @@ def bulk_set_plan_features(
     for item in features:
         key = item["feature_key"]
         enabled = bool(item.get("enabled", True))
+        _assert_feature_in_plan_suite(db, plan, key)
         if key in existing_features:
             pf = existing_features[key]
             if pf.enabled != enabled:

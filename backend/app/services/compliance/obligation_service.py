@@ -577,7 +577,7 @@ def get_obligation_traceability(
             select(Asset).where(Asset.id == obligation.asset_id)
         ).scalar_one_or_none()
         if ast:
-            asset_dict["identifier"] = ast.name or str(ast.id)
+            asset_dict["identifier"] = ast.registration or str(ast.id)
             asset_dict["variant"] = ast.model or ast.asset_type
 
     # Why applies (Applicability Evaluation)

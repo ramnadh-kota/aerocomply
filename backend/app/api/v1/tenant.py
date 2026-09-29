@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db_session, require_permission
+from app.core.deps import get_current_user, get_db_session, require_feature, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser, MessageResponse
 from app.schemas.deletion import OrganizationDeletionRequest
@@ -311,7 +311,11 @@ def get_tenant_usage(
 # --- AUDIT ---
 
 
-@router.get("/audit", response_model=list[AuditEventResponse])
+@router.get(
+    "/audit",
+    response_model=list[AuditEventResponse],
+    dependencies=[Depends(require_feature("audit_logging"))],
+)
 def list_tenant_audit_events(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),

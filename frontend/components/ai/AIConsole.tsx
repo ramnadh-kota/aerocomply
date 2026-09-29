@@ -160,29 +160,24 @@ export function AIConsole({
     if (dataMode !== "REAL" || !isAuthenticated || !accessToken || aiNotConfigured) return;
     let cancelled = false;
     lisaApi
-      .ask(accessToken, { question: "status probe: are you configured?" })
+      .status(accessToken)
       .then((res) => {
         if (cancelled) return;
-        // A configured agent returned a real answer to the probe — confirmed.
-        void res;
-        setRealAgentProbed(true);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.code === "ai_not_configured") {
-          setAiNotConfigured(true);
+        if (res.configured) {
+          setRealAgentProbed(true);
         } else {
-          // Any other failure (network, auth, timeout) is also not a
-          // confirmed connection — stay honest and fall back rather than
-          // claim "real_data" on an error we don't understand.
           setAiNotConfigured(true);
         }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Fall back gracefully on error rather than claiming real_data
+        setAiNotConfigured(true);
       });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataMode, isAuthenticated, accessToken]);
+  }, [dataMode, isAuthenticated, accessToken, aiNotConfigured]);
 
   // Backend-authoritative proactive alerts (REAL mode only). Deterministic
   // — derived entirely from persisted domain records, requires no LLM/AI

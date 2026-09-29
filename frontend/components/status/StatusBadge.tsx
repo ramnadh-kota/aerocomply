@@ -478,3 +478,85 @@ const INTELLIGENCE_AEROSPACE_STATUS_MAP: Record<string, BadgeKind> = {
 export function intelligenceAerospaceStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
   return { status: INTELLIGENCE_AEROSPACE_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
 }
+
+// M7 Proactive Intelligence Signal Badges
+const SIGNAL_SEVERITY_MAP: Record<string, BadgeKind> = {
+  CRITICAL: "NON_COMPLIANT",
+  HIGH: "REVIEW_REQUIRED",
+  MEDIUM: "PENDING",
+  LOW: "COMPLIANT",
+  INFO: "UNKNOWN",
+};
+
+export function signalSeverityBadge(severity: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: SIGNAL_SEVERITY_MAP[severity] ?? "UNKNOWN", label: severity };
+}
+
+const SIGNAL_PRIORITY_MAP: Record<string, BadgeKind> = {
+  IMMEDIATE: "NON_COMPLIANT",
+  UPCOMING: "REVIEW_REQUIRED",
+  WATCHLIST: "PENDING",
+  INFORMATIONAL: "UNKNOWN",
+};
+
+export function signalPriorityBadge(priority: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: SIGNAL_PRIORITY_MAP[priority] ?? "UNKNOWN", label: priority };
+}
+
+const SIGNAL_STATUS_MAP: Record<string, BadgeKind> = {
+  OPEN: "PENDING",
+  ACKNOWLEDGED: "REVIEW_REQUIRED",
+  IN_REVIEW: "INSUFFICIENT_DATA",
+  RESOLVED: "COMPLIANT",
+  DISMISSED: "WRITTEN_OFF",
+};
+
+export function signalStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: SIGNAL_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
+
+const SIGNAL_TREND_MAP: Record<string, BadgeKind> = {
+  WORSENING: "NON_COMPLIANT",
+  STABLE: "PENDING",
+  IMPROVING: "COMPLIANT",
+};
+
+export function signalTrendBadge(trend: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: SIGNAL_TREND_MAP[trend] ?? "UNKNOWN", label: trend };
+}
+
+// H1 -- HUMS foundation health status (backend/app/schemas/hums.py
+// HUMSComponentHealth.status / HUMSAssetHealthSummary.overall_status).
+// INSUFFICIENT_DATA is never coerced to HEALTHY -- same "unknown is not
+// false" invariant as the rest of this file.
+const HUMS_HEALTH_STATUS_MAP: Record<string, BadgeKind> = {
+  HEALTHY: "COMPLIANT",
+  DEGRADED: "REVIEW_REQUIRED",
+  CRITICAL: "NON_COMPLIANT",
+  INSUFFICIENT_DATA: "INSUFFICIENT_DATA",
+};
+
+export function humsHealthStatusBadge(status: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: HUMS_HEALTH_STATUS_MAP[status] ?? "UNKNOWN", label: status.replace(/_/g, " ") };
+}
+
+// H3 -- baseline-driven health-intelligence state (backend
+// app/services/hums/health_engine.py HealthState). A distinct, wider
+// vocabulary than H1's HUMS_HEALTH_STATUS_MAP above (adds WATCH/WARNING) --
+// kept as its own mapper rather than merged, matching the same "don't
+// silently coerce a different vocabulary" precedent as
+// intelligenceRiskLevelBadge's comment earlier in this file.
+const HUMS_HEALTH_INTELLIGENCE_STATE_MAP: Record<string, BadgeKind> = {
+  HEALTHY: "COMPLIANT",
+  WATCH: "PENDING",
+  DEGRADED: "REVIEW_REQUIRED",
+  WARNING: "NON_COMPLIANT",
+  CRITICAL: "NON_COMPLIANT",
+  UNKNOWN: "UNKNOWN",
+  INSUFFICIENT_DATA: "INSUFFICIENT_DATA",
+};
+
+export function humsHealthIntelligenceStateBadge(state: string): { status: Parameters<typeof StatusBadge>[0]["status"]; label: string } {
+  return { status: HUMS_HEALTH_INTELLIGENCE_STATE_MAP[state] ?? "UNKNOWN", label: state.replace(/_/g, " ") };
+}
+

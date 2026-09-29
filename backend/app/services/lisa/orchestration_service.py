@@ -737,6 +737,95 @@ def _investigate_proactive_intelligence(
     )
 
 
+def _investigate_telemetry_hums(
+    db: Session, user: CurrentUser, resolution: MessageResolution
+) -> InvestigationResult:
+    context = resolution.context
+    if context.current_aircraft_id is None:
+        return _needs_entity(Intent.TELEMETRY_HUMS, "aircraft or drone")
+
+    budget = _CallBudget(db, user)
+    asset_id_str = str(context.current_aircraft_id)
+    
+    from sqlalchemy import select
+    from app.models.asset import Asset
+
+    asset = db.execute(
+        select(Asset).where(
+            Asset.id == context.current_aircraft_id,
+            Asset.organization_id == user.organization_id,
+        )
+    ).scalar_one_or_none()
+    reg = (asset.registration or asset.serial_number) if asset else "this asset"
+
+    # 1. Fetch Telemetry Status
+    try:
+        telemetry_status = budget.call("get_asset_telemetry_status", {"asset_id": asset_id_str})
+    except AeroComplyError as exc:
+        return _error_result(Intent.TELEMETRY_HUMS, exc, budget.tools_invoked)
+
+    # 2. Fetch HUMS Health Summary / Intelligence
+    try:
+        hums_health = budget.call("get_asset_hums_health", {"asset_id": asset_id_str})
+    except AeroComplyError:
+        hums_health = None
+
+    # 3. Fetch Proactive Signals for this Asset
+    try:
+        proactive_data = budget.call("get_asset_proactive_signals", {"asset_id": asset_id_str})
+    except AeroComplyError:
+        proactive_data = None
+
+    what_i_found: list[str] = []
+    tel_state = (telemetry_status or {}).get("telemetry_state", "NO_TELEMETRY_RECORDED")
+    last_rx = (telemetry_status or {}).get("last_received_at")
+    src = (telemetry_status or {}).get("source_system")
+
+    if tel_state == "NO_TELEMETRY_RECORDED":
+        what_i_found.append(f"No telemetry data has been recorded for {reg}.")
+        headline = f"No telemetry recorded for {reg}. Health status cannot be confirmed without verified data."
+        why_it_matters = "Airworthiness standards require operational and sensor evidence before declaring nominal health."
+        next_step = f"Verify telemetry ingest adapter and external mapping for {reg}."
+    else:
+        what_i_found.append(
+            f"Telemetry state: {tel_state} (Source: {src or 'UNKNOWN'}, Last received: {last_rx or 'N/A'})."
+        )
+        overall_status = (hums_health or {}).get("overall_status", "INSUFFICIENT_DATA")
+        active_exceedances = (hums_health or {}).get("active_exceedance_count", 0)
+
+        what_i_found.append(
+            f"HUMS health verdict: {overall_status} ({active_exceedances} active exceedance(s))."
+        )
+
+        signals = (proactive_data or {}).get("signals", [])
+        hums_signals = [
+            s for s in signals if "HUMS" in s.get("signal_type", "") or "TELEMETRY" in s.get("signal_type", "")
+        ]
+
+        for hs in hums_signals[:3]:
+            what_i_found.append(f"[{hs.get('severity')}] {hs.get('headline')}")
+
+        if active_exceedances > 0 or overall_status in ("CRITICAL", "DEGRADED"):
+            headline = f"Telemetry alert for {reg}: {overall_status} condition ({active_exceedances} active exceedance(s))."
+            why_it_matters = "Abnormal sensor telemetry indicates potential mechanical wear or parameter breach."
+            next_step = "Perform physical sensor inspection and review maintenance work orders."
+        else:
+            headline = f"Telemetry for {reg} is {tel_state} with {overall_status} HUMS health."
+            why_it_matters = "Operational and vibration parameters are monitored against baseline limits."
+            next_step = "Continue routine flight telemetry logging."
+
+    return InvestigationResult(
+        intent=Intent.TELEMETRY_HUMS.value,
+        status="ANSWERED",
+        headline=headline,
+        tools_invoked=budget.tools_invoked,
+        what_i_found=what_i_found,
+        why_it_matters=why_it_matters,
+        next_step=next_step,
+        related_records=[RelatedRecord(label="Asset", id=asset_id_str)],
+    )
+
+
 _INVESTIGATORS = {
     Intent.AOG: _investigate_aog,
     Intent.RELEASE_READINESS: _investigate_release_readiness,
@@ -745,6 +834,7 @@ _INVESTIGATORS = {
     Intent.COMPLIANCE: _investigate_compliance,
     Intent.ASSESSMENT: _investigate_assessment,
     Intent.PROACTIVE_INTELLIGENCE: _investigate_proactive_intelligence,
+    Intent.TELEMETRY_HUMS: _investigate_telemetry_hums,
 }
 
 # Which entity_type(s) each intent's investigator actually reads from
@@ -759,6 +849,7 @@ _INTENT_ENTITY_TYPES: dict[Intent, tuple[str, ...]] = {
     Intent.COMPLIANCE: ("aircraft",),
     Intent.ASSESSMENT: (),
     Intent.PROACTIVE_INTELLIGENCE: ("aircraft",),
+    Intent.TELEMETRY_HUMS: ("aircraft",),
 }
 
 

@@ -58,8 +58,27 @@ def _auth_headers(user: User) -> dict[str, str]:
 
 @pytest.fixture
 def org_uat(db_session: Session) -> Organization:
+    from tests.integration.conftest import grant_features
+
     org = Organization(name=f"UAT Air Operations {uuid.uuid4().hex[:6]}")
     db_session.add(org)
+    db_session.flush()
+    grant_features(
+        db_session,
+        org.id,
+        "aircraft_fleet_management",
+        "predictive_maintenance",
+        "work_order_management",
+        "inspections_management",
+        "procurement_management",
+        "compliance_management",
+        "advanced_compliance_intelligence",
+        "hums",
+        "flight_telemetry",
+        "digital_twin",
+        "mro_intelligence",
+        "lisa_ai_copilot",
+    )
     db_session.commit()
     db_session.refresh(org)
     return org
@@ -67,8 +86,27 @@ def org_uat(db_session: Session) -> Organization:
 
 @pytest.fixture
 def org_other(db_session: Session) -> Organization:
+    from tests.integration.conftest import grant_features
+
     org = Organization(name=f"Competitor Aero {uuid.uuid4().hex[:6]}")
     db_session.add(org)
+    db_session.flush()
+    grant_features(
+        db_session,
+        org.id,
+        "aircraft_fleet_management",
+        "predictive_maintenance",
+        "work_order_management",
+        "inspections_management",
+        "procurement_management",
+        "compliance_management",
+        "advanced_compliance_intelligence",
+        "hums",
+        "flight_telemetry",
+        "digital_twin",
+        "mro_intelligence",
+        "lisa_ai_copilot",
+    )
     db_session.commit()
     db_session.refresh(org)
     return org
@@ -85,6 +123,8 @@ def user_uat(db_session: Session, org_uat: Organization) -> User:
         email_verified=True,
     )
     db_session.add(user)
+    db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_name="ORG_ADMIN", organization_id=org_uat.id))
     db_session.commit()
     db_session.refresh(user)
     return user
@@ -101,6 +141,8 @@ def user_other(db_session: Session, org_other: Organization) -> User:
         email_verified=True,
     )
     db_session.add(user)
+    db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_name="ORG_ADMIN", organization_id=org_other.id))
     db_session.commit()
     db_session.refresh(user)
     return user
@@ -164,8 +206,8 @@ def test_uat_02_recurring_finding_pattern(
     db_session.add(aircraft)
 
     now = datetime.datetime.now(datetime.UTC)
-    f1 = Finding(organization_id=org_uat.id, asset_id=asset.id, title="Hydraulic leak left main gear", category="HYDRAULIC", severity=FindingSeverity.MAJOR, status=FindingStatus.CLOSED, created_at=now - datetime.timedelta(days=30))
-    f2 = Finding(organization_id=org_uat.id, asset_id=asset.id, title="Hydraulic pressure drop on gear retraction", category="HYDRAULIC", severity=FindingSeverity.CRITICAL, status=FindingStatus.OPEN, created_at=now - datetime.timedelta(days=2))
+    f1 = Finding(organization_id=org_uat.id, asset_id=asset.id, title="Hydraulic leak left main gear", description="Hydraulic leak found on left main gear assembly", severity=FindingSeverity.MAJOR, status=FindingStatus.CLOSED, created_at=now - datetime.timedelta(days=30))
+    f2 = Finding(organization_id=org_uat.id, asset_id=asset.id, title="Hydraulic pressure drop on gear retraction", description="Hydraulic pressure drop during retraction check", severity=FindingSeverity.CRITICAL, status=FindingStatus.OPEN, created_at=now - datetime.timedelta(days=2))
     db_session.add_all([f1, f2])
     db_session.flush()
 
@@ -183,17 +225,28 @@ def test_uat_03_compliance_evidence_missing_kleene(
     client: TestClient, db_session: Session, org_uat: Organization, user_uat: User
 ):
     """UAT-03: Compliance evidence missing -> evidence-gap signal, compliance remains UNKNOWN, no false compliance."""
+    from app.models.compliance import RegulatoryRequirement
+
     asset = Asset(organization_id=org_uat.id, asset_type=AssetType.AIRCRAFT, model="Cessna 208")
     db_session.add(asset)
+    db_session.flush()
+
+    reg_req = RegulatoryRequirement(
+        organization_id=org_uat.id,
+        authority="FAA",
+        requirement_number="FAA AD 2026-14-02",
+        title="Wing Spar Inspection Requirement",
+        description="Inspect wing spar attachment points for stress fatigue.",
+    )
+    db_session.add(reg_req)
     db_session.flush()
 
     ob = ComplianceObligation(
         organization_id=org_uat.id,
         asset_id=asset.id,
-        title="AD 2026-14-02 Wing Spar Inspection Obligation",
-        regulatory_reference="FAA AD 2026-14-02",
-        status=ComplianceState.UNKNOWN,
-        applicability_decision="APPLICABLE",
+        requirement_id=reg_req.id,
+        status="UNKNOWN",
+        required_action="AD 2026-14-02 Wing Spar Inspection Obligation",
     )
     db_session.add(ob)
     db_session.flush()
@@ -242,10 +295,10 @@ def test_uat_05_fleet_level_pattern(
     db_session.flush()
 
     now = datetime.datetime.now(datetime.UTC)
-    db_session.add(Finding(organization_id=org_uat.id, asset_id=a1.id, title="Transponder Mode S drop 1", category="AVIONICS", severity=FindingSeverity.MINOR, status=FindingStatus.CLOSED, created_at=now - datetime.timedelta(days=10)))
-    db_session.add(Finding(organization_id=org_uat.id, asset_id=a1.id, title="Transponder Mode S drop 2", category="AVIONICS", severity=FindingSeverity.MAJOR, status=FindingStatus.OPEN, created_at=now - datetime.timedelta(days=2)))
-    db_session.add(Finding(organization_id=org_uat.id, asset_id=a2.id, title="TCAS intermittent fail 1", category="AVIONICS", severity=FindingSeverity.MINOR, status=FindingStatus.CLOSED, created_at=now - datetime.timedelta(days=12)))
-    db_session.add(Finding(organization_id=org_uat.id, asset_id=a2.id, title="TCAS intermittent fail 2", category="AVIONICS", severity=FindingSeverity.MAJOR, status=FindingStatus.OPEN, created_at=now - datetime.timedelta(days=1)))
+    db_session.add(Finding(organization_id=org_uat.id, asset_id=a1.id, title="Transponder Mode S drop 1", description="Avionics transponder drop 1", severity=FindingSeverity.MINOR, status=FindingStatus.CLOSED, created_at=now - datetime.timedelta(days=10)))
+    db_session.add(Finding(organization_id=org_uat.id, asset_id=a1.id, title="Transponder Mode S drop 2", description="Avionics transponder drop 2", severity=FindingSeverity.MAJOR, status=FindingStatus.OPEN, created_at=now - datetime.timedelta(days=2)))
+    db_session.add(Finding(organization_id=org_uat.id, asset_id=a2.id, title="TCAS intermittent fail 1", description="Avionics TCAS fail 1", severity=FindingSeverity.MINOR, status=FindingStatus.CLOSED, created_at=now - datetime.timedelta(days=12)))
+    db_session.add(Finding(organization_id=org_uat.id, asset_id=a2.id, title="TCAS intermittent fail 2", description="Avionics TCAS fail 2", severity=FindingSeverity.MAJOR, status=FindingStatus.OPEN, created_at=now - datetime.timedelta(days=1)))
     db_session.flush()
 
     headers = _auth_headers(user_uat)
@@ -338,7 +391,7 @@ def test_uat_09_and_10_lisa_grounded_intelligence_queries(
     conv_context_asset = LisaConversationContext(organization_id=org_uat.id, user_id=user_uat.id, current_aircraft_id=aircraft.id)
     resolution_asset = MessageResolution(
         context=conv_context_asset,
-        resolved=[ResolvedEntity(entity_type="aircraft", entity_id=aircraft.id, display_name="KTA-099", raw_mention="KTA-099", confidence=1.0)],
+        resolved=[ResolvedEntity(entity_type="aircraft", entity_id=str(aircraft.id), display="KTA-099")],
     )
     result_asset = orchestration_service.investigate(
         db_session, user_uat, question="why is this asset high priority?", resolution=resolution_asset

@@ -8,22 +8,28 @@ from app.api.v1 import (
     assessments,
     assets,
     auth,
+    commercial_platform,
     compliance,
     control_center,
     data_import,
     deferred_items,
+    digital_twin,
     drones,
+    edge_hardware,
     entitlements,
     evidence,
     facilities,
     findings,
     health,
+    hums,
+    hypercare,
     inspections,
     intelligence,
     inventory,
     lisa,
     maintenance,
     missions,
+    mro_intelligence,
     part_requirements,
     parts,
     platform,
@@ -34,8 +40,10 @@ from app.api.v1 import (
     receiving,
     regulatory,
     release_readiness,
+    sso,
     tat,
     technicians,
+    telemetry,
     tenant,
     users,
     vendor_part_availability,
@@ -86,3 +94,12 @@ api_router.include_router(data_import.router)
 api_router.include_router(entitlements.router)
 api_router.include_router(tenant.router)
 api_router.include_router(aerospace_intelligence.router)
+api_router.include_router(hums.router)
+api_router.include_router(telemetry.router)
+api_router.include_router(telemetry.webhook_router)
+api_router.include_router(sso.router)
+api_router.include_router(hypercare.router)
+api_router.include_router(digital_twin.router)
+api_router.include_router(edge_hardware.router)
+api_router.include_router(commercial_platform.router)
+api_router.include_router(mro_intelligence.router)

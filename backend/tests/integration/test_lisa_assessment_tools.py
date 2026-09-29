@@ -29,8 +29,28 @@ def _user(org_id: uuid.UUID, roles: list[str]) -> CurrentUser:
 
 
 def _create_org_user(db_session, org_id):
+    from tests.integration.conftest import grant_features
+
     if db_session.get(Organization, org_id) is None:
         db_session.add(Organization(id=org_id, name="Test Org"))
+        db_session.flush()
+        grant_features(
+            db_session,
+            org_id,
+            "aircraft_fleet_management",
+            "work_order_management",
+            "inspections_management",
+            "procurement_management",
+            "compliance_management",
+            "advanced_compliance_intelligence",
+            "predictive_maintenance",
+            "hums",
+            "flight_telemetry",
+            "digital_twin",
+            "mro_intelligence",
+            "lisa_ai_copilot",
+            "release_readiness",
+        )
         db_session.commit()
     user = User(
         organization_id=org_id,
@@ -54,6 +74,7 @@ def test_get_assessments_tool_scoped_to_tenant(db_session):
     org_a = uuid.uuid4()
     org_b = uuid.uuid4()
     _create_org_user(db_session, org_a)
+    _create_org_user(db_session, org_b)
     engine.create_assessment(
         db_session,
         organization_id=org_a,
@@ -89,6 +110,7 @@ def test_get_assessment_tool_tenant_isolated(db_session):
     org_a = uuid.uuid4()
     org_b = uuid.uuid4()
     _create_org_user(db_session, org_a)
+    _create_org_user(db_session, org_b)
     assessment = engine.create_assessment(
         db_session,
         organization_id=org_a,

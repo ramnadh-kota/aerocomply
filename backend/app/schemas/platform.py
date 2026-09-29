@@ -27,6 +27,7 @@ class ProvisionOrganizationRequest(BaseModel):
     organization."""
 
     organization_name: str = Field(min_length=1, max_length=255)
+    suite_id: uuid.UUID | None = None
     plan_id: uuid.UUID
     subscription_status: Literal["TRIALING", "ACTIVE"] = "TRIALING"
     admin_email: EmailStr
@@ -37,6 +38,9 @@ class ProvisionOrganizationResponse(BaseModel):
     organization_id: uuid.UUID
     organization_name: str
     organization_status: str
+    suite_id: uuid.UUID | None = None
+    suite_code: str | None = None
+    suite_name: str | None = None
     plan_id: uuid.UUID
     subscription_id: uuid.UUID
     subscription_status: str

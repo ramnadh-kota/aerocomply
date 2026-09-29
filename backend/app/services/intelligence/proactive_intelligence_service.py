@@ -21,9 +21,11 @@ from app.models.asset_baseline import AssetHistoricalBaseline
 from app.models.battery import Battery, BatteryStatus
 from app.models.compliance import ComplianceAssessment, ComplianceAssessmentStatus, ComplianceObligation, ComplianceState
 from app.models.component import Component, ComponentStatus
-from app.models.evidence import EvidenceFile
+from app.models.evidence import Evidence, EvidenceFile
+from app.models.task import Task
 from app.models.finding import Finding, FindingSeverity, FindingStatus
 from app.models.flight import Flight
+from app.models.hums import HUMSExceedance, HUMSSensor, HUMSSensorReading
 from app.models.inspection_requirement import InspectionRequirement
 from app.models.installation_history import ComponentInstallation
 from app.models.proactive_signal import ProactiveSignalRecord
@@ -170,7 +172,7 @@ def _evaluate_maintenance_thresholds(
     ).scalars().all()
 
     for bat in batteries:
-        cycle_limit = bat.max_cycles or 300
+        cycle_limit = getattr(bat, "max_cycles", None) or 300
         cycles_left = cycle_limit - bat.cycle_count
         if bat.health_percent is not None and bat.health_percent <= 80.0:
             signals.append({
@@ -419,10 +421,24 @@ def _evaluate_recurring_findings(
         ).order_by(Finding.created_at.desc())
     ).scalars().all()
 
-    # Group findings by category or component
+    # Group findings by category or component or system keyword
+    SYSTEM_KEYWORDS = ["HYDRAULIC", "AVIONICS", "ENGINE", "BRAKE", "ELECTRICAL", "LANDING GEAR", "FUEL", "TRANSPONDER", "TCAS", "FLIGHT CONTROL", "CABIN", "STRUCTURAL"]
+
     category_map: dict[str, list[Finding]] = {}
     for f in findings:
-        cat = (f.category or "UNSPECIFIED").strip().upper()
+        cat = getattr(f, "category", None) or getattr(f, "safety_significance", None)
+        if not cat:
+            combined_text = f"{f.title} {f.description or ''}".upper()
+            matched = False
+            for kw in SYSTEM_KEYWORDS:
+                if kw in combined_text:
+                    cat = kw
+                    matched = True
+                    break
+            if not matched:
+                cat = (f.title or "UNSPECIFIED").split()[0].upper()
+        else:
+            cat = str(cat).strip().upper()
         category_map.setdefault(cat, []).append(f)
 
     for cat, items in category_map.items():
@@ -435,7 +451,7 @@ def _evaluate_recurring_findings(
                 SignalEvidenceRef(
                     source_type="Finding",
                     source_id=str(item.id),
-                    label=f"Finding {item.finding_number or str(item.id)[:8]}",
+                    label=f"Finding {getattr(item, 'finding_number', None) or str(item.id)[:8]}",
                     metric="severity",
                     current_value=str(item.severity),
                     threshold_value="RECURRING",
@@ -569,7 +585,12 @@ def _evaluate_compliance_evidence_gaps(
         select(ComplianceObligation).where(
             ComplianceObligation.organization_id == organization_id,
             ComplianceObligation.asset_id == asset.id,
-            ComplianceObligation.status == ComplianceState.UNKNOWN,
+            ComplianceObligation.status.in_([
+                "UNKNOWN",
+                ComplianceState.NOT_EVALUATED.value,
+                ComplianceState.REVIEW_REQUIRED.value,
+                ComplianceState.PENDING.value,
+            ]),
         )
     ).scalars().all()
 
@@ -591,11 +612,11 @@ def _evaluate_compliance_evidence_gaps(
                 SignalEvidenceRef(
                     source_type="ComplianceObligation",
                     source_id=str(ob.id),
-                    label=ob.title,
+                    label=ob.required_action or f"Obligation {str(ob.id)[:8]}",
                     metric="compliance_state",
                     current_value=ob.status,
                     threshold_value="COMPLIANT",
-                    details=f"Authority Ref: {ob.regulatory_reference or 'N/A'}",
+                    details="Regulatory Compliance Obligation",
                 )
                 for ob in unknown_obligations[:4]
             ],
@@ -625,9 +646,15 @@ def _evaluate_compliance_evidence_gaps(
     for wo in completed_wo_no_evidence:
         # Check if evidence file attached
         evidence_count = db.execute(
-            select(func.count(EvidenceFile.id)).where(
+            # EvidenceFile has no work_order_id (the old filter raised
+            # AttributeError for any asset with a completed work order); files
+            # reach a work order via Evidence -> Task.
+            select(func.count(EvidenceFile.id))
+            .join(Evidence, Evidence.id == EvidenceFile.evidence_id)
+            .join(Task, Task.id == Evidence.task_id)
+            .where(
                 EvidenceFile.organization_id == organization_id,
-                EvidenceFile.work_order_id == wo.id,
+                Task.work_order_id == wo.id,
             )
         ).scalar() or 0
 
@@ -725,6 +752,175 @@ def _evaluate_readiness_degradation(
                 ),
             ],
         })
+
+    return signals
+
+
+def _evaluate_hums_telemetry_signals(
+    db: Session, organization_id: uuid.UUID, asset: Asset, reg_label: str
+) -> list[dict[str, Any]]:
+    """Evaluates telemetry freshness and active HUMS exceedances into deterministic early-warning signals."""
+    signals: list[dict[str, Any]] = []
+
+    # 1. Active HUMS Exceedances
+    exceedances = list(
+        db.execute(
+            select(HUMSExceedance).where(
+                HUMSExceedance.organization_id == organization_id,
+                HUMSExceedance.asset_id == asset.id,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    for exc in exceedances:
+        sensor = db.execute(
+            select(HUMSSensor).where(
+                HUMSSensor.id == exc.sensor_id,
+                HUMSSensor.organization_id == organization_id,
+            )
+        ).scalar_one_or_none()
+
+        sensor_code = sensor.sensor_code if sensor else "SENSOR"
+        param_name = exc.parameter or (sensor.measurement_type if sensor else "vibration")
+        sev = "CRITICAL" if exc.severity == "CRITICAL" else "HIGH"
+
+        signals.append({
+            "signal_key": f"hums_exceedance:{asset.id}:{exc.id}",
+            "signal_type": "HUMS_VIBRATION_EXCEEDANCE" if "vibration" in param_name.lower() else "HUMS_EXCEEDANCE",
+            "severity": sev,
+            "priority": sev,
+            "title": f"HUMS Exceedance — {sensor_code} ({param_name.title()})",
+            "headline": f"{param_name.title()} reading ({exc.observed_value} {exc.threshold_value}) on {reg_label} exceeded threshold limit.",
+            "explanation": [
+                f"Sensor '{sensor_code}' triggered an active {exc.severity} exceedance.",
+                f"Observed value is {exc.observed_value}, exceeding safety threshold limit of {exc.threshold_value}.",
+                "Abnormal telemetry readings indicate potential component degradation or structural stress.",
+            ],
+            "asset_id": asset.id,
+            "evidence": [
+                SignalEvidenceRef(
+                    source_type="HUMSExceedance",
+                    source_id=str(exc.id),
+                    label=f"Exceedance on {sensor_code}",
+                    metric=param_name,
+                    current_value=exc.observed_value,
+                    threshold_value=exc.threshold_value,
+                    details=f"Severity: {exc.severity}",
+                ),
+            ],
+            "contributing_factors": {
+                "exceedance_id": str(exc.id),
+                "sensor_id": str(exc.sensor_id),
+                "sensor_code": sensor_code,
+                "parameter": param_name,
+                "observed_value": exc.observed_value,
+                "threshold_value": exc.threshold_value,
+            },
+            "recommended_actions": [
+                SignalActionItem(
+                    action_type="INSPECT_COMPONENT",
+                    title="Inspect Sensor & Component",
+                    description=f"Perform physical and diagnostic inspection on {reg_label} for sensor {sensor_code}.",
+                    target_url=f"/fleet/aircraft/{asset.id}/health",
+                    requires_authorization=True,
+                ),
+                SignalActionItem(
+                    action_type="ASK_LISA",
+                    title="Ask LISA Telemetry Diagnostic",
+                    description=f"Query LISA for telemetry health verdict on {reg_label}.",
+                    target_url=f"/ai?q=What is the telemetry health verdict for {reg_label}",
+                    requires_authorization=False,
+                ),
+            ],
+        })
+
+    # 2. Telemetry Freshness Evaluation
+    sensors = list(
+        db.execute(
+            select(HUMSSensor).where(
+                HUMSSensor.organization_id == organization_id,
+                HUMSSensor.asset_id == asset.id,
+                HUMSSensor.status == "ACTIVE",
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    if sensors:
+        latest_reading = db.execute(
+            select(HUMSSensorReading)
+            .where(
+                HUMSSensorReading.organization_id == organization_id,
+                HUMSSensorReading.asset_id == asset.id,
+            )
+            .order_by(HUMSSensorReading.recorded_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        now = datetime.datetime.now(datetime.UTC)
+        if latest_reading:
+            reading_time = (
+                latest_reading.recorded_at
+                if latest_reading.recorded_at.tzinfo
+                else latest_reading.recorded_at.replace(tzinfo=datetime.UTC)
+            )
+            days_since = (now - reading_time).days
+
+            # Resolve configurable freshness policy
+            from app.services.telemetry_service import resolve_effective_freshness_policy
+            freshness_policy = resolve_effective_freshness_policy(db, organization_id, asset_id=asset.id)
+
+            if freshness_policy.get("is_active", True) and days_since >= freshness_policy.get("warning_threshold_days", 7):
+                is_critical = days_since >= freshness_policy.get("critical_threshold_days", 14)
+                severity_val = "HIGH" if is_critical else "MEDIUM"
+                priority_val = "HIGH" if is_critical else "MEDIUM"
+                threshold_val = freshness_policy.get("warning_threshold_days", 7)
+
+                signals.append({
+                    "signal_key": f"telemetry_stale:{asset.id}",
+                    "signal_type": "TELEMETRY_FRESHNESS",
+                    "severity": severity_val,
+                    "priority": priority_val,
+                    "title": f"Telemetry Data Stale ({days_since} Days) — {reg_label}",
+                    "headline": f"No telemetry received for {reg_label} since {reading_time.strftime('%Y-%m-%d')} ({days_since} days ago, threshold: {threshold_val}d).",
+                    "explanation": [
+                        f"Latest telemetry reading on {reg_label} was recorded on {reading_time.isoformat()}.",
+                        f"Configured policy threshold is {threshold_val} days (Critical: {freshness_policy.get('critical_threshold_days', 14)}d).",
+                        "Absence of fresh telemetry limits real-time health monitoring.",
+                        "System marks telemetry state as STALE (does not assert healthy or unserviceable).",
+                    ],
+                    "asset_id": asset.id,
+                    "evidence": [
+                        SignalEvidenceRef(
+                            source_type="HUMSSensorReading",
+                            source_id=str(latest_reading.id),
+                            label="Latest Sensor Reading",
+                            metric="days_since_reading",
+                            current_value=days_since,
+                            threshold_value=threshold_val,
+                            details=f"Last recorded at {reading_time.isoformat()}",
+                        ),
+                    ],
+                    "contributing_factors": {
+                        "latest_reading_id": str(latest_reading.id),
+                        "recorded_at": reading_time.isoformat(),
+                        "days_since": days_since,
+                        "warning_threshold_days": threshold_val,
+                        "critical_threshold_days": freshness_policy.get("critical_threshold_days", 14),
+                    },
+                    "recommended_actions": [
+                        SignalActionItem(
+                            action_type="MONITOR_ASSET",
+                            title="Verify Telemetry Link",
+                            description=f"Check telemetry ingest / FlightHub sync status for {reg_label}.",
+                            target_url=f"/assets/{asset.id}",
+                            requires_authorization=False,
+                        ),
+                    ],
+                })
 
     return signals
 
@@ -829,6 +1025,7 @@ def sync_and_get_signals(
         evaluated_signals.extend(_evaluate_utilization_trends(db, organization_id, ast, reg))
         evaluated_signals.extend(_evaluate_compliance_evidence_gaps(db, organization_id, ast, reg))
         evaluated_signals.extend(_evaluate_readiness_degradation(db, organization_id, ast, reg))
+        evaluated_signals.extend(_evaluate_hums_telemetry_signals(db, organization_id, ast, reg))
 
     # Evaluate fleet-wide patterns if evaluating whole organization
     if not asset_id:
@@ -946,7 +1143,7 @@ def sync_and_get_signals(
                 dismissed_at=r.dismissed_at,
                 dismissal_reason=r.dismissal_reason,
                 created_at=r.created_at,
-                updated_at=r.updated_at,
+                updated_at=getattr(r, "updated_at", None) or r.created_at,
             )
         )
 

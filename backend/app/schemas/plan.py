@@ -36,6 +36,8 @@ class PlanResponse(BaseModel):
     description: str | None
     is_active: bool
     suite_id: uuid.UUID | None = None
+    suite_code: str | None = None
+    suite_name: str | None = None
     asset_scope: str | None = None
     included_features_count: int = 0
     tenant_count: int = 0

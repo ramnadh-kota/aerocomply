@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_db_session, require_permission
 from app.core.permissions import Permission
+from app.models.product_catalog import ProductFeature
 from app.schemas.auth import CurrentUser
 from app.schemas.product_catalog import (
     ProductFeatureCreateRequest,
@@ -53,9 +54,14 @@ def get_product_catalog(
     return [ProductSuiteWithChildrenResponse.model_validate(s) for s in suites]
 
 
+from app.schemas.plan import PlanCreateRequest, PlanResponse
+from app.services import plan_service
+
+
 # --- Suites ------------------------------------------------------------
 
 
+@router.get("/suites", response_model=list[ProductSuiteResponse])
 @router.get("/product-suites", response_model=list[ProductSuiteResponse])
 def list_product_suites(
     db: Session = Depends(get_db_session),
@@ -65,6 +71,7 @@ def list_product_suites(
     return [ProductSuiteResponse.model_validate(s) for s in suites]
 
 
+@router.post("/suites", response_model=ProductSuiteResponse, status_code=201)
 @router.post("/product-suites", response_model=ProductSuiteResponse, status_code=201)
 def create_product_suite(
     payload: ProductSuiteCreateRequest,
@@ -78,12 +85,14 @@ def create_product_suite(
         code=payload.code,
         name=payload.name,
         description=payload.description,
+        icon=payload.icon,
         display_order=payload.display_order,
         is_active=payload.is_active,
     )
     return ProductSuiteResponse.model_validate(suite)
 
 
+@router.get("/suites/{suite_id}", response_model=ProductSuiteResponse)
 @router.get("/product-suites/{suite_id}", response_model=ProductSuiteResponse)
 def get_product_suite(
     suite_id: uuid.UUID,
@@ -94,6 +103,7 @@ def get_product_suite(
     return ProductSuiteResponse.model_validate(suite)
 
 
+@router.patch("/suites/{suite_id}", response_model=ProductSuiteResponse)
 @router.patch("/product-suites/{suite_id}", response_model=ProductSuiteResponse)
 def update_product_suite(
     suite_id: uuid.UUID,
@@ -108,10 +118,76 @@ def update_product_suite(
         suite_id=suite_id,
         name=payload.name,
         description=payload.description,
+        icon=payload.icon,
         display_order=payload.display_order,
         is_active=payload.is_active,
     )
     return ProductSuiteResponse.model_validate(suite)
+
+
+# --- Suite-Specific Plans ----------------------------------------------
+
+
+@router.get("/suites/{suite_id}/plans", response_model=list[PlanResponse])
+@router.get("/product-suites/{suite_id}/plans", response_model=list[PlanResponse])
+def list_suite_plans(
+    suite_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[PlanResponse]:
+    product_catalog_service.get_suite(db, suite_id=suite_id)
+    plans = plan_service.list_plans(db, suite_id=suite_id)
+    return [PlanResponse.model_validate(p) for p in plans]
+
+
+@router.post("/suites/{suite_id}/plans", response_model=PlanResponse, status_code=201)
+@router.post("/product-suites/{suite_id}/plans", response_model=PlanResponse, status_code=201)
+def create_suite_plan(
+    suite_id: uuid.UUID,
+    payload: PlanCreateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> PlanResponse:
+    product_catalog_service.get_suite(db, suite_id=suite_id)
+    plan = plan_service.create_plan(
+        db,
+        actor_user_id=current_user.id,
+        actor_organization_id=current_user.organization_id,
+        name=payload.name,
+        code=payload.code,
+        description=payload.description,
+        is_active=payload.is_active,
+        suite_id=suite_id,
+        asset_scope=payload.asset_scope,
+    )
+    return PlanResponse.model_validate(plan)
+
+
+@router.get("/suites/{suite_id}/modules", response_model=list[ProductModuleResponse])
+@router.get("/product-suites/{suite_id}/modules", response_model=list[ProductModuleResponse])
+def list_suite_modules(
+    suite_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[ProductModuleResponse]:
+    product_catalog_service.get_suite(db, suite_id=suite_id)
+    modules = product_catalog_service.list_modules(db, suite_id=suite_id)
+    return [ProductModuleResponse.model_validate(m) for m in modules]
+
+
+@router.get("/suites/{suite_id}/features", response_model=list[ProductFeatureResponse])
+@router.get("/product-suites/{suite_id}/features", response_model=list[ProductFeatureResponse])
+def list_suite_features(
+    suite_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> list[ProductFeatureResponse]:
+    suite = product_catalog_service.get_suite(db, suite_id=suite_id)
+    modules = product_catalog_service.list_modules(db, suite_id=suite.id)
+    features: list[ProductFeature] = []
+    for mod in modules:
+        features.extend(mod.features)
+    return [ProductFeatureResponse.model_validate(f) for f in features]
 
 
 # --- Modules -----------------------------------------------------------

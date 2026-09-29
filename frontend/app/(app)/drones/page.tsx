@@ -16,6 +16,7 @@ import {
 } from "@/lib/demo/demoDrones";
 import { AssetRegistrationModal } from "@/components/assets/AssetRegistrationModal";
 import { demoStore } from "@/lib/demo/demoStore";
+import { SuiteGuard } from "@/components/auth/SuiteGuard";
 
 function DemoDrones() {
   const [drones, setDrones] = useState<DroneResponse[]>(demoStore.getDrones());
@@ -442,8 +443,9 @@ function RealDrones() {
 
 export default function DronesPage() {
   const { sessionType } = useSession();
-  if (sessionType === "DEMO") {
-    return <DemoDrones />;
-  }
-  return <RealDrones />;
+  return (
+    <SuiteGuard requiredSuite="DRONE_UAV">
+      {sessionType === "DEMO" ? <DemoDrones /> : <RealDrones />}
+    </SuiteGuard>
+  );
 }

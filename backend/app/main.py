@@ -80,6 +80,11 @@ app.add_exception_handler(Exception, unhandled_error_handler)
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
+
+@app.get("/health", tags=["health"])
+def root_health_check() -> dict[str, str]:
+    return {"status": "ok", "service": settings.app_name}
+
 # Starlette always places its own ServerErrorMiddleware (which handles any
 # exception with no matching `app.exception_handlers` entry, and specifically
 # the handler registered above for the bare `Exception` class -- Starlette

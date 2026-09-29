@@ -25,10 +25,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AeroComplyError, ForbiddenError
+from app.core.feature_keys import (
+    canonicalize_feature_key,
+    is_default_on_feature,
+)
 from app.core.permissions import Permission, permissions_for_roles
+from app.models.aircraft import Aircraft
 from app.schemas.auth import CurrentUser
 from app.services import (
     aircraft_service,
@@ -53,8 +59,14 @@ from app.services import (
     vendor_fit_service,
     vendor_service,
     work_order_service,
+    mro_intelligence_service,
 )
 from app.services.assessment import engine as assessment_engine
+from app.services.entitlement_service import (
+    EntitlementResolutionStatus,
+    is_feature_allowed_for_suite,
+    resolve_entitlements,
+)
 from app.services.intelligence import context_service as intelligence_context_service
 from app.services.intelligence import fleet_intelligence_service
 from app.services.intelligence import proactive_intelligence_service
@@ -72,13 +84,70 @@ class ToolSpec:
     # requires (see the matching app/api/v1/*.py router) — Lisa never grants
     # a caller access to data their role couldn't already read directly.
     required_permission: Permission
+    required_feature: str | None = None
+    required_suite: str | None = None
 
 
-def _require_permission(user: CurrentUser, permission: Permission) -> None:
-    if permission.value not in permissions_for_roles(user.roles):
+def _require_permission(user: Any, permission: Permission) -> None:
+    roles = getattr(user, "roles", None)
+    if not roles:
+        user_roles = getattr(user, "role_links", None) or getattr(user, "user_roles", None)
+        if user_roles:
+            roles = [ur.role_name if hasattr(ur, "role_name") else str(ur) for ur in user_roles]
+        else:
+            roles = []
+    if not roles or permission.value not in permissions_for_roles(roles):
         raise ForbiddenError(
             f"Role does not have permission {permission.value}", code="forbidden"
         )
+
+
+def _require_entitlement(db: Session, user: CurrentUser, spec: ToolSpec) -> None:
+    org_id = getattr(user, "organization_id", None)
+    if not org_id:
+        raise ForbiddenError("User has no organization context", code="forbidden")
+
+    result = resolve_entitlements(db, organization_id=org_id)
+    _GRANTING_STATUSES = frozenset(
+        {EntitlementResolutionStatus.ACTIVE, EntitlementResolutionStatus.INACTIVE_PLAN}
+    )
+    if result.resolution_status not in _GRANTING_STATUSES:
+        raise ForbiddenError(
+            f"Organization subscription is not active (status: {result.resolution_status.value})",
+            code="SUITE_ENTITLEMENT_REQUIRED" if result.resolution_status == EntitlementResolutionStatus.NO_SUBSCRIPTION else "forbidden",
+        )
+
+    if spec.required_suite:
+        allowed_suites = {s.strip().upper() for s in spec.required_suite.split(",")}
+        current_suite = (result.suite_code or "").strip().upper()
+        if current_suite and current_suite not in allowed_suites:
+            raise ForbiddenError(
+                f"Organization product suite ({current_suite}) is not entitled to use tool '{spec.name}'. Required: {spec.required_suite}",
+                code="SUITE_ENTITLEMENT_REQUIRED",
+            )
+
+    if spec.required_feature:
+        feature_key = spec.required_feature
+        canonical = canonicalize_feature_key(feature_key)
+        configured = [
+            v for v in (
+                result.effective_features.get(feature_key),
+                result.effective_features.get(canonical),
+            ) if v is not None
+        ]
+        if configured:
+            is_entitled = any(configured)
+        else:
+            is_entitled = is_default_on_feature(canonical)
+
+        if not is_entitled:
+            outside_suite = bool(result.suite_code) and not is_feature_allowed_for_suite(
+                result.suite_code, feature_key
+            )
+            raise ForbiddenError(
+                f"Organization is not entitled to feature '{feature_key}' required by tool '{spec.name}'",
+                code="SUITE_ENTITLEMENT_REQUIRED" if outside_suite else "forbidden",
+            )
 
 
 def _uuid(raw: Any, field: str) -> uuid.UUID:
@@ -1037,11 +1106,218 @@ def _handle_get_proactive_intelligence_summary(
 def _handle_get_asset_proactive_signals(
     db: Session, user: CurrentUser, args: dict[str, Any]
 ) -> dict[str, Any]:
-    asset_id = _uuid(args["asset_id"], "asset_id")
+    raw_id = _uuid(args["asset_id"], "asset_id")
+    # Resolve to asset_id if raw_id is an Aircraft primary key
+    aircraft = db.execute(
+        select(Aircraft).where(
+            Aircraft.organization_id == user.organization_id,
+            Aircraft.id == raw_id,
+        )
+    ).scalar_one_or_none()
+    resolved_asset_id = aircraft.asset_id if (aircraft and aircraft.asset_id) else raw_id
+
     signals = proactive_intelligence_service.sync_and_get_signals(
-        db, organization_id=user.organization_id, asset_id=asset_id
+        db, organization_id=user.organization_id, asset_id=resolved_asset_id
     )
     return {"signals": [s.model_dump(mode="json") for s in signals]}
+
+
+def _handle_get_asset_hums_health(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    from app.services import hums_service
+
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    summary = hums_service.get_asset_health(db, organization_id=user.organization_id, asset_id=asset_id)
+    return summary.model_dump(mode="json")
+
+
+def _handle_get_asset_hums_features(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    from app.services import hums_service
+
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    feature_type = args.get("feature_type")
+    rows = hums_service.list_features(
+        db, organization_id=user.organization_id, asset_id=asset_id, feature_type=feature_type, limit=50
+    )
+    return {
+        "features": [
+            {
+                "sensor_id": str(r.sensor_id),
+                "feature_type": r.feature_type,
+                "value": r.value,
+                "unit": r.unit,
+                "quality": r.quality,
+                "window_end": r.window_end.isoformat(),
+                "sample_count": r.sample_count,
+            }
+            for r in rows
+        ]
+    }
+
+
+def _handle_get_asset_hums_health_intelligence(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    from app.services import hums_service
+
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    result = hums_service.get_asset_health_intelligence(db, organization_id=user.organization_id, asset_id=asset_id)
+    db.commit()
+    return result.model_dump(mode="json")
+
+
+def _handle_get_asset_telemetry_status(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    from app.services import telemetry_service
+
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    return telemetry_service.get_asset_telemetry_status(
+        db, organization_id=user.organization_id, asset_id=asset_id
+    )
+
+
+def _handle_get_asset_hums_diagnostics(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    from app.services import hums_service
+
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    rows = hums_service.list_asset_diagnostics(db, organization_id=user.organization_id, asset_id=asset_id)
+    return {
+        "diagnostics": [
+            {
+                "id": str(r.id),
+                "fault_code": r.fault_code,
+                "fault_name": r.fault_name,
+                "fault_domain": r.fault_domain,
+                "status": r.status,
+                "severity": r.severity,
+                "confidence": r.confidence,
+                "score": r.score,
+                "component_id": str(r.component_id) if r.component_id else None,
+                "explanation": r.explanation,
+                "primary_evidence": r.primary_evidence,
+                "supporting_evidence": r.supporting_evidence,
+                "contradicting_evidence": r.contradicting_evidence,
+                "rule_version": r.rule_version,
+                "detected_at": r.detected_at.isoformat(),
+            }
+            for r in rows
+        ]
+    }
+
+
+def _handle_get_asset_hums_prognostics(
+    db: Session, user: CurrentUser, args: dict[str, Any]
+) -> dict[str, Any]:
+    from app.services import hums_service
+
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    rows = hums_service.list_asset_prognostics(db, organization_id=user.organization_id, asset_id=asset_id)
+    return {
+        "prognostics": [
+            {
+                "id": str(r.id),
+                "sensor_id": str(r.sensor_id),
+                "component_id": str(r.component_id) if r.component_id else None,
+                "feature_type": r.feature_type,
+                "status": r.status,
+                "current_value": r.current_value,
+                "threshold_value": r.threshold_value,
+                "threshold_type": r.threshold_type,
+                "rul_estimate": r.rul_estimate,
+                "rul_lower": r.rul_lower,
+                "rul_upper": r.rul_upper,
+                "rul_unit": r.rul_unit,
+                "confidence": r.confidence,
+                "quality": r.quality,
+                "extrapolation_distance": r.extrapolation_distance,
+                "related_diagnostic_candidate_id": str(r.diagnostic_candidate_id) if r.diagnostic_candidate_id else None,
+                "explanation": r.explanation,
+                "calculated_at": r.calculated_at.isoformat(),
+                "note": "ESTIMATE — NOT A CERTIFIED LIFE LIMIT",
+            }
+            for r in rows
+        ]
+    }
+
+
+def _handle_get_digital_twin(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services import digital_twin_service
+
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    snapshot = digital_twin_service.get_asset_snapshot(db, organization_id=user.organization_id, asset_id=asset_id)
+    return snapshot.model_dump(mode="json")
+
+
+def _handle_get_component_genealogy(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services import digital_twin_service
+
+    component_id = _uuid(args["component_id"], "component_id")
+    entries = digital_twin_service.get_component_genealogy(db, organization_id=user.organization_id, component_id=component_id)
+    return {"genealogy": [e.model_dump(mode="json") for e in entries]}
+
+
+def _handle_get_asset_twin_timeline(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services import digital_twin_service
+
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    events = digital_twin_service.get_asset_timeline(db, organization_id=user.organization_id, asset_id=asset_id)
+    return {"timeline": [e.model_dump(mode="json") for e in events]}
+
+
+# --- H7: MRO + Compliance + Readiness Intelligence Integration -------------
+# Every handler below simply wraps an existing mro_intelligence_service
+# function -- none recomputes or reimplements business logic. Each returns
+# facts + source refs + confidence/freshness + explicit limitations, never
+# inventing missing evidence (missing data renders as UNKNOWN/DATA_UNAVAILABLE
+# fields already present on the underlying schema, never silently omitted).
+
+def _handle_get_asset_mro_intelligence(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    result = mro_intelligence_service.get_asset_mro_intelligence(db, organization_id=user.organization_id, asset_id=asset_id)
+    db.commit()
+    return result.model_dump(mode="json")
+
+
+def _handle_get_asset_maintenance_candidates(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    mro_intelligence_service.generate_maintenance_candidates(db, organization_id=user.organization_id, asset_id=asset_id)
+    candidates = mro_intelligence_service.list_asset_candidates(db, organization_id=user.organization_id, asset_id=asset_id)
+    db.commit()
+    from app.schemas.mro_intelligence import MaintenanceCandidateOut
+
+    return {"candidates": [MaintenanceCandidateOut.model_validate(c).model_dump(mode="json") for c in candidates]}
+
+
+def _handle_get_asset_compliance_impact(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    result = mro_intelligence_service.get_compliance_impact(db, organization_id=user.organization_id, asset_id=asset_id)
+    return result.model_dump(mode="json")
+
+
+def _handle_get_asset_readiness_impact(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    result = mro_intelligence_service.get_readiness_impact(db, organization_id=user.organization_id, asset_id=asset_id)
+    db.commit()
+    return result.model_dump(mode="json")
+
+
+def _handle_get_asset_operational_impact(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    result = mro_intelligence_service.get_operational_impact(db, organization_id=user.organization_id, asset_id=asset_id)
+    db.commit()
+    return result.model_dump(mode="json")
+
+
+def _handle_get_asset_integration_conflicts(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    asset_id = _uuid(args["asset_id"], "asset_id")
+    conflicts = mro_intelligence_service.detect_conflicts(db, organization_id=user.organization_id, asset_id=asset_id)
+    return {"conflicts": [c.model_dump(mode="json") for c in conflicts]}
 
 
 TOOL_REGISTRY: list[ToolSpec] = [
@@ -1056,6 +1332,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_aircraft,
     
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="list_aircraft",
@@ -1064,6 +1342,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_list_aircraft,
     
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="get_work_order",
@@ -1076,6 +1356,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_work_order,
     
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="work_order_management",
     ),
     ToolSpec(
         name="get_work_order_tasks",
@@ -1088,6 +1369,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_work_order_tasks,
 
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="work_order_management",
     ),
     ToolSpec(
         name="get_task",
@@ -1102,6 +1384,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_task,
 
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="work_order_management",
     ),
     ToolSpec(
         name="get_evidence",
@@ -1114,6 +1397,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_evidence,
     
     required_permission=Permission.EVIDENCE_READ,
+        required_feature="work_order_management",
     ),
     ToolSpec(
         name="list_evidence_for_task",
@@ -1126,6 +1410,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_list_evidence_for_task,
     
     required_permission=Permission.EVIDENCE_READ,
+        required_feature="work_order_management",
     ),
     ToolSpec(
         name="get_inspection",
@@ -1140,6 +1425,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_inspection,
     
     required_permission=Permission.INSPECTION_READ,
+        required_feature="inspections_management",
     ),
     ToolSpec(
         name="list_inspections_for_work_order",
@@ -1152,6 +1438,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_list_inspections_for_work_order,
     
     required_permission=Permission.INSPECTION_READ,
+        required_feature="inspections_management",
     ),
     ToolSpec(
         name="get_tat",
@@ -1167,6 +1454,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_tat,
     
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="work_order_management",
     ),
     ToolSpec(
         name="get_fleet_tat",
@@ -1175,6 +1463,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_fleet_tat,
     
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="work_order_management",
     ),
     ToolSpec(
         name="get_release_readiness",
@@ -1190,6 +1479,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_release_readiness,
     
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="release_readiness",
     ),
     ToolSpec(
         name="get_parts",
@@ -1198,6 +1488,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_parts,
     
     required_permission=Permission.PART_READ,
+        required_feature="procurement_management",
     ),
     ToolSpec(
         name="get_shortages_for_work_order",
@@ -1210,6 +1501,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_shortages_for_work_order,
     
     required_permission=Permission.PART_READ,
+        required_feature="procurement_management",
     ),
     ToolSpec(
         name="get_inventory_transactions",
@@ -1224,6 +1516,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_inventory_transactions,
     
     required_permission=Permission.PART_READ,
+        required_feature="procurement_management",
     ),
     ToolSpec(
         name="get_vendors",
@@ -1232,6 +1525,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_vendors,
     
     required_permission=Permission.VENDOR_READ,
+        required_feature="procurement_management",
     ),
     ToolSpec(
         name="get_vendor_fit",
@@ -1248,6 +1542,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_vendor_fit,
     
     required_permission=Permission.VENDOR_READ,
+        required_feature="procurement_management",
     ),
     ToolSpec(
         name="get_procurement_requests",
@@ -1262,6 +1557,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_procurement_requests,
     
     required_permission=Permission.PROCUREMENT_READ,
+        required_feature="procurement_management",
     ),
     ToolSpec(
         name="get_purchase_orders",
@@ -1276,6 +1572,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_purchase_orders,
     
     required_permission=Permission.PROCUREMENT_READ,
+        required_feature="procurement_management",
     ),
     ToolSpec(
         name="get_aog_events",
@@ -1294,6 +1591,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_aog_events,
 
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="get_aog_recovery_status",
@@ -1317,6 +1616,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_aog_recovery_status,
 
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="check_technician_authorization",
@@ -1338,6 +1639,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_check_technician_authorization,
 
     required_permission=Permission.TECHNICIAN_READ,
+        required_feature="work_order_management",
     ),
     ToolSpec(
         name="get_maintenance_due",
@@ -1353,6 +1655,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_maintenance_due,
     
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="get_deferred_items",
@@ -1368,6 +1672,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_deferred_items,
     
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="get_compliance_assessments",
@@ -1380,6 +1686,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_compliance_assessments,
     
     required_permission=Permission.COMPLIANCE_ASSESS,
+        required_feature="compliance_management",
     ),
     ToolSpec(
         name="get_regulatory_documents",
@@ -1396,6 +1703,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_regulatory_documents,
     
     required_permission=Permission.REGULATION_READ,
+        required_feature="compliance_management",
     ),
     ToolSpec(
         name="get_regulatory_provider_status",
@@ -1408,6 +1716,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_regulatory_provider_status,
     
     required_permission=Permission.REGULATION_READ,
+        required_feature="compliance_management",
     ),
     ToolSpec(
         name="get_control_center_summary",
@@ -1420,6 +1729,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_control_center_summary,
     
     required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="get_control_center_fleet",
@@ -1430,6 +1741,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         input_schema={"type": "object", "properties": {}},
         handler=_handle_get_control_center_fleet,
         required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="get_proactive_alerts",
@@ -1441,6 +1754,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         input_schema={"type": "object", "properties": {}},
         handler=_handle_get_proactive_alerts,
         required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="get_daily_brief",
@@ -1451,6 +1766,8 @@ TOOL_REGISTRY: list[ToolSpec] = [
         input_schema={"type": "object", "properties": {}},
         handler=_handle_get_daily_brief,
         required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management",
+        required_suite="AIRCRAFT,HELICOPTER,EVTOL_AAM",
     ),
     ToolSpec(
         name="get_assessments",
@@ -1460,6 +1777,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         input_schema={"type": "object", "properties": {}},
         handler=_handle_get_assessments,
         required_permission=Permission.ASSESSMENT_READ,
+        required_feature="advanced_compliance_intelligence",
     ),
     ToolSpec(
         name="get_assessment",
@@ -1474,6 +1792,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_get_assessment,
         required_permission=Permission.ASSESSMENT_READ,
+        required_feature="advanced_compliance_intelligence",
     ),
     ToolSpec(
         name="run_assessment",
@@ -1489,6 +1808,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_run_assessment,
         required_permission=Permission.ASSESSMENT_WRITE,
+        required_feature="advanced_compliance_intelligence",
     ),
     ToolSpec(
         name="get_assessment_findings",
@@ -1500,6 +1820,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_get_assessment_findings,
         required_permission=Permission.ASSESSMENT_READ,
+        required_feature="advanced_compliance_intelligence",
     ),
     ToolSpec(
         name="get_assessment_risks",
@@ -1515,6 +1836,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_get_assessment_risks,
         required_permission=Permission.ASSESSMENT_READ,
+        required_feature="advanced_compliance_intelligence",
     ),
     ToolSpec(
         name="get_assessment_gaps",
@@ -1528,6 +1850,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_get_assessment_gaps,
         required_permission=Permission.ASSESSMENT_READ,
+        required_feature="advanced_compliance_intelligence",
     ),
     ToolSpec(
         name="get_assessment_recommendations",
@@ -1539,6 +1862,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_get_assessment_recommendations,
         required_permission=Permission.ASSESSMENT_READ,
+        required_feature="advanced_compliance_intelligence",
     ),
     ToolSpec(
         name="get_assessment_roadmap",
@@ -1553,6 +1877,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_get_assessment_roadmap,
         required_permission=Permission.ASSESSMENT_READ,
+        required_feature="advanced_compliance_intelligence",
     ),
     ToolSpec(
         name="compare_assessment_snapshots",
@@ -1570,6 +1895,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_compare_assessment_snapshots,
         required_permission=Permission.ASSESSMENT_READ,
+        required_feature="advanced_compliance_intelligence",
     ),
     ToolSpec(
         name="get_intelligence_context",
@@ -1590,6 +1916,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_get_intelligence_context,
         required_permission=Permission.AIRCRAFT_READ,
+        required_feature="predictive_maintenance",
     ),
     ToolSpec(
         name="get_fleet_attention_summary",
@@ -1613,6 +1940,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         input_schema={"type": "object", "properties": {}},
         handler=_handle_get_fleet_attention_summary,
         required_permission=Permission.AIRCRAFT_READ,
+        required_feature="predictive_maintenance",
     ),
     ToolSpec(
         name="get_proactive_intelligence_summary",
@@ -1627,6 +1955,7 @@ TOOL_REGISTRY: list[ToolSpec] = [
         input_schema={"type": "object", "properties": {}},
         handler=_handle_get_proactive_intelligence_summary,
         required_permission=Permission.AIRCRAFT_READ,
+        required_feature="predictive_maintenance",
     ),
     ToolSpec(
         name="get_asset_proactive_signals",
@@ -1643,6 +1972,298 @@ TOOL_REGISTRY: list[ToolSpec] = [
         },
         handler=_handle_get_asset_proactive_signals,
         required_permission=Permission.AIRCRAFT_READ,
+        required_feature="predictive_maintenance",
+    ),
+    ToolSpec(
+        name="get_asset_hums_health",
+        description=(
+            "Get the HUMS (Health & Usage Monitoring System) telemetry-derived health summary for "
+            "one asset: per-sensor health status (HEALTHY/DEGRADED/CRITICAL/INSUFFICIENT_DATA), the "
+            "latest computed vibration feature, and active threshold exceedance counts. Use for "
+            "questions like 'what is the current health of aircraft X' or 'which components show "
+            "abnormal vibration'. Never states a health score when data is insufficient — reports "
+            "INSUFFICIENT_DATA instead of fabricating one."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_hums_health,
+        required_permission=Permission.HUMS_READ,
+        required_feature="hums",
+    ),
+    ToolSpec(
+        name="get_asset_hums_features",
+        description=(
+            "Get recent HUMS feature-engine history for one asset: individual computed feature "
+            "values (RMS, peak, crest factor, kurtosis, skewness, dominant frequency, spectral "
+            "energy, temperature/pressure/RPM trend, etc.), each with its data quality and the "
+            "window it was computed over. Use for questions like 'what changed over the last N "
+            "readings', 'which sensors have insufficient data', 'what is the current vibration "
+            "condition', or 'why did this HUMS signal trigger'. Optionally filter by feature_type "
+            "(e.g. 'rms', 'kurtosis', 'dominant_frequency'). Only reports stored, computed values — "
+            "never infers an engineering conclusion beyond what was actually calculated."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "asset_id": {"type": "string", "description": "Asset UUID"},
+                "feature_type": {
+                    "type": "string",
+                    "description": "Optional: filter to one feature type, e.g. 'rms', 'crest_factor', 'kurtosis', 'dominant_frequency', 'trend'.",
+                },
+            },
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_hums_features,
+        required_permission=Permission.HUMS_READ,
+        required_feature="hums",
+    ),
+    ToolSpec(
+        name="get_asset_hums_health_intelligence",
+        description=(
+            "Get the explainable, baseline-driven HUMS health intelligence verdict for one asset: "
+            "overall state (HEALTHY/WATCH/DEGRADED/WARNING/CRITICAL/INSUFFICIENT_DATA), confidence, "
+            "per-component breakdown, and the primary contributing features with their deviation from "
+            "baseline (current value, baseline mean, normal range, standardized deviation), trend "
+            "direction (increasing/decreasing/stable/volatile/accelerating), and a plain-language "
+            "explanation. Use for questions like 'what is the health of this aircraft', 'why is this "
+            "aircraft degraded', 'which component is contributing most to the degradation', 'how far is "
+            "the current RMS from baseline', or 'has this feature been getting worse'. This is NOT fault "
+            "diagnosis, RUL, or a failure prediction — only reports stored, computed deviation/trend "
+            "data, never a fabricated engineering conclusion."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_hums_health_intelligence,
+        required_permission=Permission.HUMS_READ,
+        required_feature="hums",
+    ),
+    ToolSpec(
+        name="get_asset_telemetry_status",
+        description=(
+            "Get the telemetry ingestion status and recent telemetry events for one asset: "
+            "source system (DJI_FLIGHTHUB, HUMS_DEVICE), external asset/device ID, telemetry "
+            "state (ACTIVE/STALE/NO_TELEMETRY_RECORDED), last received timestamp, total events, "
+            "and recent event audit logs. Use for questions like 'what is the latest telemetry for "
+            "this asset', 'when was telemetry last received for DR-HZ01', 'is telemetry current or "
+            "stale', or 'which telemetry event supports the signal'. Never assumes an asset is healthy "
+            "if telemetry is absent or stale."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_telemetry_status,
+        required_permission=Permission.DRONE_READ,
+        required_feature="flight_telemetry",
+    ),
+    ToolSpec(
+        name="get_asset_hums_diagnostics",
+        description=(
+            "Get rule-based HUMS diagnostic candidates for one asset: fault hypothesis name, status "
+            "(CANDIDATE/SUPPORTED/WEAK/CONFIRMED/REJECTED), severity, confidence, numeric score, "
+            "affected component, and the full explanation with supporting AND contradicting evidence. "
+            "Use for questions like 'why does Kota think this component may have a problem', 'what "
+            "could be causing this', 'which component is most likely affected', or 'are there "
+            "alternative explanations'. ALWAYS state that a candidate is a hypothesis requiring "
+            "engineering confirmation, never present it as a confirmed fault — only status=='CONFIRMED' "
+            "means a human has confirmed it, and the AI must never claim or imply a candidate is "
+            "confirmed, that an aircraft is unsafe, or that maintenance is required, only report what "
+            "is stored."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_hums_diagnostics,
+        required_permission=Permission.HUMS_READ,
+        required_feature="hums",
+    ),
+    ToolSpec(
+        name="get_asset_hums_prognostics",
+        description=(
+            "Get HUMS Remaining Useful Life (RUL) prognostic estimates for one asset: RUL point "
+            "estimate, lower/upper range, unit (flight hours or elapsed hours), confidence, quality, "
+            "current value vs. configured threshold (and the threshold's type/source), degradation "
+            "trajectory state, and any related H4 diagnostic hypothesis used as context. Use for "
+            "questions like 'how much life does this component have left', 'when will this reach the "
+            "maintenance threshold', or 'is this degrading'. CRITICAL: every RUL value is an ESTIMATE, "
+            "NOT A CERTIFIED LIFE LIMIT. Always phrase responses as 'Kota estimates...' with the range "
+            "and confidence, never as a guaranteed remaining life (e.g. never say 'the component will "
+            "fail in N hours' — say 'Kota estimates N1-N2 hours of remaining useful life, confidence "
+            "X, based on the current degradation trajectory; this is a prognostic estimate, not a "
+            "certified life limit'). Never present a status=='INSUFFICIENT_DATA' or null RUL as a "
+            "number — report that there isn't enough evidence yet."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_hums_prognostics,
+        required_permission=Permission.HUMS_READ,
+        required_feature="predictive_maintenance",
+    ),
+    ToolSpec(
+        name="get_digital_twin",
+        description=(
+            "Get the complete current digital-twin state of one asset: identity, configuration, "
+            "usage (flight hours/cycles), H3 health, H4 diagnostic candidates, H5 RUL prognostics, "
+            "maintenance (open work orders/findings), compliance summary, and readiness state — all "
+            "in one call. Use for questions like 'give me the complete current state of aircraft "
+            "KA-102' or 'what is the current health and RUL of this asset'. Every section reports its "
+            "own availability; never infer a missing section's value. This is a read-only aggregation "
+            "over existing authoritative records — it never computes new health/diagnosis/RUL/"
+            "compliance/readiness values, only reports what those systems already concluded."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_digital_twin,
+        required_permission=Permission.DIGITAL_TWIN_READ,
+        required_feature="digital_twin",
+    ),
+    ToolSpec(
+        name="get_component_genealogy",
+        description=(
+            "Get a component's full installation lineage: every asset it has ever been installed on, "
+            "with install/removal dates, in chronological order. Use for questions like 'where has "
+            "this engine been installed' or 'what is this component's history'."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"component_id": {"type": "string", "description": "Component UUID"}},
+            "required": ["component_id"],
+        },
+        handler=_handle_get_component_genealogy,
+        required_permission=Permission.DIGITAL_TWIN_READ,
+        required_feature="digital_twin",
+    ),
+    ToolSpec(
+        name="get_asset_twin_timeline",
+        description=(
+            "Get the unified chronological lifecycle timeline for an asset: component installs/"
+            "removals, HUMS diagnostic candidates, RUL updates, findings, and work orders, each "
+            "linked back to its source record. Use for questions like 'show me the major events "
+            "affecting this aircraft' or 'why is this aircraft restricted' (trace readiness blockers "
+            "back through the timeline to their originating maintenance/compliance/HUMS event)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_twin_timeline,
+        required_permission=Permission.DIGITAL_TWIN_READ,
+        required_feature="digital_twin",
+    ),
+    ToolSpec(
+        name="get_asset_mro_intelligence",
+        description=(
+            "Get the H7 correlated MRO/compliance/readiness intelligence view for an asset: HUMS "
+            "health state, open diagnostic/prognostic counts, authoritative readiness state alongside "
+            "H7's own readiness-impact classification, compliance impact, operational impact, open "
+            "maintenance intelligence candidates, and integration conflicts. This is a CORRELATION "
+            "over existing authoritative services, never a new readiness/compliance engine."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_mro_intelligence,
+        required_permission=Permission.MRO_INTELLIGENCE_READ,
+        required_feature="mro_intelligence",
+    ),
+    ToolSpec(
+        name="get_asset_maintenance_candidates",
+        description=(
+            "List maintenance intelligence candidates for an asset -- correlated recommendations "
+            "generated when HUMS health/diagnostic/prognostic signals converge with maintenance "
+            "state. These are advisory review items requiring human accept/reject/defer, never "
+            "confirmed faults or automatic work orders."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_maintenance_candidates,
+        required_permission=Permission.MRO_INTELLIGENCE_READ,
+        required_feature="mro_intelligence",
+    ),
+    ToolSpec(
+        name="get_asset_compliance_impact",
+        description=(
+            "Get compliance impact for an asset, correlating existing ComplianceObligation records "
+            "(authoritative status, never re-derived) with open HUMS diagnostic signals for context."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_compliance_impact,
+        required_permission=Permission.MRO_INTELLIGENCE_READ,
+        required_feature="mro_intelligence",
+    ),
+    ToolSpec(
+        name="get_asset_readiness_impact",
+        description=(
+            "Get H7's readiness-impact classification for an asset. Always returns BOTH the "
+            "authoritative readiness_state (from readiness_intelligence_service, unmodified) and "
+            "H7's own readiness_impact layer -- never merges them."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_readiness_impact,
+        required_permission=Permission.MRO_INTELLIGENCE_READ,
+        required_feature="mro_intelligence",
+    ),
+    ToolSpec(
+        name="get_asset_operational_impact",
+        description=(
+            "Get H7's operational impact level (LOW/MEDIUM/HIGH/UNKNOWN) for an asset, derived from "
+            "readiness impact and RUL horizon proximity. Returns UNKNOWN explicitly when no "
+            "authoritative mission-criticality data exists -- never invents it."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_operational_impact,
+        required_permission=Permission.MRO_INTELLIGENCE_READ,
+        required_feature="mro_intelligence",
+    ),
+    ToolSpec(
+        name="get_asset_integration_conflicts",
+        description=(
+            "List H7 integration conflicts for an asset -- cross-domain inconsistencies (readiness "
+            "vs compliance, maintenance vs evidence, component configuration, diagnostic vs "
+            "maintenance, prognostic vs telemetry freshness, compliance vs maintenance evidence). "
+            "Reported only, never auto-resolved."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_id": {"type": "string", "description": "Asset UUID"}},
+            "required": ["asset_id"],
+        },
+        handler=_handle_get_asset_integration_conflicts,
+        required_permission=Permission.MRO_INTELLIGENCE_READ,
+        required_feature="mro_intelligence",
     ),
 ]
 
@@ -1662,4 +2283,5 @@ def execute_tool(db: Session, user: CurrentUser, name: str, args: dict[str, Any]
     if spec is None:
         raise AeroComplyError(f"Unknown tool: {name}", code="unknown_tool")
     _require_permission(user, spec.required_permission)
+    _require_entitlement(db, user, spec)
     return spec.handler(db, user, args)

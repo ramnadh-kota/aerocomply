@@ -16,13 +16,18 @@ import { useSession } from "@/lib/auth/SessionContext";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { planApi, type PlanResponse, type PlanFeatureBulkItem } from "@/lib/api/plan";
-import { productCatalogApi, type ProductSuiteWithChildrenResponse } from "@/lib/api/productCatalog";
-import { DEMO_PLATFORM_PLANS, DEMO_PLATFORM_FEATURES } from "@/lib/demo/demoPlatform";
+import {
+  productCatalogApi,
+  type ProductSuiteWithChildrenResponse,
+  type ProductSuiteResponse,
+} from "@/lib/api/productCatalog";
+import { DEMO_PLATFORM_PLANS, DEMO_PLATFORM_FEATURES, DEMO_PLATFORM_SUITES } from "@/lib/demo/demoPlatform";
 
 interface CatalogFeatureItem {
   key: string;
   name: string;
   moduleName: string;
+  suiteId: string;
   suiteName: string;
   description: string;
 }
@@ -61,6 +66,9 @@ export default function PlatformPlansPage() {
   const { accessToken, isAuthenticated } = useSession();
   const { mode } = useDataMode();
 
+  const [suites, setSuites] = useState<ProductSuiteResponse[]>([]);
+  const [selectedSuiteFilter, setSelectedSuiteFilter] = useState<string>("");
+
   const [plans, setPlans] = useState<PlanResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
@@ -71,6 +79,7 @@ export default function PlatformPlansPage() {
 
   // Create Modal & Form State
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createSuiteId, setCreateSuiteId] = useState("");
   const [createName, setCreateName] = useState("");
   const [createCode, setCreateCode] = useState("");
   const [createDescription, setCreateDescription] = useState("");
@@ -101,6 +110,7 @@ export default function PlatformPlansPage() {
   // Load plans & catalog features
   const load = () => {
     if (mode === "DEMO") {
+      setSuites(DEMO_PLATFORM_SUITES);
       setPlans(DEMO_PLATFORM_PLANS);
       setLoading(false);
       setError(null);
@@ -110,6 +120,7 @@ export default function PlatformPlansPage() {
         key: f.feature_key,
         name: f.name,
         moduleName: f.category,
+        suiteId: "00000000-0000-0000-0000-000000000101",
         suiteName: "Platform Suite",
         description: f.description,
       }));
@@ -128,8 +139,15 @@ export default function PlatformPlansPage() {
 
     Promise.allSettled([
       planApi.listPlans(accessToken),
+      productCatalogApi.listSuites(accessToken),
       productCatalogApi.getCatalogTree(accessToken),
-    ]).then(([plansRes, catalogRes]) => {
+    ]).then(([plansRes, suitesRes, catalogRes]) => {
+      if (suitesRes.status === "fulfilled") {
+        setSuites(suitesRes.value);
+        if (!createSuiteId && suitesRes.value.length > 0) {
+          setCreateSuiteId(suitesRes.value[0].id);
+        }
+      }
       if (plansRes.status === "fulfilled") {
         setPlans(plansRes.value);
       } else {
@@ -146,6 +164,7 @@ export default function PlatformPlansPage() {
                   key: feat.code,
                   name: feat.name,
                   moduleName: mod.name,
+                  suiteId: suite.id,
                   suiteName: suite.name,
                   description: feat.description ?? "",
                 });
@@ -156,24 +175,24 @@ export default function PlatformPlansPage() {
         if (flattened.length > 0) {
           setAvailableFeatures(flattened);
         } else {
-          // Fallback if catalog has suites but no active features yet
           setAvailableFeatures(
             DEMO_PLATFORM_FEATURES.map((f) => ({
               key: f.feature_key,
               name: f.name,
               moduleName: f.category,
+              suiteId: "00000000-0000-0000-0000-000000000101",
               suiteName: "Platform Suite",
               description: f.description,
             }))
           );
         }
       } else {
-        // Fallback to demo items if catalog endpoints are empty
         setAvailableFeatures(
           DEMO_PLATFORM_FEATURES.map((f) => ({
             key: f.feature_key,
             name: f.name,
             moduleName: f.category,
+            suiteId: "00000000-0000-0000-0000-000000000101",
             suiteName: "Platform Suite",
             description: f.description,
           }))
@@ -189,10 +208,14 @@ export default function PlatformPlansPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, accessToken, isAuthenticated]);
 
-  // Group available features by module
+  // Group available features by module (scoped to createSuiteId when creating a plan)
   const featuresByModule = useMemo(() => {
     const map = new Map<string, CatalogFeatureItem[]>();
-    for (const f of availableFeatures) {
+    const suiteScoped = createSuiteId
+      ? availableFeatures.filter((f) => f.suiteId === createSuiteId || f.suiteName === "Platform Suite")
+      : availableFeatures;
+
+    for (const f of suiteScoped) {
       const groupKey = f.moduleName || f.suiteName || "Core Platform";
       if (!map.has(groupKey)) {
         map.set(groupKey, []);
@@ -200,7 +223,7 @@ export default function PlatformPlansPage() {
       map.get(groupKey)!.push(f);
     }
     return map;
-  }, [availableFeatures]);
+  }, [availableFeatures, createSuiteId]);
 
   // Filter features based on search & filter tabs
   const filteredFeaturesByModule = useMemo(() => {
@@ -262,6 +285,7 @@ export default function PlatformPlansPage() {
     if (mode === "DEMO") {
       const syntheticPlan: PlanResponse = {
         id: `10000000-0000-0000-0000-${String(plans.length + 10).padStart(12, "0")}`,
+        suite_id: createSuiteId || null,
         name: createName.trim(),
         code: createCode.trim().toUpperCase(),
         description: createDescription.trim() || null,
@@ -284,6 +308,7 @@ export default function PlatformPlansPage() {
 
     try {
       const createdPlan = await planApi.createPlan(accessToken, {
+        suite_id: createSuiteId || undefined,
         name: createName.trim(),
         code: createCode.trim().toUpperCase(),
         description: createDescription.trim() || null,
@@ -419,6 +444,19 @@ export default function PlatformPlansPage() {
       ),
     },
     {
+      key: "suite",
+      header: "Product Suite",
+      render: (p) => {
+        const suite = suites.find((s) => s.id === p.suite_id);
+        const name = suite?.name ?? (p.asset_scope ? `${p.asset_scope} Suite` : "Commercial Suite");
+        return (
+          <span className="ac-badge" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>
+            {name}
+          </span>
+        );
+      },
+    },
+    {
       key: "code",
       header: "Plan Code",
       render: (p) => (
@@ -500,6 +538,11 @@ export default function PlatformPlansPage() {
 
   const forbidden = error?.kind === "forbidden";
 
+  const displayedPlans = useMemo(() => {
+    if (!selectedSuiteFilter) return plans;
+    return plans.filter((p) => p.suite_id === selectedSuiteFilter);
+  }, [plans, selectedSuiteFilter]);
+
   return (
     <div>
       <Breadcrumbs
@@ -516,11 +559,30 @@ export default function PlatformPlansPage() {
             Configure commercial baseline entitlements, asset domains, and feature packages according to Kota Aerospace governance.
           </p>
         </div>
-        <div className="ac-flex ac-gap-2">
+        <div className="ac-flex ac-gap-2" style={{ alignItems: "center" }}>
+          <select
+            className="ac-input"
+            value={selectedSuiteFilter}
+            onChange={(e) => setSelectedSuiteFilter(e.target.value)}
+            style={{ width: 220, fontSize: 13 }}
+            aria-label="Filter by Suite"
+          >
+            <option value="">All Product Suites ({plans.length})</option>
+            {suites.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.code})
+              </option>
+            ))}
+          </select>
           <button
             className="ac-btn ac-btn-primary"
             onClick={() => {
               resetCreateForm();
+              if (selectedSuiteFilter) {
+                setCreateSuiteId(selectedSuiteFilter);
+              } else if (suites.length > 0) {
+                setCreateSuiteId(suites[0].id);
+              }
               setShowCreateModal(true);
             }}
           >
@@ -547,15 +609,15 @@ export default function PlatformPlansPage() {
           <RealDataPanel
             loading={loading}
             error={error}
-            isEmpty={plans.length === 0}
-            emptyMessage="No commercial plans configured yet."
+            isEmpty={displayedPlans.length === 0}
+            emptyMessage="No commercial plans configured for the selected suite."
           >
             <div className="ac-card" style={{ padding: 0, overflow: "hidden" }}>
               <div className="ac-table-desktop">
-                <DataTable columns={columns} rows={plans} getRowHref={(p) => `/platform/plans/${p.id}`} />
+                <DataTable columns={columns} rows={displayedPlans} getRowHref={(p) => `/platform/plans/${p.id}`} />
               </div>
               <div className="ac-row-cards">
-                {plans.map((p) => (
+                {displayedPlans.map((p) => (
                   <div className="ac-row-card" key={p.id}>
                     <div className="ac-row-card-field">
                       <span className="ac-row-card-field-label">Name</span>
@@ -645,6 +707,28 @@ export default function PlatformPlansPage() {
                 </div>
 
                 <form onSubmit={handleCreatePlan}>
+                  <div style={{ marginBottom: 16 }}>
+                    <label className="ac-label" style={{ display: "block", marginBottom: 6, fontSize: 13, fontWeight: 500 }}>
+                      Product Suite * (Locks Domain Boundary)
+                    </label>
+                    <select
+                      className="ac-input"
+                      value={createSuiteId}
+                      onChange={(e) => {
+                        setCreateSuiteId(e.target.value);
+                        setSelectedFeatureKeys(new Set());
+                      }}
+                      style={{ width: "100%" }}
+                      required
+                    >
+                      {suites.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
                     <div>
                       <label className="ac-label" style={{ display: "block", marginBottom: 6, fontSize: 13, fontWeight: 500 }}>
@@ -652,7 +736,7 @@ export default function PlatformPlansPage() {
                       </label>
                       <input
                         className="ac-input"
-                        placeholder="e.g. Kota Drone Enterprise"
+                        placeholder="e.g. Professional"
                         value={createName}
                         onChange={(e) => setCreateName(e.target.value)}
                         required
@@ -665,7 +749,7 @@ export default function PlatformPlansPage() {
                       </label>
                       <input
                         className="ac-input"
-                        placeholder="e.g. DRONE_001"
+                        placeholder="e.g. PROFESSIONAL"
                         value={createCode}
                         onChange={(e) => setCreateCode(e.target.value.toUpperCase())}
                         required

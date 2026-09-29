@@ -93,12 +93,89 @@ interface RequestOptions {
   retryOnNetworkFailure?: boolean;
   /** Called once, right before the single network-failure retry fires. */
   onRetry?: () => void;
+  /** Internal retry flag to prevent refresh retry loops. */
+  _isRetry?: boolean;
 }
 
 const NETWORK_RETRY_DELAY_MS = 1000;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+let refreshFlightPromise: Promise<string> | null = null;
+
+/**
+ * Single-flight token refresh: if multiple requests fail with 401 concurrently,
+ * all pending callers wait on a single `/auth/refresh` flight.
+ */
+export async function requestTokenRefresh(): Promise<string> {
+  if (refreshFlightPromise) {
+    return refreshFlightPromise;
+  }
+
+  refreshFlightPromise = (async () => {
+    let storedRefreshToken: string | null = null;
+    if (typeof window !== "undefined") {
+      try {
+        storedRefreshToken = window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
+      } catch {
+        storedRefreshToken = null;
+      }
+    }
+
+    if (!storedRefreshToken) {
+      throw new ApiError(401, "unauthorized", "No refresh token available");
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: storedRefreshToken }),
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const errorBody = data?.error ?? { code: "unauthorized", message: "Refresh token expired or invalid" };
+        throw new ApiError(response.status, errorBody.code, errorBody.message);
+      }
+
+      const tokens = data as TokenResponse;
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, tokens.access_token);
+          window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refresh_token);
+          window.dispatchEvent(
+            new CustomEvent("aerocomply_token_refreshed", {
+              detail: {
+                access_token: tokens.access_token,
+                refresh_token: tokens.refresh_token,
+              },
+            })
+          );
+        } catch {
+          // best-effort
+        }
+      }
+      return tokens.access_token;
+    } catch (err) {
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+          window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+          window.dispatchEvent(new CustomEvent("aerocomply_auth_logout"));
+        } catch {
+          // best-effort
+        }
+      }
+      throw err;
+    } finally {
+      refreshFlightPromise = null;
+    }
+  })();
+
+  return refreshFlightPromise;
 }
 
 /**
@@ -171,6 +248,25 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      !path.startsWith("/auth/login") &&
+      !path.startsWith("/auth/refresh") &&
+      !path.startsWith("/auth/register-organization") &&
+      !options._isRetry
+    ) {
+      try {
+        const newAccessToken = await requestTokenRefresh();
+        return await apiRequest<T>(path, {
+          ...options,
+          accessToken: newAccessToken,
+          _isRetry: true,
+        });
+      } catch {
+        // Refresh failed: proceed to throwing ApiError
+      }
+    }
+
     const errorBody = data?.error ?? { code: "unknown_error", message: "Request failed" };
     throw new ApiError(response.status, errorBody.code, errorBody.message);
   }
@@ -187,7 +283,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 export async function apiUploadFile<T>(
   path: string,
   file: File,
-  options: { accessToken?: string } = {}
+  options: { accessToken?: string; _isRetry?: boolean } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {};
   if (options.accessToken) {
@@ -205,6 +301,24 @@ export async function apiUploadFile<T>(
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      !path.startsWith("/auth/login") &&
+      !path.startsWith("/auth/refresh") &&
+      !options._isRetry
+    ) {
+      try {
+        const newAccessToken = await requestTokenRefresh();
+        return await apiUploadFile<T>(path, file, {
+          ...options,
+          accessToken: newAccessToken,
+          _isRetry: true,
+        });
+      } catch {
+        // Refresh failed: proceed to throwing ApiError
+      }
+    }
+
     const errorBody = data?.error ?? { code: "unknown_error", message: "Request failed" };
     throw new ApiError(response.status, errorBody.code, errorBody.message);
   }
@@ -247,6 +361,12 @@ export const authApi = {
       timeoutMs: LOGIN_TIMEOUT_MS,
       retryOnNetworkFailure: true,
       onRetry: opts.onRetry,
+    }),
+
+  refresh: (refreshToken: string) =>
+    apiRequest<TokenResponse>("/auth/refresh", {
+      method: "POST",
+      body: { refresh_token: refreshToken },
     }),
 
   registerOrganization: (payload: {

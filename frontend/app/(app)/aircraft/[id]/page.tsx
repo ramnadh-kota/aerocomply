@@ -45,6 +45,8 @@ import { ataChapterToRegion, type AircraftRegion } from "@/lib/aircraft-visual/c
 const TABS = ["Overview", "Configuration", "Engines", "Components", "Regulatory", "Assessments", "Evidence", "Audit"] as const;
 type Tab = (typeof TABS)[number];
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function AircraftFindingsPanel({ aircraftId }: { aircraftId: string }) {
   const { accessToken, isAuthenticated } = useSession();
   const [findings, setFindings] = useReactState<BackendFinding[]>([]);
@@ -57,7 +59,7 @@ function AircraftFindingsPanel({ aircraftId }: { aircraftId: string }) {
   const [submitting, setSubmitting] = useReactState(false);
 
   const refresh = () => {
-    if (!isAuthenticated || !accessToken) {
+    if (!isAuthenticated || !accessToken || !UUID_REGEX.test(aircraftId)) {
       setLoading(false);
       return;
     }
@@ -71,6 +73,10 @@ function AircraftFindingsPanel({ aircraftId }: { aircraftId: string }) {
   };
 
   useEffect(refresh, [accessToken, isAuthenticated, aircraftId]);
+
+  if (!UUID_REGEX.test(aircraftId)) {
+    return null;
+  }
 
   const submit = async () => {
     if (!accessToken || !title.trim() || !description.trim()) return;
@@ -210,6 +216,12 @@ function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
       setLoading(false);
       return;
     }
+    if (!UUID_REGEX.test(aircraftId)) {
+      setRecord(null);
+      setError({ kind: "not_found", message: "Aircraft not found." });
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     aircraftApi
@@ -320,7 +332,7 @@ function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
           )}
         </RealDataPanel>
       )}
-      {isAuthenticated && <AircraftFindingsPanel aircraftId={aircraftId} />}
+      {isAuthenticated && record && <AircraftFindingsPanel aircraftId={aircraftId} />}
     </div>
   );
 }

@@ -130,6 +130,7 @@ class TestComplianceDigitalThreadFlow:
             "compliance_management",
             "regulatory_ingestion",
             "fleet_asset_management",
+            "aircraft_fleet_management",
             "work_order_management",
         )
         user, token = _create_user(
@@ -326,6 +327,7 @@ class TestComplianceDigitalThreadFlow:
             "compliance_intelligence",
             "compliance_management",
             "fleet_asset_management",
+            "aircraft_fleet_management",
         )
         user, token = _create_user(db_session, org, ["ORG_ADMIN", "COMPLIANCE_MANAGER"])
         headers = {"Authorization": f"Bearer {token}"}
@@ -405,6 +407,7 @@ class TestComplianceSecurityAndTenantIsolation:
             "compliance_intelligence",
             "compliance_management",
             "fleet_asset_management",
+            "aircraft_fleet_management",
         )
         _entitle_organization(
             db_session,
@@ -412,6 +415,7 @@ class TestComplianceSecurityAndTenantIsolation:
             "compliance_intelligence",
             "compliance_management",
             "fleet_asset_management",
+            "aircraft_fleet_management",
         )
 
         _, token_a = _create_user(db_session, org_a, ["ORG_ADMIN", "COMPLIANCE_MANAGER"])
@@ -470,6 +474,7 @@ class TestHistoricalSnapshotImmutabilityWithObligations:
             "compliance_intelligence",
             "compliance_management",
             "fleet_asset_management",
+            "aircraft_fleet_management",
         )
         _, token = _create_user(db_session, org, ["ORG_ADMIN", "COMPLIANCE_MANAGER"])
         headers = {"Authorization": f"Bearer {token}"}

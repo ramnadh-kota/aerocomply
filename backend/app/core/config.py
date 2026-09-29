@@ -39,6 +39,9 @@ class Settings(BaseSettings):
         return v
 
     jwt_secret_key: str = "CHANGE_ME_IN_PRODUCTION"
+    # Shared HMAC secret for the DJI FlightHub webhook. No default: when unset the
+    # webhook is disabled (fails closed) rather than trusting a well-known value.
+    dji_webhook_secret: str | None = None
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7

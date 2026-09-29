@@ -68,6 +68,11 @@ from enum import StrEnum
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.feature_keys import (
+    canonicalize_feature_key,
+    get_feature_lookup_aliases,
+    is_known_feature_key,
+)
 from app.models.organization import Organization, OrganizationStatus
 from app.models.plan import Plan, PlanFeature, PlanLimit
 from app.models.subscription import Subscription, SubscriptionStatus
@@ -111,6 +116,73 @@ class UsageLimitConfiguration:
     is_unlimited: bool
 
 
+from app.models.product_catalog import ProductModule, ProductPage, ProductSuite
+
+
+_SUITE_DISALLOWED_FEATURES: dict[str, set[str]] = {
+    "DRONE_UAV": {
+        "aircraft_fleet_management",
+        "aircraft_operations",
+        "aircraft_mro",
+        "helicopter_fleet_management",
+        "helicopter_operations",
+        "evtol_fleet_management",
+        "evtol_operations",
+    },
+    "AIRCRAFT": {
+        "drone_fleet_management",
+        "drone_missions",
+        "battery_analytics",
+        "helicopter_fleet_management",
+        "helicopter_operations",
+        "evtol_fleet_management",
+        "evtol_operations",
+    },
+    "HELICOPTER": {
+        "drone_fleet_management",
+        "drone_missions",
+        "battery_analytics",
+        "aircraft_fleet_management",
+        "aircraft_operations",
+        "evtol_fleet_management",
+        "evtol_operations",
+    },
+    "EVTOL_AAM": {
+        "aircraft_fleet_management",
+        "aircraft_operations",
+        "helicopter_fleet_management",
+        "helicopter_operations",
+    },
+}
+
+
+def is_feature_allowed_for_suite(suite_code: str | None, feature_key: str) -> bool:
+    """Return True if feature_key is permitted inside the given suite boundary."""
+    if not suite_code:
+        return True
+    code = suite_code.strip().upper()
+    disallowed = _SUITE_DISALLOWED_FEATURES.get(code, set())
+    canonical = canonicalize_feature_key(feature_key)
+    if feature_key in disallowed or canonical in disallowed:
+        return False
+    
+    # Prefix-based domain boundary checks
+    if code == "DRONE_UAV":
+        if canonical.startswith("aircraft_") or canonical.startswith("helicopter_") or canonical.startswith("evtol_"):
+            return False
+    elif code == "AIRCRAFT":
+        if canonical.startswith("drone_") or canonical.startswith("helicopter_") or canonical.startswith("evtol_"):
+            return False
+    elif code == "HELICOPTER":
+        if canonical.startswith("aircraft_") or canonical.startswith("drone_") or canonical.startswith("evtol_"):
+            return False
+    elif code == "EVTOL_AAM":
+        if canonical.startswith("aircraft_") or canonical.startswith("helicopter_"):
+            return False
+
+    return True
+
+
 @dataclass(frozen=True)
 class EntitlementResolution:
     organization_id: uuid.UUID
@@ -118,11 +190,30 @@ class EntitlementResolution:
     organization_status: str
     subscription_id: uuid.UUID | None
     subscription_status: str | None
-    plan_id: uuid.UUID | None
-    plan_code: str | None
+    suite_id: uuid.UUID | None = None
+    suite_code: str | None = None
+    suite_name: str | None = None
+    plan_id: uuid.UUID | None = None
+    plan_code: str | None = None
+    plan_name: str | None = None
+    modules: list[str] = field(default_factory=list)
+    pages: list[str] = field(default_factory=list)
     effective_features: dict[str, bool] = field(default_factory=dict)
     usage_limits: list[UsageLimitConfiguration] = field(default_factory=list)
     reason: str = ""
+
+
+def _apply_feature(effective: dict[str, bool], feature_key: str, enabled: bool) -> None:
+    """Write `enabled` under the raw key and, for registered feature keys only,
+    under its canonical key and aliases. Unregistered (ad hoc) keys are stored
+    exactly as given so the map never gains keys nobody configured."""
+    effective[feature_key] = enabled
+    if not is_known_feature_key(feature_key):
+        return
+    canonical = canonicalize_feature_key(feature_key)
+    effective[canonical] = enabled
+    for alias in get_feature_lookup_aliases(canonical):
+        effective[alias] = enabled
 
 
 def _is_current(sub: Subscription, as_of: datetime) -> bool:
@@ -253,13 +344,47 @@ def resolve_entitlements(
             reason=f"Subscription {subscription.id} references a plan that could not be found.",
         )
 
-    # Step 4: plan feature lookup.
+    # Suite resolution
+    suite = db.execute(select(ProductSuite).where(ProductSuite.id == plan.suite_id)).scalar_one_or_none()
+    suite_id = suite.id if suite else None
+    suite_code = suite.code if suite else None
+    suite_name = suite.name if suite else None
+
+    # Step 4: resolve suite modules and pages
+    modules: list[str] = []
+    pages: list[str] = []
+    if suite is not None:
+        module_rows = list(
+            db.execute(
+                select(ProductModule)
+                .where(ProductModule.suite_id == suite.id, ProductModule.is_active == True)
+                .order_by(ProductModule.display_order)
+            ).scalars().all()
+        )
+        for mod in module_rows:
+            modules.append(mod.code)
+            page_rows = list(
+                db.execute(
+                    select(ProductPage)
+                    .where(ProductPage.module_id == mod.id, ProductPage.is_active == True)
+                    .order_by(ProductPage.display_order)
+                ).scalars().all()
+            )
+            for page in page_rows:
+                if page.route:
+                    pages.append(page.route)
+                pages.append(page.code)
+
+    # Step 5: plan feature lookup.
     plan_features = list(
         db.execute(select(PlanFeature).where(PlanFeature.plan_id == plan.id)).scalars().all()
     )
-    effective_features: dict[str, bool] = {pf.feature_key: pf.enabled for pf in plan_features}
+    effective_features: dict[str, bool] = {}
+    for pf in plan_features:
+        _apply_feature(effective_features, pf.feature_key, pf.enabled)
 
-    # Step 5: tenant override application (override wins; expired ignored).
+    # Step 6: tenant override application (override wins; expired ignored).
+    # Overrides cannot cross Suite boundaries!
     overrides = list(
         db.execute(
             select(TenantFeatureOverride).where(
@@ -270,10 +395,12 @@ def resolve_entitlements(
         .all()
     )
     active_overrides = [
-        o for o in overrides if o.expires_at is None or o.expires_at > resolved_as_of
+        o for o in overrides
+        if (o.expires_at is None or o.expires_at > resolved_as_of)
+        and is_feature_allowed_for_suite(suite_code, o.feature_key)
     ]
     for override in active_overrides:
-        effective_features[override.feature_key] = override.enabled
+        _apply_feature(effective_features, override.feature_key, override.enabled)
 
     # Step 7: usage limits (PlanLimit baseline + TenantUsageLimit overrides).
     plan_limit_rows = list(
@@ -329,8 +456,14 @@ def resolve_entitlements(
             organization_status=organization.status,
             subscription_id=subscription.id,
             subscription_status=subscription.status,
+            suite_id=suite_id,
+            suite_code=suite_code,
+            suite_name=suite_name,
             plan_id=plan.id,
             plan_code=plan.code,
+            plan_name=plan.name,
+            modules=modules,
+            pages=pages,
             effective_features=effective_features,
             usage_limits=usage_limits,
             reason=(
@@ -345,8 +478,14 @@ def resolve_entitlements(
         organization_status=organization.status,
         subscription_id=subscription.id,
         subscription_status=subscription.status,
+        suite_id=suite_id,
+        suite_code=suite_code,
+        suite_name=suite_name,
         plan_id=plan.id,
         plan_code=plan.code,
+        plan_name=plan.name,
+        modules=modules,
+        pages=pages,
         effective_features=effective_features,
         usage_limits=usage_limits,
         reason=f"Subscription {subscription.id} on plan {plan.code!r} is current.",

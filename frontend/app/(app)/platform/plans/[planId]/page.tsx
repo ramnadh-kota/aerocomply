@@ -676,8 +676,11 @@ export default function PlanDetailPage({ params }: { params: Promise<{ planId: s
           <div className="ac-card ac-section" style={{ padding: "var(--ac-space-6)", marginBottom: "var(--ac-space-6)" }}>
             <div className="ac-flex" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
               <div>
-                <div className="ac-flex ac-gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
+                <div className="ac-flex ac-gap-2" style={{ alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
                   <h1 className="ac-h1" style={{ margin: 0 }}>{plan.name}</h1>
+                  <span className="ac-badge" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>
+                    Suite: {plan.asset_scope ? `${plan.asset_scope} Suite` : "Commercial Suite"}
+                  </span>
                   {assetScopeBadge(plan.asset_scope)}
                   <StatusBadge {...planStatusBadge(plan.is_active)} />
                 </div>

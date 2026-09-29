@@ -154,11 +154,15 @@ def provision_organization(
         subscription_status=payload.subscription_status,
         admin_email=payload.admin_email,
         admin_full_name=payload.admin_full_name,
+        suite_id=payload.suite_id,
     )
     return ProvisionOrganizationResponse(
         organization_id=result.organization.id,
         organization_name=result.organization.name,
         organization_status=result.organization.status,
+        suite_id=result.suite_id,
+        suite_code=result.suite_code,
+        suite_name=result.suite_name,
         plan_id=result.subscription.plan_id,
         subscription_id=result.subscription.id,
         subscription_status=result.subscription.status,
@@ -421,10 +425,11 @@ def list_platform_users(
 
 @router.get("/plans", response_model=list[PlanResponse])
 def list_plans(
+    suite_id: uuid.UUID | None = None,
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
 ) -> list[PlanResponse]:
-    plans = plan_service.list_plans(db)
+    plans = plan_service.list_plans(db, suite_id=suite_id)
     return [PlanResponse.model_validate(p) for p in plans]
 
 

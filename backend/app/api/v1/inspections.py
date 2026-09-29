@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import get_db_session, require_feature, require_permission
 from app.core.errors import AeroComplyError
 from app.core.permissions import Permission
 from app.models.inspection_requirement import InspectionRequirementStatus
@@ -15,7 +15,11 @@ from app.schemas.inspection import (
 )
 from app.services import inspection_service
 
-router = APIRouter(prefix="/inspections", tags=["inspections"])
+router = APIRouter(
+    prefix="/inspections",
+    tags=["inspections"],
+    dependencies=[Depends(require_feature("inspections_management"))],
+)
 
 
 @router.post("", response_model=InspectionRequirementResponse, status_code=201)

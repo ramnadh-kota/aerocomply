@@ -241,9 +241,8 @@ def test_recurring_finding_pattern_detection(
         finding = Finding(
             organization_id=org_a.id,
             asset_id=asset.id,
-            finding_number=f"FND-HYD-0{i+1}",
             title=f"Hydraulic actuator seepage on sector {i+1}",
-            category="HYDRAULIC",
+            description=f"Hydraulic fluid leak observed at main actuator junction {i+1}",
             severity=FindingSeverity.MAJOR,
             status=FindingStatus.OPEN if i == 2 else FindingStatus.CLOSED,
             created_at=now - datetime.timedelta(days=day_offset),
@@ -283,9 +282,8 @@ def test_signal_lifecycle_acknowledgement_and_resolution(
         serial_number="BAT-LIPO-99",
         model="6S-22000mAh",
         cycle_count=285,
-        max_cycles=300,
-        health_percent=76.5,
-        status=BatteryStatus.ACTIVE,
+        health_percent=76,
+        status=BatteryStatus.SERVICE_DUE,
     )
     db_session.add(battery)
     db_session.flush()

@@ -157,6 +157,87 @@ export interface FleetIntelligenceSummary {
   evaluated_at: string;
 }
 
+// ==========================================
+// M7 PROACTIVE INTELLIGENCE CONTRACTS
+// ==========================================
+
+export type SignalType =
+  | "THRESHOLD_PROXIMITY"
+  | "BATTERY_HEALTH_DEGRADATION"
+  | "BATTERY_CYCLE_EXHAUSTION"
+  | "INSPECTION_INTERVAL_EARLY_WARNING"
+  | "RECURRING_FINDING_PATTERN"
+  | "UTILIZATION_PACE_ACCELERATION"
+  | "COMPLIANCE_VERIFICATION_GAP"
+  | "UNVERIFIED_COMPLIANCE_OBLIGATION"
+  | "MISSING_WORK_ORDER_EVIDENCE"
+  | "READINESS_DEGRADATION_EXPLAINER"
+  | "FLEET_WIDE_DEFECT_PATTERN"
+  | "SYSTEMIC_OVERDUE_PATTERN"
+  | "RECURRING_DEFECT_CLUSTER";
+
+export type SignalSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+export type SignalPriority = "IMMEDIATE" | "UPCOMING" | "WATCHLIST" | "INFORMATIONAL";
+export type SignalStatus = "OPEN" | "ACKNOWLEDGED" | "IN_REVIEW" | "RESOLVED" | "DISMISSED";
+export type SignalTrend = "WORSENING" | "STABLE" | "IMPROVING";
+
+export interface SignalEvidenceRef {
+  evidence_type: string;
+  entity_id: string;
+  entity_type: string;
+  summary: string;
+  url?: string | null;
+  observed_value?: string | null;
+  threshold_value?: string | null;
+}
+
+export interface SignalActionItem {
+  action_type: string;
+  description: string;
+  target_route?: string | null;
+  requires_authorization: boolean;
+}
+
+export interface ProactiveSignal {
+  id: string;
+  organization_id: string;
+  asset_id: string | null;
+  signal_type: SignalType;
+  severity: SignalSeverity;
+  priority: SignalPriority;
+  status: SignalStatus;
+  title: string;
+  description: string;
+  trigger_condition: string;
+  evidence: SignalEvidenceRef[];
+  recommended_actions: SignalActionItem[];
+  trend_direction: SignalTrend | null;
+  projected_impact: string | null;
+  estimated_horizon_days: number | null;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  dismissed_by: string | null;
+  dismissed_at: string | null;
+  dismissal_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProactiveIntelligenceSummary {
+  total_active_signals: number;
+  critical_signals: number;
+  high_signals: number;
+  medium_signals: number;
+  low_signals: number;
+  signals_by_priority: Record<SignalPriority, number>;
+  signals_by_type: Record<string, number>;
+  top_signals: ProactiveSignal[];
+  fleet_insights: string[];
+  evaluated_at: string;
+}
+
 export const intelligenceApi = {
   getFleet: (accessToken: string) =>
     apiRequest<FleetIntelligenceSummary>("/intelligence/fleet", { accessToken }),
@@ -175,4 +256,60 @@ export const intelligenceApi = {
 
   getRecommendations: (accessToken: string, assetId: string) =>
     apiRequest<AssetRecommendation>(`/intelligence/assets/${assetId}/recommendations`, { accessToken }),
+
+  // M7 Proactive Intelligence Endpoints
+  getProactiveSummary: (accessToken: string) =>
+    apiRequest<ProactiveIntelligenceSummary>("/intelligence/summary", { accessToken }),
+
+  getSignals: (
+    accessToken: string,
+    params?: {
+      status?: SignalStatus;
+      severity?: SignalSeverity;
+      priority?: SignalPriority;
+      signal_type?: SignalType;
+      asset_id?: string;
+    }
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set("status", params.status);
+    if (params?.severity) searchParams.set("severity", params.severity);
+    if (params?.priority) searchParams.set("priority", params.priority);
+    if (params?.signal_type) searchParams.set("signal_type", params.signal_type);
+    if (params?.asset_id) searchParams.set("asset_id", params.asset_id);
+    const qs = searchParams.toString();
+    return apiRequest<ProactiveSignal[]>(`/intelligence/signals${qs ? `?${qs}` : ""}`, { accessToken });
+  },
+
+  getSignal: (accessToken: string, signalId: string) =>
+    apiRequest<ProactiveSignal>(`/intelligence/signals/${signalId}`, { accessToken }),
+
+  acknowledgeSignal: (accessToken: string, signalId: string) =>
+    apiRequest<ProactiveSignal>(`/intelligence/signals/${signalId}/acknowledge`, {
+      accessToken,
+      method: "POST",
+    }),
+
+  inReviewSignal: (accessToken: string, signalId: string) =>
+    apiRequest<ProactiveSignal>(`/intelligence/signals/${signalId}/in-review`, {
+      accessToken,
+      method: "POST",
+    }),
+
+  resolveSignal: (accessToken: string, signalId: string) =>
+    apiRequest<ProactiveSignal>(`/intelligence/signals/${signalId}/resolve`, {
+      accessToken,
+      method: "POST",
+    }),
+
+  dismissSignal: (accessToken: string, signalId: string, reason?: string) =>
+    apiRequest<ProactiveSignal>(`/intelligence/signals/${signalId}/dismiss`, {
+      accessToken,
+      method: "POST",
+      body: reason ? { reason } : undefined,
+    }),
+
+  getAssetSignals: (accessToken: string, assetId: string) =>
+    apiRequest<ProactiveSignal[]>(`/intelligence/assets/${assetId}/signals`, { accessToken }),
 };
+

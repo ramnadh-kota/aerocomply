@@ -88,6 +88,35 @@ class Permission(StrEnum):
     # PLATFORM_ENTITLEMENT_OVERRIDE above -- held only by PLATFORM_ADMIN.
     DATA_RESTORE = "data:restore"
     DATA_PERMANENT_DELETE = "data:permanent_delete"
+    # H1: HUMS/PHM telemetry, health, and exceedance data. Its own permission
+    # rather than folded into DRONE_READ/WRITE or AIRCRAFT_READ/WRITE —
+    # sensor/telemetry data spans both asset types and is a distinct
+    # authority (who can view/ingest raw telemetry) from who can operate the
+    # asset itself.
+    HUMS_READ = "hums:read"
+    HUMS_WRITE = "hums:write"
+    # H6: Digital Twin — a read-only AGGREGATION across many domains
+    # (asset, HUMS, maintenance, compliance, readiness) each already gated
+    # by its own permission. One combined-view permission is used here
+    # rather than requiring every one of those individually, since the
+    # twin snapshot is a single request that would otherwise need to
+    # silently omit sections for a user missing any one of five+
+    # permissions. No DIGITAL_TWIN_WRITE exists — all twin mutations go
+    # through the existing per-domain write endpoints (install_asset_component,
+    # HUMS diagnostic confirm/reject, etc.), never a twin-specific write path.
+    DIGITAL_TWIN_READ = "digital_twin:read"
+    # H7: MRO + Compliance + Readiness Intelligence Integration. A read-only
+    # CORRELATION layer over HUMS (H1-H5), readiness_intelligence_service,
+    # aerospace_state_service, maintenance, and compliance — same "one
+    # combined-view permission" reasoning as DIGITAL_TWIN_READ above, since
+    # every H7 read already re-checks nothing but its own inputs' authority.
+    # No MRO_INTELLIGENCE_WRITE exists: H7 never mutates any authoritative
+    # domain table, only its own MaintenanceIntelligenceCandidate lifecycle,
+    # which is gated by the separate _REVIEW permission below (an explicit,
+    # narrower authority — reviewing/accepting/rejecting/deferring a
+    # candidate is a human decision-of-record, not a data-read).
+    MRO_INTELLIGENCE_READ = "mro_intelligence:read"
+    MRO_INTELLIGENCE_REVIEW = "mro_intelligence:review"
 
 
 class Role(StrEnum):
@@ -162,6 +191,11 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.FACILITY_WRITE,
         Permission.DRONE_READ,
         Permission.DRONE_WRITE,
+        Permission.HUMS_READ,
+        Permission.HUMS_WRITE,
+        Permission.DIGITAL_TWIN_READ,
+        Permission.MRO_INTELLIGENCE_READ,
+        Permission.MRO_INTELLIGENCE_REVIEW,
     },
     Role.COMPLIANCE_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -183,6 +217,10 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ASSESSMENT_WRITE,
         Permission.FACILITY_READ,
         Permission.DRONE_READ,
+        Permission.HUMS_READ,
+        Permission.DIGITAL_TWIN_READ,
+        Permission.MRO_INTELLIGENCE_READ,
+        Permission.MRO_INTELLIGENCE_REVIEW,
     },
     Role.CAMO_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -209,6 +247,11 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.FACILITY_WRITE,
         Permission.DRONE_READ,
         Permission.DRONE_WRITE,
+        Permission.HUMS_READ,
+        Permission.HUMS_WRITE,
+        Permission.DIGITAL_TWIN_READ,
+        Permission.MRO_INTELLIGENCE_READ,
+        Permission.MRO_INTELLIGENCE_REVIEW,
     },
     Role.QUALITY_MANAGER: {
         Permission.AIRCRAFT_READ,
@@ -226,6 +269,10 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ASSESSMENT_WRITE,
         Permission.FACILITY_READ,
         Permission.DRONE_READ,
+        Permission.HUMS_READ,
+        Permission.DIGITAL_TWIN_READ,
+        Permission.MRO_INTELLIGENCE_READ,
+        Permission.MRO_INTELLIGENCE_REVIEW,
     },
     Role.MAINTENANCE_ENGINEER: {
         Permission.AIRCRAFT_READ,
@@ -242,6 +289,10 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.ASSESSMENT_READ,
         Permission.FACILITY_READ,
         Permission.DRONE_READ,
+        Permission.HUMS_READ,
+        Permission.DIGITAL_TWIN_READ,
+        Permission.MRO_INTELLIGENCE_READ,
+        Permission.MRO_INTELLIGENCE_REVIEW,
     },
     Role.VIEWER: {
         Permission.AIRCRAFT_READ,
@@ -255,6 +306,9 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.PROCUREMENT_READ,
         Permission.TECHNICIAN_READ,
         Permission.ASSESSMENT_READ,
+        Permission.HUMS_READ,
+        Permission.DIGITAL_TWIN_READ,
+        Permission.MRO_INTELLIGENCE_READ,
     },
     # Deliberately minimal: platform staff can administer tenants but do not
     # implicitly gain any customer operational-data permission — a platform

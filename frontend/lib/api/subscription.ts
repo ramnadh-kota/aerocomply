@@ -14,10 +14,44 @@ import { apiRequest } from "@/lib/apiClient";
 // Mirrors app/models/subscription.py's SubscriptionStatus values exactly.
 export type SubscriptionStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "CANCELED" | "SCHEDULED";
 
+export interface ProductSuiteResponse {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  icon?: string | null;
+  display_order: number;
+  is_active: boolean;
+  plans_count?: number;
+  modules_count?: number;
+  features_count?: number;
+  organizations_count?: number;
+  active_subscriptions_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlanResponse {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+  is_active: boolean;
+  suite_id?: string | null;
+  suite_code?: string | null;
+  suite_name?: string | null;
+  asset_scope?: string | null;
+  included_features_count: number;
+  tenant_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SubscriptionResponse {
   id: string;
   organization_id: string;
   plan_id: string;
+  suite_id?: string | null;
   status: SubscriptionStatus | string;
   starts_at: string;
   ends_at: string | null;
@@ -27,6 +61,7 @@ export interface SubscriptionResponse {
 
 export interface SubscriptionCreateRequest {
   plan_id: string;
+  suite_id?: string | null;
   status: string;
   starts_at: string;
   ends_at?: string | null;
@@ -34,6 +69,7 @@ export interface SubscriptionCreateRequest {
 
 export interface SubscriptionScheduleRequest {
   plan_id: string;
+  suite_id?: string | null;
   starts_at: string;
   ends_at?: string | null;
 }
@@ -41,6 +77,7 @@ export interface SubscriptionScheduleRequest {
 export interface SubscriptionUpdateRequest {
   status?: string;
   plan_id?: string;
+  suite_id?: string | null;
   starts_at?: string;
   ends_at?: string | null;
 }

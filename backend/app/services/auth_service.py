@@ -44,6 +44,7 @@ OTP_RESEND_COOLDOWN_SECONDS = 60
 _DEFAULT_REGISTRATION_PLAN_CODE = "DEFAULT_PLAN"
 _DEFAULT_REGISTRATION_PLAN_NAME = "Default Standard Plan"
 _DEFAULT_REGISTRATION_PLAN_FEATURES = {
+    "aircraft_fleet_management": True,
     "drone_fleet_management": True,
     "flight_telemetry": True,
     "battery_analytics": True,
@@ -54,7 +55,13 @@ _DEFAULT_REGISTRATION_PLAN_FEATURES = {
     "procurement_management": True,
     "ai_assistant": True,
     "predictive_maintenance": True,
+    "hums": True,
+    "digital_twin": True,
+    "mro_intelligence": True,
 }
+
+
+from app.models.product_catalog import ProductSuite
 
 
 def _get_or_create_default_plan(db: Session) -> Plan:
@@ -62,11 +69,29 @@ def _get_or_create_default_plan(db: Session) -> Plan:
         select(Plan).where(Plan.code == _DEFAULT_REGISTRATION_PLAN_CODE)
     ).scalar_one_or_none()
     if plan is None:
+        suite = db.execute(
+            select(ProductSuite).where(ProductSuite.code == "AIRCRAFT")
+        ).scalar_one_or_none()
+        if suite is None:
+            suite = db.execute(select(ProductSuite)).scalars().first()
+        if suite is None:
+            suite = ProductSuite(
+                code="AIRCRAFT",
+                name="Commercial Aircraft Suite",
+                description="Commercial air transport, fleet airworthiness, and airline operations.",
+                display_order=1,
+                is_active=True,
+            )
+            db.add(suite)
+            db.flush()
+
         plan = Plan(
             name=_DEFAULT_REGISTRATION_PLAN_NAME,
             code=_DEFAULT_REGISTRATION_PLAN_CODE,
             description="Default commercial plan for registered organizations",
             is_active=True,
+            suite_id=suite.id,
+            asset_scope="AIRCRAFT",
         )
         db.add(plan)
         db.flush()
@@ -123,6 +148,7 @@ def register_organization(db: Session, payload: RegisterOrganizationRequest) -> 
     sub = Subscription(
         organization_id=org.id,
         plan_id=default_plan.id,
+        suite_id=default_plan.suite_id,
         status=SubscriptionStatus.ACTIVE,
         starts_at=datetime.now(UTC) - timedelta(minutes=1),
         ends_at=None,

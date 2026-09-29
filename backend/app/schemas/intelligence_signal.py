@@ -22,6 +22,22 @@ SignalType = Literal[
     "EVIDENCE_GAP",
     "READINESS_DEGRADATION",
     "FLEET_PATTERN",
+    # H1: HUMS vibration threshold exceedance — extends the M7 taxonomy
+    # rather than introducing a parallel signal system (see hums_service.py).
+    "HUMS_VIBRATION_EXCEEDANCE",
+    # H3: HUMS baseline-driven health deterioration (DEGRADED/WARNING/
+    # CRITICAL only — see app/services/hums/health_service.py::sync_health_signal).
+    "HUMS_HEALTH_DEGRADATION",
+    # H4: rule-based diagnostic candidate generated — never a confirmed
+    # fault (see app/services/hums/diagnostic_service.py::sync_diagnostic_signal).
+    "HUMS_DIAGNOSTIC_CANDIDATE",
+    # H5: RUL entered its configured warning window, or the prognostic
+    # model/estimate became LOW_CONFIDENCE/STALE (see
+    # app/services/hums/prognostic_service.py::_sync_rul_signal).
+    "HUMS_RUL_WARNING",
+    "HUMS_EXCEEDANCE",
+    # M13: Telemetry freshness & data quality early-warning signals
+    "TELEMETRY_FRESHNESS",
 ]
 
 SignalSeverity = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
@@ -97,7 +113,7 @@ class ProactiveSignalResponse(BaseModel):
     dismissal_reason: str | None = None
 
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None = None
 
 
 class SignalAcknowledgeRequest(BaseModel):

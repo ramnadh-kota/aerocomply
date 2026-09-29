@@ -614,7 +614,7 @@ export default function DataImportPage() {
                 paddingTop: "var(--ac-space-3)",
               }}
             >
-              <div>• <strong>Auto-Synonym Detection:</strong> Columns like "Reg No", "Tail", "FH", "FC", "Pilot" are automatically mapped.</div>
+              <div>• <strong>Auto-Synonym Detection:</strong> Columns like &quot;Reg No&quot;, &quot;Tail&quot;, &quot;FH&quot;, &quot;FC&quot;, &quot;Pilot&quot; are automatically mapped.</div>
               <div style={{ marginTop: 4 }}>• <strong>Carry-in Baselines:</strong> Historical flight hours prior to your baseline effective date will not be double-counted.</div>
               <div style={{ marginTop: 4 }}>• <strong>Tenant Isolation:</strong> Datasets are strictly private and isolated to your organization.</div>
             </div>

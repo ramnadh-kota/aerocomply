@@ -3,13 +3,17 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import get_db_session, require_feature, require_permission
 from app.core.permissions import Permission
 from app.schemas.aircraft import AircraftCreateRequest, AircraftResponse, AircraftUpdateRequest
 from app.schemas.auth import CurrentUser
 from app.services import aircraft_service
 
-router = APIRouter(prefix="/aircraft", tags=["aircraft"])
+router = APIRouter(
+    prefix="/aircraft",
+    tags=["aircraft"],
+    dependencies=[Depends(require_feature("aircraft_fleet_management"))],
+)
 
 
 @router.post("", response_model=AircraftResponse, status_code=201)

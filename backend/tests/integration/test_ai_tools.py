@@ -12,7 +12,32 @@ from app.services import aircraft_service
 from app.services.ai.tools import execute_tool
 
 
-def _user(org_id: uuid.UUID, roles: list[str]) -> CurrentUser:
+from app.models.organization import Organization
+from tests.integration.conftest import grant_features
+
+
+def _user(db_session, org_id: uuid.UUID, roles: list[str]) -> CurrentUser:
+    if db_session.get(Organization, org_id) is None:
+        db_session.add(Organization(id=org_id, name="Tool Test Org"))
+        db_session.flush()
+        grant_features(
+            db_session,
+            org_id,
+            "aircraft_fleet_management",
+            "work_order_management",
+            "inspections_management",
+            "procurement_management",
+            "compliance_management",
+            "advanced_compliance_intelligence",
+            "predictive_maintenance",
+            "hums",
+            "flight_telemetry",
+            "digital_twin",
+            "mro_intelligence",
+            "lisa_ai_copilot",
+            "release_readiness",
+        )
+        db_session.commit()
     return CurrentUser(
         id=uuid.uuid4(),
         organization_id=org_id,
@@ -24,7 +49,7 @@ def _user(org_id: uuid.UUID, roles: list[str]) -> CurrentUser:
 
 def test_unknown_tool_raises(db_session):
     org_id = uuid.uuid4()
-    user = _user(org_id, ["ORG_ADMIN"])
+    user = _user(db_session, org_id, ["ORG_ADMIN"])
     with pytest.raises(Exception) as exc_info:
         execute_tool(db_session, user, "not_a_real_tool", {})
     assert "unknown_tool" in str(exc_info.value) or "Unknown tool" in str(exc_info.value)
@@ -37,7 +62,7 @@ def test_viewer_role_can_read_aircraft(db_session):
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="N1AI", msn="MSN-AI-1", aircraft_type="A320"),
     )
-    user = _user(org_id, ["VIEWER"])
+    user = _user(db_session, org_id, ["VIEWER"])
 
     result = execute_tool(db_session, user, "get_aircraft", {"aircraft_id": str(aircraft.id)})
     assert result["registration"] == "N1AI"
@@ -47,7 +72,7 @@ def test_role_without_permission_is_forbidden(db_session):
     org_id = uuid.uuid4()
     # A role with no grants at all — permissions_for_roles([]) returns an
     # empty set, so every tool must refuse it.
-    user = _user(org_id, [])
+    user = _user(db_session, org_id, [])
 
     with pytest.raises(ForbiddenError):
         execute_tool(db_session, user, "list_aircraft", {})
@@ -61,7 +86,7 @@ def test_tool_cannot_see_other_tenant_aircraft(db_session):
         organization_id=org_a,
         payload=AircraftCreateRequest(registration="N2AI", msn="MSN-AI-2", aircraft_type="A320"),
     )
-    user_b = _user(org_b, ["ORG_ADMIN"])
+    user_b = _user(db_session, org_b, ["ORG_ADMIN"])
 
     with pytest.raises(NotFoundError):
         execute_tool(db_session, user_b, "get_aircraft", {"aircraft_id": str(aircraft.id)})
@@ -75,7 +100,7 @@ def test_tool_list_scoped_to_tenant(db_session):
         organization_id=org_a,
         payload=AircraftCreateRequest(registration="N3AI", msn="MSN-AI-3", aircraft_type="A320"),
     )
-    user_b = _user(org_b, ["ORG_ADMIN"])
+    user_b = _user(db_session, org_b, ["ORG_ADMIN"])
 
     result = execute_tool(db_session, user_b, "list_aircraft", {})
     assert result["aircraft"] == []
@@ -88,7 +113,7 @@ def test_get_control_center_summary_tool(db_session):
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="N4AI", msn="MSN-AI-4", aircraft_type="A320"),
     )
-    user = _user(org_id, ["ORG_ADMIN"])
+    user = _user(db_session, org_id, ["ORG_ADMIN"])
 
     result = execute_tool(db_session, user, "get_control_center_summary", {})
     assert result["total_aircraft"] == 1
@@ -97,7 +122,7 @@ def test_get_control_center_summary_tool(db_session):
 
 def test_get_regulatory_provider_status_tool_always_not_configured(db_session):
     org_id = uuid.uuid4()
-    user = _user(org_id, ["ORG_ADMIN"])
+    user = _user(db_session, org_id, ["ORG_ADMIN"])
 
     result = execute_tool(db_session, user, "get_regulatory_provider_status", {})
     assert len(result["providers"]) == 5
@@ -114,7 +139,7 @@ def test_maintenance_engineer_cannot_read_compliance_assessments(db_session):
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="N5AI", msn="MSN-AI-5", aircraft_type="A320"),
     )
-    user = _user(org_id, ["MAINTENANCE_ENGINEER"])
+    user = _user(db_session, org_id, ["MAINTENANCE_ENGINEER"])
 
     with pytest.raises(ForbiddenError):
         execute_tool(
@@ -132,7 +157,7 @@ def test_compliance_manager_can_read_compliance_assessments(db_session):
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="N6AI", msn="MSN-AI-6", aircraft_type="A320"),
     )
-    user = _user(org_id, ["COMPLIANCE_MANAGER"])
+    user = _user(db_session, org_id, ["COMPLIANCE_MANAGER"])
 
     result = execute_tool(
         db_session, user, "get_compliance_assessments", {"aircraft_id": str(aircraft.id)}
@@ -147,7 +172,7 @@ def test_get_intelligence_context_tool_returns_the_deterministic_contract(db_ses
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="N5AI", msn="MSN-AI-5", aircraft_type="A320"),
     )
-    user = _user(org_id, ["ORG_ADMIN"])
+    user = _user(db_session, org_id, ["ORG_ADMIN"])
 
     result = execute_tool(
         db_session, user, "get_intelligence_context", {"asset_id": str(aircraft.asset_id)}
@@ -170,7 +195,7 @@ def test_get_intelligence_context_tool_never_collapses_unknown_to_positive(db_se
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="N6AI", msn="MSN-AI-6", aircraft_type="A320"),
     )
-    user = _user(org_id, ["ORG_ADMIN"])
+    user = _user(db_session, org_id, ["ORG_ADMIN"])
 
     result = execute_tool(
         db_session, user, "get_intelligence_context", {"asset_id": str(aircraft.asset_id)}
@@ -192,7 +217,7 @@ def test_get_intelligence_context_tool_is_tenant_scoped(db_session):
         organization_id=org_a,
         payload=AircraftCreateRequest(registration="N7AI", msn="MSN-AI-7", aircraft_type="A320"),
     )
-    user_b = _user(org_b, ["ORG_ADMIN"])
+    user_b = _user(db_session, org_b, ["ORG_ADMIN"])
 
     with pytest.raises(NotFoundError):
         execute_tool(
@@ -207,7 +232,7 @@ def test_get_intelligence_context_tool_requires_aircraft_read_permission(db_sess
         organization_id=org_id,
         payload=AircraftCreateRequest(registration="N8AI", msn="MSN-AI-8", aircraft_type="A320"),
     )
-    user = _user(org_id, [])
+    user = _user(db_session, org_id, [])
 
     with pytest.raises(ForbiddenError):
         execute_tool(

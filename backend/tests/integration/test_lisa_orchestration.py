@@ -36,8 +36,28 @@ from app.services.lisa.orchestration_service import MAX_TOOL_CALLS, _CallBudget,
 
 
 def _create_user(db_session, org_id, roles=None):
+    from tests.integration.conftest import grant_features
+
     if db_session.get(Organization, org_id) is None:
         db_session.add(Organization(id=org_id, name="Test Org"))
+        db_session.flush()
+        grant_features(
+            db_session,
+            org_id,
+            "aircraft_fleet_management",
+            "work_order_management",
+            "inspections_management",
+            "procurement_management",
+            "compliance_management",
+            "advanced_compliance_intelligence",
+            "predictive_maintenance",
+            "hums",
+            "flight_telemetry",
+            "digital_twin",
+            "mro_intelligence",
+            "lisa_ai_copilot",
+            "release_readiness",
+        )
         db_session.commit()
     user = User(
         organization_id=org_id,

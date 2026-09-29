@@ -46,7 +46,7 @@ from app.core.permissions import Permission, permissions_for_roles
 from app.models.organization import Organization
 from app.models.tenant_entitlement import TenantFeatureOverride, TenantUsageLimit
 from app.services.audit_service import record_audit_event
-from app.services.entitlement_service import resolve_entitlements
+from app.services.entitlement_service import is_feature_allowed_for_suite, resolve_entitlements
 
 
 def require_expansion_permission_if_needed(*, is_expansive: bool, caller_roles: list[str]) -> None:
@@ -136,8 +136,12 @@ def create_feature_override(
     reason: str | None = None,
     expires_at: datetime | None = None,
 ) -> TenantFeatureOverride:
-    if db.get(Organization, organization_id) is None:
-        raise NotFoundError("Organization not found")
+    current_entitlements = resolve_entitlements(db, organization_id=organization_id)
+    if current_entitlements.suite_code and not is_feature_allowed_for_suite(current_entitlements.suite_code, feature_key):
+        raise ConflictError(
+            f"Feature {feature_key!r} is outside the organization's product suite boundary ({current_entitlements.suite_code})",
+            code="feature_outside_suite_boundary",
+        )
 
     is_expansive = classify_feature_override(
         db, organization_id=organization_id, feature_key=feature_key, proposed_enabled=enabled
@@ -218,12 +222,17 @@ def update_feature_override(
 
     updates: dict = {}
     if enabled is not None and enabled != override.enabled:
+        updates["previous_enabled"] = override.enabled
         override.enabled = enabled
         updates["enabled"] = enabled
     if reason is not None and reason != override.reason:
+        updates["previous_reason"] = override.reason
         override.reason = reason
         updates["reason"] = reason
     if expires_at is not None and expires_at != override.expires_at:
+        updates["previous_expires_at"] = (
+            override.expires_at.isoformat() if override.expires_at else None
+        )
         override.expires_at = expires_at
         updates["expires_at"] = expires_at.isoformat()
 
@@ -237,7 +246,7 @@ def update_feature_override(
             action="platform.tenant_feature_override.updated",
             entity_type="TenantFeatureOverride",
             entity_id=override.id,
-            metadata=updates,
+            metadata={"feature_key": feature_key, **updates},
         )
     db.commit()
     db.refresh(override)
@@ -408,6 +417,10 @@ def update_usage_limit(
     require_expansion_permission_if_needed(is_expansive=is_expansive, caller_roles=caller_roles)
 
     updates: dict = {}
+    previous = {
+        "previous_limit_value": limit.limit_value,
+        "previous_is_unlimited": limit.is_unlimited,
+    }
     if is_unlimited is not None and is_unlimited != limit.is_unlimited:
         limit.is_unlimited = is_unlimited
         updates["is_unlimited"] = is_unlimited
@@ -429,7 +442,7 @@ def update_usage_limit(
             action="platform.tenant_usage_limit.updated",
             entity_type="TenantUsageLimit",
             entity_id=limit.id,
-            metadata={**updates, "expansive": is_expansive},
+            metadata={"feature_key": feature_key, "limit_key": limit_key, **previous, **updates, "expansive": is_expansive},
         )
     db.commit()
     db.refresh(limit)

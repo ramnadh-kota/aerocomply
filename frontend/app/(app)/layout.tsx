@@ -8,6 +8,8 @@ import { SidebarDrawerProvider } from "@/components/layout/SidebarDrawerContext"
 import { WelcomeTour } from "@/components/onboarding/WelcomeTour";
 import { AlertStateProvider } from "@/lib/mock/ai/alertState";
 import { AuthGuard } from "@/components/auth/AuthGuard";
+import { RouteEntitlementGuard } from "@/components/auth/RouteEntitlementGuard";
+import { EntitlementProvider } from "@/lib/entitlements/EntitlementContext";
 
 // DataModeProvider/SessionProvider are mounted at the root layout (app/layout.tsx)
 // so both the (app) shell and the standalone /login page share one session.
@@ -15,7 +17,8 @@ import { AuthGuard } from "@/components/auth/AuthGuard";
 export default function AppShellLayout({ children }: { children: ReactNode }) {
   return (
     <AuthGuard>
-      <MroStateProvider>
+      <EntitlementProvider>
+        <MroStateProvider>
         <RoleSimProvider>
           <AlertStateProvider>
             <SidebarDrawerProvider>
@@ -28,7 +31,7 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
                 <div className="ac-main">
                   <Topbar />
                   <main id="ac-main-content" className="ac-content">
-                    {children}
+                    <RouteEntitlementGuard>{children}</RouteEntitlementGuard>
                   </main>
                 </div>
               </div>
@@ -37,6 +40,7 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
           </AlertStateProvider>
         </RoleSimProvider>
       </MroStateProvider>
-    </AuthGuard>
+    </EntitlementProvider>
+  </AuthGuard>
   );
 }

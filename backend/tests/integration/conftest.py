@@ -21,7 +21,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 import app.models  # noqa: F401
@@ -30,6 +30,8 @@ from app.core.rate_limit import reset_rate_limits
 from app.core.security import hash_password
 from app.main import app
 from app.models.organization import Organization
+from app.models.plan import Plan
+from app.models.product_catalog import ProductSuite
 from app.models.user import User, UserRole
 
 TEST_DATABASE_URL = os.environ.get(
@@ -58,6 +60,24 @@ def _run_migrations(database_url: str, revision: str) -> None:
     alembic_cfg.set_main_option("sqlalchemy.url", database_url)
     alembic_cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     command.upgrade(alembic_cfg, revision)
+
+
+@event.listens_for(Plan, "before_insert")
+def _default_plan_suite(mapper, connection, target):
+    """Legacy fixtures predate the Suite->Plan hierarchy (migration 0061 made
+    plans.suite_id NOT NULL) and build Plan(...) with no suite. Mirror
+    plan_service._resolve_or_validate_suite_id's default (DRONE_UAV, then
+    AIRCRAFT) so they keep working; tests that care about suites pass
+    suite_id explicitly, which this never overrides."""
+    if target.suite_id is not None:
+        return
+    for code in ("DRONE_UAV", "AIRCRAFT"):
+        suite_id = connection.execute(
+            select(ProductSuite.id).where(ProductSuite.code == code)
+        ).scalar_one_or_none()
+        if suite_id is not None:
+            target.suite_id = suite_id
+            return
 
 
 @pytest.fixture(scope="session")
@@ -135,3 +155,52 @@ def make_platform_admin_headers(client, db_session):
 @pytest.fixture
 def platform_admin_headers(client, db_session):
     return make_platform_admin_headers(client, db_session)
+
+
+def grant_features(db_session, organization_id, *feature_keys: str, suite_code: str | None = None) -> None:
+    """Give an org an ACTIVE subscription whose plan enables `feature_keys`.
+
+    Routers gated by require_feature (hums, digital_twin, mro_intelligence,
+    ...) need a commercial entitlement in addition to RBAC; fixtures that
+    build organizations by hand (no /auth/register-organization default plan)
+    call this. Uses the default suite via the Plan before_insert hook above.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.plan import PlanFeature
+    from app.models.product_catalog import ProductSuite
+    from app.models.subscription import Subscription, SubscriptionStatus
+
+    if suite_code is None:
+        if "drone_fleet_management" in feature_keys and "aircraft_fleet_management" not in feature_keys:
+            target_suite = "DRONE_UAV"
+        else:
+            target_suite = "AIRCRAFT"
+    else:
+        target_suite = suite_code
+
+    suite = db_session.execute(
+        select(ProductSuite).where(ProductSuite.code == target_suite)
+    ).scalar_one_or_none()
+    suite_id = suite.id if suite else None
+
+    plan = Plan(
+        name=f"Grant-{uuid.uuid4().hex[:8]}",
+        code=f"grant-{uuid.uuid4().hex[:12]}",
+        suite_id=suite_id,
+        is_active=True,
+    )
+    db_session.add(plan)
+    db_session.flush()
+    for key in feature_keys:
+        db_session.add(PlanFeature(plan_id=plan.id, feature_key=key, enabled=True))
+    db_session.add(
+        Subscription(
+            organization_id=organization_id,
+            plan_id=plan.id,
+            suite_id=plan.suite_id,
+            status=SubscriptionStatus.ACTIVE,
+            starts_at=datetime.now(UTC) - timedelta(days=1),
+        )
+    )
+    db_session.commit()

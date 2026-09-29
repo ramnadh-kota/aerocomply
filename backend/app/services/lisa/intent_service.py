@@ -17,10 +17,30 @@ class Intent(StrEnum):
     COMPLIANCE = "COMPLIANCE"
     ASSESSMENT = "ASSESSMENT"
     PROACTIVE_INTELLIGENCE = "PROACTIVE_INTELLIGENCE"
+    TELEMETRY_HUMS = "TELEMETRY_HUMS"
     UNKNOWN = "UNKNOWN"
 
 
 _KEYWORDS: tuple[tuple[Intent, tuple[str, ...]], ...] = (
+    (
+        Intent.TELEMETRY_HUMS,
+        (
+            "telemetry",
+            "hums",
+            "flighthub",
+            "sensor reading",
+            "sensor readings",
+            "sensor health",
+            "vibration exceedance",
+            "vibration reading",
+            "motor temperature",
+            "battery health",
+            "latest telemetry",
+            "telemetry event",
+            "telemetry status",
+            "health intelligence",
+        ),
+    ),
     (
         Intent.PROACTIVE_INTELLIGENCE,
         (

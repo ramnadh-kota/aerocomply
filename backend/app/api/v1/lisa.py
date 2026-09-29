@@ -2,17 +2,38 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db_session
+from app.core.deps import get_current_user, get_db_session, require_feature
 from app.core.logging import get_logger
 from app.schemas.ai import LisaAskRequest, LisaAskResponse
 from app.schemas.auth import CurrentUser
 from app.schemas.lisa_context import LisaConversationContextResponse
 from app.services.ai.agent_service import ask_lisa
-from app.services.ai.provider import AIProviderError, AIProviderNotConfiguredError, get_ai_provider
+from app.services.ai.provider import (
+    AIProviderError,
+    AIProviderNotConfiguredError,
+    NotConfiguredProvider,
+    get_ai_provider,
+)
 from app.services.lisa import context_service
 
-router = APIRouter(prefix="/lisa", tags=["lisa"])
+router = APIRouter(
+    prefix="/lisa",
+    tags=["lisa"],
+    dependencies=[Depends(require_feature("lisa_ai_copilot"))],
+)
 logger = get_logger(__name__)
+
+
+@router.get("/status")
+def get_lisa_status(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    provider = get_ai_provider()
+    is_configured = not isinstance(provider, NotConfiguredProvider)
+    return {
+        "configured": is_configured,
+        "provider": getattr(provider, "_model", "none") if is_configured else "not_configured",
+    }
 
 
 @router.post("/ask", response_model=None)

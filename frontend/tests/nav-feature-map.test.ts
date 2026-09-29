@@ -12,11 +12,9 @@ import { NAV_GROUPS, type NavGroup } from "../components/layout/Sidebar";
 // future change to either side that breaks the correspondence is caught.
 // If the backend catalog ever gains/removes a feature, update this list
 // deliberately alongside seed_product_catalog.py.
-const REAL_BACKEND_FEATURE_KEYS = [
-  "work_order_management",
-  "drone_fleet_management",
-  "procurement_management",
-];
+import { FEATURE_KEYS } from "../lib/entitlements/featureKeys";
+
+const REAL_BACKEND_FEATURE_KEYS = Object.values(FEATURE_KEYS);
 
 function allHrefs(groups: NavGroup[]): string[] {
   return groups.flatMap((g) => g.items.map((i) => i.href));

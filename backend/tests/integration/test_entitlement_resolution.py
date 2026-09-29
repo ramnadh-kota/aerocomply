@@ -432,7 +432,12 @@ def test_lisa_feature_key_has_no_special_casing(db_session):
     # Same resolution status/shape regardless of whether the feature_key
     # happens to be "LISA" or something else -- no special code path exists.
     assert result_a.resolution_status == result_b.resolution_status
-    assert result_a.effective_features == {"LISA": True}
+    # "LISA" is a registered feature-key alias, so the resolver also exposes
+    # its canonical key (M20 note: alias expansion is intentional; the
+    # original exact-map assertion predates feature_keys.py). Ad hoc keys are
+    # stored exactly as configured.
+    assert result_a.effective_features["LISA"] is True
+    assert result_a.effective_features["lisa_ai_copilot"] is True
     assert result_b.effective_features == {"ORDINARY_FEATURE": True}
 
 

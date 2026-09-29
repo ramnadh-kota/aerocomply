@@ -159,12 +159,19 @@ def create_subscription(
     status: str,
     starts_at: datetime,
     ends_at: datetime | None = None,
+    suite_id: uuid.UUID | None = None,
     commit: bool = True,
 ) -> Subscription:
     if db.get(Organization, organization_id) is None:
         raise NotFoundError("Organization not found")
-    if db.get(Plan, plan_id) is None:
+    plan = db.get(Plan, plan_id)
+    if plan is None:
         raise NotFoundError("Plan not found")
+    if suite_id is not None and plan.suite_id != suite_id:
+        raise ConflictError(
+            f"Plan '{plan.name}' ({plan.code}) does not belong to the selected product suite ({suite_id})",
+            code="suite_plan_mismatch",
+        )
     _validate_status(status)
     _assert_no_ambiguity(
         db, organization_id=organization_id, status=status, starts_at=starts_at, ends_at=ends_at
@@ -173,6 +180,7 @@ def create_subscription(
     sub = Subscription(
         organization_id=organization_id,
         plan_id=plan_id,
+        suite_id=plan.suite_id,
         status=status,
         starts_at=starts_at,
         ends_at=ends_at,
@@ -191,7 +199,7 @@ def create_subscription(
         action="platform.subscription.created",
         entity_type="Subscription",
         entity_id=sub.id,
-        metadata={"plan_id": str(plan_id), "status": status},
+        metadata={"plan_id": str(plan_id), "suite_id": str(plan.suite_id), "status": status},
     )
     if commit:
         db.commit()
@@ -222,8 +230,28 @@ def update_subscription(
             )
         new_status = status
 
-    if plan_id is not None and db.get(Plan, plan_id) is None:
-        raise NotFoundError("Plan not found")
+    if plan_id is not None and plan_id != sub.plan_id:
+        target_plan = db.get(Plan, plan_id)
+        if target_plan is None:
+            raise NotFoundError("Plan not found")
+        if not target_plan.is_active:
+            raise ConflictError(
+                f"Plan '{target_plan.name}' ({target_plan.code}) is inactive and cannot be assigned",
+                code="inactive_plan",
+            )
+        # Suite changes are deliberately unsupported: a suite is the domain
+        # boundary, and moving suites would strand suite-scoped overrides and
+        # limits. Re-provision under the new suite instead.
+        current_suite_id = sub.suite_id
+        if current_suite_id is None:
+            current_plan = db.get(Plan, sub.plan_id)
+            current_suite_id = current_plan.suite_id if current_plan else None
+        if current_suite_id is not None and target_plan.suite_id != current_suite_id:
+            raise ConflictError(
+                f"Plan '{target_plan.name}' ({target_plan.code}) belongs to a different "
+                "product suite than this subscription; changing suite is not supported",
+                code="suite_plan_mismatch",
+            )
 
     new_starts_at = starts_at if starts_at is not None else sub.starts_at
     new_ends_at = ends_at if ends_at is not None else sub.ends_at
@@ -239,15 +267,24 @@ def update_subscription(
 
     updates: dict = {}
     if status is not None and new_status != sub.status:
+        updates["previous_status"] = sub.status
         sub.status = new_status
         updates["status"] = new_status
     if plan_id is not None and plan_id != sub.plan_id:
+        new_plan = db.get(Plan, plan_id)
+        if new_plan is None:
+            raise NotFoundError("Plan not found")
+        updates["previous_plan_id"] = str(sub.plan_id)
+        updates["suite_id"] = str(new_plan.suite_id)
         sub.plan_id = plan_id
+        sub.suite_id = new_plan.suite_id
         updates["plan_id"] = str(plan_id)
     if starts_at is not None and starts_at != sub.starts_at:
+        updates["previous_starts_at"] = sub.starts_at.isoformat()
         sub.starts_at = starts_at
         updates["starts_at"] = starts_at.isoformat()
     if ends_at is not None and ends_at != sub.ends_at:
+        updates["previous_ends_at"] = sub.ends_at.isoformat() if sub.ends_at else None
         sub.ends_at = ends_at
         updates["ends_at"] = ends_at.isoformat()
 
@@ -316,12 +353,14 @@ def schedule_subscription(
     TRIALING/ACTIVE/PAST_DUE rows is needed here."""
     if db.get(Organization, organization_id) is None:
         raise NotFoundError("Organization not found")
-    if db.get(Plan, plan_id) is None:
+    plan = db.get(Plan, plan_id)
+    if plan is None:
         raise NotFoundError("Plan not found")
 
     sub = Subscription(
         organization_id=organization_id,
         plan_id=plan_id,
+        suite_id=plan.suite_id,
         status=SubscriptionStatus.SCHEDULED,
         starts_at=starts_at,
         ends_at=ends_at,
@@ -342,7 +381,7 @@ def schedule_subscription(
         action="platform.subscription.scheduled",
         entity_type="Subscription",
         entity_id=sub.id,
-        metadata={"plan_id": str(plan_id)},
+        metadata={"plan_id": str(plan_id), "suite_id": str(plan.suite_id)},
     )
     db.commit()
     db.refresh(sub)

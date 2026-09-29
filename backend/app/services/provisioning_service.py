@@ -72,6 +72,9 @@ class ProvisionOrganizationResult:
     subscription: Subscription
     admin: User
     onboarding_email_sent: bool
+    suite_id: uuid.UUID | None = None
+    suite_code: str | None = None
+    suite_name: str | None = None
     plan_code: str | None = None
     features_count: int = 0
     limits_count: int = 0
@@ -164,16 +167,19 @@ def provision_organization(
     subscription_status: str,
     admin_email: str,
     admin_full_name: str,
+    suite_id: uuid.UUID | None = None,
 ) -> ProvisionOrganizationResult:
     """Orchestrates atomic tenant provisioning:
     1. Pre-flight checks:
        - Commercial plan exists and is active.
+       - Plan belongs to requested suite if suite_id provided.
        - No active organization with the same name already exists.
        - No user with the initial admin email already exists.
     2. Single DB Transaction (commit=False across platform/subscription services):
        - Create organization.
+       - Set organization industry to match suite.
        - Create initial admin with a discarded random password.
-       - Create subscription with the selected commercial plan.
+       - Create subscription with the selected commercial plan and suite.
        - Derive and verify effective entitlements & usage limits baseline.
        - Record audit event (platform.organization.provisioned).
        - Commit atomic transaction.
@@ -188,6 +194,11 @@ def provision_organization(
         raise ConflictError(
             f"Commercial plan '{plan.name}' ({plan.code}) is inactive and cannot be assigned to new provisions",
             code="inactive_plan",
+        )
+    if suite_id is not None and plan.suite_id != suite_id:
+        raise ConflictError(
+            f"Commercial plan '{plan.name}' ({plan.code}) does not belong to the selected product suite",
+            code="suite_plan_mismatch",
         )
 
     clean_org_name = organization_name.strip()
@@ -236,6 +247,7 @@ def provision_organization(
             actor_user_id=actor_user_id,
             organization_id=org.id,
             plan_id=plan_id,
+            suite_id=plan.suite_id,
             status=subscription_status,
             starts_at=datetime.now(UTC),
             commit=False,
@@ -243,6 +255,10 @@ def provision_organization(
 
         # Baseline entitlement resolution verification
         entitlements = entitlement_service.resolve_entitlements(db, organization_id=org.id)
+
+        if entitlements.suite_code and org.industry != entitlements.suite_code:
+            org.industry = entitlements.suite_code
+            db.add(org)
 
         record_audit_event(
             db,
@@ -252,6 +268,8 @@ def provision_organization(
             entity_type="Organization",
             entity_id=org.id,
             metadata={
+                "suite_id": str(entitlements.suite_id) if entitlements.suite_id else None,
+                "suite_code": entitlements.suite_code,
                 "plan_id": str(plan_id),
                 "plan_code": plan.code,
                 "admin_email": clean_admin_email,
@@ -289,6 +307,9 @@ def provision_organization(
         subscription=subscription,
         admin=admin,
         onboarding_email_sent=onboarding_email_sent,
+        suite_id=entitlements.suite_id,
+        suite_code=entitlements.suite_code,
+        suite_name=entitlements.suite_name,
         plan_code=plan.code,
         features_count=len(entitlements.effective_features),
         limits_count=len(entitlements.usage_limits),

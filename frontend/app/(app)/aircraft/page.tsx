@@ -18,6 +18,7 @@ import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { AircraftContextLayer } from "@/components/aircraft-visual/AircraftContextLayer";
 import { AssetRegistrationModal } from "@/components/assets/AssetRegistrationModal";
+import { SuiteGuard } from "@/components/auth/SuiteGuard";
 
 interface Row {
   aircraft: Aircraft;
@@ -222,75 +223,77 @@ function DemoAircraftListPage() {
   ];
 
   return (
-    <div>
-      <AircraftContextLayer />
-      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft" }]} />
-      <div className="ac-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <h1 className="ac-h1">Aircraft Fleet</h1>
-          <p className="ac-subtitle">{filtered.length} of {rows.length} aircraft shown</p>
+    <SuiteGuard requiredSuite="AIRCRAFT">
+      <div>
+        <AircraftContextLayer />
+        <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: "Aircraft" }]} />
+        <div className="ac-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h1 className="ac-h1">Aircraft Fleet</h1>
+            <p className="ac-subtitle">{filtered.length} of {rows.length} aircraft shown</p>
+          </div>
+          <button
+            type="button"
+            className="ac-btn"
+            style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+            onClick={() => setIsModalOpen(true)}
+          >
+            + Add Aircraft
+          </button>
         </div>
-        <button
-          type="button"
-          className="ac-btn"
-          style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
-          onClick={() => setIsModalOpen(true)}
-        >
-          + Add Aircraft
-        </button>
-      </div>
 
-      <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
-        <div className="ac-flex ac-gap-3" style={{ flexWrap: "wrap" }}>
-          <input
-            type="search"
-            placeholder="Search registration or MSN…"
-            className="ac-input"
-            style={{ maxWidth: 260 }}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search aircraft"
-          />
-          <select className="ac-input" style={{ width: 180 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Filter by aircraft type">
-            <option value="ALL">All Aircraft Types</option>
-            {types.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-          <select className="ac-input" style={{ width: 200 }} value={operatorFilter} onChange={(e) => setOperatorFilter(e.target.value)} aria-label="Filter by operator">
-            <option value="ALL">All Operators</option>
-            {operators.map((o) => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </select>
-          <select className="ac-input" style={{ width: 200 }} value={complianceFilter} onChange={(e) => setComplianceFilter(e.target.value)} aria-label="Filter by compliance status">
-            <option value="ALL">All Compliance Statuses</option>
-            <option value="COMPLIANT">Compliant</option>
-            <option value="NON_COMPLIANT">Non-Compliant</option>
-            <option value="REVIEW_REQUIRED">Review Required</option>
-            <option value="INSUFFICIENT_DATA">Insufficient Data</option>
-          </select>
-          <select className="ac-input" style={{ width: 190 }} value={maintenanceFilter} onChange={(e) => setMaintenanceFilter(e.target.value)} aria-label="Filter by maintenance status">
-            <option value="ALL">All Maintenance Statuses</option>
-            <option value="OVERDUE">Overdue</option>
-            <option value="AWAITING_ACTION">Awaiting Action</option>
-            <option value="SCHEDULED">Scheduled</option>
-            <option value="UP_TO_DATE">Up to Date</option>
-          </select>
+        <div className="ac-card ac-section" style={{ padding: "var(--ac-space-4)" }}>
+          <div className="ac-flex ac-gap-3" style={{ flexWrap: "wrap" }}>
+            <input
+              type="search"
+              placeholder="Search registration or MSN…"
+              className="ac-input"
+              style={{ maxWidth: 260 }}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search aircraft"
+            />
+            <select className="ac-input" style={{ width: 180 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Filter by aircraft type">
+              <option value="ALL">All Aircraft Types</option>
+              {types.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            <select className="ac-input" style={{ width: 200 }} value={operatorFilter} onChange={(e) => setOperatorFilter(e.target.value)} aria-label="Filter by operator">
+              <option value="ALL">All Operators</option>
+              {operators.map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+            <select className="ac-input" style={{ width: 200 }} value={complianceFilter} onChange={(e) => setComplianceFilter(e.target.value)} aria-label="Filter by compliance status">
+              <option value="ALL">All Compliance Statuses</option>
+              <option value="COMPLIANT">Compliant</option>
+              <option value="NON_COMPLIANT">Non-Compliant</option>
+              <option value="REVIEW_REQUIRED">Review Required</option>
+              <option value="INSUFFICIENT_DATA">Insufficient Data</option>
+            </select>
+            <select className="ac-input" style={{ width: 190 }} value={maintenanceFilter} onChange={(e) => setMaintenanceFilter(e.target.value)} aria-label="Filter by maintenance status">
+              <option value="ALL">All Maintenance Statuses</option>
+              <option value="OVERDUE">Overdue</option>
+              <option value="AWAITING_ACTION">Awaiting Action</option>
+              <option value="SCHEDULED">Scheduled</option>
+              <option value="UP_TO_DATE">Up to Date</option>
+            </select>
+          </div>
         </div>
-      </div>
 
-      <div className="ac-card" style={{ padding: 0 }}>
-        <DataTable columns={columns} rows={filtered} getRowHref={(r) => `/aircraft/${r.aircraft.id}`} emptyMessage="No aircraft match the current filters." />
-      </div>
+        <div className="ac-card" style={{ padding: 0 }}>
+          <DataTable columns={columns} rows={filtered} getRowHref={(r) => `/aircraft/${r.aircraft.id}`} emptyMessage="No aircraft match the current filters." />
+        </div>
 
-      <AssetRegistrationModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        defaultType="AIRCRAFT"
-        lockedType="AIRCRAFT"
-        destinationRoute="assets"
-      />
-    </div>
+        <AssetRegistrationModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          defaultType="AIRCRAFT"
+          lockedType="AIRCRAFT"
+          destinationRoute="assets"
+        />
+      </div>
+    </SuiteGuard>
   );
 }

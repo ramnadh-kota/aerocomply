@@ -51,12 +51,16 @@ for that future milestone, not something to speculatively build now.
 
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPKMixin
+
+if TYPE_CHECKING:
+    from app.models.plan import Plan
 
 
 class ProductSuite(UUIDPKMixin, TimestampMixin, Base):
@@ -65,6 +69,7 @@ class ProductSuite(UUIDPKMixin, TimestampMixin, Base):
     code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    icon: Mapped[str | None] = mapped_column(String(64), nullable=True)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     updated_at: Mapped[datetime] = mapped_column(
@@ -73,6 +78,9 @@ class ProductSuite(UUIDPKMixin, TimestampMixin, Base):
 
     modules: Mapped[list["ProductModule"]] = relationship(
         back_populates="suite", order_by="ProductModule.display_order"
+    )
+    plans: Mapped[list["Plan"]] = relationship(
+        "Plan", back_populates="suite"
     )
 
 
