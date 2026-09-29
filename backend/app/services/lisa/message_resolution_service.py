@@ -67,6 +67,43 @@ class MessageResolution:
         return "Resolved entities this turn: " + "; ".join(parts)
 
 
+_MIN_ASSET_IDENTIFIER_LEN = 3
+
+
+def _mentioned_asset_identifier(db: Session, organization_id: uuid.UUID, question: str) -> str | None:
+    """The single registration/serial of this tenant's assets that occurs as a whole token in
+    `question`, or None. Exact match only (never fuzzy); tenant- and soft-delete-scoped; if the
+    message names two DIFFERENT assets nothing is chosen (the caller asks / falls back) rather
+    than picking one."""
+    import re
+
+    from sqlalchemy import func, literal, select
+
+    from app.models.asset import Asset
+
+    q_upper = question.upper()
+    candidates: set[str] = set()
+    for column in (Asset.registration, Asset.serial_number):
+        rows = db.execute(
+            select(column).where(
+                Asset.organization_id == organization_id,
+                Asset.deleted_at.is_(None),
+                column.is_not(None),
+                func.length(func.trim(column)) >= _MIN_ASSET_IDENTIFIER_LEN,
+                # strpos, not LIKE: identifiers may contain % or _ which LIKE treats as wildcards
+                func.strpos(literal(q_upper), func.upper(func.trim(column))) > 0,
+            ).limit(25)
+        ).scalars()
+        for value in rows:
+            token = value.strip().upper()
+            if re.search(r"(?<![A-Z0-9])" + re.escape(token) + r"(?![A-Z0-9])", q_upper):
+                candidates.add(value.strip())
+    distinct = {c.upper() for c in candidates}
+    if len(distinct) != 1:
+        return None
+    return sorted(candidates)[0]
+
+
 def resolve_message(
     db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID, question: str
 ) -> MessageResolution:
@@ -82,6 +119,13 @@ def resolve_message(
 
     # 1. Explicit identifiers found directly in the message text.
     explicit = reference_resolution_service.extract_explicit_identifiers(question)
+    if "aircraft" not in explicit:
+        # The registration regex only knows aircraft-shaped tokens (VT-ABC, N123AB), so a drone
+        # named "DRN-001" or "JOURNEY-1" was never even tried. Look for one of THIS tenant's own
+        # asset identifiers appearing verbatim (whole token, case-insensitive) in the message.
+        mentioned = _mentioned_asset_identifier(db, organization_id, question)
+        if mentioned is not None:
+            explicit["aircraft"] = mentioned
     context_updates: dict[str, str | None] = {}
     for entity_type, identifier in explicit.items():
         resolver = _RESOLVER_BY_TYPE[entity_type]

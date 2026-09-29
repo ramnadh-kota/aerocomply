@@ -69,9 +69,32 @@ def _try_uuid(identifier: str) -> uuid.UUID | None:
         return None
 
 
+def _non_aircraft_assets(
+    db: Session, *, organization_id: uuid.UUID, as_uuid: uuid.UUID | None, needle: str
+) -> list:
+    """Drones / helicopters / eVTOL are Assets without an Aircraft row, so the aircraft registry
+    cannot see them. Same tenant scope, soft-delete rule and exact (case-insensitive)
+    registration / serial matching as aircraft -- never fuzzy."""
+    from sqlalchemy import func, select
+
+    from app.models.asset import Asset
+
+    conds = [Asset.organization_id == organization_id, Asset.deleted_at.is_(None)]
+    if as_uuid is not None:
+        conds.append(Asset.id == as_uuid)
+    else:
+        conds.append(
+            (func.upper(func.trim(Asset.registration)) == needle)
+            | (func.upper(func.trim(Asset.serial_number)) == needle)
+        )
+    return list(db.execute(select(Asset).where(*conds).limit(5)).scalars())
+
+
 def resolve_aircraft(
     db: Session, *, organization_id: uuid.UUID, identifier: str
 ) -> ResolutionResult:
+    """Resolves an aircraft OR drone/other airframe asset (entity type stays "aircraft": it is
+    the conversation's 'current airframe')."""
     as_uuid = _try_uuid(identifier)
     if as_uuid is not None:
         try:
@@ -80,6 +103,10 @@ def resolve_aircraft(
             )
             return ResolvedEntity("aircraft", str(aircraft.id), aircraft.registration)
         except Exception:
+            fallback = _non_aircraft_assets(db, organization_id=organization_id, as_uuid=as_uuid, needle="")
+            if len(fallback) == 1:
+                a = fallback[0]
+                return ResolvedEntity("aircraft", str(a.id), a.registration or a.serial_number or str(a.id))
             return NotFound("aircraft", identifier)
 
     needle = identifier.strip().upper()
@@ -89,7 +116,19 @@ def resolve_aircraft(
         if a.registration.strip().upper() == needle
     ]
     if not matches:
-        return NotFound("aircraft", identifier)
+        assets = _non_aircraft_assets(db, organization_id=organization_id, as_uuid=None, needle=needle)
+        if not assets:
+            return NotFound("aircraft", identifier)
+        if len(assets) > 1:
+            return AmbiguousMatch(
+                "aircraft",
+                [
+                    ResolvedEntity("aircraft", str(a.id), f"{a.registration or a.serial_number} — {a.asset_type} {a.id}")
+                    for a in assets
+                ],
+            )
+        a = assets[0]
+        return ResolvedEntity("aircraft", str(a.id), a.registration or a.serial_number or str(a.id))
     if len(matches) > 1:
         return AmbiguousMatch(
             "aircraft",
