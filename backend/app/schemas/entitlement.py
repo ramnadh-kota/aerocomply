@@ -51,6 +51,7 @@ class EntitlementResolutionResponse(BaseModel):
     pages: list[str] = []
     effective_features: dict[str, bool]
     usage_limits: list[UsageLimitConfigurationResponse]
+    active_suites: list[dict] = []
     reason: str
 
     @classmethod
@@ -76,5 +77,6 @@ class EntitlementResolutionResponse(BaseModel):
                 UsageLimitConfigurationResponse.from_configuration(limit)
                 for limit in result.usage_limits
             ],
+            active_suites=getattr(result, "active_suites", []),
             reason=result.reason,
         )

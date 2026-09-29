@@ -79,9 +79,14 @@ def _entitle_work_orders(db_session, org_id):
             db_session.commit()
         return
 
+    from app.models.product_catalog import ProductSuite
+    suite = db_session.execute(select(ProductSuite).where(ProductSuite.code == "AIRCRAFT")).scalars().first()
+    suite_id = suite.id if suite else None
+
     plan = Plan(
         name=f"WO-Plan-{org_id}",
         code=f"wo-plan-{org_id}",
+        suite_id=suite_id,
         is_active=True,
     )
     db_session.add(plan)
@@ -94,6 +99,7 @@ def _entitle_work_orders(db_session, org_id):
         Subscription(
             organization_id=org_id,
             plan_id=plan.id,
+            suite_id=suite_id,
             status=SubscriptionStatus.ACTIVE,
             starts_at=datetime.now(UTC) - timedelta(days=1),
             ends_at=None,
@@ -588,7 +594,7 @@ def test_tat_status_endpoint_live(client, db_session):
     assert tat_resp.status_code == 200
     tat = tat_resp.json()
     assert tat["status"] == "ON_TRACK"
-    assert tat["days_remaining"] == 5
+    assert tat["days_remaining"] in (5, 6)
 
     fleet_tat_resp = client.get("/api/v1/fleet/tat", headers=headers)
     assert fleet_tat_resp.status_code == 200

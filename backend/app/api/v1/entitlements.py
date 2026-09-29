@@ -34,13 +34,22 @@ def _to_response(db: Session, result) -> EntitlementResolutionResponse:
 
 @router.get("", response_model=EntitlementResolutionResponse)
 def get_my_entitlements(
+    suite_id: str | None = None,
+    suite_code: str | None = None,
     db: Session = Depends(get_db_session),
-    # No entitlement-specific permission gate: this is read-only
-    # self-information about the caller's own tenant, not a privileged
-    # operation, so any authenticated user of the organization may see it
-    # (matches the RBAC/entitlement separation documented in
-    # entitlement_service's module docstring).
     current_user: CurrentUser = Depends(get_current_user),
 ) -> EntitlementResolutionResponse:
-    result = resolve_entitlements(db, organization_id=current_user.organization_id)
+    import uuid as _uuid
+    parsed_suite_id: _uuid.UUID | None = None
+    if suite_id:
+        try:
+            parsed_suite_id = _uuid.UUID(suite_id)
+        except ValueError:
+            parsed_suite_id = None
+    result = resolve_entitlements(
+        db,
+        organization_id=current_user.organization_id,
+        suite_id=parsed_suite_id,
+        suite_code=suite_code,
+    )
     return _to_response(db, result)

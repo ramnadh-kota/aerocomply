@@ -137,6 +137,11 @@ def require_suite(*suite_codes: str):
         {EntitlementResolutionStatus.ACTIVE, EntitlementResolutionStatus.INACTIVE_PLAN}
     )
     normalized = {c.strip().upper() for c in suite_codes}
+    # Map common alias DRONE -> DRONE_UAV, EVTOL -> EVTOL_AAM
+    if "DRONE" in normalized:
+        normalized.add("DRONE_UAV")
+    if "EVTOL" in normalized:
+        normalized.add("EVTOL_AAM")
 
     def _check(
         current_user: CurrentUser = Depends(get_current_user),
@@ -148,10 +153,18 @@ def require_suite(*suite_codes: str):
                 "Organization has no active subscription or suite entitlement",
                 code="SUITE_ENTITLEMENT_REQUIRED",
             )
-        current_suite = (result.suite_code or "").strip().upper()
-        if current_suite and current_suite not in normalized:
+        active_codes = {
+            (s.get("suite_code") or "").strip().upper()
+            for s in getattr(result, "active_suites", [])
+            if s.get("suite_code")
+        }
+        if result.suite_code and result.suite_code != "MULTI_SUITE":
+            active_codes.add(result.suite_code.strip().upper())
+
+        if not (active_codes & normalized):
+            current_suite = (result.suite_code or "").strip().upper()
             raise ForbiddenError(
-                f"Organization product suite ({current_suite}) is not entitled to access this domain. Required one of: {', '.join(suite_codes)}",
+                f"Organization product suite ({current_suite or ', '.join(active_codes)}) is not entitled to access this domain. Required one of: {', '.join(suite_codes)}",
                 code="SUITE_ENTITLEMENT_REQUIRED",
             )
         return current_user

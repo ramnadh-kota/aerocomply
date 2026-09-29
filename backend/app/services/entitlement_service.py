@@ -200,6 +200,7 @@ class EntitlementResolution:
     pages: list[str] = field(default_factory=list)
     effective_features: dict[str, bool] = field(default_factory=dict)
     usage_limits: list[UsageLimitConfiguration] = field(default_factory=list)
+    active_suites: list[dict] = field(default_factory=list)
     reason: str = ""
 
 
@@ -230,14 +231,17 @@ def resolve_entitlements(
     db: Session,
     *,
     organization_id: uuid.UUID,
+    suite_id: uuid.UUID | None = None,
+    suite_code: str | None = None,
     as_of: datetime | None = None,
 ) -> EntitlementResolution:
     """Resolve organization_id's effective entitlements as of `as_of`
     (default: now, UTC).
 
-    `organization_id` is trusted as caller-supplied and server-controlled --
-    this function does not re-derive or authorize it. See module docstring
-    for the full tenant-isolation and RBAC-separation contract.
+    If `suite_id` or `suite_code` is provided, resolution is scoped to that
+    specific product suite. If omitted, all active suites for the organization
+    are resolved. Multiple active subscriptions across distinct suites are
+    co-existent and merged.
     """
     resolved_as_of = as_of if as_of is not None else datetime.now(UTC)
 
@@ -288,12 +292,29 @@ def resolve_entitlements(
             ),
         )
 
-    # Step 2: subscription resolution.
+    # Step 2: Resolve target suite if requested
+    target_suite_id = suite_id
+    if target_suite_id is None and suite_code is not None:
+        code_norm = suite_code.strip().upper()
+        if code_norm == "DRONE":
+            code_norm = "DRONE_UAV"
+        elif code_norm == "EVTOL":
+            code_norm = "EVTOL_AAM"
+        matched_suite = db.execute(
+            select(ProductSuite).where(ProductSuite.code == code_norm)
+        ).scalar_one_or_none()
+        if matched_suite:
+            target_suite_id = matched_suite.id
+
+    # Step 3: Candidate subscriptions query
     candidates_stmt = select(Subscription).where(
         Subscription.organization_id == organization_id,
         Subscription.status.in_(tuple(_CURRENT_GRANTING_STATUSES)),
         Subscription.starts_at <= resolved_as_of,
     )
+    if target_suite_id is not None:
+        candidates_stmt = candidates_stmt.where(Subscription.suite_id == target_suite_id)
+
     all_status_matching = list(db.execute(candidates_stmt).scalars().all())
     candidates = [s for s in all_status_matching if _is_current(s, resolved_as_of)]
 
@@ -309,115 +330,284 @@ def resolve_entitlements(
             reason="No current (TRIALING/ACTIVE/PAST_DUE, in-window) subscription found.",
         )
 
-    if len(candidates) > 1:
-        # Deterministic, tested, and explicit: never guess which one "wins".
-        ids = ", ".join(sorted(str(c.id) for c in candidates))
-        return EntitlementResolution(
-            organization_id=organization_id,
-            resolution_status=EntitlementResolutionStatus.AMBIGUOUS,
-            organization_status=organization.status,
-            subscription_id=None,
-            subscription_status=None,
-            plan_id=None,
-            plan_code=None,
-            reason=(
-                "Multiple simultaneously-current subscriptions found "
-                f"({len(candidates)}): {ids}. This is a data integrity issue "
-                "the resolver refuses to silently resolve by picking one."
-            ),
+    # Check for duplicate active subscriptions on the SAME suite
+    candidates_by_suite: dict[uuid.UUID | None, list[Subscription]] = {}
+    for c in candidates:
+        effective_suite_id = c.suite_id
+        if c.plan_id:
+            c_plan = db.execute(select(Plan).where(Plan.id == c.plan_id)).scalar_one_or_none()
+            if c_plan is not None:
+                effective_suite_id = c_plan.suite_id
+        candidates_by_suite.setdefault(effective_suite_id, []).append(c)
+
+    for s_id, suite_subs in candidates_by_suite.items():
+        if len(suite_subs) > 1:
+            ids = ", ".join(sorted(str(c.id) for c in suite_subs))
+            return EntitlementResolution(
+                organization_id=organization_id,
+                resolution_status=EntitlementResolutionStatus.AMBIGUOUS,
+                organization_status=organization.status,
+                subscription_id=None,
+                subscription_status=None,
+                plan_id=None,
+                plan_code=None,
+                reason=(
+                    f"Multiple simultaneously-current subscriptions found for suite {s_id} "
+                    f"({len(suite_subs)}): {ids}. This is a data integrity issue "
+                    "the resolver refuses to silently resolve by picking one."
+                ),
+            )
+
+    # Case A: Exactly one active suite candidate
+    if len(candidates) == 1:
+        subscription = candidates[0]
+        plan = db.execute(select(Plan).where(Plan.id == subscription.plan_id)).scalar_one_or_none()
+        if plan is None:
+            return EntitlementResolution(
+                organization_id=organization_id,
+                resolution_status=EntitlementResolutionStatus.INVALID,
+                organization_status=organization.status,
+                subscription_id=subscription.id,
+                subscription_status=subscription.status,
+                plan_id=subscription.plan_id,
+                plan_code=None,
+                reason=f"Subscription {subscription.id} references a plan that could not be found.",
+            )
+
+        suite = db.execute(select(ProductSuite).where(ProductSuite.id == plan.suite_id)).scalar_one_or_none()
+        s_id = suite.id if suite else None
+        s_code = suite.code if suite else None
+        s_name = suite.name if suite else None
+
+        modules: list[str] = []
+        pages: list[str] = []
+        if suite is not None:
+            module_rows = list(
+                db.execute(
+                    select(ProductModule)
+                    .where(ProductModule.suite_id == suite.id, ProductModule.is_active == True)
+                    .order_by(ProductModule.display_order)
+                ).scalars().all()
+            )
+            for mod in module_rows:
+                modules.append(mod.code)
+                page_rows = list(
+                    db.execute(
+                        select(ProductPage)
+                        .where(ProductPage.module_id == mod.id, ProductPage.is_active == True)
+                        .order_by(ProductPage.display_order)
+                    ).scalars().all()
+                )
+                for page in page_rows:
+                    if page.route:
+                        pages.append(page.route)
+                    pages.append(page.code)
+
+        plan_features = list(
+            db.execute(select(PlanFeature).where(PlanFeature.plan_id == plan.id)).scalars().all()
+        )
+        effective_features: dict[str, bool] = {}
+        for pf in plan_features:
+            _apply_feature(effective_features, pf.feature_key, pf.enabled)
+
+        overrides = list(
+            db.execute(
+                select(TenantFeatureOverride).where(
+                    TenantFeatureOverride.organization_id == organization_id,
+                )
+            ).scalars().all()
+        )
+        active_overrides = [
+            o for o in overrides
+            if (o.expires_at is None or o.expires_at > resolved_as_of)
+            and is_feature_allowed_for_suite(s_code, o.feature_key)
+        ]
+        for override in active_overrides:
+            _apply_feature(effective_features, override.feature_key, override.enabled)
+
+        plan_limit_rows = list(
+            db.execute(select(PlanLimit).where(PlanLimit.plan_id == plan.id)).scalars().all()
+        )
+        usage_limit_rows = list(
+            db.execute(
+                select(TenantUsageLimit).where(TenantUsageLimit.organization_id == organization_id)
+            ).scalars().all()
+        )
+        tenant_override_map = {row.limit_key: row for row in usage_limit_rows}
+
+        effective_limits_map: dict[str, UsageLimitConfiguration] = {}
+        for pl in plan_limit_rows:
+            if pl.limit_key in tenant_override_map:
+                tl = tenant_override_map[pl.limit_key]
+                effective_limits_map[pl.limit_key] = UsageLimitConfiguration(
+                    feature_key=tl.feature_key,
+                    limit_key=pl.limit_key,
+                    limit_value=tl.limit_value,
+                    is_unlimited=tl.is_unlimited,
+                )
+            else:
+                effective_limits_map[pl.limit_key] = UsageLimitConfiguration(
+                    feature_key=pl.limit_key,
+                    limit_key=pl.limit_key,
+                    limit_value=pl.limit_value,
+                    is_unlimited=pl.is_unlimited,
+                )
+
+        for tl in usage_limit_rows:
+            if tl.limit_key not in effective_limits_map:
+                effective_limits_map[tl.limit_key] = UsageLimitConfiguration(
+                    feature_key=tl.feature_key,
+                    limit_key=tl.limit_key,
+                    limit_value=tl.limit_value,
+                    is_unlimited=tl.is_unlimited,
+                )
+
+        usage_limits = sorted(
+            effective_limits_map.values(), key=lambda r: (r.feature_key, r.limit_key)
         )
 
-    subscription = candidates[0]
+        active_suites = [
+            {
+                "suite_id": str(s_id) if s_id else None,
+                "suite_code": s_code,
+                "suite_name": s_name,
+                "plan_id": str(plan.id),
+                "plan_code": plan.code,
+                "plan_name": plan.name,
+                "subscription_id": str(subscription.id),
+                "subscription_status": subscription.status,
+            }
+        ]
 
-    # Step 3: plan resolution.
-    plan = db.execute(select(Plan).where(Plan.id == subscription.plan_id)).scalar_one_or_none()
-    if plan is None:
-        # Defensive only: the RESTRICT FK should make this unreachable.
+        if not plan.is_active:
+            return EntitlementResolution(
+                organization_id=organization_id,
+                resolution_status=EntitlementResolutionStatus.INACTIVE_PLAN,
+                organization_status=organization.status,
+                subscription_id=subscription.id,
+                subscription_status=subscription.status,
+                suite_id=s_id,
+                suite_code=s_code,
+                suite_name=s_name,
+                plan_id=plan.id,
+                plan_code=plan.code,
+                plan_name=plan.name,
+                modules=modules,
+                pages=pages,
+                effective_features=effective_features,
+                usage_limits=usage_limits,
+                active_suites=active_suites,
+                reason=(
+                    f"Plan {plan.code!r} is marked inactive (no new subscriptions may reference "
+                    "it), but this existing subscription's features remain in effect."
+                ),
+            )
+
         return EntitlementResolution(
             organization_id=organization_id,
-            resolution_status=EntitlementResolutionStatus.INVALID,
+            resolution_status=EntitlementResolutionStatus.ACTIVE,
             organization_status=organization.status,
             subscription_id=subscription.id,
             subscription_status=subscription.status,
-            plan_id=subscription.plan_id,
-            plan_code=None,
-            reason=f"Subscription {subscription.id} references a plan that could not be found.",
+            suite_id=s_id,
+            suite_code=s_code,
+            suite_name=s_name,
+            plan_id=plan.id,
+            plan_code=plan.code,
+            plan_name=plan.name,
+            modules=modules,
+            pages=pages,
+            effective_features=effective_features,
+            usage_limits=usage_limits,
+            active_suites=active_suites,
+            reason=f"Subscription {subscription.id} on plan {plan.code!r} is current.",
         )
 
-    # Suite resolution
-    suite = db.execute(select(ProductSuite).where(ProductSuite.id == plan.suite_id)).scalar_one_or_none()
-    suite_id = suite.id if suite else None
-    suite_code = suite.code if suite else None
-    suite_name = suite.name if suite else None
+    # Case B: Multi-suite organization (multiple distinct active suites)
+    modules_set: set[str] = set()
+    pages_set: set[str] = set()
+    effective_features: dict[str, bool] = {}
+    active_suites = []
+    plan_limit_rows = []
 
-    # Step 4: resolve suite modules and pages
-    modules: list[str] = []
-    pages: list[str] = []
-    if suite is not None:
-        module_rows = list(
-            db.execute(
-                select(ProductModule)
-                .where(ProductModule.suite_id == suite.id, ProductModule.is_active == True)
-                .order_by(ProductModule.display_order)
-            ).scalars().all()
+    for sub in candidates:
+        plan = db.execute(select(Plan).where(Plan.id == sub.plan_id)).scalar_one_or_none()
+        if plan is None:
+            continue
+        suite = db.execute(select(ProductSuite).where(ProductSuite.id == plan.suite_id)).scalar_one_or_none()
+        s_id = suite.id if suite else None
+        s_code = suite.code if suite else None
+        s_name = suite.name if suite else None
+
+        active_suites.append(
+            {
+                "suite_id": str(s_id) if s_id else None,
+                "suite_code": s_code,
+                "suite_name": s_name,
+                "plan_id": str(plan.id),
+                "plan_code": plan.code,
+                "plan_name": plan.name,
+                "subscription_id": str(sub.id),
+                "subscription_status": sub.status,
+            }
         )
-        for mod in module_rows:
-            modules.append(mod.code)
-            page_rows = list(
+
+        if suite is not None:
+            mod_rows = list(
                 db.execute(
-                    select(ProductPage)
-                    .where(ProductPage.module_id == mod.id, ProductPage.is_active == True)
-                    .order_by(ProductPage.display_order)
+                    select(ProductModule)
+                    .where(ProductModule.suite_id == suite.id, ProductModule.is_active == True)
+                    .order_by(ProductModule.display_order)
                 ).scalars().all()
             )
-            for page in page_rows:
-                if page.route:
-                    pages.append(page.route)
-                pages.append(page.code)
+            for mod in mod_rows:
+                modules_set.add(mod.code)
+                p_rows = list(
+                    db.execute(
+                        select(ProductPage)
+                        .where(ProductPage.module_id == mod.id, ProductPage.is_active == True)
+                        .order_by(ProductPage.display_order)
+                    ).scalars().all()
+                )
+                for page in p_rows:
+                    if page.route:
+                        pages_set.add(page.route)
+                    pages_set.add(page.code)
 
-    # Step 5: plan feature lookup.
-    plan_features = list(
-        db.execute(select(PlanFeature).where(PlanFeature.plan_id == plan.id)).scalars().all()
-    )
-    effective_features: dict[str, bool] = {}
-    for pf in plan_features:
-        _apply_feature(effective_features, pf.feature_key, pf.enabled)
+        p_feats = list(
+            db.execute(select(PlanFeature).where(PlanFeature.plan_id == plan.id)).scalars().all()
+        )
+        for pf in p_feats:
+            if is_feature_allowed_for_suite(s_code, pf.feature_key):
+                _apply_feature(effective_features, pf.feature_key, pf.enabled)
 
-    # Step 6: tenant override application (override wins; expired ignored).
-    # Overrides cannot cross Suite boundaries!
+        p_limits = list(
+            db.execute(select(PlanLimit).where(PlanLimit.plan_id == plan.id)).scalars().all()
+        )
+        plan_limit_rows.extend(p_limits)
+
+    # Apply overrides allowed by any active suite
+    active_suite_codes = {s["suite_code"] for s in active_suites if s.get("suite_code")}
     overrides = list(
         db.execute(
             select(TenantFeatureOverride).where(
                 TenantFeatureOverride.organization_id == organization_id,
             )
-        )
-        .scalars()
-        .all()
+        ).scalars().all()
     )
-    active_overrides = [
-        o for o in overrides
-        if (o.expires_at is None or o.expires_at > resolved_as_of)
-        and is_feature_allowed_for_suite(suite_code, o.feature_key)
-    ]
-    for override in active_overrides:
-        _apply_feature(effective_features, override.feature_key, override.enabled)
+    for override in overrides:
+        if override.expires_at is None or override.expires_at > resolved_as_of:
+            if any(is_feature_allowed_for_suite(code, override.feature_key) for code in active_suite_codes):
+                _apply_feature(effective_features, override.feature_key, override.enabled)
 
-    # Step 7: usage limits (PlanLimit baseline + TenantUsageLimit overrides).
-    plan_limit_rows = list(
-        db.execute(select(PlanLimit).where(PlanLimit.plan_id == plan.id)).scalars().all()
-    )
     usage_limit_rows = list(
         db.execute(
             select(TenantUsageLimit).where(TenantUsageLimit.organization_id == organization_id)
-        )
-        .scalars()
-        .all()
+        ).scalars().all()
     )
     tenant_override_map = {row.limit_key: row for row in usage_limit_rows}
 
-    effective_limits_map: dict[str, UsageLimitConfiguration] = {}
-
-    # Plan baseline limits
+    effective_limits_map = {}
     for pl in plan_limit_rows:
         if pl.limit_key in tenant_override_map:
             tl = tenant_override_map[pl.limit_key]
@@ -435,7 +625,6 @@ def resolve_entitlements(
                 is_unlimited=pl.is_unlimited,
             )
 
-    # Standalone tenant usage limits not in plan baseline
     for tl in usage_limit_rows:
         if tl.limit_key not in effective_limits_map:
             effective_limits_map[tl.limit_key] = UsageLimitConfiguration(
@@ -449,44 +638,23 @@ def resolve_entitlements(
         effective_limits_map.values(), key=lambda r: (r.feature_key, r.limit_key)
     )
 
-    if not plan.is_active:
-        return EntitlementResolution(
-            organization_id=organization_id,
-            resolution_status=EntitlementResolutionStatus.INACTIVE_PLAN,
-            organization_status=organization.status,
-            subscription_id=subscription.id,
-            subscription_status=subscription.status,
-            suite_id=suite_id,
-            suite_code=suite_code,
-            suite_name=suite_name,
-            plan_id=plan.id,
-            plan_code=plan.code,
-            plan_name=plan.name,
-            modules=modules,
-            pages=pages,
-            effective_features=effective_features,
-            usage_limits=usage_limits,
-            reason=(
-                f"Plan {plan.code!r} is marked inactive (no new subscriptions may reference "
-                "it), but this existing subscription's features remain in effect."
-            ),
-        )
-
+    primary_sub = candidates[0]
     return EntitlementResolution(
         organization_id=organization_id,
         resolution_status=EntitlementResolutionStatus.ACTIVE,
         organization_status=organization.status,
-        subscription_id=subscription.id,
-        subscription_status=subscription.status,
-        suite_id=suite_id,
-        suite_code=suite_code,
-        suite_name=suite_name,
-        plan_id=plan.id,
-        plan_code=plan.code,
-        plan_name=plan.name,
-        modules=modules,
-        pages=pages,
+        subscription_id=primary_sub.id,
+        subscription_status=primary_sub.status,
+        suite_id=None,
+        suite_code="MULTI_SUITE",
+        suite_name="Multi-Suite Aerospace Platform",
+        plan_id=None,
+        plan_code="MULTI_PLAN",
+        plan_name="Multi-Suite Commercial Agreements",
+        modules=sorted(modules_set),
+        pages=sorted(pages_set),
         effective_features=effective_features,
         usage_limits=usage_limits,
-        reason=f"Subscription {subscription.id} on plan {plan.code!r} is current.",
+        active_suites=active_suites,
+        reason=f"Organization has {len(candidates)} active multi-suite subscriptions.",
     )

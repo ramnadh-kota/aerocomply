@@ -106,10 +106,11 @@ def _assert_no_ambiguity(
     status: str,
     starts_at: datetime,
     ends_at: datetime | None,
+    suite_id: uuid.UUID | None = None,
     exclude_subscription_id: uuid.UUID | None = None,
 ) -> None:
     """Reject a create/update that would produce two simultaneously-current
-    (per M2's own candidacy rule) subscriptions for the same organization."""
+    (per M2's own candidacy rule) subscriptions for the same organization and suite."""
     if status not in _CURRENT_GRANTING_STATUSES:
         return
     stmt = select(Subscription).where(
@@ -120,11 +121,21 @@ def _assert_no_ambiguity(
         stmt = stmt.where(Subscription.id != exclude_subscription_id)
     others = list(db.execute(stmt).scalars().all())
     for other in others:
+        other_suite_id = other.suite_id
+        if other.plan_id:
+            other_plan = db.get(Plan, other.plan_id)
+            if other_plan is not None:
+                other_suite_id = other_plan.suite_id
+
+        # If both are distinct non-None suites, they can coexist
+        if suite_id is not None and other_suite_id is not None and suite_id != other_suite_id:
+            continue
+
         if _ranges_overlap(starts_at, ends_at, other.starts_at, other.ends_at):
             raise ConflictError(
                 "Creating/updating this subscription would produce two "
                 f"simultaneously-current subscriptions for organization {organization_id} "
-                f"(conflicts with subscription {other.id}).",
+                f"in suite {suite_id or 'global'} (conflicts with subscription {other.id}).",
                 code="ambiguous_subscription_state",
             )
 
@@ -174,7 +185,12 @@ def create_subscription(
         )
     _validate_status(status)
     _assert_no_ambiguity(
-        db, organization_id=organization_id, status=status, starts_at=starts_at, ends_at=ends_at
+        db,
+        organization_id=organization_id,
+        status=status,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        suite_id=plan.suite_id,
     )
 
     sub = Subscription(
@@ -230,6 +246,7 @@ def update_subscription(
             )
         new_status = status
 
+    target_suite_id = sub.suite_id
     if plan_id is not None and plan_id != sub.plan_id:
         target_plan = db.get(Plan, plan_id)
         if target_plan is None:
@@ -252,6 +269,7 @@ def update_subscription(
                 "product suite than this subscription; changing suite is not supported",
                 code="suite_plan_mismatch",
             )
+        target_suite_id = target_plan.suite_id
 
     new_starts_at = starts_at if starts_at is not None else sub.starts_at
     new_ends_at = ends_at if ends_at is not None else sub.ends_at
@@ -262,6 +280,7 @@ def update_subscription(
         status=new_status,
         starts_at=new_starts_at,
         ends_at=new_ends_at,
+        suite_id=target_suite_id,
         exclude_subscription_id=sub.id,
     )
 
