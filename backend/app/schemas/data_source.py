@@ -11,6 +11,24 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.models.data_source import DataSourceConnectorType, DataSourceStatus
 
 
+_SECRET_KEY_HINTS = ("password", "passwd", "secret", "token", "api_key", "apikey", "private_key", "credential")
+
+
+def _reject_secret_keys(config: dict[str, Any] | None, _path: str = "connection_config") -> dict[str, Any] | None:
+    """Credentials belong in the secrets store (secret_reference), never in config that is
+    returned by the API, logged and audited."""
+    if not config:
+        return config
+    for key, value in config.items():
+        if any(h in str(key).lower() for h in _SECRET_KEY_HINTS):
+            raise ValueError(
+                f"{_path}.{key}: credentials must not be stored in connection_config; use secret_reference"
+            )
+        if isinstance(value, dict):
+            _reject_secret_keys(value, f"{_path}.{key}")
+    return config
+
+
 class DataSourceCreate(BaseModel):
     """Request schema for registering a new data acquisition connector."""
 
@@ -32,6 +50,11 @@ class DataSourceCreate(BaseModel):
     default_asset_id: uuid.UUID | None = None
     metadata_json: dict[str, Any] | None = None
 
+    @field_validator("connection_config")
+    @classmethod
+    def reject_inline_secrets(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _reject_secret_keys(v)
+
     @field_validator("connector_type")
     @classmethod
     def validate_connector_type(cls, v: str) -> str:
@@ -52,6 +75,11 @@ class DataSourceUpdate(BaseModel):
     status: str | None = None
     default_asset_id: uuid.UUID | None = None
     metadata_json: dict[str, Any] | None = None
+
+    @field_validator("connection_config")
+    @classmethod
+    def reject_inline_secrets(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _reject_secret_keys(v)
 
     @field_validator("status")
     @classmethod
@@ -89,6 +117,14 @@ class DataSourceResponse(BaseModel):
     default_asset_id: uuid.UUID | None
     metadata_json: dict[str, Any] | None
     created_at: datetime
+    last_seen_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_failure_at: datetime | None = None
+    last_error: str | None = None
+    total_events_duplicate: int = 0
+    total_events_quarantined: int = 0
+    total_packets_lost: int = 0
+    latency_ms_avg: float | None = None
 
 
 class DataSourceListResponse(BaseModel):

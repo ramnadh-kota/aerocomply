@@ -450,7 +450,10 @@ def test_m18_4_multi_uav_concurrent_streams_and_tenant_isolation(client: TestCli
     # Org B: 1 UAV
     uav_b, comp_b, sensor_b, bat_b = _create_uav_asset(db_session, org_b, "UAV-TENANT-B-001")
 
-    t_stream = datetime.now(UTC)
+    # M20: VIBRATION_DEGRADATION(step=3) dates its event at t0 + 30 min. Anchored at "now" that
+    # event lies 30 minutes in the FUTURE, which the ingestion quality gate (correctly) rejects
+    # as a corrupt clock. Anchor the stream in the past so every event has a valid timestamp.
+    t_stream = datetime.now(UTC) - timedelta(minutes=45)
 
     # 1. UAV-1: Nominal operation
     evt_uav1 = build_scenario_batch(

@@ -88,8 +88,8 @@ describe("Sidebar NAV_GROUPS (M21.2 IA regrouping)", () => {
     expect(hrefs).toContain("/tenant/settings");
   });
 
-  it("has exactly 66 total tenant nav items across all 7 groups (including M4/M4.2 /assets, /intelligence/fleet)", () => {
-    expect(allHrefs(NAV_GROUPS).length).toBe(66);
+  it("has exactly 67 total tenant nav items across all 7 groups (including M4/M4.2 /assets, /intelligence/fleet; +1 /data-sources in Phase B/I)", () => {
+    expect(allHrefs(NAV_GROUPS).length).toBe(67);
   });
 });
 

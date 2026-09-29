@@ -888,21 +888,25 @@ def _register_and_login(client, db_session):
 
     pa_headers = make_platform_admin_headers(client, db_session)
     org_name = f"AcqTestOrg-{uuid.uuid4().hex[:8]}"
+    # M20: this helper used field names the API never accepted (org_name / admin_name) and
+    # expected a 200 with an "organization" object, so every test using it failed at setup
+    # (422) -- the DataSource API had never actually been exercised over HTTP. The real
+    # contract: organization_name / admin_full_name, 201, and a bare TokenResponse.
     reg_resp = client.post(
         "/api/v1/auth/register-organization",
         json={
-            "org_name": org_name,
+            "organization_name": org_name,
             "admin_email": f"admin-{uuid.uuid4().hex[:8]}@acq-test.com",
             "admin_password": "TestPassword123!",
-            "admin_name": "Acq Admin",
+            "admin_full_name": "Acq Admin",
         },
         headers=pa_headers,
     )
-    assert reg_resp.status_code == 200, reg_resp.text
-    data = reg_resp.json()
-    org_id = data["organization"]["id"]
-    token = data["access_token"]
-    return org_id, {"Authorization": f"Bearer {token}"}
+    assert reg_resp.status_code == 201, reg_resp.text
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    org_id = client.get("/api/v1/auth/me", headers=headers).json()["organization_id"]
+    return org_id, headers
 
 
 @pytest.mark.integration

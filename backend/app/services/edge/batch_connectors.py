@@ -41,6 +41,19 @@ log = structlog.get_logger(__name__)
 
 # Safety limits
 MAX_ROWS = 10_000
+
+
+def content_event_id(prefix: str, *parts: Any) -> str:
+    """Deterministic event id derived from the record's CONTENT.
+
+    Re-uploading the same file yields the same ids (idempotent), while two different
+    records can never collide -- the old `<connector>-R<row>-<timestamp>` id made row 2 of
+    two different vehicles' files with the same start time the SAME event, so the second
+    vehicle's data was silently discarded as a "duplicate"."""
+    import hashlib
+
+    digest = hashlib.sha256("|".join(str(p) for p in parts).encode("utf-8")).hexdigest()[:32]
+    return f"{prefix}-{digest}"
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
@@ -66,15 +79,17 @@ class CSVBatchConnector:
             telemetry_service.process_normalized_event(db, org_id, event, ...)
     """
 
-    # Canonical column name aliases (lowercase)
-    _ASSET_COLS = {"asset_id", "device_sn", "serial_number", "sn"}
-    _VALUE_COLS = {"value", "measurement_value", "reading_value", "val"}
-    _CODE_COLS = {"sensor_code", "measurement_type", "parameter", "metric"}
-    _UNIT_COLS = {"unit", "uom", "units"}
-    _TS_COLS = {"timestamp", "event_timestamp", "time", "datetime", "recorded_at"}
-    _EVENT_TYPE_COLS = {"event_type", "event"}
-    _QUALITY_COLS = {"data_quality", "quality", "status"}
-    _SENSOR_TYPE_COLS = {"sensor_type", "type"}
+    # Canonical column aliases in PRIORITY ORDER (first present wins). These were Python sets,
+    # whose iteration order differs between processes (hash randomisation): a row carrying both
+    # `asset_id` and `device_sn` could be attributed to a different asset on each run.
+    _ASSET_COLS = ("asset_id", "serial_number", "device_sn", "sn")
+    _VALUE_COLS = ("value", "measurement_value", "reading_value", "val")
+    _CODE_COLS = ("sensor_code", "measurement_type", "parameter", "metric")
+    _UNIT_COLS = ("unit", "uom", "units")
+    _TS_COLS = ("timestamp", "event_timestamp", "recorded_at", "datetime", "time")
+    _EVENT_TYPE_COLS = ("event_type", "event")
+    _QUALITY_COLS = ("data_quality", "quality", "status")
+    _SENSOR_TYPE_COLS = ("sensor_type", "type")
 
     def __init__(
         self,
@@ -187,16 +202,23 @@ class CSVBatchConnector:
 
         return NormalizedTelemetryEvent(
             source_system=self.source_system,
-            source_event_id=f"CSV-{self.connector_id}-R{row_num}-{int(event_ts.timestamp())}",
+            source_event_id=content_event_id(
+                "CSV", self.source_system, self.connector_id, asset_id, sensor_code, event_type,
+                int(event_ts.timestamp() * 1000), value, unit,
+            ),
             source_asset_id=asset_id[:128],
             event_type=event_type[:64],
             event_timestamp=event_ts,
             readings=[reading],
-            raw_metadata={"source": "csv_batch", "row": row_num},
+            raw_metadata={
+                "source": "csv_batch",
+                "row": row_num,
+                "timestamp_source": "SOURCE" if raw_ts else "RECEIVED",
+            },
         )
 
     @staticmethod
-    def _first_match(row: dict[str, Any], candidates: set[str]) -> Any:
+    def _first_match(row: dict[str, Any], candidates: tuple[str, ...]) -> Any:
         """Returns the first non-empty value from the row that matches any candidate column."""
         for key in candidates:
             val = row.get(key)
@@ -206,9 +228,20 @@ class CSVBatchConnector:
 
     @staticmethod
     def _parse_timestamp(raw: str | None) -> datetime:
-        """Parses a timestamp string into a timezone-aware datetime, defaulting to now."""
+        """Parses a timestamp into a timezone-aware datetime.
+
+        No timestamp at all => the received time (the event is flagged
+        timestamp_source=RECEIVED). A timestamp that IS present but cannot be parsed raises:
+        silently replacing it with "now" would file historical data under the import time.
+        Zone-less values are taken as UTC (documented assumption)."""
         if not raw:
             return datetime.now(UTC)
+        raw = raw.strip()
+        try:
+            dt_iso = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return dt_iso if dt_iso.tzinfo else dt_iso.replace(tzinfo=UTC)
+        except ValueError:
+            pass
         for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
             try:
                 dt = datetime.strptime(raw, fmt)
@@ -222,9 +255,9 @@ class CSVBatchConnector:
             ts_float = float(raw)
             ts = ts_float / 1000.0 if ts_float > 1e10 else ts_float
             return datetime.fromtimestamp(ts, tz=UTC)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError, OSError):
             pass
-        return datetime.now(UTC)
+        raise ValueError(f"Unparseable timestamp: {raw!r}")
 
 
 class JSONBatchConnector:
@@ -365,7 +398,7 @@ class JSONBatchConnector:
                 "event_timestamp", "event_type", "source_system", "time",
             }
             for key, val in record.items():
-                if key in skip_keys:
+                if key in skip_keys or isinstance(val, bool):  # a flag is not a measurement
                     continue
                 try:
                     fval = float(val)
@@ -386,12 +419,20 @@ class JSONBatchConnector:
 
         return NormalizedTelemetryEvent(
             source_system=self.source_system,
-            source_event_id=f"JSON-{self.connector_id}-{idx}-{int(event_ts.timestamp())}",
+            source_event_id=content_event_id(
+                "JSON", self.source_system, self.connector_id, asset_id, event_type,
+                int(event_ts.timestamp() * 1000),
+                sorted((r.sensor_code, r.value, r.unit) for r in readings),
+            ),
             source_asset_id=asset_id,
             event_type=event_type,
             event_timestamp=event_ts,
             readings=readings,
-            raw_metadata={"source": "json_batch", "record_index": idx},
+            raw_metadata={
+                "source": "json_batch",
+                "record_index": idx,
+                "timestamp_source": "SOURCE" if raw_ts is not None else "RECEIVED",
+            },
         )
 
     def _decode_canonical(self, record: dict[str, Any]) -> NormalizedTelemetryEvent | None:

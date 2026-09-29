@@ -16,10 +16,10 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db_session, require_permission
+from app.core.deps import get_current_user, get_db_session, require_feature, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.data_source import (
@@ -29,7 +29,7 @@ from app.schemas.data_source import (
     DataSourceResponse,
     DataSourceUpdate,
 )
-from app.services import data_source_service
+from app.services import acquisition_service, data_source_service
 from app.services.data_source_service import DataSourceError
 
 router = APIRouter(
@@ -231,3 +231,58 @@ def get_acquisition_stats_overview(
         "by_connector_type": by_type,
         "sources": [s.model_dump() for s in stats],
     }
+
+
+MAX_INGEST_BYTES = 25 * 1024 * 1024  # 25 MB per request; larger batches must be split
+
+
+@router.post(
+    "/{data_source_id}/ingest",
+    dependencies=[
+        Depends(require_permission(Permission.DRONE_WRITE)),
+        Depends(require_feature("flight_telemetry")),
+    ],
+    summary="Push raw data (MAVLink bytes, MQTT payload, CSV/JSON file) into an ACTIVE data source",
+)
+async def ingest_into_data_source(
+    data_source_id: uuid.UUID,
+    request: Request,
+    topic: str | None = Query(default=None, max_length=256, description="MQTT topic, when applicable"),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    """The source's tenant comes from the authenticated user; a source id from another tenant is a 404.
+    Returns accepted / duplicate / quarantined / rejected / failed counts, packet loss and warnings."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_INGEST_BYTES:
+        raise HTTPException(status_code=413, detail="Payload too large")
+    raw = await request.body()
+    if len(raw) > MAX_INGEST_BYTES:
+        raise HTTPException(status_code=413, detail="Payload too large")
+    if not raw:
+        raise HTTPException(status_code=422, detail="Empty payload")
+    report = acquisition_service.ingest(
+        db,
+        organization_id=current_user.organization_id,
+        data_source_id=data_source_id,
+        raw=raw,
+        topic=topic,
+        actor_user_id=current_user.id,
+    )
+    db.commit()
+    return report.to_dict()
+
+
+@router.get(
+    "/{data_source_id}/health",
+    dependencies=[Depends(require_permission(Permission.DRONE_READ))],
+    summary="Evidence-based acquisition health for one data source",
+)
+def get_data_source_health(
+    data_source_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    return acquisition_service.get_health(
+        db, organization_id=current_user.organization_id, data_source_id=data_source_id
+    )

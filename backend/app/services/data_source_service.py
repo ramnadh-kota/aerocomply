@@ -29,6 +29,26 @@ class DataSourceError(AeroComplyError):
     pass
 
 
+def _assert_asset_in_tenant(db: Session, organization_id: uuid.UUID, asset_id: uuid.UUID | None) -> None:
+    """default_asset_id must be an undeleted asset of THIS tenant. Without this check a tenant
+    could bind its source to another tenant's asset id and (with single-asset binding) have
+    telemetry attributed to it."""
+    if asset_id is None:
+        return
+    from app.models.asset import Asset
+
+    ok = db.execute(
+        select(Asset.id).where(
+            Asset.id == asset_id,
+            Asset.organization_id == organization_id,
+            Asset.deleted_at.is_(None),
+        )
+    ).first()
+    if ok is None:
+        # Same answer for "does not exist" and "belongs to someone else": no existence oracle.
+        raise NotFoundError("default_asset_id does not reference an asset in this organization")
+
+
 def create_data_source(
     db: Session, *, organization_id: uuid.UUID, payload: DataSourceCreate, created_by_user_id: uuid.UUID | None = None
 ) -> DataSource:
@@ -37,6 +57,7 @@ def create_data_source(
     Raises:
         DataSourceError: If a data source with the same name already exists for the organization.
     """
+    _assert_asset_in_tenant(db, organization_id, payload.default_asset_id)
     existing = db.execute(
         select(DataSource).where(
             DataSource.organization_id == organization_id,
@@ -178,6 +199,7 @@ def update_data_source(
         source.status = payload.status
 
     if payload.default_asset_id is not None:
+        _assert_asset_in_tenant(db, organization_id, payload.default_asset_id)
         source.default_asset_id = payload.default_asset_id
         changes["default_asset_id"] = True
 
@@ -188,6 +210,10 @@ def update_data_source(
     db.flush()
 
     if changes:
+        # Stateful connectors (MAVLink sequence tracking) must not survive a reconfiguration.
+        from app.services.acquisition_service import forget_connector
+
+        forget_connector(source.id)
         audit_service.record_audit_event(
             db,
             organization_id=organization_id,
@@ -232,6 +258,9 @@ def delete_data_source(
         entity_id=source.id,
         metadata={"name": source.name, "connector_type": source.connector_type},
     )
+    from app.services.acquisition_service import forget_connector
+
+    forget_connector(source.id)
     db.delete(source)
     db.flush()
 
@@ -278,16 +307,8 @@ def record_acquisition_failure(
 
 
 def compute_health(source: DataSource) -> str:
-    """Derives a human-readable health label from acquisition observability counters."""
-    if source.status == DataSourceStatus.DECOMMISSIONED:
-        return "INACTIVE"
-    if source.status == DataSourceStatus.PAUSED:
-        return "INACTIVE"
-    if source.status == DataSourceStatus.DRAFT:
-        return "INACTIVE"
-    # ACTIVE
-    if source.consecutive_failures >= 5:
-        return "FAILED"
-    if source.consecutive_failures >= 2:
-        return "DEGRADED"
-    return "HEALTHY"
+    """Health label (HEALTHY | DEGRADED | FAILED | INACTIVE) derived from recorded evidence.
+    The single implementation lives in acquisition_service.compute_health_detail."""
+    from app.services.acquisition_service import compute_health_detail
+
+    return compute_health_detail(source)["status"]

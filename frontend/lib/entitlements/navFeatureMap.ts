@@ -18,6 +18,9 @@ export const NAV_FEATURE_MAP: Record<string, NavFeatureKey> = {
   "/aircraft": FEATURE_KEYS.AIRCRAFT_FLEET_MANAGEMENT,
   "/drones": FEATURE_KEYS.DRONE_FLEET_MANAGEMENT,
 
+  // Data acquisition (ingest endpoint is gated by flight_telemetry on the backend)
+  "/data-sources": FEATURE_KEYS.FLIGHT_TELEMETRY,
+
   // Procurement
   "/procurement": FEATURE_KEYS.PROCUREMENT_MANAGEMENT,
   "/procurement/parts": FEATURE_KEYS.PROCUREMENT_MANAGEMENT,

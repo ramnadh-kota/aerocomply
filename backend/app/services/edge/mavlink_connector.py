@@ -204,6 +204,11 @@ class MAVLinkConnector(TelemetryConnector):
         system_id = int(payload_dict.get("system_id") or payload_dict.get("sysid") or 1)
         vehicle = self._get_or_create_vehicle(system_id)
         now = datetime.now(UTC)
+        # Arrival time is the only clock we have (MAVLink time_boot_ms is boot-relative). Frames
+        # handled within one clock tick would otherwise share a timestamp, making "latest" and
+        # ordering ambiguous: keep event time strictly increasing per vehicle.
+        if now <= vehicle.last_seen:
+            now = vehicle.last_seen + timedelta(microseconds=1)
         vehicle.last_seen = now
         self.stats.messages_received += 1
         self.stats.last_message_at = now

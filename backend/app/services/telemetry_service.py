@@ -13,10 +13,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AeroComplyError, NotFoundError
@@ -126,15 +127,30 @@ def list_asset_mappings(
     return list(db.execute(stmt).scalars().all())
 
 
-def resolve_asset(
-    db: Session, *, organization_id: uuid.UUID, source_system: str, external_asset_id: str
-) -> Asset | None:
-    """Tenant-scoped resolution of external asset identifier to KOTA Asset.
+@dataclass(frozen=True)
+class AssetResolution:
+    """Outcome of mapping an external identifier to exactly one KOTA asset.
 
-    1. Checks explicit external_asset_mappings table.
-    2. Fallback: checks serial_number or registration on assets table within tenant.
-    Never searches across other tenants.
-    """
+    RESOLVED   exactly one asset, by an explicit mapping, an asset id, or a UNIQUE exact
+               serial/registration match inside the tenant.
+    UNRESOLVED nothing matches (=> quarantine).
+    AMBIGUOUS  more than one asset matches (=> quarantine; never guess)."""
+
+    outcome: str
+    asset: Asset | None = None
+    method: str = ""
+    candidates: int = 0
+
+
+def resolve_asset_detailed(
+    db: Session, *, organization_id: uuid.UUID, source_system: str, external_asset_id: str
+) -> AssetResolution:
+    """Deterministic, tenant-scoped asset resolution. Never fuzzy, never cross-tenant.
+
+    Order: (1) explicit active mapping for (source_system, external id); (2) the external
+    id IS an asset id in this tenant; (3) exact serial_number OR registration match among
+    non-deleted assets of this tenant -- accepted only if it identifies exactly ONE asset.
+    Soft-deleted assets never receive telemetry."""
     mapping = db.execute(
         select(ExternalAssetMapping).where(
             ExternalAssetMapping.organization_id == organization_id,
@@ -143,21 +159,60 @@ def resolve_asset(
             ExternalAssetMapping.is_active.is_(True),
         )
     ).scalar_one_or_none()
-
     if mapping:
-        return db.execute(
+        asset = db.execute(
             select(Asset).where(
-                Asset.id == mapping.asset_id, Asset.organization_id == organization_id
+                Asset.id == mapping.asset_id,
+                Asset.organization_id == organization_id,
+                Asset.deleted_at.is_(None),
             )
         ).scalar_one_or_none()
+        if asset is None:
+            return AssetResolution("UNRESOLVED", None, "mapping", 0)
+        return AssetResolution("RESOLVED", asset, "mapping", 1)
 
-    # Fallback to direct serial or registration match in same tenant
-    return db.execute(
-        select(Asset).where(
-            Asset.organization_id == organization_id,
-            (Asset.serial_number == external_asset_id) | (Asset.registration == external_asset_id),
-        )
-    ).scalars().first()
+    try:
+        as_uuid = uuid.UUID(str(external_asset_id))
+    except (ValueError, TypeError):
+        as_uuid = None
+    if as_uuid is not None:
+        asset = db.execute(
+            select(Asset).where(
+                Asset.id == as_uuid,
+                Asset.organization_id == organization_id,
+                Asset.deleted_at.is_(None),
+            )
+        ).scalar_one_or_none()
+        if asset is not None:
+            return AssetResolution("RESOLVED", asset, "asset_id", 1)
+
+    matches = list(
+        db.execute(
+            select(Asset)
+            .where(
+                Asset.organization_id == organization_id,
+                Asset.deleted_at.is_(None),
+                (Asset.serial_number == external_asset_id) | (Asset.registration == external_asset_id),
+            )
+            .limit(3)
+        ).scalars()
+    )
+    if len(matches) == 1:
+        return AssetResolution("RESOLVED", matches[0], "exact_identifier", 1)
+    if len(matches) > 1:
+        return AssetResolution("AMBIGUOUS", None, "exact_identifier", len(matches))
+    return AssetResolution("UNRESOLVED", None, "exact_identifier", 0)
+
+
+def resolve_asset(
+    db: Session, *, organization_id: uuid.UUID, source_system: str, external_asset_id: str
+) -> Asset | None:
+    """Backward-compatible wrapper: the asset only when resolution is unique and safe."""
+    res = resolve_asset_detailed(
+        db, organization_id=organization_id, source_system=source_system,
+        external_asset_id=external_asset_id,
+    )
+    return res.asset if res.outcome == "RESOLVED" else None
 
 
 def adapt_dji_flighthub_payload(payload: DJIFlightHubWebhookPayload) -> NormalizedTelemetryEvent:
@@ -243,6 +298,45 @@ def adapt_dji_flighthub_payload(payload: DJIFlightHubWebhookPayload) -> Normaliz
     )
 
 
+# --- B8: timestamp quality gate -------------------------------------------------
+MAX_FUTURE_SKEW = timedelta(minutes=5)
+MIN_PLAUSIBLE_TIMESTAMP = datetime(2000, 1, 1, tzinfo=UTC)
+
+
+def assess_event_timestamp(ts: datetime, *, now: datetime | None = None) -> str | None:
+    """Reason string when the event time cannot be trusted, else None.
+
+    Naive timestamps are rejected: an unlabelled zone silently shifts safety data by hours.
+    Future events beyond clock skew and pre-2000 values are corrupt clocks, not telemetry."""
+    now = now or datetime.now(UTC)
+    if ts.tzinfo is None or ts.tzinfo.utcoffset(ts) is None:
+        return "event_timestamp has no timezone"
+    if ts > now + MAX_FUTURE_SKEW:
+        return f"event_timestamp is in the future ({ts.isoformat()})"
+    if ts < MIN_PLAUSIBLE_TIMESTAMP:
+        return f"event_timestamp is implausibly old ({ts.isoformat()})"
+    return None
+
+
+def _record_or_update_log(
+    db: Session, existing: TelemetryEventLog | None, **fields: Any
+) -> TelemetryEventLog:
+    """One log row per (org, source, event id) -- the DB enforces it. A retried event that was
+    earlier QUARANTINED/REJECTED (e.g. replayed after the asset mapping was fixed) UPDATES its
+    row instead of inserting a duplicate that would violate the unique constraint."""
+    if existing is not None:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+        db.add(existing)
+        db.flush()
+        return existing
+    row = TelemetryEventLog(**fields)
+    db.add(row)
+    db.flush()
+    return row
+
+
+
 def process_normalized_event(
     db: Session,
     *,
@@ -286,37 +380,60 @@ def process_normalized_event(
             message="Event already processed (idempotent ignore)",
         )
 
-    # 2. Asset Resolution
-    asset = resolve_asset(
+    # 1b. Timestamp quality gate (B8): corrupt clocks never enter operational analytics.
+    ts_problem = assess_event_timestamp(event.event_timestamp)
+    if ts_problem is not None:
+        _record_or_update_log(
+            db, existing_log,
+            organization_id=organization_id, source_system=event.source_system,
+            source_event_id=event.source_event_id, idempotency_key=idempotency_key,
+            source_asset_id=event.source_asset_id, asset_id=None, event_type=event.event_type,
+            event_timestamp=max(event.event_timestamp, MIN_PLAUSIBLE_TIMESTAMP)
+            if event.event_timestamp.tzinfo else datetime.now(UTC),
+            received_timestamp=datetime.now(UTC), payload_hash=payload_hash,
+            processing_status=TelemetryProcessingStatus.REJECTED,
+            rejection_reason=ts_problem, metadata_payload=event.raw_metadata,
+        )
+        return TelemetryEventResult(
+            source_event_id=event.source_event_id,
+            status=TelemetryProcessingStatus.REJECTED,
+            message=ts_problem,
+        )
+
+    # 2. Asset Resolution (deterministic; ambiguous or unknown => quarantine, never guess)
+    resolution = resolve_asset_detailed(
         db,
         organization_id=organization_id,
         source_system=event.source_system,
         external_asset_id=event.source_asset_id,
     )
+    asset = resolution.asset
 
-    if not asset:
-        # Record quarantined / rejected log
-        log = TelemetryEventLog(
-            organization_id=organization_id,
-            source_system=event.source_system,
-            source_event_id=event.source_event_id,
-            idempotency_key=idempotency_key,
-            source_asset_id=event.source_asset_id,
-            asset_id=None,
-            event_type=event.event_type,
-            event_timestamp=event.event_timestamp,
-            received_timestamp=datetime.now(UTC),
+    if asset is None:
+        reason = (
+            f"Asset identifier '{event.source_asset_id}' is ambiguous: {resolution.candidates} "
+            "assets match; add an explicit external mapping"
+            if resolution.outcome == "AMBIGUOUS"
+            else f"Asset '{event.source_asset_id}' cannot be resolved in tenant"
+        )
+        _record_or_update_log(
+            db, existing_log,
+            organization_id=organization_id, source_system=event.source_system,
+            source_event_id=event.source_event_id, idempotency_key=idempotency_key,
+            source_asset_id=event.source_asset_id, asset_id=None, event_type=event.event_type,
+            event_timestamp=event.event_timestamp, received_timestamp=datetime.now(UTC),
             payload_hash=payload_hash,
             processing_status=TelemetryProcessingStatus.QUARANTINED,
-            rejection_reason=f"Asset '{event.source_asset_id}' cannot be resolved in tenant",
-            metadata_payload=event.raw_metadata,
+            rejection_reason=reason, metadata_payload=event.raw_metadata,
         )
-        db.add(log)
-        db.flush()
         return TelemetryEventResult(
             source_event_id=event.source_event_id,
             status=TelemetryProcessingStatus.QUARANTINED,
-            message=f"Unmatched asset '{event.source_asset_id}'; event quarantined",
+            message=(
+                f"Ambiguous asset '{event.source_asset_id}'; event quarantined"
+                if resolution.outcome == "AMBIGUOUS"
+                else f"Unmatched asset '{event.source_asset_id}'; event quarantined"
+            ),
         )
 
     flight_id: uuid.UUID | None = None
@@ -369,6 +486,7 @@ def process_normalized_event(
                 source="TELEMETRY",
                 source_row_id=event.source_event_id,
                 notes=event.flight.notes,
+                commit=False,  # the event is one atomic unit; the caller commits
             )
             flight_id = flight.id
 
@@ -454,25 +572,18 @@ def process_normalized_event(
                     organization_id=str(organization_id), sensor_id=str(s_id),
                 )
 
-    # 6. Record Telemetry Event Log
-    log = TelemetryEventLog(
-        organization_id=organization_id,
-        source_system=event.source_system,
-        source_event_id=event.source_event_id,
-        idempotency_key=idempotency_key,
-        source_asset_id=event.source_asset_id,
-        asset_id=asset.id,
-        flight_id=flight_id,
-        event_type=event.event_type,
-        event_timestamp=event.event_timestamp,
-        received_timestamp=datetime.now(UTC),
-        payload_hash=payload_hash,
+    # 6. Record Telemetry Event Log (update the row of a previously quarantined/rejected retry)
+    event_log = _record_or_update_log(
+        db, existing_log,
+        organization_id=organization_id, source_system=event.source_system,
+        source_event_id=event.source_event_id, idempotency_key=idempotency_key,
+        source_asset_id=event.source_asset_id, asset_id=asset.id, flight_id=flight_id,
+        event_type=event.event_type, event_timestamp=event.event_timestamp,
+        received_timestamp=datetime.now(UTC), payload_hash=payload_hash,
         processing_status=TelemetryProcessingStatus.PROCESSED,
-        readings_count=readings_count,
+        readings_count=readings_count, rejection_reason=None,
         metadata_payload=event.raw_metadata,
     )
-    db.add(log)
-    db.flush()
 
     audit_service.record_audit_event(
         db,
@@ -480,7 +591,7 @@ def process_normalized_event(
         user_id=None,
         action="telemetry.event_processed",
         entity_type="TelemetryEventLog",
-        entity_id=log.id,
+        entity_id=event_log.id,
         metadata={
             "source_system": event.source_system,
             "source_event_id": event.source_event_id,
@@ -736,3 +847,167 @@ def upsert_freshness_policy(
     db.flush()
     return pol
 
+
+
+
+# ---------------------------------------------------------------- Phase C: read side
+def _require_asset(db: Session, organization_id: uuid.UUID, asset_id: uuid.UUID) -> Asset:
+    asset = db.execute(
+        select(Asset).where(
+            Asset.id == asset_id, Asset.organization_id == organization_id, Asset.deleted_at.is_(None)
+        )
+    ).scalar_one_or_none()
+    if asset is None:
+        raise NotFoundError("Asset not found")
+    return asset
+
+
+def get_latest_readings(
+    db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID, now: datetime | None = None
+) -> dict[str, Any]:
+    """Most recent reading of every sensor of an asset, with its age and quality.
+
+    Nothing is inferred: a sensor that never reported has no row; `age_seconds` is measured from
+    the reading's own timestamp so a stalled feed is visible as growing age, not as 'latest'."""
+    _require_asset(db, organization_id, asset_id)
+    now = now or datetime.now(UTC)
+    latest_ts = (
+        select(
+            HUMSSensorReading.sensor_id,
+            func.max(HUMSSensorReading.recorded_at).label("ts"),
+        )
+        .where(
+            HUMSSensorReading.organization_id == organization_id,
+            HUMSSensorReading.asset_id == asset_id,
+        )
+        .group_by(HUMSSensorReading.sensor_id)
+        .subquery()
+    )
+    rows = db.execute(
+        select(HUMSSensorReading, HUMSSensor)
+        .join(latest_ts, (HUMSSensorReading.sensor_id == latest_ts.c.sensor_id)
+              & (HUMSSensorReading.recorded_at == latest_ts.c.ts))
+        .join(HUMSSensor, HUMSSensor.id == HUMSSensorReading.sensor_id)
+        .where(
+            HUMSSensorReading.organization_id == organization_id,
+            HUMSSensorReading.asset_id == asset_id,
+        )
+        .order_by(HUMSSensor.sensor_code)
+    ).all()
+    seen: set[uuid.UUID] = set()
+    items = []
+    for reading, sensor in rows:  # ties on the same timestamp: keep one row per sensor
+        if sensor.id in seen:
+            continue
+        seen.add(sensor.id)
+        items.append(
+            {
+                "sensor_id": str(sensor.id),
+                "sensor_code": sensor.sensor_code,
+                "sensor_type": sensor.sensor_type,
+                "measurement_type": sensor.measurement_type,
+                "unit": reading.unit,
+                "value": reading.value,
+                "data_quality": reading.data_quality,
+                "recorded_at": reading.recorded_at.isoformat(),
+                "age_seconds": max(0, int((now - reading.recorded_at).total_seconds())),
+                "flight_id": str(reading.flight_id) if reading.flight_id else None,
+            }
+        )
+    return {"asset_id": str(asset_id), "as_of": now.isoformat(), "sensor_count": len(items), "sensors": items}
+
+
+MAX_HISTORY_LIMIT = 1000
+
+
+def get_reading_history(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    sensor_code: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    limit: int = 200,
+    offset: int = 0,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Bounded, tenant- and asset-scoped history (newest first). Default window: last 24 hours."""
+    _require_asset(db, organization_id, asset_id)
+    now = now or datetime.now(UTC)
+    limit = max(1, min(limit, MAX_HISTORY_LIMIT))
+    since = since or (now - timedelta(hours=24))
+    conds = [
+        HUMSSensorReading.organization_id == organization_id,
+        HUMSSensorReading.asset_id == asset_id,
+        HUMSSensorReading.recorded_at >= since,
+    ]
+    if until is not None:
+        conds.append(HUMSSensorReading.recorded_at <= until)
+    if sensor_code:
+        conds.append(HUMSSensor.sensor_code == sensor_code)
+    base = (
+        select(HUMSSensorReading, HUMSSensor)
+        .join(HUMSSensor, HUMSSensor.id == HUMSSensorReading.sensor_id)
+        .where(*conds)
+    )
+    total = db.execute(
+        select(func.count()).select_from(
+            select(HUMSSensorReading.id)
+            .join(HUMSSensor, HUMSSensor.id == HUMSSensorReading.sensor_id)
+            .where(*conds)
+            .subquery()
+        )
+    ).scalar_one()
+    rows = db.execute(
+        base.order_by(HUMSSensorReading.recorded_at.desc(), HUMSSensorReading.id).offset(offset).limit(limit)
+    ).all()
+    return {
+        "asset_id": str(asset_id),
+        "since": since.isoformat(),
+        "until": until.isoformat() if until else None,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [
+            {
+                "sensor_code": sensor.sensor_code,
+                "measurement_type": sensor.measurement_type,
+                "unit": reading.unit,
+                "value": reading.value,
+                "data_quality": reading.data_quality,
+                "recorded_at": reading.recorded_at.isoformat(),
+                "source": reading.source,
+                "flight_id": str(reading.flight_id) if reading.flight_id else None,
+            }
+            for reading, sensor in rows
+        ],
+    }
+
+
+def get_asset_flights(
+    db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Flight records that were created or extended by telemetry for this asset."""
+    _require_asset(db, organization_id, asset_id)
+    rows = db.execute(
+        select(Flight)
+        .where(
+            Flight.organization_id == organization_id,
+            Flight.asset_id == asset_id,
+            Flight.source == "TELEMETRY",
+        )
+        .order_by(Flight.flown_at.desc())
+        .limit(max(1, min(limit, 200)))
+    ).scalars()
+    return [
+        {
+            "flight_id": str(f.id),
+            "flight_number": f.flight_number,
+            "flown_at": f.flown_at.isoformat(),
+            "duration_minutes": f.duration_minutes,
+            "cycles": f.cycles,
+            "status": f.status,
+        }
+        for f in rows
+    ]

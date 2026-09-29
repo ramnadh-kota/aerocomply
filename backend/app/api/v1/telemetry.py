@@ -8,7 +8,9 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from sqlalchemy import desc, select
+from datetime import datetime
+
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -187,19 +189,27 @@ def list_external_asset_mappings(
 def list_telemetry_event_logs(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    asset_id: uuid.UUID | None = Query(default=None),
+    processing_status: str | None = Query(default=None, max_length=32),
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
+    conds = [TelemetryEventLog.organization_id == current_user.organization_id]
+    if asset_id is not None:
+        conds.append(TelemetryEventLog.asset_id == asset_id)
+    if processing_status:
+        conds.append(TelemetryEventLog.processing_status == processing_status.upper())
+    total = db.execute(select(func.count(TelemetryEventLog.id)).where(*conds)).scalar_one()
     stmt = (
         select(TelemetryEventLog)
-        .where(TelemetryEventLog.organization_id == current_user.organization_id)
+        .where(*conds)
         .order_by(desc(TelemetryEventLog.received_timestamp))
         .offset(offset)
         .limit(limit)
     )
     rows = db.execute(stmt).scalars().all()
     return {
-        "total": len(rows),
+        "total": total,  # previously len(page): the real total is needed for pagination
         "items": [
             {
                 "id": str(r.id),
@@ -248,3 +258,71 @@ def create_or_update_telemetry_freshness_policy(
     policy = telemetry_service.upsert_freshness_policy(db, current_user.organization_id, payload)
     return TelemetryFreshnessPolicyResponse.model_validate(policy)
 
+
+
+@router.get(
+    "/assets/{asset_id}/status",
+    dependencies=[Depends(require_permission(Permission.DRONE_READ))],
+    summary="Telemetry state, last received time and recent events for one asset",
+)
+def get_asset_telemetry_state(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    telemetry_service._require_asset(db, current_user.organization_id, asset_id)
+    return telemetry_service.get_asset_telemetry_status(
+        db, organization_id=current_user.organization_id, asset_id=asset_id
+    )
+
+
+@router.get(
+    "/assets/{asset_id}/latest",
+    dependencies=[Depends(require_permission(Permission.DRONE_READ))],
+    summary="Latest reading of every sensor (value, quality, age)",
+)
+def get_asset_latest_readings(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    return telemetry_service.get_latest_readings(
+        db, organization_id=current_user.organization_id, asset_id=asset_id
+    )
+
+
+@router.get(
+    "/assets/{asset_id}/history",
+    dependencies=[Depends(require_permission(Permission.DRONE_READ))],
+    summary="Bounded telemetry history (default last 24h, max 1000 rows per page)",
+)
+def get_asset_reading_history(
+    asset_id: uuid.UUID,
+    sensor_code: str | None = Query(default=None, max_length=64),
+    since: datetime | None = Query(default=None),
+    until: datetime | None = Query(default=None),
+    limit: int = Query(200, ge=1, le=telemetry_service.MAX_HISTORY_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    return telemetry_service.get_reading_history(
+        db, organization_id=current_user.organization_id, asset_id=asset_id,
+        sensor_code=sensor_code, since=since, until=until, limit=limit, offset=offset,
+    )
+
+
+@router.get(
+    "/assets/{asset_id}/flights",
+    dependencies=[Depends(require_permission(Permission.DRONE_READ))],
+    summary="Flight records created or extended from telemetry",
+)
+def get_asset_telemetry_flights(
+    asset_id: uuid.UUID,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    return telemetry_service.get_asset_flights(
+        db, organization_id=current_user.organization_id, asset_id=asset_id, limit=limit
+    )

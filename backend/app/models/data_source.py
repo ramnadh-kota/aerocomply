@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Index, String, UniqueConstraint
+from sqlalchemy import DateTime, Float, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -100,6 +100,16 @@ class DataSource(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     total_events_ingested: Mapped[int] = mapped_column(nullable=False, default=0)
     total_events_rejected: Mapped[int] = mapped_column(nullable=False, default=0)
     consecutive_failures: Mapped[int] = mapped_column(nullable=False, default=0)
+
+    # B5/B14 health evidence (migration 0063). NULL/0 means "no evidence yet".
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_failure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    total_events_duplicate: Mapped[int] = mapped_column(nullable=False, default=0)
+    total_events_quarantined: Mapped[int] = mapped_column(nullable=False, default=0)
+    total_packets_lost: Mapped[int] = mapped_column(nullable=False, default=0)
+    latency_ms_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Optional: bind this connector to a specific asset (for single-asset sources)
     default_asset_id: Mapped[uuid.UUID | None] = mapped_column(

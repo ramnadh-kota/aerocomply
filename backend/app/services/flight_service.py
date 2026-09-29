@@ -43,6 +43,7 @@ def record_flight(
     source: str = "MANUAL",
     source_row_id: str | None = None,
     update_battery: bool = True,
+    commit: bool = True,
 ) -> Flight:
     # Confirms the asset belongs to this tenant before recording a flight
     # against it (cross-tenant IDOR otherwise).
@@ -117,7 +118,11 @@ def record_flight(
             "source": source,
         },
     )
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        # Caller owns the transaction (e.g. telemetry ingestion processes one event atomically).
+        db.flush()
     db.refresh(flight)
     return flight
 

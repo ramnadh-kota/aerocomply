@@ -326,6 +326,39 @@ export async function apiUploadFile<T>(
   return data as T;
 }
 
+/**
+ * POST a raw (non-JSON, non-multipart) body -- e.g. a CSV/JSON file's text, an MQTT
+ * payload or MAVLink bytes -- to an ingest endpoint. Same auth-refresh and error shape as
+ * apiRequest; the body is sent exactly as given.
+ */
+export async function apiPostRaw<T>(
+  path: string,
+  body: BodyInit,
+  options: { accessToken?: string; contentType?: string; _isRetry?: boolean } = {}
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": options.contentType ?? "application/octet-stream",
+  };
+  if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: "POST", headers, body });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    if (response.status === 401 && !options._isRetry) {
+      try {
+        const newAccessToken = await requestTokenRefresh();
+        return await apiPostRaw<T>(path, body, { ...options, accessToken: newAccessToken, _isRetry: true });
+      } catch {
+        // Refresh failed: fall through to the ApiError below
+      }
+    }
+    const errorBody = data?.error ?? { code: "unknown_error", message: "Request failed" };
+    throw new ApiError(response.status, errorBody.code, errorBody.message);
+  }
+  return data as T;
+}
+
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;

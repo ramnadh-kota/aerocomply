@@ -40,6 +40,40 @@ DEFAULT_PORT = 1883
 DEFAULT_KEEPALIVE = 60
 
 
+_TS_KEYS = ("event_timestamp", "timestamp", "time", "ts", "recorded_at")
+
+
+def _payload_timestamp(payload: dict[str, Any]) -> datetime | None:
+    """The device's own timestamp (epoch s/ms or ISO-8601) or None. Using arrival time for
+    a buffered/late message would file it at the wrong moment and break ordering."""
+    for key in _TS_KEYS:
+        raw = payload.get(key)
+        if raw is None or isinstance(raw, bool):
+            continue
+        try:
+            if isinstance(raw, (int, float)):
+                seconds = float(raw) / 1000.0 if float(raw) > 1e10 else float(raw)
+                return datetime.fromtimestamp(seconds, tz=UTC)
+            parsed = datetime.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        except (ValueError, OverflowError, OSError):
+            raise ValueError(f"Unparseable timestamp in field {key!r}: {raw!r}")
+    return None
+
+
+def _mqtt_event_id(prefix: str, connector_id: str, topic: str, payload: dict[str, Any], has_ts: bool) -> str:
+    """Deterministic id so an at-least-once redelivery of the SAME message is a duplicate.
+    Without a device timestamp the arrival SECOND is included, so identical readings sent
+    later are still distinct events."""
+    import hashlib
+    import json as _json
+
+    body = _json.dumps(payload, sort_keys=True, default=str)
+    bucket = "" if has_ts else str(int(datetime.now(UTC).timestamp()))
+    digest = hashlib.sha256(f"{connector_id}|{topic}|{bucket}|{body}".encode()).hexdigest()[:32]
+    return f"{prefix}-{digest}"
+
+
 class MQTTConnector(TelemetryConnector):
     """MQTT-protocol telemetry connector that produces NormalizedTelemetryEvent objects.
 
@@ -197,9 +231,7 @@ class MQTTConnector(TelemetryConnector):
     ) -> NormalizedTelemetryEvent:
         """Decodes a compact single-sensor reading payload."""
         # Extract asset ID from topic segments or payload
-        asset_id = self._extract_asset_from_topic(topic) or str(
-            payload.get("asset_id") or payload.get("device_sn") or "UNKNOWN"
-        )
+        asset_id, asset_conflict = self._resolve_asset_identifier(topic, payload)
         sensor_code = str(payload.get("sensor_code", "UNKNOWN"))
         value = float(payload["value"])
         unit = str(payload.get("unit", ""))
@@ -215,34 +247,35 @@ class MQTTConnector(TelemetryConnector):
             data_quality=data_quality,
         )
 
+        device_ts = _payload_timestamp(payload)
         return NormalizedTelemetryEvent(
             source_system=self.source_system,
-            source_event_id=f"MQTT-{self.connector_id}-{int(datetime.now(UTC).timestamp() * 1000)}",
+            source_event_id=_mqtt_event_id("MQTT", self.connector_id, topic, payload, device_ts is not None),
             source_asset_id=asset_id,
             event_type="TELEMETRY_PING",
-            event_timestamp=datetime.now(UTC),
+            event_timestamp=device_ts or datetime.now(UTC),
             readings=[reading],
-            raw_metadata={"topic": topic, "format": "compact_sensor"},
+            raw_metadata={
+                "topic": topic,
+                "format": "compact_sensor",
+                "timestamp_source": "SOURCE" if device_ts else "RECEIVED",
+                **({"asset_identifier_conflict": asset_conflict} if asset_conflict else {}),
+            },
         )
 
     def _decode_flat_oem(
         self, payload: dict[str, Any], topic: str
     ) -> NormalizedTelemetryEvent:
         """Decodes a flat OEM blob into sensor readings by scanning numeric fields."""
-        asset_id = self._extract_asset_from_topic(topic) or str(
-            payload.get("device_sn")
-            or payload.get("asset_id")
-            or payload.get("serial_number")
-            or "UNKNOWN"
-        )
+        asset_id, asset_conflict = self._resolve_asset_identifier(topic, payload)
 
         readings: list[TelemetryReadingItem] = []
         skip_keys = {
-            "device_sn", "asset_id", "serial_number", "timestamp",
-            "event_type", "source_system",
+            "device_sn", "asset_id", "serial_number", "timestamp", "time", "ts",
+            "event_timestamp", "recorded_at", "event_type", "source_system",
         }
         for key, val in payload.items():
-            if key in skip_keys:
+            if key in skip_keys or isinstance(val, bool):  # a flag is not a measurement
                 continue
             try:
                 fval = float(val)
@@ -261,15 +294,43 @@ class MQTTConnector(TelemetryConnector):
             except (TypeError, ValueError):
                 continue  # non-numeric field, skip
 
+        device_ts = _payload_timestamp(payload)
         return NormalizedTelemetryEvent(
             source_system=self.source_system,
-            source_event_id=f"MQTT-OEM-{self.connector_id}-{int(datetime.now(UTC).timestamp() * 1000)}",
+            source_event_id=_mqtt_event_id("MQTT-OEM", self.connector_id, topic, payload, device_ts is not None),
             source_asset_id=asset_id,
             event_type="TELEMETRY_PING",
-            event_timestamp=datetime.now(UTC),
+            event_timestamp=device_ts or datetime.now(UTC),
             readings=readings,
-            raw_metadata={"topic": topic, "format": "flat_oem", "original_keys": list(payload.keys())},
+            raw_metadata={
+                "topic": topic,
+                "format": "flat_oem",
+                "original_keys": list(payload.keys()),
+                "timestamp_source": "SOURCE" if device_ts else "RECEIVED",
+                **({"asset_identifier_conflict": asset_conflict} if asset_conflict else {}),
+            },
         )
+
+    def _resolve_asset_identifier(
+        self, topic: str, payload: dict[str, Any]
+    ) -> tuple[str, dict[str, str] | None]:
+        """Asset identity: an explicit identifier IN the payload outranks anything inferred from
+        the topic (a topic's last segment is often an event type such as 'PING', not an asset).
+        If both are present and differ, the payload wins and the conflict is recorded in the
+        event metadata so it is visible downstream instead of silently choosing."""
+        explicit = next(
+            (str(payload[k]).strip() for k in ("asset_id", "serial_number", "device_sn")
+             if payload.get(k) not in (None, "")),
+            None,
+        )
+        from_topic = self._extract_asset_from_topic(topic)
+        if explicit:
+            conflict = (
+                {"topic": from_topic, "payload": explicit}
+                if from_topic and from_topic != explicit else None
+            )
+            return explicit, conflict
+        return (from_topic or "UNKNOWN"), None
 
     def _extract_asset_from_topic(self, topic: str) -> str | None:
         """Extracts an asset ID from a structured MQTT topic.

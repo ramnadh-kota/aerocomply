@@ -56,6 +56,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/fleet/health", label: "Fleet Health", glyph: "♥" },
       { href: "/aircraft", label: "Aircraft", glyph: "✈" },
       { href: "/drones", label: "Drones", glyph: "◆" },
+      { href: "/data-sources", label: "Data Sources", glyph: "⇄" },
       { href: "/engines", label: "Engines", glyph: "◎" },
       { href: "/components", label: "Components", glyph: "▤" },
       { href: "/facilities", label: "Facilities", glyph: "⌂" },
