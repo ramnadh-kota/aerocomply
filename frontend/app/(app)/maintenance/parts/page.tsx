@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LivePartsList } from "@/components/live/LivePages";
+
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -22,7 +25,7 @@ import { ApiError, normalizeApiError } from "@/lib/apiClient";
 // with search/filter and traceability-aware columns, and links each row to
 // the new /maintenance/parts/[id] traceability chain view.
 
-export default function PartsInventoryPage() {
+function DemoPartsInventoryPage() {
   const { submissions } = useMroState();
 
   // Backend-authoritative parts (REAL mode only) — additive to the existing
@@ -377,3 +380,5 @@ export default function PartsInventoryPage() {
     </div>
   );
 }
+
+export default withLive(DemoPartsInventoryPage, LivePartsList);

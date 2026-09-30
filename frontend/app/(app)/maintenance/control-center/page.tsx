@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveControlCenter } from "@/components/live/LivePages";
+
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -52,7 +55,7 @@ const PRIORITY_BADGE: Record<ControlCenterPriority, { status: Parameters<typeof 
   UNKNOWN: { status: "INSUFFICIENT_DATA", label: "UNKNOWN" },
 };
 
-export default function MaintenanceControlCenterPage() {
+function DemoMaintenanceControlCenterPage() {
   const { addAuditEvent, auditLog } = useMroState();
   const current = getCurrentUser();
   const reviewed = useRef(false);
@@ -519,3 +522,5 @@ export default function MaintenanceControlCenterPage() {
     </div>
   );
 }
+
+export default withLive(DemoMaintenanceControlCenterPage, LiveControlCenter);

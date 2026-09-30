@@ -35,7 +35,10 @@ export const NAV_FEATURE_MAP: Record<string, NavFeatureKey> = {
   "/compliance": FEATURE_KEYS.COMPLIANCE_MANAGEMENT,
   "/regulations": FEATURE_KEYS.COMPLIANCE_MANAGEMENT,
   "/compliance/regulatory-register": FEATURE_KEYS.COMPLIANCE_MANAGEMENT,
-  "/assessments": FEATURE_KEYS.COMPLIANCE_MANAGEMENT,
+  // The assessments API is gated by advanced_compliance_intelligence on the backend; the route mirrors it.
+  "/assessments": FEATURE_KEYS.ADVANCED_COMPLIANCE_INTELLIGENCE,
+  // Parts inventory reads /parts, which the backend gates with procurement_management.
+  "/maintenance/parts": FEATURE_KEYS.PROCUREMENT_MANAGEMENT,
   "/assessment-intelligence": FEATURE_KEYS.ADVANCED_COMPLIANCE_INTELLIGENCE,
 
   // AI & LISA

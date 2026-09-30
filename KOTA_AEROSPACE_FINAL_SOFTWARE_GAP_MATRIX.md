@@ -92,7 +92,9 @@ bridged to UDP/TCP by the gateway host (`mavlink-router` or `app/services/edge/g
 `/maintenance/projects/[id]`, `/maintenance/projects/[id]/intelligence`, `/organization/readiness`, `/pilot`,
 `/procurement/cart`, `/reports`, `/reports/[id]`, `/workspace`.
 
-Thirteen further sample-data routes redirect live sessions to a connected page (audit, executive, fleet health,
-maintenance records/tasks/planning/release-readiness, organization usage, organization roles ×2, organization user
-detail, platform features, evidence detail).
+Sixteen further sample-data (or sample-section) routes redirect live sessions to a connected page: audit, executive,
+fleet health, control tower → live control center, hangar and operations → work orders, maintenance
+records/tasks/planning/release-readiness, organization usage, organization roles ×2, organization user detail,
+platform features, evidence detail. The live control center (`/maintenance/control-center`) and maintenance parts
+render only real data (browser mock-marker scan over 20 pages × 2 organizations: 0 leaks).
 Product decision needed for G1: build each against real APIs, or retire it from the product.

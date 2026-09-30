@@ -7,8 +7,8 @@ No automation library is required: Node 24 + Chrome. Runs against a SCRATCH envi
 3. Seed: `python seed_browser.py` (drone org, assets, MAVLink telemetry; needs `platform@example.com` and
    `aircraft-admin@example.com` from the platform seed) and `python seed_heli.py` (helicopter + eVTOL orgs).
    Set `BROWSER_SCRATCH` to a writable directory (screenshots, seed json).
-4. `node browser_validate.mjs` (auth, drone flows, data sources, LISA, platform, cross-suite) and
+4. `node browser_validate.mjs` (auth, drone flows, data sources, LISA, platform, cross-suite), `node browser_validate2.mjs` (strict sidebar, mock-only notices, live pages, helicopter and eVTOL UI journeys) and `node browser_validate3.mjs` (sample-data marker scan over 20 pages x 2 organizations + live control center).
    `node browser_validate2.mjs` (strict sidebar, mock-only notices, live pages, helicopter and eVTOL UI journeys).
 
-Last run (2026-09-30): 44/44 and 53/53 checks, 0 console errors, 0 failed HTTP responses. This is scripted
+Last run (2026-09-30): 44 + 56 + 42 checks, 0 console errors, 0 failed HTTP responses. This is scripted
 validation, not human UAT.

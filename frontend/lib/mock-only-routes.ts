@@ -44,6 +44,18 @@ export const MOCK_ONLY_ROUTES: readonly string[] = [
 ];
 
 /**
+ * Pages that MIX a live section with sample-data sections and have no live-only variant yet. A live session must not see
+ * the sample sections presented as its own records, so these are treated exactly like the mock-only pages above
+ * (notice / redirect). Each must exist as a page file (verified by tests/mock-only-routes.test.ts); remove an entry when
+ * the page gets a live variant (withLive) that renders only real data.
+ */
+export const SAMPLE_SECTION_ROUTES: readonly string[] = [
+  "/maintenance/control-tower",
+  "/maintenance/hangar",
+  "/maintenance/operations",
+];
+
+/**
  * Mock-only pages whose PURPOSE is served by a connected page: a live session is sent there instead of seeing a notice.
  * Each target must be a real, connected route (verified by tests/mock-only-routes.test.ts). "[id]" in the target is
  * replaced by the id segment of the source URL.
@@ -54,12 +66,15 @@ export const LIVE_REDIRECTS: Readonly<Record<string, string>> = {
   "/executive": "/dashboard",
   "/maintenance/records": "/maintenance/work-orders",
   "/maintenance/tasks": "/maintenance/work-orders",
-  "/maintenance/planning": "/maintenance/operations",
+  "/maintenance/planning": "/maintenance/work-orders",
   "/maintenance/release-readiness": "/maintenance/control-center",
   "/organization/usage": "/tenant/usage",
   "/organization/roles/[id]": "/tenant/roles",
   "/organization/roles/new": "/tenant/roles",
   "/organization/users/[id]": "/tenant/users",
+  "/maintenance/control-tower": "/maintenance/control-center",
+  "/maintenance/hangar": "/maintenance/work-orders",
+  "/maintenance/operations": "/maintenance/work-orders",
   "/platform/features": "/platform/product-catalog",
   "/evidence/[id]": "/compliance/evidence/[id]",
 };
@@ -72,7 +87,7 @@ function toRegex(pattern: string): RegExp {
   return new RegExp("^" + source + "/?$");
 }
 
-const COMPILED = MOCK_ONLY_ROUTES.map((pattern) => ({ pattern, re: toRegex(pattern) }));
+const COMPILED = [...MOCK_ONLY_ROUTES, ...SAMPLE_SECTION_ROUTES].map((pattern) => ({ pattern, re: toRegex(pattern) }));
 
 /** The registered mock-only pattern matching this pathname, or null. */
 export function matchMockOnlyRoute(pathname: string): string | null {

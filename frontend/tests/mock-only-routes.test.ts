@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { LIVE_REDIRECTS, MOCK_ONLY_ROUTES, isMockOnlyRoute, liveRedirectFor, matchMockOnlyRoute } from "../lib/mock-only-routes";
+import { LIVE_REDIRECTS, MOCK_ONLY_ROUTES, SAMPLE_SECTION_ROUTES, isMockOnlyRoute, liveRedirectFor, matchMockOnlyRoute } from "../lib/mock-only-routes";
 
 const APP = join(__dirname, "..", "app", "(app)");
 
@@ -46,11 +46,21 @@ describe("mock-only route registry", () => {
     }
   });
 
+  it("lists sample-section pages that exist and are not otherwise registered", () => {
+    const all = new Set(pages(APP).map((p) => p.route));
+    for (const route of SAMPLE_SECTION_ROUTES) {
+      expect(all.has(route), route).toBe(true);
+      expect(MOCK_ONLY_ROUTES).not.toContain(route);
+      expect(isMockOnlyRoute(route)).toBe(true);
+    }
+  });
+
   it("only redirects to real, connected routes", () => {
     const live = new Set(pages(APP).filter((p) => !isMockOnly(p.source)).map((p) => p.route));
+    const registered = new Set([...MOCK_ONLY_ROUTES, ...SAMPLE_SECTION_ROUTES]);
     for (const [from, to] of Object.entries(LIVE_REDIRECTS)) {
-      expect(MOCK_ONLY_ROUTES, from).toContain(from);
-      expect(live.has(to), `${from} -> ${to}`).toBe(true);
+      expect(registered.has(from), from).toBe(true);
+      expect(live.has(to) && !registered.has(to), `${from} -> ${to}`).toBe(true);
     }
   });
 

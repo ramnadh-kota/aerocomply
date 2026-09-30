@@ -22,6 +22,7 @@ import { regulatoryRequirementsApi, type BackendRegulatoryRequirement } from "@/
 import { assessmentsApi, type BackendAssessment } from "@/lib/api/assessments";
 import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 import { proactiveApi, type BackendProactiveAlert } from "@/lib/api/proactive";
+import { controlCenterApi, type ControlCenterFleetOperationRow, type ControlCenterSummary } from "@/lib/api/controlCenter";
 import { fleetComponentsApi, type FleetComponent } from "@/lib/api/fleetComponents";
 import { maintenanceRequirementsApi, type BackendMaintenanceRequirement } from "@/lib/api/maintenanceRequirements";
 
@@ -418,5 +419,86 @@ export function LiveEngineDetail() {
       load={fleetComponentsApi.get}
       notFound="Engine not found."
     />
+  );
+}
+
+// ---------------------------------------------------------------- maintenance control center (live)
+export function LiveControlCenter() {
+  const { accessToken, isAuthenticated } = useSession();
+  const [summary, setSummary] = useState<ControlCenterSummary | null>(null);
+  const [fleet, setFleet] = useState<ControlCenterFleetOperationRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken) return;
+    let off = false;
+    Promise.all([controlCenterApi.getSummary(accessToken), controlCenterApi.getFleetOperations(accessToken)])
+      .then(([sm, fl]) => { if (!off) { setSummary(sm); setFleet(fl); } })
+      .catch((e) => { if (!off) setError(normalizeApiError(e)); })
+      .finally(() => { if (!off) setLoading(false); });
+    return () => { off = true; };
+  }, [accessToken, isAuthenticated]);
+
+  const tiles = summary && [
+    { label: "Assets", value: summary.total_assets },
+    { label: "Open work orders", value: summary.open_work_orders_total },
+    { label: "Open deferred items", value: summary.open_deferred_items_total },
+    { label: "Part shortages", value: summary.open_part_shortages_total },
+    { label: "AOG (aircraft)", value: summary.aog },
+    { label: "Needing attention", value: summary.daily_brief?.attention_required_count ?? 0 },
+  ];
+  return (
+    <div>
+      <PageHeader breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Maintenance Control Center" }]}
+        title="Maintenance Control Center" subtitle="Live fleet status, blockers and next actions from your organization's records." />
+      <RealDataPanel loading={loading} error={error} isEmpty={!summary} emptyMessage="No control-center data.">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginBottom: 16 }}>
+          {tiles?.map((t) => (
+            <div key={t.label} className="ac-card" style={{ padding: 14 }}>
+              <span className="ac-text-sm ac-text-muted">{t.label}</span>
+              <div style={{ fontSize: 26, fontWeight: 700 }}>{t.value}</div>
+            </div>
+          ))}
+        </div>
+        {summary?.daily_brief && (
+          <div className="ac-card" style={{ padding: 14, marginBottom: 16 }}>
+            <strong>{summary.daily_brief.summary_headline}</strong>
+            <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+              {summary.daily_brief.key_bullet_points.map((b, i) => (<li key={i} className="ac-text-sm">{b}</li>))}
+            </ul>
+          </div>
+        )}
+        {(summary?.attention_items?.length ?? 0) > 0 && (
+          <div className="ac-card" style={{ padding: 0, overflowX: "auto", marginBottom: 16 }}>
+            <table className="ac-table" style={{ width: "100%" }}>
+              <thead><tr><th>Priority</th><th>Asset</th><th>Item</th><th>Reason</th><th>Recommended action</th></tr></thead>
+              <tbody>
+                {summary!.attention_items!.map((a) => (
+                  <tr key={a.id}>
+                    <td>{a.priority}</td><td>{a.registration ?? "—"}</td><td>{a.title}</td><td>{a.reason}</td><td>{a.recommended_action ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="ac-card" style={{ padding: 0, overflowX: "auto" }}>
+          <table className="ac-table" style={{ width: "100%" }}>
+            <thead><tr><th>Asset</th><th>Type</th><th>Operational state</th><th>Readiness</th><th>Risk</th><th>Open WOs</th><th>Open findings</th><th>Blockers</th><th>Next action</th></tr></thead>
+            <tbody>
+              {fleet.length === 0 && <tr><td colSpan={9} className="ac-text-muted">No assets registered.</td></tr>}
+              {fleet.map((r) => (
+                <tr key={r.asset_id}>
+                  <td><Link href={`/assets/${r.asset_id}`} className="ac-link">{r.registration ?? r.asset_id.slice(0, 8)}</Link></td>
+                  <td>{r.asset_type}</td><td>{r.operational_state}</td><td>{r.readiness_state}</td><td>{r.risk_level}</td>
+                  <td>{r.open_work_orders}</td><td>{r.open_findings}</td><td>{r.active_blocker_count}</td><td>{r.next_action ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </RealDataPanel>
+    </div>
   );
 }

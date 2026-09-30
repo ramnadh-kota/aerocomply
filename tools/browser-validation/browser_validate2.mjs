@@ -149,7 +149,10 @@ try {
   note("security", "drone org: GET /helicopters is 403 (API)", (await apiStatus("/helicopters")) === 403);
   const fin = await visit("/finance", { shotName: "finance_not_connected" });
   note("ui", "mock-only /finance shows the 'not connected' notice, not sample data", /not connected to live data/i.test(fin.body) && !/\$\s?\d{2,}/.test(fin.body.slice(0, 400)), fin.body.slice(0, 120).replace(/\s+/g, " "));
-  await visit("/engines", { expectText: "Not connected to live data" });
+  const eng = await visit("/engines");
+  note("live", "/engines is the live engine register (component type ENGINE)", !/Not connected/.test(eng.body) && /(No engines recorded|Serial number)/i.test(eng.body));
+  const cmp = await visit("/components");
+  note("live", "/components is the live component register", !/Not connected/.test(cmp.body) && /(No components recorded|Serial number)/i.test(cmp.body));
   const ev1 = await visit("/evidence", { shotName: "evidence_live" });
   note("live", "/evidence renders the live register (table or empty state), never sample rows", /Evidence/.test(ev1.body) && !/Not connected/.test(ev1.body) && /(No evidence has been recorded|Title)/i.test(ev1.body), ev1.body.slice(0, 100).replace(/\s+/g, " "));
   for (const p of ["/procurement", "/procurement/parts", "/procurement/vendors", "/procurement/approvals", "/regulations", "/assessments", "/notifications", "/maintenance/defects"]) {
