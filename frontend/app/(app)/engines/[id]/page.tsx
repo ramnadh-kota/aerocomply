@@ -1,4 +1,7 @@
 "use client";;
+
+import { withLive } from "@/components/live/LiveViews";
+import { LiveEngineDetail } from "@/components/live/LivePages";
 import { use } from "react";
 
 import Link from "next/link";
@@ -14,7 +17,7 @@ import { regulatoryRequirements } from "@/lib/mock/regulations";
 import { maintenanceEventsForEngine } from "@/lib/mock/maintenance";
 import type { ApplicabilityAssessment, EngineInstallation } from "@/lib/mock/types";
 
-export default function EngineDetailPage(props: { params: Promise<{ id: string }> }) {
+function DemoEngineDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const engine = getEngineById(params.id);
   if (!engine) notFound();
@@ -153,3 +156,5 @@ export default function EngineDetailPage(props: { params: Promise<{ id: string }
     </div>
   );
 }
+
+export default withLive(DemoEngineDetailPage, LiveEngineDetail);

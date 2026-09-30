@@ -251,3 +251,26 @@ def test_no_asset_path_accepts_another_tenants_facility(client, db_session):
     a = client.post("/api/v1/assets", headers=h, json={"asset_type": "OTHER", "registration": "FA-2"}).json()
     assert client.patch(f"/api/v1/assets/{a['id']}", headers=h, json={"facility_id": foreign}).status_code == 404
     assert client.patch(f"/api/v1/assets/{a['id']}", headers=h, json={"facility_id": str(mine.id)}).status_code == 200
+
+
+def test_fleet_component_register_is_tenant_scoped_filterable_and_entitlement_gated(client, db_session, heli):
+    org_id, h = heli
+    a = make_heli(client, h, reg="FC-1")
+    for t, n in (("ROTOR", "Main rotor"), ("ENGINE", "Engine 1"), ("ENGINE", "Engine 2")):
+        assert client.post(f"/api/v1/helicopters/{a['id']}/components", headers=h,
+                           json={"component_type": t, "name": n, "serial_number": f"S-{n}"}).status_code == 201
+    body = client.get("/api/v1/fleet/components", headers=h).json()
+    assert body["total"] == 3 and {c["asset_registration"] for c in body["items"]} == {"FC-1"}
+    engines = client.get("/api/v1/fleet/components", headers=h, params={"component_type": "engine"}).json()
+    assert engines["total"] == 2 and all(c["component_type"] == "ENGINE" for c in engines["items"])
+    assert client.get("/api/v1/fleet/components", headers=h, params={"asset_id": str(uuid.uuid4())}).json()["total"] == 0
+    one = engines["items"][0]
+    assert client.get(f"/api/v1/fleet/components/{one['id']}", headers=h).json()["name"] in ("Engine 1", "Engine 2")
+    # another tenant sees nothing and cannot open ours
+    _, h2 = suite_org(client, db_session, "fc2", "HELICOPTER", HELI_FEATURES)
+    assert client.get("/api/v1/fleet/components", headers=h2).json()["total"] == 0
+    assert client.get(f"/api/v1/fleet/components/{one['id']}", headers=h2).status_code == 404
+    # an org with no airframe-family feature is refused; unauthenticated is 401
+    _, hn = suite_org(client, db_session, "fc3", "HELICOPTER", ("hums",))
+    assert client.get("/api/v1/fleet/components", headers=hn).status_code == 403
+    assert client.get("/api/v1/fleet/components").status_code == 401

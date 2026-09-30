@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveEnginesList } from "@/components/live/LivePages";
+
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -41,7 +44,7 @@ function buildRows(): Row[] {
   });
 }
 
-export default function EnginesListPage() {
+function DemoEnginesListPage() {
   const rows = buildRows();
 
   const columns: Column<Row>[] = [
@@ -74,3 +77,5 @@ export default function EnginesListPage() {
     </div>
   );
 }
+
+export default withLive(DemoEnginesListPage, LiveEnginesList);

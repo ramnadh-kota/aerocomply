@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveComponentsList } from "@/components/live/LivePages";
+
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -52,7 +55,7 @@ function buildRows(): Row[] {
   });
 }
 
-export default function ComponentsListPage() {
+function DemoComponentsListPage() {
   const rows = buildRows();
 
   const columns: Column<Row>[] = [
@@ -81,3 +84,5 @@ export default function ComponentsListPage() {
     </div>
   );
 }
+
+export default withLive(DemoComponentsListPage, LiveComponentsList);

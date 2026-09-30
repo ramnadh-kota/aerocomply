@@ -1,4 +1,7 @@
 "use client";;
+
+import { withLive } from "@/components/live/LiveViews";
+import { LiveComponentDetail } from "@/components/live/LivePages";
 import { use } from "react";
 
 import Link from "next/link";
@@ -16,7 +19,7 @@ import { regulatoryRequirements } from "@/lib/mock/regulations";
 import { maintenanceEventsForComponentInstance } from "@/lib/mock/maintenance";
 import type { ComponentInstallation } from "@/lib/mock/types";
 
-export default function ComponentDetailPage(props: { params: Promise<{ id: string }> }) {
+function DemoComponentDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const instance = getComponentInstance(params.id);
   if (!instance) notFound();
@@ -142,3 +145,5 @@ export default function ComponentDetailPage(props: { params: Promise<{ id: strin
     </div>
   );
 }
+
+export default withLive(DemoComponentDetailPage, LiveComponentDetail);

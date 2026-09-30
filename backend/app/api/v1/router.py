@@ -23,6 +23,7 @@ from app.api.v1 import (
     entitlements,
     evidence,
     facilities,
+    fleet_components,
     findings,
     health,
     hums,
@@ -64,6 +65,7 @@ api_router.include_router(assets.router)
 api_router.include_router(facilities.router)
 api_router.include_router(drones.router)
 api_router.include_router(airframes.helicopters_router)
+api_router.include_router(fleet_components.router)
 api_router.include_router(airframes.evtols_router)
 api_router.include_router(missions.router)
 api_router.include_router(aog.router)

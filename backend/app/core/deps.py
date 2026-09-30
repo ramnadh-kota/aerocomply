@@ -235,3 +235,25 @@ def require_feature(feature_key: str):
         return current_user
 
     return _check
+
+
+def require_any_feature(*feature_keys: str):
+    """Like require_feature, but the organization needs AT LEAST ONE of the listed features (e.g. any fleet family)."""
+    checks = [require_feature(k) for k in feature_keys]
+
+    def _check(
+        current_user: CurrentUser = Depends(get_current_user),
+        db: Session = Depends(get_db_session),
+    ) -> CurrentUser:
+        last: ForbiddenError | None = None
+        for check in checks:
+            try:
+                return check(current_user=current_user, db=db)
+            except ForbiddenError as exc:
+                last = exc
+        raise ForbiddenError(
+            f"Organization is not entitled to any of: {', '.join(feature_keys)}",
+            code=last.code if last is not None else None,
+        )
+
+    return _check

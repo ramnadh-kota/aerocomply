@@ -3,6 +3,7 @@
 // Live-data versions of pages that previously contained only sample data. Each one reads the corresponding backend
 // API through the existing typed client; Demo sessions still render the original sample-data page (see withLive).
 
+import type React from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -21,6 +22,7 @@ import { regulatoryRequirementsApi, type BackendRegulatoryRequirement } from "@/
 import { assessmentsApi, type BackendAssessment } from "@/lib/api/assessments";
 import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 import { proactiveApi, type BackendProactiveAlert } from "@/lib/api/proactive";
+import { fleetComponentsApi, type FleetComponent } from "@/lib/api/fleetComponents";
 import { maintenanceRequirementsApi, type BackendMaintenanceRequirement } from "@/lib/api/maintenanceRequirements";
 
 const date = (v: string | null | undefined) => formatScalar("created_at", v ?? null);
@@ -352,6 +354,69 @@ export function LiveMaintenanceProgram() {
       ]}
       emptyMessage="No maintenance requirements defined."
       searchText={(r) => `${r.task_reference ?? ""} ${r.description} ${r.ata_chapter}`}
+    />
+  );
+}
+
+// ---------------------------------------------------------------- components and engines (one register, two views)
+function componentColumns(): { header: string; render: (c: FleetComponent) => React.ReactNode }[] {
+  return [
+    { header: "Name", render: (c) => c.name },
+    { header: "Type", render: (c) => c.component_type },
+    { header: "Serial number", render: (c) => c.serial_number ?? "—" },
+    { header: "Installed on", render: (c) => c.asset_registration ?? "— (not installed)" },
+    { header: "Status", render: (c) => c.status },
+  ];
+}
+
+export function LiveComponentsList() {
+  return (
+    <LiveList<FleetComponent>
+      title="Components"
+      subtitle="Serialized components across your fleet."
+      breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Components" }]}
+      load={(t) => fleetComponentsApi.list(t, { limit: 200 })}
+      columns={componentColumns()}
+      rowHref={(c) => `/components/${c.id}`}
+      emptyMessage="No components recorded."
+      searchText={(c) => `${c.name} ${c.component_type} ${c.serial_number ?? ""} ${c.asset_registration ?? ""}`}
+    />
+  );
+}
+
+export function LiveComponentDetail() {
+  return (
+    <LiveDetail<FleetComponent>
+      breadcrumbs={(c) => [{ label: "Dashboard", href: "/dashboard" }, { label: "Components", href: "/components" }, { label: c?.name ?? "…" }]}
+      title={(c) => c.name}
+      load={fleetComponentsApi.get}
+      notFound="Component not found."
+    />
+  );
+}
+
+export function LiveEnginesList() {
+  return (
+    <LiveList<FleetComponent>
+      title="Engines"
+      subtitle="Engines installed across your fleet (components of type ENGINE)."
+      breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Engines" }]}
+      load={(t) => fleetComponentsApi.list(t, { component_type: "ENGINE", limit: 200 })}
+      columns={componentColumns()}
+      rowHref={(c) => `/engines/${c.id}`}
+      emptyMessage="No engines recorded."
+      searchText={(c) => `${c.name} ${c.serial_number ?? ""} ${c.asset_registration ?? ""} ${c.model ?? ""}`}
+    />
+  );
+}
+
+export function LiveEngineDetail() {
+  return (
+    <LiveDetail<FleetComponent>
+      breadcrumbs={(c) => [{ label: "Dashboard", href: "/dashboard" }, { label: "Engines", href: "/engines" }, { label: c?.name ?? "…" }]}
+      title={(c) => c.name}
+      load={fleetComponentsApi.get}
+      notFound="Engine not found."
     />
   );
 }

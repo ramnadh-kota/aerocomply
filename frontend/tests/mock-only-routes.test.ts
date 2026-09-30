@@ -34,13 +34,13 @@ describe("mock-only route registry", () => {
     expect(isMockOnlyRoute("/finance")).toBe(true);
     expect(isMockOnlyRoute("/evidence/abc-123")).toBe(true);
     expect(isMockOnlyRoute("/evidence/abc-123/")).toBe(true);
-    expect(matchMockOnlyRoute("/components/42")).toBe("/components/[id]");
+    expect(matchMockOnlyRoute("/finance/42")).toBe("/finance/[id]");
     expect(isMockOnlyRoute("/maintenance/projects/9/intelligence")).toBe(true);
   });
 
   it("does not match connected pages or unrelated prefixes", () => {
     for (const live of ["/dashboard", "/drones", "/drones/1", "/maintenance/work-orders", "/tenant/audit", "/data-sources",
-      "/helicopters", "/evtols", "/evidence-files", "/procurement/purchase-orders", "/evidence", "/procurement/parts",
+      "/helicopters", "/evtols", "/evidence-files", "/procurement/purchase-orders", "/evidence", "/components", "/engines/7", "/procurement/parts",
       "/procurement/vendors/42", "/regulations", "/assessments"]) {
       expect(isMockOnlyRoute(live), live).toBe(false);
     }
