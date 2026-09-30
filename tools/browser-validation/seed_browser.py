@@ -62,4 +62,4 @@ frames += b"".join(vibration(1.5, 1.6, 1.7, seq=n()) for _ in range(6)) + vibrat
 frames += heartbeat(seq=n(), sysid=2) + b"".join(vibration(2.0, 2.0, 2.0, seq=n(), sysid=2) for _ in range(3))
 rep = httpx.post(f"{B}/data-sources/{mav['id']}/ingest", headers={**h, "Content-Type": "application/octet-stream"}, content=frames).json()
 print(json.dumps({"assets": assets, "source": mav["id"], "report": rep}))
-json.dump({"assets": assets, "source": mav["id"]}, open(r"C:\Users\ramna\AppData\Local\Temp\claude\C--Users-ramna-Documents-Aerocomply\70650cd3-d403-4546-94e0-985c1bb3c64f\scratchpad\browser_seed.json", "w"))
+json.dump({"assets": assets, "source": mav["id"]}, open(os.path.join(os.environ.get("BROWSER_SCRATCH", "."), "browser_seed.json"), "w"))
