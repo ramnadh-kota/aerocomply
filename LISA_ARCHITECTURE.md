@@ -1,3 +1,5 @@
+> **Implementation status (2026-09-30):** this document is a design/target description. The implemented behaviour is documented in `DATA_ACQUISITION_ARCHITECTURE.md`, `ENTITLEMENT_ARCHITECTURE.md`, `SECURITY_ARCHITECTURE.md`, `OBSERVABILITY_ARCHITECTURE.md`, `PRODUCTION_RUNBOOK.md` and `FINAL_RELEASE_READINESS.md`. Implemented: tool-based, tenant-scoped copilot with entity/reference resolution of drones and airframes by name, id or serial. Metrics: `kota_lisa_tool_*`. No claim is made about answer quality on real customer questions. Where this text disagrees with those, those win.
+
 # KOTA AEROSPACE — LISA (INTELLIGENT SAFETY & OPERATIONS ASSISTANT) ARCHITECTURE
 
 ## 1. Overview & Core Philosophy

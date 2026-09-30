@@ -1,3 +1,5 @@
+> **Implementation status (2026-09-30):** this document is a design/target description. The implemented behaviour is documented in `DATA_ACQUISITION_ARCHITECTURE.md`, `ENTITLEMENT_ARCHITECTURE.md`, `SECURITY_ARCHITECTURE.md`, `OBSERVABILITY_ARCHITECTURE.md`, `PRODUCTION_RUNBOOK.md` and `FINAL_RELEASE_READINESS.md`. Run `backend/scripts/production_preflight.sql` (read-only) as part of this checklist; alembic head must be `0065`. Items about external infrastructure are unverified. Where this text disagrees with those, those win.
+
 # KOTA AEROSPACE — PRE-DEPLOYMENT PRODUCTION CHECKLIST
 
 ## 1. Release Identification

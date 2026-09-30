@@ -1,3 +1,5 @@
+> **Implementation status (2026-09-30):** this document is a design/target description. The implemented behaviour is documented in `DATA_ACQUISITION_ARCHITECTURE.md`, `ENTITLEMENT_ARCHITECTURE.md`, `SECURITY_ARCHITECTURE.md`, `OBSERVABILITY_ARCHITECTURE.md`, `PRODUCTION_RUNBOOK.md` and `FINAL_RELEASE_READINESS.md`. All bench tests remain PENDING PHYSICAL HARDWARE. `backend/scripts/mavlink_bench_harness.py` now provides the measurement tool (sim self-test, file/UDP/serial sources, optional API forwarding, pass/fail thresholds); its `sim` mode validates the tool only, not any radio. Where this text disagrees with those, those win.
+
 # KOTA AEROSPACE — MAVLINK PHYSICAL HARDWARE VALIDATION PLAN
 
 ## 1. Scope & Objective

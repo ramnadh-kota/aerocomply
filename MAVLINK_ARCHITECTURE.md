@@ -1,3 +1,5 @@
+> **Implementation status (2026-09-30):** this document is a design/target description. The implemented behaviour is documented in `DATA_ACQUISITION_ARCHITECTURE.md`, `ENTITLEMENT_ARCHITECTURE.md`, `SECURITY_ARCHITECTURE.md`, `OBSERVABILITY_ARCHITECTURE.md`, `PRODUCTION_RUNBOOK.md` and `FINAL_RELEASE_READINESS.md`. Implemented: HTTP push ingest of raw MAVLink bytes through `MAVLinkConnector` (v1/v2 framing, CRC_EXTRA, per-(sysid,compid) sequence/loss/duplicate accounting, component filtering, arrival-time timestamps). NOT implemented: serial/UDP listener process, TimescaleDB, signature verification. Physical link behaviour is unvalidated (see `MAVLINK_HARDWARE_VALIDATION_PLAN.md`, `backend/scripts/mavlink_bench_harness.py`). Where this text disagrees with those, those win.
+
 # KOTA AEROSPACE — MAVLINK PROTOCOL & INGESTION ARCHITECTURE
 
 ## 1. Scope & Protocol Compliance

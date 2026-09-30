@@ -1,3 +1,5 @@
+> **Implementation status (2026-09-30):** this document is a design/target description. The implemented behaviour is documented in `DATA_ACQUISITION_ARCHITECTURE.md`, `ENTITLEMENT_ARCHITECTURE.md`, `SECURITY_ARCHITECTURE.md`, `OBSERVABILITY_ARCHITECTURE.md`, `PRODUCTION_RUNBOOK.md` and `FINAL_RELEASE_READINESS.md`. Correction: 169 remaining model/DB differences are individually reviewed and pinned by `test_schema_drift_guard.py`; migration 0065 fixed the real ones. Index-only differences are not the same as constraint drift. Where this text disagrees with those, those win.
+
 # Kota Aerospace — Historical Schema Drift Forensic Report
 
 ## 1. Executive Summary

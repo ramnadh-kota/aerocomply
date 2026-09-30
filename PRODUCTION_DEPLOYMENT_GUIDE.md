@@ -1,3 +1,5 @@
+> **Implementation status (2026-09-30):** this document is a design/target description. The implemented behaviour is documented in `DATA_ACQUISITION_ARCHITECTURE.md`, `ENTITLEMENT_ARCHITECTURE.md`, `SECURITY_ARCHITECTURE.md`, `OBSERVABILITY_ARCHITECTURE.md`, `PRODUCTION_RUNBOOK.md` and `FINAL_RELEASE_READINESS.md`. Topology items (Cloudflare, Redis cluster, TimescaleDB, Gunicorn sizing) are recommendations that have NOT been built or load-tested; the app has no Redis/queue/worker dependency today. Use `PRODUCTION_PREDEPLOYMENT_CHECKLIST.md`, `backend/scripts/production_preflight.sql`, `PRODUCTION_ROLLBACK_GUIDE.md`. Where this text disagrees with those, those win.
+
 # KOTA AEROSPACE — PRODUCTION DEPLOYMENT & INFRASTRUCTURE GUIDE
 
 ## 1. System Architecture & Topology
