@@ -14,13 +14,16 @@ Security:
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db_session, require_feature, require_permission
 from app.core.permissions import Permission
+from app.models.background_job import BackgroundJob
+from app.services import job_handlers, job_service
 from app.schemas.auth import CurrentUser
 from app.schemas.data_source import (
     DataSourceAcquisitionStats,
@@ -249,9 +252,11 @@ async def ingest_into_data_source(
     data_source_id: uuid.UUID,
     request: Request,
     topic: str | None = Query(default=None, max_length=256, description="MQTT topic, when applicable"),
+    mode: Literal["sync", "async"] = Query(default="sync", description="async: enqueue and return 202 + job id"),
+    idempotency_key: str | None = Header(default=None, max_length=120, alias="Idempotency-Key"),
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(get_current_user),
-) -> dict[str, Any]:
+) -> Any:
     """The source's tenant comes from the authenticated user; a source id from another tenant is a 404.
     Returns accepted / duplicate / quarantined / rejected / failed counts, packet loss and warnings."""
     declared = request.headers.get("content-length")
@@ -262,6 +267,20 @@ async def ingest_into_data_source(
         raise HTTPException(status_code=413, detail="Payload too large")
     if not raw:
         raise HTTPException(status_code=422, detail="Empty payload")
+    if mode == "async":
+        # Validate the source belongs to the caller's tenant NOW (404 otherwise), then hand the bytes to the queue.
+        acquisition_service.get_health(db, organization_id=current_user.organization_id, data_source_id=data_source_id)
+        job, created = job_service.enqueue(
+            db,
+            job_type=job_handlers.INGEST,
+            organization_id=current_user.organization_id,
+            data_source_id=data_source_id,
+            payload={"topic": topic},
+            payload_blob=raw,
+            idempotency_key=idempotency_key,
+        )
+        db.commit()
+        return JSONResponse(status_code=202, content={"job_id": str(job.id), "status": job.status, "duplicate": not created})
     report = acquisition_service.ingest(
         db,
         organization_id=current_user.organization_id,
@@ -272,6 +291,26 @@ async def ingest_into_data_source(
     )
     db.commit()
     return report.to_dict()
+
+
+@router.get(
+    "/jobs/{job_id}",
+    dependencies=[Depends(require_permission(Permission.DRONE_READ))],
+    summary="Status of an asynchronous ingest job (own organization only)",
+)
+def get_ingest_job(
+    job_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    job = db.get(BackgroundJob, job_id)
+    if job is None or job.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "job_id": str(job.id), "status": job.status, "attempts": job.attempts, "max_attempts": job.max_attempts,
+        "last_error": job.last_error, "result": job.result, "data_source_id": str(job.data_source_id),
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+    }
 
 
 @router.get(
