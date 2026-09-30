@@ -37,6 +37,7 @@ from app.models.maintenance_requirement import MaintenanceAccomplishment
 from app.models.mission import Mission, MissionStatus
 from app.models.task import Task
 from app.models.work_order import WorkOrder
+from app.services import facility_service
 from app.services.limit_enforcement_service import check_asset_creation_limit
 from app.schemas.asset import (
     AssetComponentResponse,
@@ -125,6 +126,7 @@ def create_asset(
     payload: AssetCreateRequest,
 ) -> Asset:
     """Create a new aerospace asset within tenant scope."""
+    facility_service.require_owned_facility(db, organization_id=organization_id, facility_id=payload.facility_id)
     check_asset_creation_limit(db, organization_id=organization_id)
 
     # Check registration uniqueness within organization
@@ -200,6 +202,7 @@ def update_asset(
         asset.serial_number = payload.serial_number.strip()
         changed_fields["serial_number"] = asset.serial_number
     if payload.facility_id is not None:
+        facility_service.require_owned_facility(db, organization_id=organization_id, facility_id=payload.facility_id)
         asset.facility_id = payload.facility_id
         changed_fields["facility_id"] = str(asset.facility_id)
     if payload.status is not None:

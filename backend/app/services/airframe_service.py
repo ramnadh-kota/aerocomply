@@ -20,8 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import ConflictError, NotFoundError
 from app.models.airframe_details import EvtolConfiguration, EvtolDetail, HelicopterDetail, RotorSystem
 from app.models.asset import Asset, AssetLifecycleStatus, AssetType
-from app.models.facility import Facility
-from app.services import drone_service
+from app.services import drone_service, facility_service
 from app.services.audit_service import record_audit_event
 from app.services.limit_enforcement_service import check_asset_creation_limit
 
@@ -73,12 +72,7 @@ def _clean_detail(asset_type: str, detail: dict[str, Any] | None) -> dict[str, A
 
 
 def _check_facility(db: Session, organization_id: uuid.UUID, facility_id: uuid.UUID | None) -> None:
-    if facility_id is None:
-        return
-    found = db.execute(select(Facility.id).where(Facility.id == facility_id,
-                                                 Facility.organization_id == organization_id)).first()
-    if found is None:
-        raise NotFoundError("Facility not found")            # a foreign tenant's facility looks exactly like a missing one
+    facility_service.require_owned_facility(db, organization_id=organization_id, facility_id=facility_id)
 
 
 def create_airframe(

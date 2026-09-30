@@ -229,3 +229,25 @@ def test_hums_sensor_creation_cannot_target_another_tenants_asset(client, db_ses
     bad = client.post("/api/v1/hums/sensors", headers=h, json={**payload, "sensor_code": "Y", "asset_id": mine["id"],
                                                                "component_id": foreign_comp})
     assert bad.status_code == 404 and comp
+
+
+def test_no_asset_path_accepts_another_tenants_facility(client, db_session):
+    """facility_id on generic assets, drones and airframes must belong to the caller's own tenant."""
+    from app.models.facility import Facility
+
+    org_id, h = _org(client, db_session, "facx")
+    other_org, _ = _org(client, db_session, "facy")
+    fac = Facility(organization_id=other_org, name="Foreign", code=f"FX{uuid.uuid4().hex[:4]}", facility_type="HANGAR")
+    mine = Facility(organization_id=org_id, name="Mine", code=f"FM{uuid.uuid4().hex[:4]}", facility_type="HANGAR")
+    db_session.add_all([fac, mine])
+    db_session.flush()
+    foreign = str(fac.id)
+    assert client.post("/api/v1/drones", headers=h, json={"registration": "FD-1", "facility_id": foreign}).status_code == 404
+    assert client.post("/api/v1/assets", headers=h, json={"asset_type": "OTHER", "registration": "FA-1",
+                                                          "facility_id": foreign}).status_code == 404
+    ok = client.post("/api/v1/drones", headers=h, json={"registration": "FD-2", "facility_id": str(mine.id)})
+    assert ok.status_code == 201
+    assert client.patch(f"/api/v1/drones/{ok.json()['id']}", headers=h, json={"facility_id": foreign}).status_code == 404
+    a = client.post("/api/v1/assets", headers=h, json={"asset_type": "OTHER", "registration": "FA-2"}).json()
+    assert client.patch(f"/api/v1/assets/{a['id']}", headers=h, json={"facility_id": foreign}).status_code == 404
+    assert client.patch(f"/api/v1/assets/{a['id']}", headers=h, json={"facility_id": str(mine.id)}).status_code == 200

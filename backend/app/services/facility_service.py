@@ -164,3 +164,15 @@ def update_facility(
     db.commit()
     db.refresh(facility)
     return facility
+
+
+def require_owned_facility(db: Session, *, organization_id: uuid.UUID, facility_id: uuid.UUID | None) -> None:
+    """A facility reference must point at one of the caller's OWN facilities. A foreign tenant's facility is
+    reported exactly like a missing one (404) so ids cannot be probed across tenants."""
+    if facility_id is None:
+        return
+    found = db.execute(
+        select(Facility.id).where(Facility.id == facility_id, Facility.organization_id == organization_id)
+    ).first()
+    if found is None:
+        raise NotFoundError("Facility not found")
