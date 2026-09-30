@@ -23,7 +23,7 @@ EXTERNAL VALIDATION REQUIRED = cannot be proven from the repo.
 | Billing (test provider) | PASS | lifecycle tests |
 | Real payment provider | NOT IMPLEMENTED / EXTERNAL VALIDATION REQUIRED | test provider refused in production |
 | Observability | PARTIAL | metrics + evidence-based health; in-process metrics, no tracing/dashboards |
-| Security | PARTIAL | no rate limiting, no MAVLink signature verification, no pen test |
+| Security | PARTIAL | process-local rate limiting (auth + policy middleware), no MAVLink signature verification, no pen test |
 | Background jobs / queue | NOT IMPLEMENTED | design in `PRODUCTION_RUNBOOK.md` |
 | Retention / archival | NOT IMPLEMENTED | policy in `DATA_RETENTION_STRATEGY.md` |
 | Performance | PARTIAL | 10k events OK at ~14-26 ev/s/worker; 100k not run (`PERFORMANCE_BENCHMARK.md`) |
@@ -32,7 +32,7 @@ EXTERNAL VALIDATION REQUIRED = cannot be proven from the repo.
 
 ## Blocking before a paid production launch
 1. Run `backend/scripts/production_preflight.sql` on a production restore; fix FAILs.
-2. Add rate limiting (proxy) and decide on MAVLink signing.
+2. Add a shared (proxy) rate limiter for multi-instance and decide on MAVLink signing.
 3. Real payment provider (or launch without self-serve billing).
 4. Capacity test on production-like hardware; profile per-event cost.
 5. Physical MAVLink bench tests if MAVLink is sold.

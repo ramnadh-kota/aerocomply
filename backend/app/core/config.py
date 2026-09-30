@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # Billing provider adapter name. "test" is a deterministic double and is refused in production;
     # a real provider must be registered via billing_service.register_provider.
     billing_provider: str = "test"
+    # Policy rate limiting (app/core/rate_limit_middleware.py). Overrides: {"lisa": "10/60", "default": "off"}.
+    rate_limit_enabled: bool = True
+    rate_limit_overrides: dict[str, str] = {}
+    # Enable only behind a proxy you control that overwrites X-Forwarded-For; otherwise clients can spoof it.
+    rate_limit_trust_forwarded_for: bool = False
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7

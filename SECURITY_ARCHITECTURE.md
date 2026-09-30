@@ -31,8 +31,12 @@ Environment only (`.env` untracked; `SECRET_KEY`, DB URL, `DJI_WEBHOOK_SECRET`, 
 the repo. Test billing provider is refused in production.
 
 ## Known gaps (honest list)
-* **No rate limiting / brute-force lockout** on login or ingest - put a WAF/reverse-proxy limit in front until
-  implemented. NOT IMPLEMENTED.
+* **Rate limiting is process-local** (`app/core/rate_limit.py`, `rate_limit_middleware.py`). Auth endpoints and
+  evidence upload use per-IP dependency limits; ingest (per tenant), webhook (IP), LISA (user), analytics (user),
+  platform admin (user) and a default (tenant) use configurable middleware policies (`RATE_LIMIT_OVERRIDES`),
+  return 429 + `Retry-After`, are counted in `kota_rate_limited_total`, and fail open on internal error. With
+  several workers/instances the effective limit is multiplied; use a shared limiter at the proxy for hard guarantees.
+  No per-account lockout after repeated failed logins.
 * MAVLink 2 signature **verification** not implemented; unsigned links are trusted only via the per-source auth token.
 * Compliance/assessment endpoints are not entitlement-gated on the backend (RBAC + tenant scoping still apply).
 * No external penetration test, dependency-CVE audit in CI, or SAST beyond ruff `E9,F63,F7,F82`: EXTERNAL VALIDATION REQUIRED.

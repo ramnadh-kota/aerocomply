@@ -53,6 +53,20 @@ class _FixedWindowLimiter:
         self._lock = threading.Lock()
         self._counts: dict[tuple[str, str, int], int] = {}
 
+    def check(self, bucket: str, key: str, *, limit: int, window_seconds: int) -> tuple[bool, int, int]:
+        """Non-raising variant for the middleware: (allowed, retry_after_seconds, remaining)."""
+        now = time.time()
+        window_index = int(now // window_seconds)
+        bucket_key = (bucket, key, window_index)
+        with self._lock:
+            count = self._counts.get(bucket_key, 0) + 1
+            self._counts[bucket_key] = count
+            if len(self._counts) > _MAX_TRACKED_WINDOWS:
+                for k in [k for k in self._counts if k[2] < window_index]:
+                    del self._counts[k]
+        retry = max(1, int((window_index + 1) * window_seconds - now) + 1)
+        return count <= limit, retry, max(0, limit - count)
+
     def hit(self, bucket: str, key: str, *, limit: int, window_seconds: int) -> None:
         window_index = int(time.time() // window_seconds)
         bucket_key = (bucket, key, window_index)
