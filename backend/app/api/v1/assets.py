@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db_session
+from app.core.deps import get_current_user, get_db_session, require_feature
 from app.core.errors import ForbiddenError
 from app.core.permissions import Permission, permissions_for_roles
 from app.schemas.asset import (
@@ -66,6 +66,15 @@ def require_asset_write(current_user: CurrentUser = Depends(get_current_user)) -
 # Asset Registry & Core CRUD
 # ---------------------------------------------------------------------------
 
+_FAMILY_FEATURE = {
+    "AIRCRAFT": "aircraft_fleet_management",
+    "DRONE": "drone_fleet_management",
+    "HELICOPTER": "helicopter_fleet_management",
+    "EVTOL": "evtol_fleet_management",
+    "AAM": "evtol_fleet_management",
+}
+
+
 @router.get("", response_model=list[AssetResponse])
 def list_assets(
     asset_type: str | None = Query(default=None, description="AIRCRAFT, DRONE, HELICOPTER, EVTOL, AAM"),
@@ -90,6 +99,11 @@ def create_asset(
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(require_asset_write),
 ) -> AssetResponse:
+    # The generic registry must not be a side door around the per-family entitlement: creating a HELICOPTER needs the
+    # helicopter suite feature, a DRONE the drone feature, and so on (OTHER is unrestricted).
+    needed = _FAMILY_FEATURE.get(payload.asset_type.strip().upper())
+    if needed:
+        require_feature(needed)(current_user=current_user, db=db)
     asset = asset_service.create_asset(
         db,
         organization_id=current_user.organization_id,

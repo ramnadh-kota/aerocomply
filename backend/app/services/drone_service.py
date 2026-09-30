@@ -74,6 +74,18 @@ def create_drone(
 
 
 def get_drone(db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID) -> Asset:
+    return get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=AssetType.DRONE.value)
+
+
+_AIRFRAME_LABELS = {"DRONE": "Drone", "HELICOPTER": "Helicopter", "EVTOL": "eVTOL"}
+
+
+def get_airframe(
+    db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID, asset_type: str = "DRONE"
+) -> Asset:
+    """Tenant-scoped, undeleted Asset of exactly `asset_type` (DRONE / HELICOPTER / EVTOL): the operational
+    sub-resources (components, batteries, maintenance, lifecycle) are shared across these airframes, but every
+    route only ever sees the type its own suite owns."""
     # deleted_at.is_(None): a soft-deleted drone (Platform Control Plane, see
     # app/services/deletion_service.py) must disappear from every
     # tenant-facing read, same as get_asset -- this function is the drone
@@ -82,12 +94,12 @@ def get_drone(db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID) -
         select(Asset).where(
             Asset.id == asset_id,
             Asset.organization_id == organization_id,
-            Asset.asset_type == AssetType.DRONE.value,
+            Asset.asset_type == asset_type,
             Asset.deleted_at.is_(None),
         )
     ).scalar_one_or_none()
     if drone is None:
-        raise NotFoundError("Drone not found")
+        raise NotFoundError(f"{_AIRFRAME_LABELS.get(asset_type, 'Asset')} not found")
     return drone
 
 

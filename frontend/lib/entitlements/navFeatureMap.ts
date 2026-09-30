@@ -17,6 +17,8 @@ export const NAV_FEATURE_MAP: Record<string, NavFeatureKey> = {
   // Fleet Operations & Assets
   "/aircraft": FEATURE_KEYS.AIRCRAFT_FLEET_MANAGEMENT,
   "/drones": FEATURE_KEYS.DRONE_FLEET_MANAGEMENT,
+  "/helicopters": FEATURE_KEYS.HELICOPTER_FLEET_MANAGEMENT,
+  "/evtols": FEATURE_KEYS.EVTOL_FLEET_MANAGEMENT,
 
   // Data acquisition (ingest endpoint is gated by flight_telemetry on the backend)
   "/data-sources": FEATURE_KEYS.FLIGHT_TELEMETRY,
@@ -78,6 +80,17 @@ export function isNavItemEntitlementGated(
     return effectiveFeatures[canonical.toUpperCase()] === false;
   }
   return false;
+}
+
+/**
+ * Strict counterpart used by the sidebar: mirrors the route guard and the backend (absent from the plan = not
+ * entitled, except baseline features). `hasFeature` is EntitlementContext.hasFeature, which already fails open while
+ * the resolution is still loading and denies every feature for a non-granting subscription status.
+ */
+export function isNavItemUnavailable(href: string, hasFeature: (featureKey: string) => boolean): boolean {
+  const featureKey = NAV_FEATURE_MAP[href];
+  if (!featureKey) return false;
+  return !hasFeature(featureKey);
 }
 
 /**

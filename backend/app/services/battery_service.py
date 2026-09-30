@@ -12,6 +12,7 @@ from app.services.audit_service import record_audit_event
 def attach_battery(
     db: Session,
     *,
+    asset_type: str = "DRONE",
     organization_id: uuid.UUID,
     actor_user_id: uuid.UUID | None,
     asset_id: uuid.UUID,
@@ -23,7 +24,7 @@ def attach_battery(
 ) -> Battery:
     # Confirms the drone belongs to this tenant before attaching a battery
     # to it (cross-tenant IDOR otherwise).
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
 
     battery = Battery(
         organization_id=organization_id,
@@ -51,9 +52,9 @@ def attach_battery(
 
 
 def list_batteries_for_asset(
-    db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID
+    db: Session, *, asset_type: str = "DRONE", organization_id: uuid.UUID, asset_id: uuid.UUID
 ) -> list[Battery]:
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
     return list(
         db.execute(
             select(Battery).where(

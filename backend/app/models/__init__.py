@@ -242,3 +242,5 @@ __all__ = [
     "ALLOWED_CANDIDATE_TRANSITIONS",
 ]
 
+
+from app.models import airframe_details as _airframe_details  # noqa: F401

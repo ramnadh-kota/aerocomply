@@ -740,6 +740,7 @@ class TestGenericAssetFlightRecording:
     def test_record_flight_for_helicopter(self, client):
         tokens = _register(client, "Heli Flight Tenant", "admin@heliflight.example.com")
         auth = _auth(tokens["access_token"])
+        _switch_to_helicopter_suite(client, auth)      # creating a HELICOPTER requires the helicopter suite
 
         asset = client.post(
             "/api/v1/assets",
@@ -873,6 +874,20 @@ def _register(client, org_name, email):
     )
     assert resp.status_code == 201
     return resp.json()
+
+
+def _switch_to_helicopter_suite(client, auth):
+    """Replace the default drone subscription with a helicopter-suite one (same as a provisioned helicopter tenant)."""
+    from sqlalchemy import delete
+
+    from app.models.subscription import Subscription
+    from tests.integration.conftest import grant_features
+
+    db_session = next(app.dependency_overrides[get_db_session]())
+    org_id = uuid.UUID(client.get("/api/v1/auth/me", headers=auth).json()["organization_id"])
+    db_session.execute(delete(Subscription).where(Subscription.organization_id == org_id))
+    db_session.flush()
+    grant_features(db_session, org_id, "helicopter_fleet_management", "flight_telemetry", suite_code="HELICOPTER")
 
 
 def _auth(token):

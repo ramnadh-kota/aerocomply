@@ -12,6 +12,7 @@ from app.services.audit_service import record_audit_event
 def attach_component(
     db: Session,
     *,
+    asset_type: str = "DRONE",
     organization_id: uuid.UUID,
     actor_user_id: uuid.UUID | None,
     asset_id: uuid.UUID,
@@ -23,7 +24,7 @@ def attach_component(
 ) -> Component:
     # Confirms the drone belongs to this tenant before attaching a
     # component to it (cross-tenant IDOR otherwise).
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
 
     component = Component(
         organization_id=organization_id,
@@ -64,9 +65,9 @@ def get_component(
 
 
 def list_components_for_asset(
-    db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID
+    db: Session, *, asset_type: str = "DRONE", organization_id: uuid.UUID, asset_id: uuid.UUID
 ) -> list[Component]:
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
     return list(
         db.execute(
             select(Component).where(

@@ -77,3 +77,27 @@ describe("isNavItemEntitlementGated (real feature_key semantics)", () => {
     expect(isNavItemEntitlementGated("/drones", { work_order_management: false })).toBe(false);
   });
 });
+
+describe("isNavItemUnavailable (strict sidebar semantics, mirrors the route guard)", () => {
+  const plan = (features: Record<string, boolean>) => (key: string) => features[key] === true;
+
+  it("hides fleet families the plan does not include, even when the key is simply absent", async () => {
+    const { isNavItemUnavailable } = await import("../lib/entitlements/navFeatureMap");
+    const droneOnly = plan({ drone_fleet_management: true });
+    expect(isNavItemUnavailable("/drones", droneOnly)).toBe(false);
+    expect(isNavItemUnavailable("/helicopters", droneOnly)).toBe(true);
+    expect(isNavItemUnavailable("/evtols", droneOnly)).toBe(true);
+    expect(isNavItemUnavailable("/aircraft", droneOnly)).toBe(true);
+    expect(isNavItemUnavailable("/helicopters", plan({ helicopter_fleet_management: true }))).toBe(false);
+  });
+
+  it("never gates ungated routes", async () => {
+    const { isNavItemUnavailable } = await import("../lib/entitlements/navFeatureMap");
+    expect(isNavItemUnavailable("/dashboard", () => false)).toBe(false);
+  });
+
+  it("registers the helicopter and eVTOL routes", () => {
+    expect(NAV_FEATURE_MAP["/helicopters"]).toBe("helicopter_fleet_management");
+    expect(NAV_FEATURE_MAP["/evtols"]).toBe("evtol_fleet_management");
+  });
+});

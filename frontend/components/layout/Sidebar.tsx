@@ -7,8 +7,8 @@ import { useSidebarDrawer } from "@/components/layout/SidebarDrawerContext";
 import { Logo } from "@/components/branding/Logo";
 import { useSession } from "@/lib/auth/SessionContext";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
-import { useMyEntitlements } from "@/lib/entitlements/useMyEntitlements";
-import { isNavItemEntitlementGated } from "@/lib/entitlements/navFeatureMap";
+import { useEntitlements } from "@/lib/entitlements/EntitlementContext";
+import { isNavItemUnavailable } from "@/lib/entitlements/navFeatureMap";
 
 export interface NavItem {
   href: string;
@@ -56,6 +56,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/fleet/health", label: "Fleet Health", glyph: "♥" },
       { href: "/aircraft", label: "Aircraft", glyph: "✈" },
       { href: "/drones", label: "Drones", glyph: "◆" },
+      { href: "/helicopters", label: "Helicopters", glyph: "✢" },
+      { href: "/evtols", label: "eVTOL / AAM", glyph: "❖" },
       { href: "/data-sources", label: "Data Sources", glyph: "⇄" },
       { href: "/engines", label: "Engines", glyph: "◎" },
       { href: "/components", label: "Components", glyph: "▤" },
@@ -204,7 +206,7 @@ export function Sidebar() {
   // client-side UX affordance only, never a substitute for the backend's
   // own PLATFORM_MANAGE/require_permission checks or any future
   // require_feature() enforcement.
-  const { effectiveFeatures } = useMyEntitlements();
+  const { hasFeature } = useEntitlements();
 
   return (
     <>
@@ -230,7 +232,7 @@ export function Sidebar() {
                 const level = navModule ? accessFor(navModule) : "APPROVE";
                 const roleSimDenied = level === "NONE";
                 const entitlementDenied =
-                  !isPlatformUser && isNavItemEntitlementGated(item.href, effectiveFeatures);
+                  !isPlatformUser && isNavItemUnavailable(item.href, hasFeature);
                 const denied = roleSimDenied || entitlementDenied;
                 const title = roleSimDenied
                   ? "Not available for the simulated role (prototype only — not enforced)"

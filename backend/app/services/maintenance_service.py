@@ -446,13 +446,13 @@ def has_overdue_maintenance_for_asset(
 
 
 def get_maintenance_due_for_asset(
-    db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID
+    db: Session, *, asset_type: str = "DRONE", organization_id: uuid.UUID, asset_id: uuid.UUID
 ) -> list[MaintenanceDueItem]:
     """M17.4B: the asset(Drone) counterpart of get_maintenance_due_for_aircraft
     -- same shape, same tenant-scoping convention, but resolving usage-based
     requirements against real flight utilization instead of returning
     UNKNOWN unconditionally."""
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
 
     applicable_requirement_ids = (
         db.execute(
@@ -480,6 +480,7 @@ def get_maintenance_due_for_asset(
 def add_applicability_for_asset(
     db: Session,
     *,
+    asset_type: str = "DRONE",
     organization_id: uuid.UUID,
     actor_user_id: uuid.UUID | None,
     requirement_id: uuid.UUID,
@@ -491,7 +492,7 @@ def add_applicability_for_asset(
     # Confirms the drone belongs to this tenant before linking a
     # requirement to it (cross-tenant IDOR otherwise) -- same precedent as
     # every other asset-scoped write in this codebase.
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
 
     applicability = MaintenanceRequirementApplicability(
         organization_id=organization_id,
@@ -517,6 +518,7 @@ def add_applicability_for_asset(
 def record_accomplishment_for_asset(
     db: Session,
     *,
+    asset_type: str = "DRONE",
     organization_id: uuid.UUID,
     actor_user_id: uuid.UUID | None,
     requirement_id: uuid.UUID,
@@ -524,7 +526,7 @@ def record_accomplishment_for_asset(
     payload: AssetMaintenanceAccomplishmentCreateRequest,
 ) -> MaintenanceAccomplishment:
     get_requirement(db, organization_id=organization_id, requirement_id=requirement_id)
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
 
     accomplishment = MaintenanceAccomplishment(
         organization_id=organization_id,

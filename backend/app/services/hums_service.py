@@ -32,6 +32,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
+from app.models.asset import Asset
+from app.models.component import Component
 from app.models.evidence import Evidence, EvidenceStatus
 from app.models.finding import Finding, FindingSeverity, FindingStatus
 from app.models.hums import HUMSDegradationModel, HUMSExceedance, HUMSFeature, HUMSPrognosticRecord, HUMSSensor, HUMSSensorReading
@@ -73,6 +75,15 @@ MIN_READINGS_FOR_HEALTH = 5
 def create_sensor(
     db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID | None, payload: HUMSSensorCreate
 ) -> HUMSSensor:
+    # Tenant integrity: the asset (and component) must belong to the caller's organization. Without this a tenant
+    # could attach sensors to another tenant's asset id.
+    if db.execute(select(Asset.id).where(Asset.id == payload.asset_id, Asset.organization_id == organization_id,
+                                         Asset.deleted_at.is_(None))).first() is None:
+        raise NotFoundError("Asset not found")
+    if payload.component_id is not None and db.execute(
+        select(Component.id).where(Component.id == payload.component_id, Component.organization_id == organization_id)
+    ).first() is None:
+        raise NotFoundError("Component not found")
     sensor = HUMSSensor(
         organization_id=organization_id,
         asset_id=payload.asset_id,

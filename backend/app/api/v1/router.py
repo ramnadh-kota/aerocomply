@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     aerospace_intelligence,
     aircraft,
+    airframes,
     aog,
     applicability,
     assessments,
@@ -62,6 +63,8 @@ api_router.include_router(aircraft.router)
 api_router.include_router(assets.router)
 api_router.include_router(facilities.router)
 api_router.include_router(drones.router)
+api_router.include_router(airframes.helicopters_router)
+api_router.include_router(airframes.evtols_router)
 api_router.include_router(missions.router)
 api_router.include_router(aog.router)
 api_router.include_router(work_orders.router)

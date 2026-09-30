@@ -59,6 +59,7 @@ class AssetLifecycleEvent:
 def install_battery(
     db: Session,
     *,
+    asset_type: str = "DRONE",
     organization_id: uuid.UUID,
     actor_user_id: uuid.UUID | None,
     battery_id: uuid.UUID,
@@ -66,7 +67,7 @@ def install_battery(
 ) -> Battery:
     # Confirms the target asset belongs to this tenant before installing
     # onto it (cross-tenant IDOR otherwise).
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
 
     battery = db.execute(
         select(Battery).where(
@@ -171,12 +172,13 @@ def remove_battery(
 def install_component(
     db: Session,
     *,
+    asset_type: str = "DRONE",
     organization_id: uuid.UUID,
     actor_user_id: uuid.UUID | None,
     component_id: uuid.UUID,
     asset_id: uuid.UUID,
 ) -> Component:
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
 
     component = db.execute(
         select(Component).where(
@@ -343,6 +345,7 @@ def list_component_history(
 def list_asset_lifecycle_history(
     db: Session,
     *,
+    asset_type: str = "DRONE",
     organization_id: uuid.UUID,
     asset_id: uuid.UUID,
     limit: int = LIFECYCLE_HISTORY_DEFAULT_LIMIT,
@@ -362,7 +365,7 @@ def list_asset_lifecycle_history(
     here is bounded by how many batteries/components one asset has ever
     carried -- not by organization-wide history.
     """
-    drone_service.get_drone(db, organization_id=organization_id, asset_id=asset_id)
+    drone_service.get_airframe(db, organization_id=organization_id, asset_id=asset_id, asset_type=asset_type)
 
     limit = max(1, min(limit, LIFECYCLE_HISTORY_MAX_LIMIT))
     offset = max(0, offset)

@@ -9,6 +9,8 @@ export const FEATURE_KEYS = {
   // Asset Fleets
   AIRCRAFT_FLEET_MANAGEMENT: "aircraft_fleet_management",
   DRONE_FLEET_MANAGEMENT: "drone_fleet_management",
+  HELICOPTER_FLEET_MANAGEMENT: "helicopter_fleet_management",
+  EVTOL_FLEET_MANAGEMENT: "evtol_fleet_management",
   FLIGHT_TELEMETRY: "flight_telemetry",
   BATTERY_ANALYTICS: "battery_analytics",
 
