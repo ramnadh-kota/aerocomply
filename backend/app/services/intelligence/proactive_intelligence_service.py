@@ -41,6 +41,7 @@ from app.schemas.intelligence_signal import (
     SignalType,
 )
 from app.services import flight_service
+from app.services.hums_service import exceedance_signal_key
 from app.services.intelligence import readiness_intelligence_service, risk_intelligence_service
 
 _SEVERITY_WEIGHTS = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
@@ -774,7 +775,23 @@ def _evaluate_hums_telemetry_signals(
         .all()
     )
 
+    # The ingest path (hums_service._sync_exceedance_signal) already raises a signal for every
+    # exceedance it records, under its own key. M7 must CONSUME that upstream output, not recreate
+    # it: previously each exceedance produced two signals of the same type (this one plus the
+    # ingest-time one), forever. An exceedance that already has its ingest-time signal is skipped here;
+    # this evaluator still covers exceedances that have none (older data, other creation paths).
+    ingest_time_keys = set(
+        db.execute(
+            select(ProactiveSignalRecord.signal_key).where(
+                ProactiveSignalRecord.organization_id == organization_id,
+                ProactiveSignalRecord.signal_key.like(f"hums_vibration_exceedance:{asset.id}:%"),
+            )
+        ).scalars()
+    )
+
     for exc in exceedances:
+        if exceedance_signal_key(asset.id, exc.sensor_id, exc.window_end) in ingest_time_keys:
+            continue
         sensor = db.execute(
             select(HUMSSensor).where(
                 HUMSSensor.id == exc.sensor_id,

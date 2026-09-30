@@ -105,6 +105,14 @@ def test_drone_customer_journey_from_mavlink_bytes_to_lisa(client, db_session):
     assert signals.status_code == 200
     fleet = client.get("/api/v1/intelligence/summary", headers=h).json()
     assert fleet is not None
+    # Exactly ONE M7 signal per HUMS exceedance, and re-evaluating never adds more. (Two code paths
+    # -- ingest-time hums_service and the M7 evaluator -- used to raise one each, under different keys.)
+    for _ in range(2):
+        client.get("/api/v1/intelligence/summary", headers=h)
+        again = client.get(f"/api/v1/intelligence/assets/{asset}/signals", headers=h).json()
+        exceedance_signals = [s for s in again if s["signal_type"] == "HUMS_VIBRATION_EXCEEDANCE"]
+        assert len(exceedance_signals) == len(exceed), [(s["title"], s["signal_key"]) for s in exceedance_signals]
+    assert len({s["signal_key"] for s in again}) == len(again)          # keys are unique per signal
 
     # ---- 7. LISA: grounded in the data above; names the asset; cites tools it actually ran
     user = _me(client, h)

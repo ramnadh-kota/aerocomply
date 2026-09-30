@@ -429,6 +429,15 @@ def detect_and_record_exceedances(
     return HUMSExceedanceResponse.model_validate(exceedance)
 
 
+def exceedance_signal_key(asset_id: uuid.UUID, sensor_id: uuid.UUID, window_end: datetime.datetime) -> str:
+    """The ONE definition of an exceedance signal's dedup key.
+
+    The window end is normalised to UTC: a datetime loaded from PostgreSQL carries the SESSION time
+    zone (e.g. +05:30) while the same instant built in Python is +00:00, so `isoformat()` of the raw
+    value gave two different keys for one exceedance and silently defeated de-duplication."""
+    return f"hums_vibration_exceedance:{asset_id}:{sensor_id}:{window_end.astimezone(datetime.UTC).isoformat()}"
+
+
 def _sync_exceedance_signal(
     db: Session,
     *,
@@ -438,7 +447,7 @@ def _sync_exceedance_signal(
     finding: Finding,
     supporting_features: dict[str, float | None] | None = None,
 ) -> None:
-    key = f"hums_vibration_exceedance:{sensor.asset_id}:{sensor.id}:{exceedance.window_end.isoformat()}"
+    key = exceedance_signal_key(sensor.asset_id, sensor.id, exceedance.window_end)
     existing = db.execute(
         select(ProactiveSignalRecord).where(
             ProactiveSignalRecord.organization_id == organization_id,
@@ -449,9 +458,9 @@ def _sync_exceedance_signal(
         return
 
     evidence_ref = SignalEvidenceRef(
-        source_type="HUMSSensor",
-        source_id=str(sensor.id),
-        label=f"Sensor {sensor.sensor_code}",
+        source_type="HUMSExceedance",
+        source_id=str(exceedance.id),
+        label=f"Exceedance on sensor {sensor.sensor_code}",
         metric="vibration_rms",
         current_value=exceedance.observed_value,
         threshold_value=exceedance.threshold_value,
