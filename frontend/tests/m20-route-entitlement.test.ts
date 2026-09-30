@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getRouteFeatureKey } from "../lib/entitlements/navFeatureMap";
+import { getRouteFeatureKey, isPlatformPath, isPlatformRole } from "../lib/entitlements/navFeatureMap";
 import { hasFeatureKey } from "../lib/entitlements/featureKeys";
 
 describe("M20 route -> feature resolution", () => {
@@ -36,5 +36,22 @@ describe("M20 baseline (default-on) features mirror the backend", () => {
     expect(hasFeatureKey({ drone_fleet_management: true }, "release_readiness")).toBe(true);
     expect(hasFeatureKey({ audit_logging: false }, "audit_logging")).toBe(false);
     expect(hasFeatureKey({ battery_analytics: true }, "predictive_maintenance")).toBe(false);
+  });
+});
+
+describe("platform route protection (display side)", () => {
+  it("recognises platform paths exactly, not look-alikes", () => {
+    expect(isPlatformPath("/platform")).toBe(true);
+    expect(isPlatformPath("/platform/organizations")).toBe(true);
+    expect(isPlatformPath("/platformer")).toBe(false);
+    expect(isPlatformPath("/tenant/platform")).toBe(false);
+  });
+
+  it("only platform roles count as platform operators", () => {
+    expect(isPlatformRole(["PLATFORM_ADMIN"])).toBe(true);
+    expect(isPlatformRole(["ORG_ADMIN", "PLATFORM_STAFF"])).toBe(true);
+    expect(isPlatformRole(["ORG_ADMIN"])).toBe(false);
+    expect(isPlatformRole([])).toBe(false);
+    expect(isPlatformRole(undefined)).toBe(false);
   });
 });

@@ -375,6 +375,8 @@ export interface CurrentUser {
   phone_number?: string | null;
   profile_photo_url?: string | null;
   pending_email?: string | null;
+  /** The caller's own organization's display name (from /auth/me). */
+  organization_name?: string | null;
 }
 
 export interface MessageResponse {

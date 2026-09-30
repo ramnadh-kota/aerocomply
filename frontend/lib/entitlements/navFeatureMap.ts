@@ -96,3 +96,12 @@ export function getRouteFeatureKey(pathname: string): NavFeatureKey | null {
   }
   return best === null ? null : NAV_FEATURE_MAP[best];
 }
+
+/** Platform-administration routes: only platform operators may use them. */
+export function isPlatformPath(pathname: string): boolean {
+  return pathname === "/platform" || pathname.startsWith("/platform/");
+}
+
+export function isPlatformRole(roles: readonly string[] | undefined | null): boolean {
+  return (roles ?? []).some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF");
+}

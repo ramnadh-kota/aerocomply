@@ -27,6 +27,7 @@ import {
 import { ProactiveSignalsSection } from "@/components/intelligence/ProactiveSignalsSection";
 import { humsApi, type HUMSAssetHealthSummary } from "@/lib/api/hums";
 import { HUMSHealthPanel } from "@/components/intelligence/HUMSHealthPanel";
+import { TelemetryPanel } from "@/components/intelligence/TelemetryPanel";
 import { HUMSHealthIntelligencePanel } from "@/components/intelligence/HUMSHealthIntelligencePanel";
 import { HUMSDiagnosticsPanel } from "@/components/intelligence/HUMSDiagnosticsPanel";
 import { HUMSPrognosticsPanel } from "@/components/intelligence/HUMSPrognosticsPanel";
@@ -1507,6 +1508,14 @@ export default function AssetDetailPage() {
                 subtitle="Live degradation trends, recurring defect patterns, and early-warning proximity triggers for this asset."
               />
 
+              {/* Phase C: live telemetry (latest values, quality, age, flights) */}
+              {hasFeature("flight_telemetry") && (
+                <div className="ac-card" style={{ padding: 20 }}>
+                  <h3 style={{ margin: "0 0 12px", fontSize: "1.1rem", fontWeight: 700 }}>Telemetry</h3>
+                  <TelemetryPanel assetId={assetId} accessToken={accessToken} />
+                </div>
+              )}
+
               {/* H1: HUMS Foundation Health */}
               {hasFeature("hums") && (
                 <div className="ac-card" style={{ padding: 20 }}>
@@ -1521,12 +1530,16 @@ export default function AssetDetailPage() {
                     </div>
                     <HUMSDiagnosticsPanel assetId={assetId} accessToken={accessToken} canWrite />
                   </div>
-                  <div style={{ marginTop: 16, borderTop: "1px solid #27272a", paddingTop: 16 }}>
-                    <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                      HUMS Prognostics (Remaining Useful Life)
+                  {/* Backend gates prognostics (RUL) behind predictive_maintenance as well as hums;
+                      showing the panel without it would only render a 403. */}
+                  {hasFeature("predictive_maintenance") && (
+                    <div style={{ marginTop: 16, borderTop: "1px solid #27272a", paddingTop: 16 }}>
+                      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                        HUMS Prognostics (Remaining Useful Life)
+                      </div>
+                      <HUMSPrognosticsPanel assetId={assetId} accessToken={accessToken} />
                     </div>
-                    <HUMSPrognosticsPanel assetId={assetId} accessToken={accessToken} />
-                  </div>
+                  )}
                 </div>
               )}
 

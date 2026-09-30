@@ -482,7 +482,7 @@ function RealAssets() {
         actions={
           <div style={{ display: "flex", gap: 8 }}>
             <Link
-              href="/import"
+              href="/data-import"
               className="ac-btn"
               style={{ background: "#374151", color: "#fff" }}
             >

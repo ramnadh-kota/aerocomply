@@ -148,6 +148,15 @@ export function Topbar() {
           >
             Platform Administration
           </span>
+        ) : isReal ? (
+          // A REAL session is bound to exactly one tenant and to the caller's real roles. The
+          // role-simulation and mock-organization selectors below are prototype tools (they list
+          // fictional organizations such as "Aero India" and enforce nothing), so a customer must
+          // never see them next to their live data. Show the real organization instead.
+          <span className="ac-text-sm" data-testid="real-org-badge" style={{ fontWeight: 600 }}>
+            <span className="ac-text-muted">Organization </span>
+            {organizationName ?? "—"}
+          </span>
         ) : (
           <>
             <label className="ac-flex ac-items-center ac-gap-2 ac-text-sm" title="Prototype role simulation — permissions are not enforced">

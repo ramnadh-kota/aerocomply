@@ -158,6 +158,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const organizationName = useMemo(() => {
     if (sessionType === "DEMO") return DEMO_ORG_NAME;
+    if (user?.organization_name) return user.organization_name;
     return user?.organization_id ? `Org ${user.organization_id.slice(0, 8)}` : null;
   }, [sessionType, user]);
 

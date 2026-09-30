@@ -140,7 +140,7 @@ export function ProactiveSignalsSection({
             style={{
               padding: "12px 16px",
               background: summary.critical_signals > 0 ? "rgba(239, 68, 68, 0.1)" : "rgba(31, 41, 55, 0.6)",
-              border: summary.critical_signals > 0 ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid #374151",
+              border: summary.critical_signals > 0 ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid var(--ac-border)",
             }}
           >
             <div style={{ fontSize: "0.7rem", color: "#ef4444", textTransform: "uppercase", fontWeight: 700 }}>
@@ -156,7 +156,7 @@ export function ProactiveSignalsSection({
             style={{
               padding: "12px 16px",
               background: summary.high_signals > 0 ? "rgba(245, 158, 11, 0.1)" : "rgba(31, 41, 55, 0.6)",
-              border: summary.high_signals > 0 ? "1px solid rgba(245, 158, 11, 0.4)" : "1px solid #374151",
+              border: summary.high_signals > 0 ? "1px solid rgba(245, 158, 11, 0.4)" : "1px solid var(--ac-border)",
             }}
           >
             <div style={{ fontSize: "0.7rem", color: "#f59e0b", textTransform: "uppercase", fontWeight: 700 }}>
@@ -172,7 +172,7 @@ export function ProactiveSignalsSection({
             style={{
               padding: "12px 16px",
               background: "rgba(31, 41, 55, 0.6)",
-              border: "1px solid #374151",
+              border: "1px solid var(--ac-border)",
             }}
           >
             <div style={{ fontSize: "0.7rem", color: "#38bdf8", textTransform: "uppercase", fontWeight: 700 }}>
@@ -188,7 +188,7 @@ export function ProactiveSignalsSection({
             style={{
               padding: "12px 16px",
               background: "rgba(31, 41, 55, 0.6)",
-              border: "1px solid #374151",
+              border: "1px solid var(--ac-border)",
             }}
           >
             <div style={{ fontSize: "0.7rem", color: "#10b981", textTransform: "uppercase", fontWeight: 700 }}>
@@ -219,7 +219,7 @@ export function ProactiveSignalsSection({
               {AI_NAME} Proactive Fleet Insights & Systematic Explanations
             </span>
           </div>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.85rem", color: "#e2e8f0" }}>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.85rem", color: "var(--ac-text-primary)" }}>
             {summary.fleet_insights.map((insight, idx) => (
               <li key={idx} style={{ marginBottom: 3 }}>
                 {insight}
@@ -232,7 +232,7 @@ export function ProactiveSignalsSection({
       {/* Filter Controls */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.75rem", color: "#9ca3af", alignSelf: "center", marginRight: 4 }}>Status:</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", alignSelf: "center", marginRight: 4 }}>Status:</span>
           {["ALL", "OPEN", "ACKNOWLEDGED", "IN_REVIEW", "RESOLVED", "DISMISSED"].map((s) => (
             <button
               key={s}
@@ -242,7 +242,7 @@ export function ProactiveSignalsSection({
                 fontSize: "0.75rem",
                 padding: "3px 8px",
                 borderRadius: 12,
-                border: "1px solid #374151",
+                border: "1px solid var(--ac-border)",
                 background: filterStatus === s ? "var(--ac-primary, #38bdf8)" : "#1f2937",
                 color: filterStatus === s ? "#000" : "#9ca3af",
                 fontWeight: filterStatus === s ? 700 : 500,
@@ -255,7 +255,7 @@ export function ProactiveSignalsSection({
         </div>
 
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.75rem", color: "#9ca3af", alignSelf: "center", marginRight: 4 }}>Severity:</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", alignSelf: "center", marginRight: 4 }}>Severity:</span>
           {["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"].map((sev) => (
             <button
               key={sev}
@@ -265,7 +265,7 @@ export function ProactiveSignalsSection({
                 fontSize: "0.75rem",
                 padding: "3px 8px",
                 borderRadius: 12,
-                border: "1px solid #374151",
+                border: "1px solid var(--ac-border)",
                 background: filterSeverity === sev ? "#f59e0b" : "#1f2937",
                 color: filterSeverity === sev ? "#000" : "#9ca3af",
                 fontWeight: filterSeverity === sev ? 700 : 500,
@@ -303,12 +303,12 @@ export function ProactiveSignalsSection({
                     ? "rgba(239, 68, 68, 0.05)"
                     : isHigh
                     ? "rgba(245, 158, 11, 0.05)"
-                    : "rgba(31, 41, 55, 0.7)",
+                    : "var(--ac-surface-2, rgba(148, 163, 184, 0.12))",
                   border: isCritical
                     ? "1px solid rgba(239, 68, 68, 0.4)"
                     : isHigh
                     ? "1px solid rgba(245, 158, 11, 0.4)"
-                    : "1px solid #374151",
+                    : "1px solid var(--ac-border)",
                   borderRadius: 10,
                 }}
               >
@@ -329,10 +329,10 @@ export function ProactiveSignalsSection({
                         style={{
                           fontSize: "0.7rem",
                           background: "#1f2937",
-                          color: "#9ca3af",
+                          color: "var(--ac-text-secondary)",
                           padding: "2px 6px",
                           borderRadius: 4,
-                          border: "1px solid #374151",
+                          border: "1px solid var(--ac-border)",
                           textTransform: "uppercase",
                         }}
                       >
@@ -341,21 +341,21 @@ export function ProactiveSignalsSection({
                     </div>
 
                     {/* Title & Description */}
-                    <h4 style={{ margin: "0 0 6px 0", fontSize: "1.05rem", fontWeight: 700, color: "#fff" }}>
+                    <h4 style={{ margin: "0 0 6px 0", fontSize: "1.05rem", fontWeight: 700, color: "var(--ac-text-primary)" }}>
                       {signal.title}
                     </h4>
-                    <p style={{ margin: "0 0 8px 0", color: "#d1d5db", fontSize: "0.875rem", lineHeight: 1.45 }}>
+                    <p style={{ margin: "0 0 8px 0", color: "var(--ac-text-primary)", fontSize: "0.875rem", lineHeight: 1.45 }}>
                       {signal.description}
                     </p>
 
                     {/* Trigger Condition */}
-                    <div style={{ fontSize: "0.8rem", color: "#93c5fd", marginBottom: 6 }}>
+                    <div style={{ fontSize: "0.8rem", color: "var(--ac-primary, #2563eb)", marginBottom: 6 }}>
                       <strong>Deterministic Trigger:</strong> {signal.trigger_condition}
                     </div>
 
                     {/* Projected Impact & Horizon */}
                     {(signal.projected_impact || signal.estimated_horizon_days !== null) && (
-                      <div style={{ fontSize: "0.8rem", color: "#fcd34d", marginBottom: 8 }}>
+                      <div style={{ fontSize: "0.8rem", color: "#b45309", marginBottom: 8 }}>
                         {signal.projected_impact && <span><strong>Projected Impact:</strong> {signal.projected_impact} </span>}
                         {signal.estimated_horizon_days !== null && (
                           <span style={{ marginLeft: 6 }}>
@@ -422,7 +422,7 @@ export function ProactiveSignalsSection({
                               setDismissReason("");
                             }}
                             className="ac-btn"
-                            style={{ fontSize: "0.75rem", padding: "3px 8px", color: "#9ca3af" }}
+                            style={{ fontSize: "0.75rem", padding: "3px 8px", color: "var(--ac-text-secondary)" }}
                           >
                             Dismiss
                           </button>
@@ -439,7 +439,7 @@ export function ProactiveSignalsSection({
                       marginTop: 10,
                       padding: "10px 14px",
                       background: "rgba(17, 24, 39, 0.6)",
-                      border: "1px solid #374151",
+                      border: "1px solid var(--ac-border)",
                       borderRadius: 6,
                     }}
                   >
@@ -450,7 +450,7 @@ export function ProactiveSignalsSection({
                       {signal.recommended_actions.map((act, idx) => (
                         <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: "0.825rem" }}>
                           <div>
-                            <span style={{ color: "#f3f4f6" }}>{act.description}</span>
+                            <span style={{ color: "var(--ac-text-primary)" }}>{act.description}</span>
                             {act.requires_authorization && (
                               <span style={{ marginLeft: 6, fontSize: "0.7rem", color: "#f59e0b", background: "rgba(245, 158, 11, 0.15)", padding: "1px 5px", borderRadius: 4 }}>
                                 🔒 Authorization Required
@@ -475,15 +475,15 @@ export function ProactiveSignalsSection({
                       marginTop: 12,
                       padding: "12px 16px",
                       background: "#111827",
-                      border: "1px solid #374151",
+                      border: "1px solid var(--ac-border)",
                       borderRadius: 8,
                     }}
                   >
-                    <div style={{ fontSize: "0.8rem", color: "#9ca3af", fontWeight: 700, marginBottom: 8, textTransform: "uppercase" }}>
+                    <div style={{ fontSize: "0.8rem", color: "var(--ac-text-secondary)", fontWeight: 700, marginBottom: 8, textTransform: "uppercase" }}>
                       Traceable Evidence Provenance ({signal.evidence?.length || 0} Domain Records):
                     </div>
                     {(!signal.evidence || signal.evidence.length === 0) ? (
-                      <p style={{ margin: 0, fontSize: "0.8rem", color: "#9ca3af", fontStyle: "italic" }}>
+                      <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--ac-text-secondary)", fontStyle: "italic" }}>
                         No specific sub-records attached to this signal.
                       </p>
                     ) : (
@@ -505,9 +505,9 @@ export function ProactiveSignalsSection({
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                 <strong style={{ color: "#38bdf8" }}>[{ev.entity_type}]</strong>
-                                <span style={{ color: "#e5e7eb" }}>{ev.summary}</span>
+                                <span style={{ color: "var(--ac-text-primary)" }}>{ev.summary}</span>
                               </div>
-                              <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: 2 }}>
+                              <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", marginTop: 2 }}>
                                 Ref ID: <code className="ac-mono">{ev.entity_id}</code>
                                 {ev.observed_value && <span> · Observed: <strong>{ev.observed_value}</strong></span>}
                                 {ev.threshold_value && <span> · Limit: <strong>{ev.threshold_value}</strong></span>}
@@ -553,14 +553,14 @@ export function ProactiveSignalsSection({
               background: "#111827",
               padding: "24px",
               borderRadius: "12px",
-              border: "1px solid #374151",
+              border: "1px solid var(--ac-border)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ margin: "0 0 8px 0", fontSize: "1.1rem", fontWeight: 700 }}>
               Dismiss Proactive Signal
             </h3>
-            <p style={{ margin: "0 0 12px 0", fontSize: "0.85rem", color: "#9ca3af" }}>
+            <p style={{ margin: "0 0 12px 0", fontSize: "0.85rem", color: "var(--ac-text-secondary)" }}>
               Dismissing signal: <strong>{dismissModalSignal.title}</strong>. Please state the justification for audit compliance.
             </p>
 
@@ -579,7 +579,7 @@ export function ProactiveSignalsSection({
                     width: "100%",
                     padding: "8px",
                     background: "#1f2937",
-                    color: "#fff",
+                    color: "var(--ac-text-primary)",
                     borderRadius: 6,
                     border: "1px solid #4b5563",
                     fontSize: "0.85rem",

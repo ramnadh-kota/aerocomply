@@ -1,17 +1,42 @@
 "use client";
 
 import { type ReactNode } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FeatureGuard } from "@/components/auth/FeatureGuard";
-import { getRouteFeatureKey } from "@/lib/entitlements/navFeatureMap";
+import { useSession } from "@/lib/auth/SessionContext";
+import { getRouteFeatureKey, isPlatformPath, isPlatformRole } from "@/lib/entitlements/navFeatureMap";
 
 /**
- * Applies FeatureGuard to any route listed in NAV_FEATURE_MAP so a directly
- * typed URL is blocked the same way the sidebar item is greyed out. Display
- * only -- the backend require_feature dependency is the actual enforcement.
+ * Display-side route protection for the (app) shell. Two independent rules:
+ *
+ *  1. /platform/* is for platform operators only. A tenant user who types the URL used to see the
+ *     platform pages' chrome (headings, "Provisioning" actions) with the data refused by the API.
+ *     Now they get a clear "not available" card and the platform page is never mounted.
+ *  2. Any route listed in NAV_FEATURE_MAP is wrapped in FeatureGuard, so a directly typed URL is
+ *     blocked the same way the sidebar item is greyed out.
+ *
+ * Both are display only -- the backend (require_permission / require_feature) is the enforcement.
  */
 export function RouteEntitlementGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
+  const { user, loading, isDemo } = useSession();
+
+  if (isPlatformPath(pathname) && !isDemo) {
+    if (loading) return <div className="ac-card" style={{ padding: 24, textAlign: "center" }}>Checking access…</div>;
+    if (!isPlatformRole(user?.roles)) {
+      return (
+        <div className="ac-card" role="alert" style={{ padding: 32, textAlign: "center", margin: "24px 0" }}>
+          <h2 className="ac-h2" style={{ marginBottom: 8 }}>Not authorized</h2>
+          <p className="ac-text-sm ac-text-muted" style={{ maxWidth: 480, margin: "0 auto 16px" }}>
+            Platform administration is available to platform operators only.
+          </p>
+          <Link href="/dashboard" className="ac-btn ac-btn-primary">Return to Dashboard</Link>
+        </div>
+      );
+    }
+  }
+
   const featureKey = getRouteFeatureKey(pathname);
   if (!featureKey) return <>{children}</>;
   return <FeatureGuard featureKey={featureKey}>{children}</FeatureGuard>;
