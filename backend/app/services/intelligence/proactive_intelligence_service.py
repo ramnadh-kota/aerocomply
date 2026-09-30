@@ -11,6 +11,7 @@ import datetime
 import uuid
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
@@ -1062,23 +1063,23 @@ def sync_and_get_signals(
             )
         ).scalar_one_or_none()
 
-        if existing:
-            # If open or in-review, update live fields
-            if existing.status in ("OPEN", "IN_REVIEW", "ACKNOWLEDGED"):
-                existing.severity = item["severity"]
-                existing.priority = item["priority"]
-                existing.title = item["title"]
-                existing.headline = item["headline"]
-                existing.explanation_json = item["explanation"]
-                existing.evidence_json = [
-                    ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in item["evidence"]
-                ]
-                existing.contributing_factors_json = item["contributing_factors"]
-                existing.recommended_actions_json = [
+        def _refresh_live_fields(row: ProactiveSignalRecord, item=item) -> None:
+            # Only signals still being worked are refreshed; a closed/resolved signal keeps its history.
+            if row.status in ("OPEN", "IN_REVIEW", "ACKNOWLEDGED"):
+                row.severity = item["severity"]
+                row.priority = item["priority"]
+                row.title = item["title"]
+                row.headline = item["headline"]
+                row.explanation_json = item["explanation"]
+                row.evidence_json = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in item["evidence"]]
+                row.contributing_factors_json = item["contributing_factors"]
+                row.recommended_actions_json = [
                     act.model_dump() if hasattr(act, "model_dump") else act for act in item["recommended_actions"]
                 ]
+
+        if existing:
+            _refresh_live_fields(existing)
         else:
-            # Insert new signal
             new_record = ProactiveSignalRecord(
                 organization_id=organization_id,
                 signal_key=key,
@@ -1099,7 +1100,20 @@ def sync_and_get_signals(
                     act.model_dump() if hasattr(act, "model_dump") else act for act in item["recommended_actions"]
                 ],
             )
-            db.add(new_record)
+            try:
+                # Two overlapping evaluations (this runs on GET requests) can both find no row; the unique
+                # (organization_id, signal_key) constraint lets exactly one insert and the other adopts its row.
+                with db.begin_nested():
+                    db.add(new_record)
+                    db.flush()
+            except IntegrityError:
+                winner = db.execute(
+                    select(ProactiveSignalRecord).where(
+                        ProactiveSignalRecord.organization_id == organization_id,
+                        ProactiveSignalRecord.signal_key == key,
+                    )
+                ).scalar_one()
+                _refresh_live_fields(winner)
 
     db.flush()
 

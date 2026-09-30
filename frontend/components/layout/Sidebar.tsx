@@ -9,6 +9,7 @@ import { useSession } from "@/lib/auth/SessionContext";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useEntitlements } from "@/lib/entitlements/EntitlementContext";
 import { isNavItemUnavailable } from "@/lib/entitlements/navFeatureMap";
+import { isMockOnlyRoute } from "@/lib/mock-only-routes";
 
 export interface NavItem {
   href: string;
@@ -184,7 +185,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { accessFor } = useRoleSim();
   const { open, close } = useSidebarDrawer();
-  const { user } = useSession();
+  const { user, isDemo } = useSession();
   const { mode } = useDataMode();
   // Platform Admin / Platform Staff are real backend roles (never a
   // role-sim demo role) that hold zero tenant permissions on the backend
@@ -233,10 +234,13 @@ export function Sidebar() {
                 const roleSimDenied = level === "NONE";
                 const entitlementDenied =
                   !isPlatformUser && isNavItemUnavailable(item.href, hasFeature);
-                const denied = roleSimDenied || entitlementDenied;
+                const notConnected = !isPlatformUser && !isDemo && isMockOnlyRoute(item.href);
+                const denied = roleSimDenied || entitlementDenied || notConnected;
                 const title = roleSimDenied
                   ? "Not available for the simulated role (prototype only — not enforced)"
-                  : entitlementDenied
+                  : notConnected
+                    ? "Not connected to live data yet (demonstration data only)"
+                    : entitlementDenied
                     ? "Not included in your organization's current plan"
                     : undefined;
                 return (

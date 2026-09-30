@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { FeatureGuard } from "@/components/auth/FeatureGuard";
 import { useSession } from "@/lib/auth/SessionContext";
 import { getRouteFeatureKey, isPlatformPath, isPlatformRole } from "@/lib/entitlements/navFeatureMap";
+import { LIVE_EQUIVALENT, matchMockOnlyRoute } from "@/lib/mock-only-routes";
 
 /**
  * Display-side route protection for the (app) shell. Two independent rules:
@@ -35,6 +36,28 @@ export function RouteEntitlementGuard({ children }: { children: ReactNode }) {
         </div>
       );
     }
+  }
+
+  // Pages that only contain bundled sample data must not present it as this organization's own records.
+  const mockOnly = matchMockOnlyRoute(pathname);
+  if (mockOnly && !isDemo) {
+    if (loading) return <div className="ac-card" style={{ padding: 24, textAlign: "center" }}>Checking access…</div>;
+    const live = LIVE_EQUIVALENT[mockOnly];
+    return (
+      <div className="ac-card" role="status" style={{ padding: 32, textAlign: "center", margin: "24px 0" }}>
+        <h2 className="ac-h2" style={{ marginBottom: 8 }}>Not connected to live data yet</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ maxWidth: 520, margin: "0 auto 16px" }}>
+          This module currently shows demonstration data only, so it is hidden for live organizations to avoid presenting
+          sample records as yours. It is available in Demo mode.
+        </p>
+        {live && (
+          <p className="ac-text-sm" style={{ marginBottom: 16 }}>
+            Live data for this purpose: <Link href={live.href} className="ac-link">{live.label}</Link>
+          </p>
+        )}
+        <Link href="/dashboard" className="ac-btn ac-btn-primary">Return to Dashboard</Link>
+      </div>
+    );
   }
 
   const featureKey = getRouteFeatureKey(pathname);

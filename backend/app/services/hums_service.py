@@ -28,7 +28,7 @@ import datetime
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
@@ -279,6 +279,9 @@ def detect_and_record_exceedances(
     reading window).
     """
     sensor = _get_sensor(db, organization_id=organization_id, sensor_id=sensor_id)
+    # Serialise evaluation PER SENSOR for the rest of this transaction: two workers ingesting the same sensor at once
+    # would otherwise both find "no exceedance for this window yet" and each create an exceedance + finding + evidence.
+    db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(f"hums-eval:{sensor.id}", 0))))
     readings = _latest_readings(db, organization_id=organization_id, sensor_id=sensor.id)
 
     # H2: persist the full feature set (time-domain, frequency-domain,

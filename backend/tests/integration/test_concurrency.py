@@ -185,3 +185,74 @@ def test_parallel_events_of_one_streaming_flight_create_one_flight_and_one_senso
         assert s.scalar(select(func.count(HUMSSensor.id)).where(HUMSSensor.asset_id == drone_id)) == 1
         assert s.scalar(select(func.count(HUMSSensorReading.id)).where(HUMSSensorReading.asset_id == drone_id)) == WORKERS
         assert s.scalar(select(Flight.duration_minutes).where(Flight.asset_id == drone_id)) == WORKERS   # grew to the max
+
+
+def test_concurrent_m7_evaluations_create_each_signal_once_and_nobody_errors(engine, committed_org, monkeypatch):
+    """`sync_and_get_signals` runs on GET requests. Two overlapping evaluations both saw 'no such signal' and both
+    inserted; the loser hit uq_proactive_signal_org_key and failed the request. Now the loser adopts the winner's row."""
+    from app.models.hums import HUMSExceedance, HUMSSensor
+    from app.models.proactive_signal import ProactiveSignalRecord
+    from app.services.intelligence import proactive_intelligence_service as pis
+
+    org_id, _ = committed_org
+    with Session(engine) as s:
+        drone = drone_service.create_drone(s, organization_id=org_id, actor_user_id=None, registration="RACE-M7",
+                                           manufacturer=None, model=None, serial_number=None, facility_id=None)
+        sensor = HUMSSensor(organization_id=org_id, asset_id=drone.id, sensor_code="V", sensor_type="ACCELEROMETER",
+                            measurement_type="vibration", unit="mm/s", source="TELEMETRY", status="ACTIVE")
+        s.add(sensor)
+        s.flush()
+        now = datetime.now(UTC)
+        s.add(HUMSExceedance(organization_id=org_id, sensor_id=sensor.id, asset_id=drone.id, parameter="vibration_rms",
+                             observed_value=9.0, threshold_value=5.0, severity="CRITICAL",
+                             window_start=now - timedelta(minutes=2), window_end=now - timedelta(minutes=1),
+                             contributing_reading_ids=[]))
+        s.commit()
+        asset_id = drone.id
+
+    # Widen the check-then-insert window so every session has looked (and found nothing) before any insert commits.
+    import time as _time
+
+    real_add = Session.add
+
+    def slow_add(self, instance, *a, **k):
+        if isinstance(instance, ProactiveSignalRecord):
+            _time.sleep(0.3)
+        return real_add(self, instance, *a, **k)
+
+    monkeypatch.setattr(Session, "add", slow_add)
+    results = _race(engine, lambda s, i: len(pis.sync_and_get_signals(s, organization_id=org_id, asset_id=asset_id)))
+    assert all(r[0] == "ok" for r in results), results
+    with Session(engine) as s:
+        keys = s.execute(select(ProactiveSignalRecord.signal_key).where(
+            ProactiveSignalRecord.organization_id == org_id, ProactiveSignalRecord.asset_id == asset_id)).scalars().all()
+    assert len(keys) == len(set(keys)) and any(k.startswith("hums_") for k in keys), keys
+
+
+def test_parallel_exceedance_evaluation_of_one_sensor_creates_one_exceedance_and_one_finding(engine, committed_org):
+    from app.models.finding import Finding
+    from app.models.hums import HUMSExceedance, HUMSSensor
+    from app.services import hums_service
+
+    org_id, _ = committed_org
+    with Session(engine) as s:
+        drone = drone_service.create_drone(s, organization_id=org_id, actor_user_id=None, registration="RACE-HX",
+                                           manufacturer=None, model=None, serial_number=None, facility_id=None)
+        sensor = HUMSSensor(organization_id=org_id, asset_id=drone.id, sensor_code="V", sensor_type="ACCELEROMETER",
+                            measurement_type="vibration", unit="mm/s", source="TELEMETRY", status="ACTIVE")
+        s.add(sensor)
+        s.flush()
+        base = datetime.now(UTC) - timedelta(minutes=30)
+        for i in range(20):                                   # a window well above the CRITICAL vibration threshold
+            s.add(HUMSSensorReading(organization_id=org_id, sensor_id=sensor.id, asset_id=drone.id,
+                                    recorded_at=base + timedelta(seconds=i), value=500.0, unit="mm/s"))
+        s.commit()
+        sensor_id, asset_id = sensor.id, drone.id
+
+    results = _race(engine, lambda s, i: hums_service.detect_and_record_exceedances(
+        s, organization_id=org_id, sensor_id=sensor_id, user_id=None).id)
+    assert all(r[0] == "ok" for r in results), results
+    with Session(engine) as s:
+        assert s.scalar(select(func.count(HUMSExceedance.id)).where(HUMSExceedance.sensor_id == sensor_id)) == 1
+        assert s.scalar(select(func.count(Finding.id)).where(Finding.organization_id == org_id,
+                                                              Finding.asset_id == asset_id)) == 1
