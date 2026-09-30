@@ -29,11 +29,12 @@ def run_worker(
     poll_interval: float = 1.0,
     job_types: list[str] | None = None,
     once: bool = False,
+    schedule: bool = False,
     worker_id: str | None = None,
 ) -> int:
     """Returns the number of jobs processed."""
     worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
-    processed, last_reclaim = 0, 0.0
+    processed, last_reclaim, last_tick = 0, 0.0, -1e9
     log.info("worker.started", worker_id=worker_id, job_types=job_types)
     while not stop.is_set():
         with session_factory() as db:
@@ -43,6 +44,11 @@ def run_worker(
                 last_reclaim = time.monotonic()
                 if n:
                     log.warning("worker.reclaimed_stale_jobs", count=n)
+            if schedule and time.monotonic() - last_tick > 60:
+                from app import scheduler
+
+                scheduler.tick(db)
+                last_tick = time.monotonic()
             did = job_service.run_one(db, worker_id=worker_id, job_types=job_types)
         if did:
             processed += 1
@@ -58,12 +64,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Kota background job worker")
     ap.add_argument("--once", action="store_true", help="drain the queue then exit")
     ap.add_argument("--poll", type=float, default=1.0)
+    ap.add_argument("--schedule", action="store_true", help="also enqueue recurring jobs (retention sweep)")
     ap.add_argument("--types", nargs="*", default=None)
     args = ap.parse_args()
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
-    run_worker(stop, poll_interval=args.poll, job_types=args.types, once=args.once)
+    run_worker(stop, poll_interval=args.poll, job_types=args.types, once=args.once, schedule=args.schedule)
 
 
 if __name__ == "__main__":

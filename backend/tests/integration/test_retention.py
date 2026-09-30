@@ -196,3 +196,23 @@ def test_platform_api_dry_run_default_switch_and_rbac(client, db_session):
     settings.retention_destructive_enabled = False
     refused = client.post(f"/api/v1/platform/retention/run?dry_run=false&organization_id={org_id}", headers=pa)
     assert refused.status_code == 409 and _n(db_session, org_id) == before
+
+
+def test_scheduler_enqueues_one_sweep_per_period_and_the_handler_is_dry_run_unless_enabled(client, db_session):
+    from app import scheduler
+    from app.services import job_handlers, job_service
+
+    t0 = datetime(2026, 9, 30, 1, tzinfo=UTC)
+    settings.retention_destructive_enabled = False
+    assert scheduler.tick(db_session, now=t0) == 1
+    assert scheduler.tick(db_session, now=t0 + timedelta(hours=3)) == 0          # same day: no duplicate (any worker)
+    assert scheduler.tick(db_session, now=t0 + timedelta(days=1)) == 1           # next period
+    org_id, _, _ = _tenant(client, db_session, "r10")
+    rs.set_policy(db_session, organization_id=org_id, data_class=RC.TELEMETRY_READINGS, retention_days=90, enabled=True)
+    before = _n(db_session, org_id)
+    # even a job that asks to execute stays a dry run while the deployment switch is off
+    job, _ = job_service.enqueue(db_session, job_type=job_handlers.RETENTION_SWEEP, payload={"execute": True})
+    while job_service.run_one(db_session, worker_id="w", job_types=[job_handlers.RETENTION_SWEEP]):
+        pass
+    db_session.refresh(job)
+    assert job.status == "SUCCEEDED" and job.result["dry_run"] is True and _n(db_session, org_id) == before

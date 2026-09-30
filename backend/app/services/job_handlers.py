@@ -34,3 +34,24 @@ def handle_ingest(db: Session, job: BackgroundJob) -> dict[str, Any]:
 
 
 job_service.register_handler(INGEST, handle_ingest)
+
+
+RETENTION_SWEEP = "retention.sweep"
+
+
+def handle_retention_sweep(db: Session, job: BackgroundJob) -> dict[str, Any]:
+    """Platform job. Dry-run unless the deployment enabled destructive retention AND the payload asks to execute;
+    only enabled policies are ever evaluated (see retention_service)."""
+    from app.core.config import get_settings
+    from app.services import retention_service
+
+    execute = bool(job.payload.get("execute")) and get_settings().retention_destructive_enabled
+    results = retention_service.run_retention(db, dry_run=not execute)
+    failed = [r for r in results if r.error]
+    if failed:  # surface as a retryable failure so an operator sees it in the queue
+        raise RuntimeError(f"retention failed for {len(failed)} class(es): {failed[0].error}")
+    return {"dry_run": not execute, "classes": len(results), "deleted": sum(r.deleted for r in results),
+            "eligible": sum(r.eligible for r in results)}
+
+
+job_service.register_handler(RETENTION_SWEEP, handle_retention_sweep)
