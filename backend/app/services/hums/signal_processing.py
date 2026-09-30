@@ -14,9 +14,9 @@ from typing import Literal
 
 DataQuality = Literal["VALID", "SUSPECT", "MISSING", "OUT_OF_RANGE", "STALE", "DUPLICATE", "INVALID"]
 
-# Demo/placeholder sanity bounds — not an engineering limit for any real
-# sensor type. A production deployment would look this up per sensor_type/
-# measurement_type (e.g. from an OEM spec table), not use one constant.
+# Generic catch-all sanity bounds (a reading beyond ±1e6 in any unit is garbage). They are NOT engineering limits:
+# physically impossible values are rejected by `physically_impossible` (per measurement type / unit) and per-sensor
+# operating limits are configured through the sensor thresholds API.
 _SANITY_MIN = -1_000_000.0
 _SANITY_MAX = 1_000_000.0
 
@@ -69,8 +69,26 @@ class SignalWindow:
         return len(self.values)
 
 
+_ABSOLUTE_ZERO = {"degc": -273.15, "c": -273.15, "celsius": -273.15, "k": 0.0, "kelvin": 0.0,
+                  "degf": -459.67, "f": -459.67, "fahrenheit": -459.67}
+
+
+def physically_impossible(measurement_type: str | None, unit: str | None, value: float) -> bool:
+    """True for values no real sensor can report: a temperature below absolute zero (unit-aware) or a negative
+    rotational speed. Deliberately narrow: quantities that may legitimately be negative (vibration samples, voltage,
+    current, torque, gauge pressure) are never rejected here; per-sensor engineering limits are configured separately."""
+    mtype, u = (measurement_type or "").lower(), (unit or "").strip().lower().replace("°", "deg")
+    if mtype == "temperature":
+        floor = _ABSOLUTE_ZERO.get(u)
+        return floor is not None and value < floor
+    if mtype == "rpm":
+        return value < 0
+    return False
+
+
 def classify_reading_quality(
-    *, value: float, recorded_at: datetime.datetime, declared_quality: DataQuality, newest_in_batch: datetime.datetime
+    *, value: float, recorded_at: datetime.datetime, declared_quality: DataQuality, newest_in_batch: datetime.datetime,
+    measurement_type: str | None = None, unit: str | None = None,
 ) -> DataQuality:
     """Re-derives a reading's data-quality classification rather than
     trusting the declared value blindly — a caller could hand us "VALID"
@@ -80,7 +98,7 @@ def classify_reading_quality(
         return declared_quality
     if value != value:  # NaN check without importing math for one use
         return "INVALID"
-    if value < _SANITY_MIN or value > _SANITY_MAX:
+    if value < _SANITY_MIN or value > _SANITY_MAX or physically_impossible(measurement_type, unit, value):
         return "OUT_OF_RANGE"
     if newest_in_batch - recorded_at > STALE_AGE:
         return "STALE"
@@ -129,7 +147,8 @@ def build_signal_window(
     for s in sorted(samples, key=lambda x: x.recorded_at):
         key = (s.recorded_at, s.value)
         quality = classify_reading_quality(
-            value=s.value, recorded_at=s.recorded_at, declared_quality=s.data_quality, newest_in_batch=newest
+            value=s.value, recorded_at=s.recorded_at, declared_quality=s.data_quality, newest_in_batch=newest,
+            measurement_type=measurement_type, unit=s.unit or unit,
         )
         if key in seen:
             quality = "DUPLICATE"

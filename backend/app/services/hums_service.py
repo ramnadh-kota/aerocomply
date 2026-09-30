@@ -61,11 +61,10 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-# Vibration RMS thresholds (mm/s). Not asset-model-specific yet — a single
-# fleet-wide baseline, documented here rather than hidden in a magic number,
-# consistent with the spec's "document threshold/baseline calculation
-# methods" requirement. Real thresholds would come from OEM limits per
-# component type; this is a deliberately simple placeholder for the slice.
+# PLATFORM DEFAULT vibration RMS limits (mm/s): a generic starting point used only for sensors that have no limits
+# of their own. They are NOT OEM or regulatory limits. Operators configure per-sensor limits (OEM / maintenance-manual
+# values) with PUT /hums/sensors/{id}/thresholds; `vibration_limits(sensor)` returns whichever applies, and every recorded
+# exceedance stores the threshold it was judged against (plus `threshold_source` in its evidence).
 VIBRATION_WARNING_RMS = 5.0
 VIBRATION_CRITICAL_RMS = 8.0
 FEATURE_WINDOW_READING_COUNT = 20

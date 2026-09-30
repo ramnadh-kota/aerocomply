@@ -3,8 +3,8 @@
 // backend derives it from the authenticated JWT (same convention as every
 // other lib/api/*.ts client).
 //
-// H1 vertical slice only: sensors, readings, asset health, exceedances.
-// Diagnostics/prognostics/RUL/fleet endpoints are not implemented yet.
+// Sensors, readings, asset health, exceedances, feature history, per-sensor limits. Diagnostics, prognostics/RUL and
+// health intelligence have their own panels (components/intelligence/HUMS*Panel.tsx).
 
 import { apiRequest } from "@/lib/apiClient";
 
@@ -22,6 +22,8 @@ export interface HUMSSensor {
   installation_location: string | null;
   status: string;
   source: string;
+  warning_threshold?: number | null;
+  critical_threshold?: number | null;
   created_at: string;
 }
 
@@ -294,6 +296,12 @@ export const humsApi = {
 
   getAssetExceedances: (accessToken: string, assetId: string) =>
     apiRequest<HUMSExceedance[]>(`/hums/assets/${assetId}/exceedances`, { accessToken }),
+
+  setSensorThresholds: (
+    accessToken: string,
+    sensorId: string,
+    payload: { warning_threshold: number | null; critical_threshold: number | null }
+  ) => apiRequest<HUMSSensor>(`/hums/sensors/${sensorId}/thresholds`, { method: "PUT", body: payload, accessToken }),
 
   getSensors: (accessToken: string, assetId: string) =>
     apiRequest<HUMSSensor[]>(`/hums/sensors?asset_id=${assetId}`, { accessToken }),

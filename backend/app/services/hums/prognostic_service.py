@@ -23,11 +23,9 @@ from app.models.proactive_signal import ProactiveSignalRecord
 from app.services.hums import degradation_service
 from app.services.hums.degradation_engine import compute_rul, detect_model_drift
 
-# Demo/placeholder thresholds distinguished by TYPE (never presented as an
-# OEM/regulatory limit). "rms" reuses H1's own configured vibration
-# maintenance threshold (hums_service.VIBRATION_CRITICAL_RMS) so H5's
-# threshold is literally the same constant H1's exceedance pathway already
-# uses -- one configured value, two consumers, not two competing numbers.
+# Thresholds are distinguished by TYPE and never presented as an OEM/regulatory limit unless the type says so. "rms" uses
+# the sensor's own critical limit (configured, else the platform default) — the same value H1's exceedance pathway uses,
+# so there is one limit with two consumers, not two competing numbers.
 _MAINTENANCE_THRESHOLD_FEATURE_TYPES = {"rms"}
 
 
@@ -222,9 +220,9 @@ def _upsert_prognostic(
     return record
 
 
-# RUL is considered to have entered the "warning window" when the point
-# estimate drops below this many usage-units of remaining life -- a
-# demo/placeholder constant (documented, not an engineering-derived value).
+# RUL is considered to have entered the "warning window" when the point estimate drops below this many usage-units of
+# remaining life. A heuristic alerting gate (not an engineering-derived value); it only decides when a signal is raised,
+# never the RUL itself, and every RUL record states its own confidence and extrapolation distance.
 _RUL_WARNING_WINDOW = 50.0
 
 

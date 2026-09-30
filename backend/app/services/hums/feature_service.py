@@ -80,10 +80,8 @@ def _compute_features(window: SignalWindow) -> dict[str, FeatureResult]:
         ts_seconds = [(t - t0).total_seconds() for t in window.timestamps] if t0 else []
         features.update(trend_features(window.values, ts_seconds, window.unit))
         if window.measurement_type == "pressure" and window.values:
-            # Demo/placeholder nominal baseline — see signal_processing.py's
-            # _SANITY_MIN/_SANITY_MAX comment for the same caveat: a real
-            # deployment sources this from an OEM/operating-envelope spec
-            # per asset/component type, not one constant.
+            # "deviation" here is the drift of the window from its OWN first reading. It is a relative trend
+            # indicator, not a comparison against a nominal/OEM operating value (no such value is assumed).
             features["deviation"] = deviation_feature(window.values, baseline=window.values[0], unit=window.unit)
 
     return features

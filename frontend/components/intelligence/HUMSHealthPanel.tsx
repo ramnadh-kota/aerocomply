@@ -3,13 +3,14 @@
 // H1 + H2: HUMS (Health & Usage Monitoring System) panel.
 // Renders the telemetry-derived health rollup for one asset, plus (H2) a
 // per-sensor feature-history table and a basic frequency spectrum view.
-// Deliberately narrow: only shows what hums_service/feature_service
-// actually compute -- never renders a diagnosis, prognosis, or RUL value,
-// since none of that is implemented yet (see docs/HUMS_ARCHITECTURE.md).
+// Shows what hums_service/feature_service actually compute. Diagnostics, prognostics/RUL and health intelligence are
+// rendered by their own panels. Operators can also set per-sensor vibration limits here (OEM / maintenance-manual
+// values); without them the platform defaults apply.
 
 import { useState } from "react";
 import { StatusBadge, humsHealthStatusBadge } from "@/components/status/StatusBadge";
-import { humsApi, type HUMSAssetHealthSummary, type HUMSFeature, type HUMSSpectrum } from "@/lib/api/hums";
+import { humsApi, type HUMSAssetHealthSummary, type HUMSFeature, type HUMSSensor, type HUMSSpectrum } from "@/lib/api/hums";
+import { limitsLabel, limitsToInput, parseLimits } from "@/lib/hums/limits";
 
 interface HUMSHealthPanelProps {
   health: HUMSAssetHealthSummary | null;
@@ -163,6 +164,66 @@ function SensorFeatureHistory({ sensorId, accessToken }: { sensorId: string; acc
   );
 }
 
+function SensorLimitsEditor({ assetId, sensorId, accessToken }: { assetId: string; sensorId: string; accessToken: string }) {
+  const [sensor, setSensor] = useState<HUMSSensor | null>(null);
+  const [form, setForm] = useState({ warning: "", critical: "" });
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function openEditor() {
+    setMsg(null);
+    try {
+      const list = await humsApi.getSensors(accessToken, assetId);
+      const s = list.find((x) => x.id === sensorId) ?? null;
+      setSensor(s);
+      setForm(limitsToInput(s?.warning_threshold, s?.critical_threshold));
+      setOpen(true);
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : "Could not load sensor limits" });
+    }
+  }
+
+  async function save() {
+    const parsed = parseLimits(form);
+    if (!parsed.ok) {
+      setMsg({ ok: false, text: parsed.error });
+      return;
+    }
+    setBusy(true);
+    try {
+      const updated = await humsApi.setSensorThresholds(accessToken, sensorId, parsed.payload);
+      setSensor(updated);
+      setMsg({ ok: true, text: `Saved: ${limitsLabel(updated.warning_threshold, updated.critical_threshold)}.` });
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : "Could not save limits" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <>
+        <button onClick={openEditor} style={{ fontSize: 12, color: "#93c5fd", background: "none", border: "1px solid #27272a", borderRadius: 6, padding: "4px 10px", cursor: "pointer", marginLeft: 8 }}>
+          Vibration limits
+        </button>
+        {msg && !msg.ok && <span role="alert" style={{ fontSize: 12, color: "#f87171", marginLeft: 8 }}>{msg.text}</span>}
+      </>
+    );
+  }
+  return (
+    <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
+      <span style={{ color: "#9ca3af" }}>Current: {limitsLabel(sensor?.warning_threshold, sensor?.critical_threshold)}</span>
+      <input aria-label="Warning limit" placeholder="Warning" inputMode="decimal" value={form.warning} onChange={(e) => setForm({ ...form, warning: e.target.value })} style={{ width: 90 }} />
+      <input aria-label="Critical limit" placeholder="Critical" inputMode="decimal" value={form.critical} onChange={(e) => setForm({ ...form, critical: e.target.value })} style={{ width: 90 }} />
+      <button onClick={save} disabled={busy}>{busy ? "Saving…" : "Save limits"}</button>
+      <span style={{ color: "#6b7280" }}>Leave both empty for the platform defaults (not OEM limits).</span>
+      {msg && <span role={msg.ok ? "status" : "alert"} style={{ color: msg.ok ? "#4ade80" : "#f87171" }}>{msg.text}</span>}
+    </div>
+  );
+}
+
 export function HUMSHealthPanel({ health, accessToken }: HUMSHealthPanelProps) {
   if (!health) {
     return (
@@ -207,14 +268,15 @@ export function HUMSHealthPanel({ health, accessToken }: HUMSHealthPanelProps) {
                 </div>
               </div>
               {accessToken && <SensorFeatureHistory sensorId={c.sensor_id} accessToken={accessToken} />}
+              {accessToken && <SensorLimitsEditor assetId={health.asset_id} sensorId={c.sensor_id} accessToken={accessToken} />}
             </div>
           ))}
         </div>
       )}
 
       <p style={{ fontSize: 12, color: "#6b7280" }}>
-        HUMS health is one input into overall asset readiness, not a substitute for it. Diagnostics, prognostics, and
-        remaining-useful-life prediction are not yet implemented.
+        HUMS health is one input into overall asset readiness, not a substitute for it. Limits without a configured
+        value use generic platform defaults; set OEM or maintenance-manual limits per sensor.
       </p>
     </div>
   );

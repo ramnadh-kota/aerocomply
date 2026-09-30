@@ -28,9 +28,8 @@ ThresholdType = Literal["ENGINEERING_LIMIT", "MAINTENANCE_THRESHOLD", "WARNING_T
 
 MIN_SAMPLES_FOR_DEGRADATION = 6
 # A trajectory covering less usage-span than this is too short to trust a
-# slope extrapolated far beyond it -- demo/placeholder constant, not an
-# engineering-derived minimum (documented alongside every other such
-# constant in this codebase's HUMS modules).
+# slope extrapolated far beyond it. A heuristic confidence gate (not an engineering-derived minimum): it lowers the
+# reported confidence, it never changes the fitted trajectory.
 MIN_USAGE_SPAN_FOR_HIGH_CONFIDENCE = 10.0
 
 # Normal-approximation multiplier used for the prediction range below.
