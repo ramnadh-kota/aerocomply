@@ -468,3 +468,54 @@ def test_mid_batch_vibration_spike_is_still_detected_with_batched_evaluation(cli
     n = db_session.scalar(select(func.count(HUMSExceedance.id)).where(
         HUMSExceedance.organization_id == org_id, HUMSExceedance.asset_id == uuid.UUID(a1)))
     assert n >= 1
+
+
+def test_batch_ingest_writes_one_audit_row_per_batch_not_one_per_event(client, db_session):
+    from app.models.audit_event import AuditEvent
+
+    org_id, h = _org(client, db_session)
+    _drone(client, h, reg="AUD-1")
+    sid = _source(client, h, "CSV_BATCH")
+    rows = [{"asset_id": "AUD-1", "sensor_code": "T", "value": str(i), "unit": "C",
+             "timestamp": f"2026-09-01T10:00:{i:02d}Z"} for i in range(20)]
+    assert _ingest(client, h, sid, _csv(rows)).json()["accepted"] == 20
+    actions = [a for (a,) in db_session.execute(select(AuditEvent.action).where(AuditEvent.organization_id == org_id))]
+    assert actions.count("data_source.ingested") == 1 and actions.count("telemetry.event_processed") == 0
+    # the per-event provenance is the event ledger, one row per event
+    assert db_session.scalar(select(func.count(TelemetryEventLog.id)).where(TelemetryEventLog.organization_id == org_id)) == 20
+
+
+def test_a_sensor_created_by_a_failed_event_is_never_reused_from_the_batch_cache(client, db_session, monkeypatch):
+    """Events run in SAVEPOINTs. If event 1 creates a sensor and then fails, the savepoint rolls the sensor back; the
+    batch cache must not hand that phantom sensor to event 2 (it would violate the reading's foreign key)."""
+    from app.schemas.telemetry import NormalizedTelemetryEvent, TelemetryReadingItem
+    from app.services import telemetry_service as ts
+
+    org_id, h = _org(client, db_session)
+    asset = uuid.UUID(_drone(client, h, reg="CACHE-1"))
+
+    def event(eid):
+        return NormalizedTelemetryEvent(
+            source_system="X", source_event_id=eid, source_asset_id="CACHE-1", event_type="SENSOR_BURST",
+            event_timestamp=datetime.now(UTC) - timedelta(minutes=1),
+            readings=[TelemetryReadingItem(sensor_code="NEWS", measurement_type="temperature", value=1.0, unit="C")])
+
+    cache: dict = {}
+    real = ts._record_or_update_log
+    calls = {"n": 0}
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom after the sensor was created")
+        return real(*a, **k)
+
+    monkeypatch.setattr(ts, "_record_or_update_log", flaky)
+    with pytest.raises(RuntimeError):
+        with db_session.begin_nested():
+            ts.process_normalized_event(db_session, organization_id=org_id, event=event("e1"), batch_cache=cache)
+    assert ("sensor", asset, "NEWS") not in cache           # nothing from the failed event was published
+    with db_session.begin_nested():
+        res = ts.process_normalized_event(db_session, organization_id=org_id, event=event("e2"), batch_cache=cache)
+    assert res.status == "PROCESSED"
+    assert ("sensor", asset, "NEWS") in cache                # published only after success

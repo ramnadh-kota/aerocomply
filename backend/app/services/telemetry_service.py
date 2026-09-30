@@ -385,8 +385,15 @@ def process_normalized_event(
     event: NormalizedTelemetryEvent,
     raw_payload_hash: str | None = None,
     hums_pending: dict[uuid.UUID, int] | None = None,
+    batch_cache: dict | None = None,
 ) -> TelemetryEventResult:
     """Processes a validated normalized telemetry event through authoritative domain services.
+
+    `batch_cache`: batch ingestion passes one dict per payload so identical asset identifiers and already-existing
+    sensors are looked up once per batch instead of once per event. Nothing created inside a SAVEPOINT is cached until the
+    event has succeeded (a rolled-back sensor must never be reused). Batch mode also writes ONE audit event per batch (in
+    acquisition_service) instead of one per telemetry event: audit_events is immutable, so per-event rows would grow
+    without bound; the event log remains the per-event provenance record.
 
     `hums_pending`: when given, HUMS exceedance evaluation is deferred to the caller (batch ingestion, see
     `evaluate_pending_sensors`); when None the touched sensors are evaluated immediately, as before.
@@ -446,12 +453,18 @@ def process_normalized_event(
         )
 
     # 2. Asset Resolution (deterministic; ambiguous or unknown => quarantine, never guess)
-    resolution = resolve_asset_detailed(
-        db,
-        organization_id=organization_id,
-        source_system=event.source_system,
-        external_asset_id=event.source_asset_id,
-    )
+    cache_key = ("asset", event.source_system, event.source_asset_id)
+    if batch_cache is not None and cache_key in batch_cache:
+        resolution = batch_cache[cache_key]
+    else:
+        resolution = resolve_asset_detailed(
+            db,
+            organization_id=organization_id,
+            source_system=event.source_system,
+            external_asset_id=event.source_asset_id,
+        )
+        if batch_cache is not None:
+            batch_cache[cache_key] = resolution
     asset = resolution.asset
 
     if asset is None:
@@ -564,15 +577,20 @@ def process_normalized_event(
 
     # 5. Domain Processing: HUMS Sensor Readings
     touched_sensor_ids: set[uuid.UUID] = set()
+    created_sensors: dict[tuple, HUMSSensor] = {}
     for r_item in event.readings:
-        # Check or create sensor
-        sensor = db.execute(
-            select(HUMSSensor).where(
-                HUMSSensor.organization_id == organization_id,
-                HUMSSensor.asset_id == asset.id,
-                HUMSSensor.sensor_code == r_item.sensor_code,
-            )
-        ).scalar_one_or_none()
+        sensor_key = ("sensor", asset.id, r_item.sensor_code)
+        sensor = (batch_cache or {}).get(sensor_key) or created_sensors.get(sensor_key)
+        if sensor is None:
+            sensor = db.execute(
+                select(HUMSSensor).where(
+                    HUMSSensor.organization_id == organization_id,
+                    HUMSSensor.asset_id == asset.id,
+                    HUMSSensor.sensor_code == r_item.sensor_code,
+                )
+            ).scalar_one_or_none()
+            if sensor is not None and batch_cache is not None:
+                batch_cache[sensor_key] = sensor                       # pre-existing row: safe to reuse immediately
 
         if not sensor:
             try:
@@ -592,6 +610,7 @@ def process_normalized_event(
                     )
                     db.add(sensor)
                     db.flush()
+                created_sensors[sensor_key] = sensor
             except IntegrityError:
                 sensor = db.execute(
                     select(HUMSSensor).where(
@@ -639,21 +658,24 @@ def process_normalized_event(
         metadata_payload=event.raw_metadata,
     )
 
-    audit_service.record_audit_event(
-        db,
-        organization_id=organization_id,
-        user_id=None,
-        action="telemetry.event_processed",
-        entity_type="TelemetryEventLog",
-        entity_id=event_log.id,
-        metadata={
-            "source_system": event.source_system,
-            "source_event_id": event.source_event_id,
-            "asset_id": str(asset.id),
-            "flight_id": str(flight_id) if flight_id else None,
-            "readings_count": readings_count,
-        },
-    )
+    if batch_cache is None:
+        audit_service.record_audit_event(
+            db,
+            organization_id=organization_id,
+            user_id=None,
+            action="telemetry.event_processed",
+            entity_type="TelemetryEventLog",
+            entity_id=event_log.id,
+            metadata={
+                "source_system": event.source_system,
+                "source_event_id": event.source_event_id,
+                "asset_id": str(asset.id),
+                "flight_id": str(flight_id) if flight_id else None,
+                "readings_count": readings_count,
+            },
+        )
+    else:
+        batch_cache.update(created_sensors)          # the event succeeded, so its new sensors are now safe to reuse
 
     return TelemetryEventResult(
         source_event_id=event.source_event_id,

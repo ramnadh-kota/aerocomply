@@ -343,12 +343,14 @@ def _ingest_core(
     report.received = len(events)
     latencies: list[float] = []
     hums_pending: dict[uuid.UUID, int] = {}
+    batch_cache: dict = {}
 
     for event in events:
         try:
             with db.begin_nested():  # one bad event must not abort the whole payload
                 res = telemetry_service.process_normalized_event(
-                    db, organization_id=source.organization_id, event=event, hums_pending=hums_pending
+                    db, organization_id=source.organization_id, event=event, hums_pending=hums_pending,
+                    batch_cache=batch_cache,
                 )
         except IntegrityError as exc:
             if "uq_telemetry_event_org_source_eventid" in str(exc.orig):
@@ -401,6 +403,16 @@ def _ingest_core(
         connector_type=source.connector_type,
         **{k: v for k, v in report.to_dict().items() if isinstance(v, int)},
     )
+    if report.accepted:
+        audit_service.record_audit_event(
+            db,
+            organization_id=source.organization_id,
+            user_id=actor_user_id,
+            action="data_source.ingested",
+            entity_type="DataSource",
+            entity_id=source.id,
+            metadata={k: v for k, v in report.to_dict().items() if isinstance(v, int) and v},
+        )
     if report.failed or report.rejected or report.quarantined:
         audit_service.record_audit_event(
             db,
