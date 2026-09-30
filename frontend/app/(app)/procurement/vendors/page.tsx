@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveVendorsList } from "@/components/live/LivePages";
+
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
@@ -39,7 +42,7 @@ function vendorRisk(v: (typeof vendors)[number]): { status: Parameters<typeof St
   return { status: "COMPLIANT", label: "Low" };
 }
 
-export default function VendorIntelligencePage() {
+function DemoVendorIntelligencePage() {
   const approved = vendors.filter((v) => v.approvalStatus === "APPROVED").length;
   const aogSupport = vendors.filter((v) => v.aogSupport === true).length;
   const verifiedCert = vendors.filter((v) => v.qualityStatus === "VERIFIED").length;
@@ -99,3 +102,6 @@ export default function VendorIntelligencePage() {
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoVendorIntelligencePage, LiveVendorsList);

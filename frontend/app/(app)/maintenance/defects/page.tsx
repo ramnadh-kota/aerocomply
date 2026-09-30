@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveDefectsList } from "@/components/live/LivePages";
+
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -9,7 +12,7 @@ import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { useMroState } from "@/lib/mro-state/MroStateContext";
 import type { Defect } from "@/lib/mock/types";
 
-export default function DefectsPage() {
+function DemoDefectsPage() {
   const { submissions } = useMroState();
   const columns: Column<Defect>[] = [
     {
@@ -59,3 +62,5 @@ export default function DefectsPage() {
     </div>
   );
 }
+
+export default withLive(DemoDefectsPage, LiveDefectsList);

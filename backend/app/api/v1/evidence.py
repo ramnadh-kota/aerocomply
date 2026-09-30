@@ -43,6 +43,25 @@ logger = get_logger(__name__)
 _ALLOWED_EVIDENCE_CONTENT_TYPES = {"application/pdf", "image/jpeg", "image/png"}
 
 
+@router.get("")
+def list_evidence(
+    status: str | None = None,
+    asset_id: uuid.UUID | None = None,
+    work_order_id: uuid.UUID | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.EVIDENCE_READ)),
+) -> dict:
+    """Evidence register for the caller's organization (newest first)."""
+    rows, total = evidence_service.list_evidence(
+        db, organization_id=current_user.organization_id, status=status, asset_id=asset_id,
+        work_order_id=work_order_id, limit=limit, offset=offset,
+    )
+    return {"items": [EvidenceResponse.model_validate(e).model_dump(mode="json") for e in rows], "total": total,
+            "limit": max(1, min(limit, 200)), "offset": max(0, offset)}
+
+
 @router.post("", response_model=EvidenceResponse, status_code=201)
 def create_evidence(
     payload: EvidenceCreateRequest,

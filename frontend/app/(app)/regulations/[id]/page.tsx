@@ -1,4 +1,7 @@
 "use client";;
+
+import { withLive } from "@/components/live/LiveViews";
+import { LiveRegulationDetail } from "@/components/live/LivePages";
 import { use } from "react";
 
 import Link from "next/link";
@@ -31,7 +34,7 @@ function actionRequiredFor(a: ApplicabilityAssessment): string {
   }
 }
 
-export default function RequirementDetailPage(props: { params: Promise<{ id: string }> }) {
+function DemoRequirementDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const requirement = getRequirementById(params.id);
   if (!requirement) notFound();
@@ -206,3 +209,6 @@ export default function RequirementDetailPage(props: { params: Promise<{ id: str
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoRequirementDetailPage, LiveRegulationDetail);

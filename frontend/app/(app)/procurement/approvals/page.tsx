@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveRequestsList } from "@/components/live/LivePages";
+
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
@@ -28,7 +31,7 @@ function statusBadge(status: string): { status: Parameters<typeof StatusBadge>[0
   }
 }
 
-export default function ProcurementApprovalsPage() {
+function DemoProcurementApprovalsPage() {
   const pending = partRequests.filter((r) => r.status === "SUBMITTED" || r.status === "UNDER_REVIEW");
   const aog = pending.filter((r) => r.priority === "AOG");
   const highCost = pending.filter((r) => r.estimatedCost !== null && r.estimatedCost > 1000);
@@ -84,3 +87,6 @@ export default function ProcurementApprovalsPage() {
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoProcurementApprovalsPage, LiveRequestsList);

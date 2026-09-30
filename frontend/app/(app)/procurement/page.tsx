@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveProcurementHome } from "@/components/live/LivePages";
+
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { StatusBadge } from "@/components/status/StatusBadge";
@@ -15,7 +18,7 @@ import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 // re-deriving them. The full cart/approval/PO workflow (M11.3-M11.8) is a
 // separate milestone — this page is the entry point + risk overview only.
 
-export default function ProcurementControlTowerPage() {
+function DemoProcurementControlTowerPage() {
   const partsAtRisk = getPartsAtRisk();
   const aogRequests = partRequests.filter((r) => r.priority === "AOG");
   const pending = partRequests.filter((r) => r.status === "SUBMITTED" || r.status === "UNDER_REVIEW");
@@ -149,3 +152,6 @@ export default function ProcurementControlTowerPage() {
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoProcurementControlTowerPage, LiveProcurementHome);

@@ -25,6 +25,7 @@ export interface BackendPart {
 
 export const partsApi = {
   list: (accessToken: string) => apiRequest<BackendPart[]>("/parts", { accessToken }),
+  get: (accessToken: string, id: string) => apiRequest<BackendPart>(`/parts/${id}`, { accessToken }),
 };
 
 export interface BackendPartRequirement {

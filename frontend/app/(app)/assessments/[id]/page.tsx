@@ -1,4 +1,7 @@
 "use client";;
+
+import { withLive } from "@/components/live/LiveViews";
+import { LiveAssessmentDetail } from "@/components/live/LivePages";
 import { use } from "react";
 
 import Link from "next/link";
@@ -16,7 +19,7 @@ import { getEngineById } from "@/lib/mock/engines";
 import { evidenceForAssessment } from "@/lib/mock/evidence";
 import { evaluateTree } from "@/lib/mock/kleene";
 
-export default function AssessmentDetailPage(props: { params: Promise<{ id: string }> }) {
+function DemoAssessmentDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const assessment = getAssessmentById(params.id);
   if (!assessment) notFound();
@@ -199,3 +202,6 @@ export default function AssessmentDetailPage(props: { params: Promise<{ id: stri
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoAssessmentDetailPage, LiveAssessmentDetail);

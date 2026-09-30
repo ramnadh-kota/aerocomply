@@ -1,4 +1,7 @@
 "use client";;
+
+import { withLive } from "@/components/live/LiveViews";
+import { LiveVendorDetail } from "@/components/live/LivePages";
 import { use } from "react";
 
 import Link from "next/link";
@@ -17,7 +20,7 @@ function na(v: string | number | null | undefined): string {
   return v === null || v === undefined || v === "" ? "Insufficient source data." : String(v);
 }
 
-export default function VendorDetailPage(props: { params: Promise<{ id: string }> }) {
+function DemoVendorDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const vendor = getVendorById(params.id);
   if (!vendor) notFound();
@@ -164,3 +167,6 @@ export default function VendorDetailPage(props: { params: Promise<{ id: string }
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoVendorDetailPage, LiveVendorDetail);

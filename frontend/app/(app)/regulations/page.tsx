@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveRegulationsList } from "@/components/live/LivePages";
+
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -52,7 +55,7 @@ function buildRows(): Row[] {
 
 const RECENT_WINDOW_DAYS = 30;
 
-export default function RegulationsLibraryPage() {
+function DemoRegulationsLibraryPage() {
   const rows = buildRows();
   const recentlyPublished = [...regulatoryDocuments]
     .map((d) => ({ doc: d, daysSince: daysSincePublication(d.publicationDate), authority: getAuthorityById(d.regulatoryAuthorityId) }))
@@ -171,3 +174,6 @@ export default function RegulationsLibraryPage() {
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoRegulationsLibraryPage, LiveRegulationsList);

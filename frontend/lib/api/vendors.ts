@@ -18,4 +18,5 @@ export interface BackendVendor {
 
 export const vendorsApi = {
   list: (accessToken: string) => apiRequest<BackendVendor[]>("/vendors", { accessToken }),
+  get: (accessToken: string, id: string) => apiRequest<BackendVendor>(`/vendors/${id}`, { accessToken }),
 };

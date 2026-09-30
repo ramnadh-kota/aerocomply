@@ -60,7 +60,21 @@ export interface EvidenceCreatePayload {
   provenance?: Record<string, any> | null;
 }
 
+export interface EvidenceRegisterResponse {
+  items: BackendEvidence[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export const evidenceApi = {
+  list: (accessToken: string, params: { status?: string; asset_id?: string; limit?: number; offset?: number } = {}) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") q.set(k, String(v));
+    const qs = q.toString();
+    return apiRequest<EvidenceRegisterResponse>(`/evidence${qs ? `?${qs}` : ""}`, { accessToken });
+  },
+
   create: (accessToken: string, payload: EvidenceCreatePayload | string) => {
     const body = typeof payload === "string" ? { task_id: payload } : payload;
     return apiRequest<BackendEvidence>("/evidence", {

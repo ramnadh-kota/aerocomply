@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveNotifications } from "@/components/live/LivePages";
+
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -46,7 +49,7 @@ function groupByCategory(alerts: ProactiveAlert[]): { category: AlertCategory; a
   return ALL_CATEGORIES.filter((c) => groups.has(c)).map((c) => ({ category: c, alerts: groups.get(c)! }));
 }
 
-export default function NotificationsPage() {
+function DemoNotificationsPage() {
   const { roleId } = useRoleSim();
   // roleId passed through for relevance-only reordering — see the
   // getProactiveAlerts() doc comment in lib/mock/ai/proactive.ts. This page
@@ -210,3 +213,5 @@ export default function NotificationsPage() {
     </div>
   );
 }
+
+export default withLive(DemoNotificationsPage, LiveNotifications);

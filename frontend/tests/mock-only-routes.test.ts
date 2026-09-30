@@ -19,7 +19,7 @@ function pages(dir: string, prefix = ""): { route: string; source: string }[] {
 function isMockOnly(source: string): boolean {
   const mock = /from "@\/lib\/(mock|demo)\//.test(source);
   const live = /from "@\/lib\/api\/|apiRequest|Api\./.test(source);
-  const gated = /isDemo|sessionType|useDataMode|DataMode/.test(source);
+  const gated = /isDemo|sessionType|useDataMode|DataMode|withLive\(/.test(source);
   return mock && !live && !gated;
 }
 
@@ -31,16 +31,17 @@ describe("mock-only route registry", () => {
   });
 
   it("matches concrete URLs, including dynamic segments and trailing slashes", () => {
-    expect(isMockOnlyRoute("/evidence")).toBe(true);
+    expect(isMockOnlyRoute("/finance")).toBe(true);
     expect(isMockOnlyRoute("/evidence/abc-123")).toBe(true);
     expect(isMockOnlyRoute("/evidence/abc-123/")).toBe(true);
-    expect(matchMockOnlyRoute("/procurement/vendors/42")).toBe("/procurement/vendors/[id]");
+    expect(matchMockOnlyRoute("/components/42")).toBe("/components/[id]");
     expect(isMockOnlyRoute("/maintenance/projects/9/intelligence")).toBe(true);
   });
 
   it("does not match connected pages or unrelated prefixes", () => {
     for (const live of ["/dashboard", "/drones", "/drones/1", "/maintenance/work-orders", "/tenant/audit", "/data-sources",
-      "/helicopters", "/evtols", "/evidence-files", "/procurement/purchase-orders"]) {
+      "/helicopters", "/evtols", "/evidence-files", "/procurement/purchase-orders", "/evidence", "/procurement/parts",
+      "/procurement/vendors/42", "/regulations", "/assessments"]) {
       expect(isMockOnlyRoute(live), live).toBe(false);
     }
   });

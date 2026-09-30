@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LivePurchaseOrderDetail } from "@/components/live/LivePages";
+
 import { useState, use } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -29,7 +32,7 @@ function poStatusBadge(status: string): { status: Parameters<typeof StatusBadge>
   }
 }
 
-export default function PurchaseOrderDetailPage(props: { params: Promise<{ id: string }> }) {
+function DemoPurchaseOrderDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const [version, setVersion] = useState(0);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
@@ -168,3 +171,6 @@ export default function PurchaseOrderDetailPage(props: { params: Promise<{ id: s
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoPurchaseOrderDetailPage, LivePurchaseOrderDetail);

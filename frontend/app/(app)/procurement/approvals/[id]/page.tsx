@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveRequestDetail } from "@/components/live/LivePages";
+
 import { useState, use } from "react";
 import Link from "next/link";
 import { notFound, useRouter } from "next/navigation";
@@ -22,7 +25,7 @@ function requesterName(id: string): string {
 // M11.5 — Procurement request detail + management decision. Client
 // Component (needs mutation buttons) — no DataTable here, so no
 // Server/Client boundary risk.
-export default function ProcurementRequestDetailPage(props: { params: Promise<{ id: string }> }) {
+function DemoProcurementRequestDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const [version, setVersion] = useState(0);
   const [rejectReason, setRejectReason] = useState("");
@@ -208,3 +211,6 @@ export default function ProcurementRequestDetailPage(props: { params: Promise<{ 
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoProcurementRequestDetailPage, LiveRequestDetail);

@@ -1,4 +1,7 @@
 "use client";;
+
+import { withLive } from "@/components/live/LiveViews";
+import { LivePartDetail } from "@/components/live/LivePages";
 import { use } from "react";
 
 import Link from "next/link";
@@ -30,7 +33,7 @@ function actorName(userId: string): string {
   return u ? u.name : userId;
 }
 
-export default function PartTraceabilityDetailPage(props: { params: Promise<{ id: string }> }) {
+function DemoPartTraceabilityDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const part = getPartById(params.id);
   if (!part) notFound();
@@ -214,3 +217,6 @@ export default function PartTraceabilityDetailPage(props: { params: Promise<{ id
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoPartTraceabilityDetailPage, LivePartDetail);

@@ -222,6 +222,28 @@ def get_evidence(db: Session, *, organization_id: uuid.UUID, evidence_id: uuid.U
     return evidence
 
 
+def list_evidence(
+    db: Session, *, organization_id: uuid.UUID, status: str | None = None, asset_id: uuid.UUID | None = None,
+    work_order_id: uuid.UUID | None = None, limit: int = 100, offset: int = 0,
+) -> tuple[list[Evidence], int]:
+    """Tenant-scoped evidence register (newest first) with optional filters and bounded paging."""
+    from sqlalchemy import func
+
+    conds = [Evidence.organization_id == organization_id]
+    if status:
+        conds.append(Evidence.status == status)
+    if asset_id:
+        conds.append(Evidence.asset_id == asset_id)
+    if work_order_id:
+        conds.append(Evidence.work_order_id == work_order_id)
+    limit = max(1, min(limit, 200))
+    total = db.scalar(select(func.count(Evidence.id)).where(*conds)) or 0
+    rows = db.execute(
+        select(Evidence).where(*conds).order_by(Evidence.created_at.desc()).limit(limit).offset(max(0, offset))
+    ).scalars().all()
+    return list(rows), total
+
+
 def list_evidence_for_task(
     db: Session, *, organization_id: uuid.UUID, task_id: uuid.UUID
 ) -> list[Evidence]:

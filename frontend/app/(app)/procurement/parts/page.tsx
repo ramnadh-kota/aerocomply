@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LivePartsList } from "@/components/live/LivePages";
+
 import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -176,7 +179,7 @@ function VendorComparisonRow({ score, part }: { score: VendorScoreResult; part: 
   );
 }
 
-export default function ProcurementPartsPage() {
+function DemoProcurementPartsPage() {
   return (
     <Suspense fallback={null}>
       <ProcurementPartsPageInner />
@@ -275,3 +278,6 @@ function ProcurementPartsPageInner() {
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoProcurementPartsPage, LivePartsList);

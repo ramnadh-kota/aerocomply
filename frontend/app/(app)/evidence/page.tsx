@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveEvidenceList } from "@/components/live/LivePages";
+
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { DataTable, type Column } from "@/components/tables/DataTable";
@@ -19,7 +22,7 @@ const TYPE_LABEL: Record<Evidence["evidenceType"], string> = {
   REGULATORY_DOCUMENT: "Regulatory Document",
 };
 
-export default function EvidenceListPage() {
+function DemoEvidenceListPage() {
   const columns: Column<Evidence>[] = [
     { key: "id", header: "Evidence ID", render: (e) => <span className="ac-mono" id={e.id}>{e.id}</span> },
     { key: "type", header: "Type", render: (e) => TYPE_LABEL[e.evidenceType] },
@@ -72,3 +75,6 @@ export default function EvidenceListPage() {
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoEvidenceListPage, LiveEvidenceList);

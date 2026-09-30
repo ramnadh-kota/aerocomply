@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveAssessmentsList } from "@/components/live/LivePages";
+
 import { useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -10,7 +13,7 @@ import { getAircraftById, currentRegistration } from "@/lib/mock/aircraft";
 import { getRequirementById } from "@/lib/mock/regulations";
 import type { ApplicabilityAssessment, SystemResult } from "@/lib/mock/types";
 
-export default function AssessmentsListPage() {
+function DemoAssessmentsListPage() {
   const [filter, setFilter] = useState<SystemResult | "ALL">("ALL");
 
   const rows = assessments.filter((a) => filter === "ALL" || a.systemResult === filter).sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
@@ -58,3 +61,6 @@ export default function AssessmentsListPage() {
     </div>
   );
 }
+
+// Live organizations read the backend; Demo sessions keep the sample-data page.
+export default withLive(DemoAssessmentsListPage, LiveAssessmentsList);
