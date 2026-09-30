@@ -6,14 +6,15 @@ reports). Statuses: `COMPLETE`, `PARTIAL`, `MISSING`, `BROKEN`, `MOCKED`, `ASPIR
 
 ## Result
 
-**Software-completable gaps remaining: not zero.** Two groups are open and are stated here rather than relabelled:
+**Software-completable gaps remaining: not zero.** One group is open and is stated here rather than relabelled:
 
 | # | Open item | Status | Why it is open |
 |---|-----------|--------|----------------|
-| G1 | 21 frontend routes still contain only bundled sample data (list below) | MOCKED | Each needs a page-level build against a backend that either does not exist (engines lifecycle beyond components, finance, reports, workspace, automation, integrations, pilot workflow, projects, discrepancies, material readiness, documents library, cart, pre-audit, org readiness) or is not yet wired. They are **hidden from live sessions** (notice card) and only render in Demo mode, so no customer sees fabricated data. |
-| G2 | MAVLink TCP / serial server-side listeners | PARTIAL | UDP listener, HTTP push, MQTT, webhooks, OEM polling and the edge gateway daemon exist. A TCP listener is software-completable and low value; serial needs `pyserial` and a device. Serial radios are normally bridged to UDP (mavlink-router / gateway host). |
+| G1 | 21 frontend routes still contain only bundled sample data (list below) | MOCKED | Each needs a page-level build against a backend that either does not exist (finance, reports, workspace, automation, integrations, pilot workflow, projects, discrepancies, material readiness, documents library, cart, pre-audit, org readiness, engine lifecycle beyond the component register) or is not yet wired. They are **hidden from live sessions** (notice card) and only render in Demo mode, so no customer sees fabricated data. |
 
 Everything else in scope is COMPLETE in software or `EXTERNAL_ONLY` (needs hardware, credentials or production).
+A serial-port MAVLink listener is not built: it needs `pyserial` and a physical device, and serial radios are normally
+bridged to UDP/TCP by the gateway host (`mavlink-router` or `app/services/edge/gateway_service.py`).
 
 ## Commercial architecture
 
@@ -42,8 +43,8 @@ Everything else in scope is COMPLETE in software or `EXTERNAL_ONLY` (needs hardw
 |---|---|---|---|---|---|---|---|
 | MAVLink | v1/v2, CRC_EXTRA, sysid/compid, sequence, dup, late, loss, multi-vehicle | COMPLETE | `mavlink_connector` | — | yes | — | `test_m20_mavlink_integrity` |
 | MAVLink | v2 signature verification, replay protection, fail-closed | COMPLETE | `_verify_signature`, `secrets` | Cross-check with a real autopilot signer | interop = EXTERNAL_ONLY | — | `test_mavlink_signing`, `test_mavlink_signing_api` |
-| MAVLink | UDP listener (allow-list and/or signing required, back-pressure) | COMPLETE | `listeners/udp_mavlink.py` | — | yes | — | `test_listeners` (real sockets), `scripts/e2e_listener_smoke.py` (separate processes) |
-| MAVLink | TCP / serial listeners | PARTIAL | — | see G2 | yes | low | — |
+| MAVLink | UDP and TCP listeners (allow-list and/or signing required, back-pressure, connection cap, idle timeout) | COMPLETE | `listeners/udp_mavlink.py`, `tcp_mavlink.py` | — | yes | — | `test_listeners` (real sockets), `scripts/e2e_listener_smoke.py` (separate processes) |
+| MAVLink | Serial-port listener | EXTERNAL_ONLY | needs a device and `pyserial`; radios are bridged to UDP/TCP | hardware | no | — | bench harness supports `serial:` sources |
 | MAVLink | Physical link behaviour, RF, real autopilot | EXTERNAL_ONLY | bench harness + plan | hardware | no | — | `scripts/mavlink_bench_harness.py` |
 | MQTT | subscribe, filter, reconnect+backoff, TLS/plaintext policy, secret password | COMPLETE | `listeners/mqtt.py`, in-memory broker (test double) | Real broker validation | broker = EXTERNAL_ONLY | — | `test_listeners` |
 | DJI | HMAC-signed webhook, fail closed | COMPLETE | `telemetry.py` | Real FlightHub | EXTERNAL_ONLY | — | `test_m18_*` |

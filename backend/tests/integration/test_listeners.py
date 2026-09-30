@@ -257,3 +257,96 @@ def test_supervisor_starts_active_sources_refuses_unsafe_ones_and_follows_status
     err = db_session.get(DataSource, uuid.UUID(unsafe)).last_error
     assert err and err.startswith("listener refused:") and "allowed_cidrs" in err
     assert no_listen  # noqa: S101 (created only to prove it is ignored)
+
+
+# ------------------------------------------------------------------ TCP MAVLink listener
+def _run_tcp(sink, settings, payloads, *, settle=0.4, idle_timeout=5.0, max_connections=64, clients=1):
+    from app.listeners.tcp_mavlink import run_tcp
+
+    async def go():
+        stop, ready = asyncio.Event(), asyncio.Event()
+        addr = {}
+        task = asyncio.create_task(run_tcp(sink, settings, stop, flush_interval=0.1, idle_timeout=idle_timeout,
+                                           max_connections=max_connections,
+                                           on_ready=lambda a: (addr.update(a=a), ready.set())))
+        await asyncio.wait_for(ready.wait(), 5)
+        writers = []
+        for _ in range(clients):
+            r, w = await asyncio.open_connection(*addr["a"][:2])
+            writers.append((r, w))
+            for p in payloads:
+                w.write(p)
+                await w.drain()
+        await asyncio.sleep(settle)
+        for _, w in writers:
+            w.close()
+        stop.set()
+        await task
+    asyncio.run(go())
+
+
+def test_tcp_config_needs_exactly_one_transport_and_a_protection():
+    with pytest.raises(ListenerRefused, match="exactly one"):
+        validate_udp_config({"listen": {"udp_port": 1, "tcp_port": 2, "allowed_cidrs": ["10.0.0.0/8"]}}, None)
+    with pytest.raises(ListenerRefused, match="exactly one"):
+        validate_udp_config({"listen": {"allowed_cidrs": ["10.0.0.0/8"]}}, None)
+    with pytest.raises(ListenerRefused, match="allowed_cidrs"):
+        validate_udp_config({"listen": {"tcp_port": 5760}}, None)
+    ok = validate_udp_config({"listen": {"tcp_port": 5760, "allowed_cidrs": ["10.0.0.0/8"]}}, None)
+    assert ok.transport == "tcp" and ok.port == 5760
+
+
+def test_tcp_stream_becomes_jobs_processed_by_the_worker(client, db_session):
+    org_id, h = _org(client, db_session, "tcp1")
+    asset = _drone(client, h)
+    port = free_udp_port()
+    cfg = {"system_id_map": {"1": asset}, "listen": {"bind": "127.0.0.1", "tcp_port": port, "allowed_cidrs": ["127.0.0.0/8"]}}
+    sid = _source(client, h, "MAVLINK", cfg)
+    src = db_session.get(DataSource, uuid.UUID(sid))
+    settings = validate_udp_config(src.connection_config, src.secret_reference)
+    sink = JobSink(organization_id=org_id, data_source_id=src.id, session_factory=session_factory_for(db_session), protocol="tcp")
+    # one TCP stream: frames may be split anywhere; the connector reassembles them
+    stream = heartbeat(seq=1) + vibration(1.5, 1.6, 1.7, seq=2) + vibration(1.5, 1.6, 1.7, seq=3)
+    _run_tcp(sink, settings, [stream[:17], stream[17:40], stream[40:]])
+    assert jobs_for(db_session, org_id)
+    while job_service.run_one(db_session, worker_id="w", job_types=[job_handlers.INGEST]):
+        pass
+    n = db_session.scalar(select(func.count(HUMSSensorReading.id)).where(HUMSSensorReading.organization_id == org_id))
+    assert n == 2
+
+
+def test_tcp_peer_outside_allow_list_and_connection_cap_and_idle_timeout(client, db_session):
+    org_id, h = _org(client, db_session, "tcp2")
+    port = free_udp_port()
+    sid = uuid.UUID(_source(client, h, "MAVLINK", {"listen": {"tcp_port": port, "allowed_cidrs": ["127.0.0.0/8"]}}))
+    denied = validate_udp_config({"listen": {"tcp_port": port, "allowed_cidrs": ["10.0.0.0/8"]}}, None)
+    sink = JobSink(organization_id=org_id, data_source_id=sid, session_factory=session_factory_for(db_session), protocol="tcp")
+    _run_tcp(sink, denied, [vibration(seq=1)])
+    assert jobs_for(db_session, org_id) == []                                   # peer not allowed: nothing buffered
+
+    allowed = validate_udp_config({"listen": {"tcp_port": port, "allowed_cidrs": ["127.0.0.0/8"]}}, None)
+    _run_tcp(sink, allowed, [vibration(seq=1)], clients=3, max_connections=1)
+    data = b"".join(j.payload_blob or b"" for j in jobs_for(db_session, org_id))
+    assert data.count(b"\xfd") >= 1 and len(data) <= len(vibration(seq=1)) * 3    # cap held; extra peers were closed
+
+    # idle peers are disconnected (no fd leak): the server stays healthy afterwards
+    _run_tcp(sink, allowed, [], settle=0.6, idle_timeout=0.2)
+
+
+def test_supervisor_starts_a_tcp_listener(client, db_session):
+    org_id, h = _org(client, db_session, "tcp3")
+    port = free_udp_port()
+    sid = _source(client, h, "MAVLINK", {"listen": {"tcp_port": port, "allowed_cidrs": ["127.0.0.0/8"]}})
+
+    async def go():
+        sup = Supervisor(session_factory=session_factory_for(db_session), reconcile_seconds=0.1, flush_interval=0.1)
+        await sup.reconcile()
+        assert set(sup.running) == {uuid.UUID(sid)}
+        r, w = await asyncio.open_connection("127.0.0.1", port)               # really listening on TCP
+        w.write(vibration(seq=1))
+        await w.drain()
+        w.close()
+        await asyncio.sleep(0.3)
+        await sup.shutdown()
+    asyncio.run(go())
+    assert jobs_for(db_session, org_id)

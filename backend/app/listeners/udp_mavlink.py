@@ -37,18 +37,22 @@ class UdpSettings:
     port: int
     nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = field(default_factory=list)
     signed: bool = False
+    transport: str = "udp"
 
 
 def validate_udp_config(connection_config: dict[str, Any] | None, secret_reference: str | None) -> UdpSettings:
     cfg = listener_config(connection_config)
     if not cfg:
         raise ListenerRefused("no 'listen' configuration")
+    if bool(cfg.get("udp_port")) == bool(cfg.get("tcp_port")):
+        raise ListenerRefused("set exactly one of listen.udp_port / listen.tcp_port")
+    transport = "tcp" if cfg.get("tcp_port") else "udp"
     try:
-        port = int(cfg.get("udp_port") or 0)
+        port = int(cfg.get("tcp_port") or cfg.get("udp_port") or 0)
     except (TypeError, ValueError) as exc:
-        raise ListenerRefused("listen.udp_port is required") from exc
+        raise ListenerRefused(f"listen.{transport}_port must be a number") from exc
     if not 1 <= port <= 65535:
-        raise ListenerRefused("listen.udp_port out of range")
+        raise ListenerRefused(f"listen.{transport}_port out of range")
     bind = str(cfg.get("bind") or "127.0.0.1")
     try:
         ipaddress.ip_address(bind)
@@ -60,7 +64,7 @@ def validate_udp_config(connection_config: dict[str, Any] | None, secret_referen
         raise ListenerRefused(
             "refusing to listen: configure listen.allowed_cidrs and/or MAVLink signing (secret_reference)"
         )
-    return UdpSettings(bind=bind, port=port, nets=nets, signed=signed)
+    return UdpSettings(bind=bind, port=port, nets=nets, signed=signed, transport=transport)
 
 
 class MavlinkUdpProtocol(asyncio.DatagramProtocol):

@@ -24,6 +24,7 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.listeners.common import DEFAULT_MAX_QUEUE_DEPTH, JobSink, SessionFactory
 from app.listeners.mqtt import MqttListener, PahoClient, validate_mqtt_config
+from app.listeners.tcp_mavlink import run_tcp
 from app.listeners.udp_mavlink import ListenerRefused, run_udp, validate_udp_config
 from app.models.data_source import DataSource, DataSourceConnectorType, DataSourceStatus
 
@@ -114,8 +115,10 @@ class Supervisor:
         if src.connector_type == DataSourceConnectorType.MAVLINK:
             cfg = validate_udp_config(src.connection_config, src.secret_reference)
             sink = JobSink(organization_id=src.organization_id, data_source_id=src.id,
-                           session_factory=self.session_factory, protocol="udp", max_queue_depth=self.max_queue_depth)
-            coro = run_udp(sink, cfg, stop, flush_interval=self.flush_interval)
+                           session_factory=self.session_factory, protocol=cfg.transport,
+                           max_queue_depth=self.max_queue_depth)
+            runner = run_tcp if cfg.transport == "tcp" else run_udp
+            coro = runner(sink, cfg, stop, flush_interval=self.flush_interval)
         else:
             mcfg = validate_mqtt_config(src.connection_config, src.secret_reference)
             sink = JobSink(organization_id=src.organization_id, data_source_id=src.id,
