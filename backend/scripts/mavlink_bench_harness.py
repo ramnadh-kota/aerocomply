@@ -48,7 +48,7 @@ def build_v2(msgid: int, payload: bytes, *, seq: int, sysid: int = 1, compid: in
 def simulate(duration: float, rate_hz: float, vehicles: int, loss: float, dup: float, corrupt: float, seed: int):
     """Yield (chunk_bytes, meta) at wall-clock pace. `meta` counts what was truly injected."""
     rng = random.Random(seed)
-    seqs = defaultdict(int)
+    seqs: dict[int, int] = defaultdict(int)
     injected = {"sent": 0, "dropped": 0, "duplicated": 0, "corrupted": 0}
     t_end, period = time.monotonic() + duration, 1.0 / rate_hz
     nxt = time.monotonic()

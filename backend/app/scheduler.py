@@ -2,6 +2,7 @@
 per period, because the idempotency key contains the period bucket (unique (job_type, dedupe_key))."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -16,7 +17,7 @@ class Schedule:
     name: str
     job_type: str
     period_seconds: int
-    payload_fn: callable  # () -> dict
+    payload_fn: Callable[[], dict]
 
 
 def _retention_payload() -> dict:

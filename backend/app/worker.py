@@ -17,7 +17,10 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.services import job_handlers, job_service  # noqa: F401  (job_handlers registers the handlers)
+from app.services import (  # noqa: F401  (job_handlers registers the handlers)
+    job_handlers,
+    job_service,
+)
 
 log = structlog.get_logger("worker")
 

@@ -35,7 +35,7 @@ class ListenerRefused(Exception):
 class UdpSettings:
     bind: str
     port: int
-    nets: list[ipaddress._BaseNetwork] = field(default_factory=list)
+    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = field(default_factory=list)
     signed: bool = False
 
 
@@ -44,7 +44,7 @@ def validate_udp_config(connection_config: dict[str, Any] | None, secret_referen
     if not cfg:
         raise ListenerRefused("no 'listen' configuration")
     try:
-        port = int(cfg.get("udp_port"))
+        port = int(cfg.get("udp_port") or 0)
     except (TypeError, ValueError) as exc:
         raise ListenerRefused("listen.udp_port is required") from exc
     if not 1 <= port <= 65535:

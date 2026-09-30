@@ -24,7 +24,7 @@ from typing import Any, Protocol
 import structlog
 
 from app.core import secrets as secrets_layer
-from app.listeners.common import RECONNECTS, RECEIVED, UP, JobSink, listener_config
+from app.listeners.common import RECEIVED, RECONNECTS, UP, JobSink, listener_config
 from app.listeners.udp_mavlink import ListenerRefused
 
 log = structlog.get_logger("listener.mqtt")

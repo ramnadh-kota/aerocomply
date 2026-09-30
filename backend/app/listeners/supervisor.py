@@ -20,7 +20,6 @@ from typing import Any
 
 import structlog
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.listeners.common import DEFAULT_MAX_QUEUE_DEPTH, JobSink, SessionFactory

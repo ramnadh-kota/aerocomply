@@ -79,7 +79,7 @@ def parse_config(connection_config: dict[str, Any] | None) -> PollConfig:
                       auth=auth, fmt=fmt, max_bytes=max_bytes)
 
 
-def _is_public(ip: ipaddress._BaseAddress) -> bool:
+def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         ip = ip.ipv4_mapped
     return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved

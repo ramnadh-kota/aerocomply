@@ -32,14 +32,14 @@ DEFAULT_MAX_QUEUE_DEPTH = 5_000        # QUEUED jobs per organization before the
 SessionFactory = Callable[[], AbstractContextManager[Session]]
 
 
-def parse_cidrs(values: list[str] | None) -> list[ipaddress._BaseNetwork]:
-    nets = []
+def parse_cidrs(values: list[str] | None) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
     for v in values or []:
         nets.append(ipaddress.ip_network(str(v).strip(), strict=False))   # ValueError on garbage -> caller refuses to start
     return nets
 
 
-def ip_allowed(ip: str, nets: list[ipaddress._BaseNetwork]) -> bool:
+def ip_allowed(ip: str, nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network]) -> bool:
     try:
         addr = ipaddress.ip_address(ip)
     except ValueError:

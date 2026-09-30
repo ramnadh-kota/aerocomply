@@ -102,6 +102,7 @@ def _effective(db: Session, organization_id: uuid.UUID, data_class: str) -> Rete
 
 # ---------------------------------------------------------------- eligibility (one query per class)
 def _eligible_ids_stmt(data_class: str, organization_id: uuid.UUID, cutoff: datetime, limit: int | None):
+    model: Any
     if data_class == RetentionClass.TELEMETRY_READINGS:
         r = HUMSSensorReading
         q = select(r.id).where(
@@ -187,7 +188,7 @@ def run_retention(
                     path = _archive(db, model, ids, org, data_class)              # raises => nothing deleted for the batch
                     if path:
                         res.archived_files.append(path)
-                    res.deleted += db.execute(delete(model).where(model.id.in_(ids))).rowcount or 0
+                    res.deleted += getattr(db.execute(delete(model).where(model.id.in_(ids))), "rowcount", 0) or 0
                     db.flush()
             except Exception as exc:  # noqa: BLE001 - one class failing must not stop the others; recorded in the result
                 res.error = f"{type(exc).__name__}: {exc}"[:300]

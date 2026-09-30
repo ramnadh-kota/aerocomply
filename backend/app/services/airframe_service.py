@@ -17,8 +17,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError
-from app.models.airframe_details import EvtolConfiguration, EvtolDetail, HelicopterDetail, RotorSystem
+from app.core.errors import ConflictError
+from app.models.airframe_details import (
+    EvtolConfiguration,
+    EvtolDetail,
+    HelicopterDetail,
+    RotorSystem,
+)
 from app.models.asset import Asset, AssetLifecycleStatus, AssetType
 from app.services import drone_service, facility_service
 from app.services.audit_service import record_audit_event
@@ -27,7 +32,7 @@ from app.services.limit_enforcement_service import check_asset_creation_limit
 HELICOPTER = AssetType.HELICOPTER.value
 EVTOL = AssetType.EVTOL.value
 
-_DETAIL_MODEL = {HELICOPTER: HelicopterDetail, EVTOL: EvtolDetail}
+_DETAIL_MODEL: dict[str, Any] = {HELICOPTER: HelicopterDetail, EVTOL: EvtolDetail}
 _DETAIL_FIELDS: dict[str, dict[str, type]] = {
     HELICOPTER: {"rotor_system": str, "main_rotor_blade_count": int, "engine_count": int, "max_takeoff_weight_kg": float},
     EVTOL: {"configuration": str, "propulsor_count": int, "battery_nominal_energy_kwh": float,

@@ -35,7 +35,8 @@ class InMemoryBroker:
 
 class InMemoryClient:
     def __init__(self, broker: InMemoryBroker) -> None:
-        self.broker, self.connected, self.subscriptions = broker, False, []
+        self.broker, self.connected = broker, False
+        self.subscriptions: list[str] = []
         self._on_message: Callable[[str, bytes], None] = lambda t, p: None
         self._on_disconnect: Callable[[], None] = lambda: None
 

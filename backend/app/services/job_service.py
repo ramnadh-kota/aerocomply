@@ -41,7 +41,7 @@ class JobError(Exception):
     SAVEPOINT), so anything that must SURVIVE the failure (e.g. 'last_error' on a data source) goes in the hook, which
     the runner calls after the rollback and before recording the outcome."""
 
-    def __init__(self, message: str = "", *, after_rollback: "Callable[[Session], None] | None" = None) -> None:
+    def __init__(self, message: str = "", *, after_rollback: Callable[[Session], None] | None = None) -> None:
         super().__init__(message)
         self.after_rollback = after_rollback
 
@@ -120,7 +120,7 @@ def reclaim_stale(db: Session, *, now: datetime | None = None) -> int:
         .values(status=JobStatus.QUEUED, locked_at=None, locked_by=None, run_after=now,
                 last_error="worker lost (visibility timeout)")
     )
-    return res.rowcount or 0
+    return getattr(res, "rowcount", 0) or 0
 
 
 def claim_next(
@@ -232,7 +232,10 @@ def run_one(db: Session, *, worker_id: str, job_types: list[str] | None = None) 
         except Exception:  # noqa: BLE001 - session poisoned outside the handler SAVEPOINT: reset and re-record
             job_id = job.id
             db.rollback()
-            job = db.get(BackgroundJob, job_id)
+            reloaded = db.get(BackgroundJob, job_id)
+            if reloaded is None:  # pragma: no cover - the row vanished (tenant deleted mid-job)
+                return True
+            job = reloaded
             status = fail(db, job, exc)
         log.warning("job.failed", status=status, attempts=job.attempts, error=type(exc).__name__)
     finally:
