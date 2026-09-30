@@ -338,14 +338,58 @@ def _record_or_update_log(
 
 
 
+# Evaluate a sensor every STRIDE new readings during batch ingestion. The evaluation window is the latest
+# hums_service.FEATURE_WINDOW_READING_COUNT (20) readings, so a stride of half a window guarantees every reading
+# lies inside at least one evaluated window (no reading escapes evaluation); the final flush covers the tail.
+HUMS_EVALUATION_STRIDE = 10
+
+
+def evaluate_sensors(db: Session, *, organization_id: uuid.UUID, sensor_ids) -> None:
+    """Run exceedance/feature evaluation for sensors whose readings were just written. Never raises."""
+    from app.services import hums_service
+
+    db.flush()
+    for s_id in sensor_ids:
+        try:
+            # SAVEPOINT: a failure here must not abort the ingestion transaction
+            # (Postgres poisons the whole transaction after any statement error).
+            with db.begin_nested():
+                hums_service.detect_and_record_exceedances(
+                    db, organization_id=organization_id, sensor_id=s_id, user_id=None
+                )
+        except Exception:
+            # Non-fatal to ingestion, but never silent: an operator must be able to see it.
+            log.exception(
+                "telemetry.exceedance_evaluation_failed",
+                organization_id=str(organization_id), sensor_id=str(s_id),
+            )
+
+
+def evaluate_pending_sensors(
+    db: Session, *, organization_id: uuid.UUID, pending: dict[uuid.UUID, int], force: bool = False
+) -> None:
+    """Evaluate sensors that accumulated >= STRIDE readings (or all pending when `force`), then reset them."""
+    due = [sid for sid, n in pending.items() if n >= (1 if force else HUMS_EVALUATION_STRIDE)]
+    if not due:
+        return
+    evaluate_sensors(db, organization_id=organization_id, sensor_ids=due)
+    for sid in due:
+        pending.pop(sid, None)
+
+
+
 def process_normalized_event(
     db: Session,
     *,
     organization_id: uuid.UUID,
     event: NormalizedTelemetryEvent,
     raw_payload_hash: str | None = None,
+    hums_pending: dict[uuid.UUID, int] | None = None,
 ) -> TelemetryEventResult:
     """Processes a validated normalized telemetry event through authoritative domain services.
+
+    `hums_pending`: when given, HUMS exceedance evaluation is deferred to the caller (batch ingestion, see
+    `evaluate_pending_sensors`); when None the touched sensors are evaluated immediately, as before.
 
     Enforces:
     - Deterministic Idempotency: (org_id, source_system, source_event_id)
@@ -574,23 +618,13 @@ def process_normalized_event(
         touched_sensor_ids.add(sensor.id)
 
     if touched_sensor_ids:
-        db.flush()
-        from app.services import hums_service
-
-        for s_id in touched_sensor_ids:
-            try:
-                # SAVEPOINT: a failure here must not abort the ingestion transaction
-                # (Postgres poisons the whole transaction after any statement error).
-                with db.begin_nested():
-                    hums_service.detect_and_record_exceedances(
-                        db, organization_id=organization_id, sensor_id=s_id, user_id=None
-                    )
-            except Exception:
-                # Non-fatal to ingestion, but never silent: an operator must be able to see it.
-                log.exception(
-                    "telemetry.exceedance_evaluation_failed",
-                    organization_id=str(organization_id), sensor_id=str(s_id),
-                )
+        if hums_pending is not None:
+            # Batch mode: the caller evaluates each sensor once per stride and at the end of the batch
+            # (evaluate_pending_sensors); evaluating per event costs ~20 statements/event for overlapping windows.
+            for s_id in touched_sensor_ids:
+                hums_pending[s_id] = hums_pending.get(s_id, 0) + 1
+        else:
+            evaluate_sensors(db, organization_id=organization_id, sensor_ids=touched_sensor_ids)
 
     # 6. Record Telemetry Event Log (update the row of a previously quarantined/rejected retry)
     event_log = _record_or_update_log(

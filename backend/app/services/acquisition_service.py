@@ -300,12 +300,13 @@ def _ingest_core(
         )
     report.received = len(events)
     latencies: list[float] = []
+    hums_pending: dict[uuid.UUID, int] = {}
 
     for event in events:
         try:
             with db.begin_nested():  # one bad event must not abort the whole payload
                 res = telemetry_service.process_normalized_event(
-                    db, organization_id=source.organization_id, event=event
+                    db, organization_id=source.organization_id, event=event, hums_pending=hums_pending
                 )
         except IntegrityError as exc:
             if "uq_telemetry_event_org_source_eventid" in str(exc.orig):
@@ -328,6 +329,7 @@ def _ingest_core(
                 error=type(exc).__name__,
             )
             continue
+        telemetry_service.evaluate_pending_sensors(db, organization_id=source.organization_id, pending=hums_pending)
         status = res.status
         if status == TelemetryProcessingStatus.PROCESSED:
             report.accepted += 1
@@ -342,6 +344,9 @@ def _ingest_core(
             report.rejected += 1
             if len(report.errors) < _MAX_ERROR_SAMPLES:
                 report.errors.append(_sanitise(res.message or status))
+    telemetry_service.evaluate_pending_sensors(
+        db, organization_id=source.organization_id, pending=hums_pending, force=True
+    )
     if latencies:
         report.latency_ms_avg = round(sum(latencies) / len(latencies), 1)
 

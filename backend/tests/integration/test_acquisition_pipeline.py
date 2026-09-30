@@ -449,3 +449,22 @@ def test_staleness_and_loss_and_quarantine_degrade_health(db_session):
     assert "quarantined" in acquisition_service.compute_health_detail(src, now)["reason"]
     src.status = "PAUSED"
     assert acquisition_service.compute_health_detail(src, now)["status"] == "INACTIVE"
+
+
+def test_mid_batch_vibration_spike_is_still_detected_with_batched_evaluation(client, db_session):
+    """Batch ingestion evaluates HUMS every STRIDE readings (not per event). A spike in the middle of a large
+    batch, followed by many normal readings, must still produce an exceedance."""
+    from app.models.hums import HUMSExceedance
+
+    org_id, h = _org(client, db_session)
+    a1 = _drone(client, h)
+    sid = _source(client, h, "MAVLINK", {"system_id_map": {"1": a1}})
+    frames, seq = heartbeat(seq=1), 1
+    for i in range(80):
+        seq += 1
+        frames += vibration(45.0, 52.0, 48.0, seq=seq) if i == 33 else vibration(1.5, 1.6, 1.7, seq=seq)
+    rep = _ingest(client, h, sid, frames).json()
+    assert rep["accepted"] >= 80
+    n = db_session.scalar(select(func.count(HUMSExceedance.id)).where(
+        HUMSExceedance.organization_id == org_id, HUMSExceedance.asset_id == uuid.UUID(a1)))
+    assert n >= 1
