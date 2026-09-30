@@ -204,9 +204,10 @@ def test_scheduler_enqueues_one_sweep_per_period_and_the_handler_is_dry_run_unle
 
     t0 = datetime(2026, 9, 30, 1, tzinfo=UTC)
     settings.retention_destructive_enabled = False
-    assert scheduler.tick(db_session, now=t0) == 1
+    n = len(scheduler.SCHEDULES)
+    assert scheduler.tick(db_session, now=t0) == n
     assert scheduler.tick(db_session, now=t0 + timedelta(hours=3)) == 0          # same day: no duplicate (any worker)
-    assert scheduler.tick(db_session, now=t0 + timedelta(days=1)) == 1           # next period
+    assert scheduler.tick(db_session, now=t0 + timedelta(days=1)) == n           # next period
     org_id, _, _ = _tenant(client, db_session, "r10")
     rs.set_policy(db_session, organization_id=org_id, data_class=RC.TELEMETRY_READINGS, retention_days=90, enabled=True)
     before = _n(db_session, org_id)

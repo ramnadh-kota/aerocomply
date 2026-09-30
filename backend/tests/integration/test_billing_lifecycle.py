@@ -344,3 +344,81 @@ def test_http_platform_flow_and_tenant_read_only_isolation(client, db_session):
     assert client.get("/api/v1/platform/billing/dunning", headers=ah).status_code == 403
     assert client.get("/api/v1/platform/billing/dunning", headers=ph).status_code == 200
     assert client.get("/api/v1/tenant/billing/invoices").status_code == 401
+
+
+# ------------------------------------------------------------------ grace period consequences
+def _past_due(db_session):
+    org, plan = _org(db_session), _plan(db_session)
+    _price(db_session, plan, org)
+    sub, inv = bs.start_subscription_with_billing(db_session, actor_user_id=None, organization_id=org.id,
+                                                  plan_id=plan.id, currency="INR", billing_interval="MONTHLY")
+    bs.pay_invoice(db_session, actor_user_id=None, invoice_id=inv.id, payment_method_ref="pm_test_decline")
+    db_session.refresh(sub)
+    return org, sub, inv
+
+
+def test_grace_clock_runs_from_the_transition_and_is_not_reset_by_unrelated_edits(db_session):
+    org, sub, inv = _past_due(db_session)
+    assert sub.status == "PAST_DUE" and sub.past_due_since is not None
+    started = sub.past_due_since
+    sub.ends_at = sub.ends_at + timedelta(days=1)          # an unrelated edit bumps updated_at
+    db_session.flush()
+    later = datetime.now(UTC) + timedelta(days=15)
+    (row,) = bs.evaluate_dunning(db_session, now=later)
+    assert row["past_due_since"] == started.isoformat() and row["days_past_due"] >= 14
+
+
+def test_recovery_clears_the_grace_clock(db_session):
+    org, sub, inv = _past_due(db_session)
+    bs.pay_invoice(db_session, actor_user_id=None, invoice_id=inv.id, payment_method_ref="pm_test_ok")
+    db_session.refresh(sub)
+    assert sub.status == "ACTIVE" and sub.past_due_since is None
+    assert bs.evaluate_dunning(db_session, now=datetime.now(UTC) + timedelta(days=60)) == []
+
+
+def test_grace_expiry_dry_run_changes_nothing_and_execute_cancels_revokes_and_audits(db_session):
+    from app.models.audit_event import AuditEvent
+    from app.services.entitlement_service import resolve_entitlements
+
+    org, sub, inv = _past_due(db_session)
+    later = datetime.now(UTC) + timedelta(days=15)
+    assert resolve_entitlements(db_session, organization_id=org.id).resolution_status.value == "ACTIVE"   # PAST_DUE still grants
+    dry = bs.enforce_grace_expiry(db_session, now=later, execute=False)
+    assert len(dry) == 1 and "action_taken" not in dry[0]
+    db_session.refresh(sub)
+    assert sub.status == "PAST_DUE"
+
+    inside = bs.enforce_grace_expiry(db_session, execute=True)                       # grace not over yet
+    assert inside == []
+    done = bs.enforce_grace_expiry(db_session, now=later, execute=True)
+    assert done[0]["action_taken"] == "CANCELED"
+    db_session.refresh(sub)
+    db_session.refresh(inv)
+    assert sub.status == "CANCELED" and inv.status == "UNCOLLECTIBLE"
+    assert resolve_entitlements(db_session, organization_id=org.id).resolution_status.value != "ACTIVE"    # access closed
+    actions = [a for (a,) in db_session.execute(select(AuditEvent.action).where(AuditEvent.organization_id == org.id))]
+    assert "billing.grace_expired" in actions
+    assert bs.enforce_grace_expiry(db_session, now=later, execute=True) == []                      # idempotent
+
+
+def test_dunning_job_only_executes_when_enforcement_is_enabled(db_session, monkeypatch):
+    from app.core.config import get_settings
+    from app.services import job_handlers, job_service
+
+    org, sub, inv = _past_due(db_session)
+    sub.past_due_since = datetime.now(UTC) - timedelta(days=40)
+    db_session.flush()
+    settings = get_settings()
+    monkeypatch.setattr(settings, "billing_enforce_grace", False)
+    job, _ = job_service.enqueue(db_session, job_type=job_handlers.DUNNING, payload={"execute": True}, idempotency_key="d1")
+    while job_service.run_one(db_session, worker_id="w", job_types=[job_handlers.DUNNING]):
+        pass
+    db_session.refresh(job)
+    db_session.refresh(sub)
+    assert job.result["executed"] is False and job.result["past_grace"] >= 1 and sub.status == "PAST_DUE"
+    monkeypatch.setattr(settings, "billing_enforce_grace", True)
+    job2, _ = job_service.enqueue(db_session, job_type=job_handlers.DUNNING, payload={"execute": True}, idempotency_key="d2")
+    while job_service.run_one(db_session, worker_id="w", job_types=[job_handlers.DUNNING]):
+        pass
+    db_session.refresh(sub)
+    assert sub.status == "CANCELED"

@@ -23,7 +23,14 @@ def _retention_payload() -> dict:
     return {"execute": get_settings().retention_destructive_enabled}
 
 
-SCHEDULES = [Schedule("retention", job_handlers.RETENTION_SWEEP, 86_400, _retention_payload)]
+def _dunning_payload() -> dict:
+    return {"execute": get_settings().billing_enforce_grace}
+
+
+SCHEDULES = [
+    Schedule("retention", job_handlers.RETENTION_SWEEP, 86_400, _retention_payload),
+    Schedule("dunning", job_handlers.DUNNING, 86_400, _dunning_payload),
+]
 
 
 def tick(db: Session, *, now: datetime | None = None) -> int:

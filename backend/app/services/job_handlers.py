@@ -111,3 +111,20 @@ def handle_poll(db: Session, job: BackgroundJob) -> dict[str, Any]:
 
 
 job_service.register_handler(POLL, handle_poll)
+
+
+DUNNING = "billing.dunning"
+
+
+def handle_dunning(db: Session, job: BackgroundJob) -> dict[str, Any]:
+    """Daily platform job: report subscriptions past the payment grace period and, only when BILLING_ENFORCE_GRACE is
+    enabled AND the job asks to execute, cancel them (audited, reversible)."""
+    from app.core.config import get_settings
+    from app.services import billing_service
+
+    execute = bool(job.payload.get("execute")) and get_settings().billing_enforce_grace
+    report = billing_service.enforce_grace_expiry(db, execute=execute)
+    return {"executed": execute, "past_grace": len(report), "canceled": sum(1 for r in report if r.get("action_taken"))}
+
+
+job_service.register_handler(DUNNING, handle_dunning)

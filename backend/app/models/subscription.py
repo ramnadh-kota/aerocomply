@@ -60,6 +60,9 @@ class Subscription(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # null = open-ended (no known end date yet).
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the subscription entered PAST_DUE (payment grace). Set/cleared by subscription_service on the status
+    # transition; the dunning grace clock runs from HERE, not from updated_at (which any unrelated edit resets).
+    past_due_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

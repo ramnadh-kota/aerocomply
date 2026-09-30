@@ -31,7 +31,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -451,16 +451,44 @@ def evaluate_dunning(db: Session, *, now: datetime | None = None, grace_days: in
     (POST /platform/organizations/{id}/suspend); nothing here changes access."""
     now = now or datetime.now(UTC)
     cutoff = now - timedelta(days=grace_days)
-    rows = db.execute(select(Subscription).where(Subscription.status == SubscriptionStatus.PAST_DUE,
-                                                 Subscription.updated_at <= cutoff)).scalars().all()
+    rows = db.execute(select(Subscription).where(
+        Subscription.status == SubscriptionStatus.PAST_DUE,
+        func.coalesce(Subscription.past_due_since, Subscription.updated_at) <= cutoff)).scalars().all()
     out = []
     for sub in rows:
+        since = sub.past_due_since or sub.updated_at
         open_invoices = db.execute(select(Invoice).where(Invoice.subscription_id == sub.id,
                                                          Invoice.status == InvoiceStatus.OPEN)).scalars().all()
         out.append({
             "subscription_id": str(sub.id), "organization_id": str(sub.organization_id),
-            "past_due_since": sub.updated_at.isoformat(), "days_past_due": (now - sub.updated_at).days,
+            "past_due_since": since.isoformat(), "days_past_due": (now - since).days,
             "open_invoices": len(open_invoices), "amount_due_minor": sum(i.amount_minor for i in open_invoices),
             "recommended_action": "REVIEW_FOR_SUSPENSION",
         })
     return out
+
+
+def enforce_grace_expiry(db: Session, *, now: datetime | None = None, grace_days: int = DEFAULT_GRACE_DAYS,
+                         execute: bool = False) -> list[dict[str, Any]]:
+    """Dunning consequence. Subscriptions PAST_DUE for longer than the grace period are reported (execute=False) or,
+    with execute=True, CANCELED: entitlements are revoked (the organization keeps its login and its data, exactly
+    like any expired customer) and the unpaid invoices become UNCOLLECTIBLE. Reversible: a new subscription restores
+    access. Every action is audited. The scheduled job only executes when BILLING_ENFORCE_GRACE is enabled."""
+    report = evaluate_dunning(db, now=now, grace_days=grace_days)
+    if not execute:
+        return report
+    for row in report:
+        sub = _get_subscription(db, uuid.UUID(row["subscription_id"]))
+        if sub.status != SubscriptionStatus.PAST_DUE:
+            continue                                            # recovered since the report was built
+        for inv in db.execute(select(Invoice).where(Invoice.subscription_id == sub.id,
+                                                    Invoice.status == InvoiceStatus.OPEN)).scalars():
+            inv.status = InvoiceStatus.UNCOLLECTIBLE
+            db.add(inv)
+        subscription_service.cancel_subscription(db, actor_user_id=None, subscription_id=sub.id, commit=False)
+        _audit(db, sub.organization_id, None, "billing.grace_expired", "Subscription", sub.id,
+               days_past_due=row["days_past_due"], amount_due_minor=row["amount_due_minor"],
+               open_invoices=row["open_invoices"])
+        row["action_taken"] = "CANCELED"
+    db.flush()
+    return report

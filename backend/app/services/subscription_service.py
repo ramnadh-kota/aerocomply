@@ -27,7 +27,7 @@ by deactivating the other row.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -295,6 +295,10 @@ def update_subscription(
     updates: dict = {}
     if status is not None and new_status != sub.status:
         updates["previous_status"] = sub.status
+        if new_status == SubscriptionStatus.PAST_DUE:
+            sub.past_due_since = datetime.now(UTC)            # the payment-grace clock starts now
+        elif sub.status == SubscriptionStatus.PAST_DUE:
+            sub.past_due_since = None                          # recovered, or ended: the clock stops
         sub.status = new_status
         updates["status"] = new_status
     if plan_id is not None and plan_id != sub.plan_id:

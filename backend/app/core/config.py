@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     # Billing provider adapter name. "test" is a deterministic double and is refused in production;
     # a real provider must be registered via billing_service.register_provider.
     billing_provider: str = "test"
+    # Cancel subscriptions that stay PAST_DUE beyond the grace period (billing_service.enforce_grace_expiry). Off by default.
+    billing_enforce_grace: bool = False
     # Policy rate limiting (app/core/rate_limit_middleware.py). Overrides: {"lisa": "10/60", "default": "off"}.
     # Data retention (app/services/retention_service.py). Real deletion needs BOTH an enabled policy and this switch.
     retention_destructive_enabled: bool = False
