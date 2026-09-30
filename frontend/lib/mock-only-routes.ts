@@ -24,7 +24,6 @@ export const MOCK_ONLY_ROUTES: readonly string[] = [
   "/fleet/aircraft/[id]/health",
   "/fleet/health",
   "/integrations",
-  "/maintenance-program",
   "/maintenance/discrepancies",
   "/maintenance/material-readiness",
   "/maintenance/planning",
@@ -48,17 +47,25 @@ export const MOCK_ONLY_ROUTES: readonly string[] = [
   "/workspace",
 ];
 
-/** Where a customer can find live data for the same purpose, when a connected page exists. */
-export const LIVE_EQUIVALENT: Readonly<Record<string, { href: string; label: string }>> = {
-  "/audit": { href: "/tenant/audit", label: "Audit Trail" },
-  "/evidence/[id]": { href: "/compliance", label: "Compliance evidence" },
-  "/fleet/health": { href: "/intelligence/fleet", label: "Fleet Intelligence" },
-  "/executive": { href: "/dashboard", label: "Dashboard" },
-  "/maintenance/records": { href: "/maintenance/work-orders", label: "Work Orders" },
-  "/maintenance/tasks": { href: "/maintenance/work-orders", label: "Work Orders" },
-  "/maintenance/planning": { href: "/maintenance/operations", label: "Maintenance Operations" },
-  "/maintenance/release-readiness": { href: "/maintenance/control-center", label: "Maintenance Control Center" },
-  "/organization/usage": { href: "/tenant/usage", label: "Usage" },
+/**
+ * Mock-only pages whose PURPOSE is served by a connected page: a live session is sent there instead of seeing a notice.
+ * Each target must be a real, connected route (verified by tests/mock-only-routes.test.ts). "[id]" in the target is
+ * replaced by the id segment of the source URL.
+ */
+export const LIVE_REDIRECTS: Readonly<Record<string, string>> = {
+  "/audit": "/tenant/audit",
+  "/fleet/health": "/intelligence/fleet",
+  "/executive": "/dashboard",
+  "/maintenance/records": "/maintenance/work-orders",
+  "/maintenance/tasks": "/maintenance/work-orders",
+  "/maintenance/planning": "/maintenance/operations",
+  "/maintenance/release-readiness": "/maintenance/control-center",
+  "/organization/usage": "/tenant/usage",
+  "/organization/roles/[id]": "/tenant/roles",
+  "/organization/roles/new": "/tenant/roles",
+  "/organization/users/[id]": "/tenant/users",
+  "/platform/features": "/platform/product-catalog",
+  "/evidence/[id]": "/compliance/evidence/[id]",
 };
 
 function toRegex(pattern: string): RegExp {
@@ -80,4 +87,14 @@ export function matchMockOnlyRoute(pathname: string): string | null {
 
 export function isMockOnlyRoute(pathname: string): boolean {
   return matchMockOnlyRoute(pathname) !== null;
+}
+
+/** Connected page a live session should be sent to for this pathname, or null when there is none. */
+export function liveRedirectFor(pathname: string): string | null {
+  const pattern = matchMockOnlyRoute(pathname);
+  if (!pattern) return null;
+  const target = LIVE_REDIRECTS[pattern];
+  if (!target) return null;
+  const id = pathname.replace(/\/+$/, "").split("/").pop() ?? "";
+  return target.replace("[id]", id);
 }

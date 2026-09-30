@@ -1,12 +1,12 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { FeatureGuard } from "@/components/auth/FeatureGuard";
 import { useSession } from "@/lib/auth/SessionContext";
 import { getRouteFeatureKey, isPlatformPath, isPlatformRole } from "@/lib/entitlements/navFeatureMap";
-import { LIVE_EQUIVALENT, matchMockOnlyRoute } from "@/lib/mock-only-routes";
+import { liveRedirectFor, matchMockOnlyRoute } from "@/lib/mock-only-routes";
 
 /**
  * Display-side route protection for the (app) shell. Two independent rules:
@@ -22,6 +22,12 @@ import { LIVE_EQUIVALENT, matchMockOnlyRoute } from "@/lib/mock-only-routes";
 export function RouteEntitlementGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
   const { user, loading, isDemo } = useSession();
+  const router = useRouter();
+  const mockOnly = matchMockOnlyRoute(pathname);
+  const redirectTo = !isDemo && mockOnly ? liveRedirectFor(pathname) : null;
+  useEffect(() => {
+    if (redirectTo) router.replace(redirectTo);
+  }, [redirectTo, router]);
 
   if (isPlatformPath(pathname) && !isDemo) {
     if (loading) return <div className="ac-card" style={{ padding: 24, textAlign: "center" }}>Checking access…</div>;
@@ -39,10 +45,10 @@ export function RouteEntitlementGuard({ children }: { children: ReactNode }) {
   }
 
   // Pages that only contain bundled sample data must not present it as this organization's own records.
-  const mockOnly = matchMockOnlyRoute(pathname);
   if (mockOnly && !isDemo) {
-    if (loading) return <div className="ac-card" style={{ padding: 24, textAlign: "center" }}>Checking access…</div>;
-    const live = LIVE_EQUIVALENT[mockOnly];
+    if (loading || redirectTo) {
+      return <div className="ac-card" style={{ padding: 24, textAlign: "center" }}>{redirectTo ? "Opening the live view…" : "Checking access…"}</div>;
+    }
     return (
       <div className="ac-card" role="status" style={{ padding: 32, textAlign: "center", margin: "24px 0" }}>
         <h2 className="ac-h2" style={{ marginBottom: 8 }}>Not connected to live data yet</h2>
@@ -50,11 +56,6 @@ export function RouteEntitlementGuard({ children }: { children: ReactNode }) {
           This module currently shows demonstration data only, so it is hidden for live organizations to avoid presenting
           sample records as yours. It is available in Demo mode.
         </p>
-        {live && (
-          <p className="ac-text-sm" style={{ marginBottom: 16 }}>
-            Live data for this purpose: <Link href={live.href} className="ac-link">{live.label}</Link>
-          </p>
-        )}
         <Link href="/dashboard" className="ac-btn ac-btn-primary">Return to Dashboard</Link>
       </div>
     );

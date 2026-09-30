@@ -10,5 +10,5 @@ No automation library is required: Node 24 + Chrome. Runs against a SCRATCH envi
 4. `node browser_validate.mjs` (auth, drone flows, data sources, LISA, platform, cross-suite) and
    `node browser_validate2.mjs` (strict sidebar, mock-only notices, live pages, helicopter and eVTOL UI journeys).
 
-Last run (2026-09-30): 44/44 and 46/46 checks, 0 console errors, 0 failed HTTP responses. This is scripted
+Last run (2026-09-30): 44/44 and 53/53 checks, 0 console errors, 0 failed HTTP responses. This is scripted
 validation, not human UAT.

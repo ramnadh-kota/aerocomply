@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { LIVE_EQUIVALENT, MOCK_ONLY_ROUTES, isMockOnlyRoute, matchMockOnlyRoute } from "../lib/mock-only-routes";
+import { LIVE_REDIRECTS, MOCK_ONLY_ROUTES, isMockOnlyRoute, liveRedirectFor, matchMockOnlyRoute } from "../lib/mock-only-routes";
 
 const APP = join(__dirname, "..", "app", "(app)");
 
@@ -46,11 +46,19 @@ describe("mock-only route registry", () => {
     }
   });
 
-  it("only points to live equivalents that are real, connected routes", () => {
+  it("only redirects to real, connected routes", () => {
     const live = new Set(pages(APP).filter((p) => !isMockOnly(p.source)).map((p) => p.route));
-    for (const [from, to] of Object.entries(LIVE_EQUIVALENT)) {
-      expect(MOCK_ONLY_ROUTES).toContain(from);
-      expect(live.has(to.href), `${from} -> ${to.href}`).toBe(true);
+    for (const [from, to] of Object.entries(LIVE_REDIRECTS)) {
+      expect(MOCK_ONLY_ROUTES, from).toContain(from);
+      expect(live.has(to), `${from} -> ${to}`).toBe(true);
     }
+  });
+
+  it("resolves redirect targets, carrying the id segment", () => {
+    expect(liveRedirectFor("/audit")).toBe("/tenant/audit");
+    expect(liveRedirectFor("/evidence/abc-123")).toBe("/compliance/evidence/abc-123");
+    expect(liveRedirectFor("/organization/roles/new")).toBe("/tenant/roles");
+    expect(liveRedirectFor("/finance")).toBeNull();          // mock-only with no live equivalent: notice card
+    expect(liveRedirectFor("/dashboard")).toBeNull();        // not mock-only at all
   });
 });

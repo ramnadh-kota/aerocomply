@@ -1,5 +1,8 @@
 "use client";
 
+import { withLive } from "@/components/live/LiveViews";
+import { LiveMaintenanceProgram } from "@/components/live/LivePages";
+
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -107,7 +110,7 @@ const STATUS_BADGE: Record<ReturnType<typeof buildAircraftSummary>["status"], { 
 // says so directly rather than letting the clean table styling imply
 // authority the data doesn't have.
 
-export default function MaintenanceProgramPage() {
+function DemoMaintenanceProgramPage() {
   return (
     <Suspense fallback={<div className="ac-card">Loading maintenance program…</div>}>
       <MaintenanceProgramBody />
@@ -311,3 +314,5 @@ function MaintenanceProgramBody() {
     </div>
   );
 }
+
+export default withLive(DemoMaintenanceProgramPage, LiveMaintenanceProgram);

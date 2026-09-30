@@ -150,13 +150,23 @@ try {
   const fin = await visit("/finance", { shotName: "finance_not_connected" });
   note("ui", "mock-only /finance shows the 'not connected' notice, not sample data", /not connected to live data/i.test(fin.body) && !/\$\s?\d{2,}/.test(fin.body.slice(0, 400)), fin.body.slice(0, 120).replace(/\s+/g, " "));
   await visit("/engines", { expectText: "Not connected to live data" });
-  await visit("/organization/usage", { expectText: "Not connected to live data" });
   const ev1 = await visit("/evidence", { shotName: "evidence_live" });
   note("live", "/evidence renders the live register (table or empty state), never sample rows", /Evidence/.test(ev1.body) && !/Not connected/.test(ev1.body) && /(No evidence has been recorded|Title)/i.test(ev1.body), ev1.body.slice(0, 100).replace(/\s+/g, " "));
   for (const p of ["/procurement", "/procurement/parts", "/procurement/vendors", "/procurement/approvals", "/regulations", "/assessments", "/notifications", "/maintenance/defects"]) {
     const r = await visit(p);
     note("live", `${p} is a connected page`, !/Not connected to live data/.test(r.body), r.body.slice(0, 80).replace(/\s+/g, " "));
   }
+
+  // ---- redirects to connected equivalents and the newly connected maintenance program
+  for (const [from, to] of [["/audit", "/tenant/audit"], ["/fleet/health", "/intelligence/fleet"], ["/executive", "/dashboard"],
+                            ["/maintenance/tasks", "/maintenance/work-orders"], ["/organization/usage", "/tenant/usage"],
+                            ["/evidence/00000000-0000-0000-0000-000000000abc", "/compliance/evidence/00000000-0000-0000-0000-000000000abc"]]) {
+    await go(from);
+    await until(async () => (await path_()) === to, 8000);
+    note("redirect", `${from} -> ${to} in a live session`, (await path_()) === to, await path_());
+  }
+  const mp = await visit("/maintenance-program");
+  note("live", "/maintenance-program is the live requirement register", !/Not connected/.test(mp.body) && /(No maintenance requirements defined|Task reference)/i.test(mp.body));
 
   // ================= helicopter organisation: full UI journey
   await loginAs("browser-heli@example.com");

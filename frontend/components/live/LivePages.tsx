@@ -21,6 +21,7 @@ import { regulatoryRequirementsApi, type BackendRegulatoryRequirement } from "@/
 import { assessmentsApi, type BackendAssessment } from "@/lib/api/assessments";
 import { findingsApi, type BackendFinding } from "@/lib/api/findings";
 import { proactiveApi, type BackendProactiveAlert } from "@/lib/api/proactive";
+import { maintenanceRequirementsApi, type BackendMaintenanceRequirement } from "@/lib/api/maintenanceRequirements";
 
 const date = (v: string | null | undefined) => formatScalar("created_at", v ?? null);
 const yesNo = (b: boolean) => (b ? "Yes" : "No");
@@ -328,6 +329,29 @@ export function LiveNotifications() {
       ]}
       emptyMessage="No active alerts."
       searchText={(a) => `${a.title} ${a.category} ${a.severity} ${a.message}`}
+    />
+  );
+}
+
+// ---------------------------------------------------------------- maintenance program (requirement register)
+export function LiveMaintenanceProgram() {
+  return (
+    <LiveList<BackendMaintenanceRequirement>
+      title="Maintenance Program"
+      subtitle="Maintenance requirements and their intervals (flight hours, cycles, calendar)."
+      breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Maintenance Program" }]}
+      load={maintenanceRequirementsApi.list}
+      columns={[
+        { header: "Task reference", render: (r) => r.task_reference ?? r.id.slice(0, 8) },
+        { header: "Description", render: (r) => r.description },
+        { header: "ATA", render: (r) => r.ata_chapter },
+        { header: "Interval basis", render: (r) => r.interval_type },
+        { header: "FH", render: (r) => r.fh_interval ?? "—" },
+        { header: "FC", render: (r) => r.fc_interval ?? "—" },
+        { header: "Calendar (days)", render: (r) => r.calendar_interval_days ?? "—" },
+      ]}
+      emptyMessage="No maintenance requirements defined."
+      searchText={(r) => `${r.task_reference ?? ""} ${r.description} ${r.ata_chapter}`}
     />
   );
 }
