@@ -64,6 +64,10 @@ _DEFAULT_REGISTRATION_PLAN_FEATURES = {
 from app.models.product_catalog import ProductSuite
 
 
+def _str_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def _get_or_create_default_plan(db: Session) -> Plan:
     plan = db.execute(
         select(Plan).where(Plan.code == _DEFAULT_REGISTRATION_PLAN_CODE)
@@ -499,7 +503,9 @@ _MAX_PHOTO_BYTES = 2 * 1024 * 1024  # 2 MiB
 
 def _user_to_current_user(db: Session, user: User) -> CurrentUser:
     roles = _roles_for_user(db, user.id)
+    org = db.get(Organization, user.organization_id)
     return CurrentUser(
+        organization_name=_str_or_none(getattr(org, "name", None)),
         id=user.id,
         organization_id=user.organization_id,
         email=user.email,

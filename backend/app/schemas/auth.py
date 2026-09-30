@@ -35,6 +35,8 @@ class CurrentUser(BaseModel):
     phone_number: str | None = None
     profile_photo_url: str | None = None
     pending_email: str | None = None
+    # Display name of the caller's own organization (filled by /auth/me; None when built from a token).
+    organization_name: str | None = None
 
 
 class UpdateProfileRequest(BaseModel):
