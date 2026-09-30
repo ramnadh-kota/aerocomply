@@ -79,7 +79,10 @@ class InvalidTokenError(Exception):
 
 def decode_token(token: str) -> dict[str, Any]:
     try:
-        return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        return jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm],
+            options={"require_exp": True, "require_sub": True},   # a token with no expiry / subject is never valid
+        )
     except JWTError as exc:
         raise InvalidTokenError(str(exc)) from exc
 

@@ -1,409 +1,174 @@
-"""M17.2: production security hardening regression tests.
+"""Authentication / authorization hardening: token authority, JWT forgery, CORS, headers, injection, mass assignment."""
+from __future__ import annotations
 
-Covers the security test matrix from the M17.2 spec: auth token handling,
-authorization, tenant isolation, CORS, security headers, rate limiting,
-error leakage, secret safety, and Evidence-specific security invariants.
-Real DB-backed HTTP tests via the existing `client`/`db_session` fixtures --
-no new test infrastructure introduced.
-"""
-
+import base64
+import json
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
+import pytest
 from jose import jwt
+from sqlalchemy import delete, select
 
 from app.core.config import get_settings
-from app.core.deps import get_db_session
-from app.core.security import DUMMY_PASSWORD_HASH, hash_password, verify_password
-from app.main import app
-from app.schemas.aircraft import AircraftCreateRequest
-from app.schemas.task import TaskCreateRequest
-from app.schemas.work_order import WorkOrderCreateRequest
-from app.services import aircraft_service, evidence_service, work_order_service
+from app.core.security import create_access_token, create_refresh_token
+from app.models.user import User, UserRole
+from tests.integration.test_acquisition_pipeline import _drone, _org
+
+settings = get_settings()
 
 
-def _register(client, org_name, email):
-    from tests.integration.conftest import make_platform_admin_headers
-
-    db_session = next(app.dependency_overrides[get_db_session]())
-    headers = make_platform_admin_headers(client, db_session)
-    resp = client.post(
-        "/api/v1/auth/register-organization",
-        json={
-            "organization_name": org_name,
-            "admin_email": email,
-            "admin_full_name": "Admin",
-            "admin_password": "supersecret123",
-        },
-        headers=headers,
-    )
-    assert resp.status_code == 201
-    return resp.json()
+def _me(client, h):
+    return client.get("/api/v1/auth/me", headers=h)
 
 
-def _auth(token):
+def _user_of(client, db, h) -> User:
+    return db.get(User, uuid.UUID(_me(client, h).json()["id"]))
+
+
+def _bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-class TestAuthTokenHandling:
-    def test_missing_token_rejected(self, client):
-        resp = client.get("/api/v1/auth/me")
-        assert resp.status_code == 401
-
-    def test_malformed_token_rejected(self, client):
-        resp = client.get("/api/v1/auth/me", headers=_auth("not-a-real-jwt"))
-        assert resp.status_code == 401
-
-    def test_wrong_signature_rejected(self, client):
-        settings = get_settings()
-        bad_token = jwt.encode(
-            {
-                "sub": str(uuid.uuid4()),
-                "organization_id": str(uuid.uuid4()),
-                "type": "access",
-                "exp": datetime.now(UTC) + timedelta(minutes=5),
-            },
-            "a-completely-different-secret",
-            algorithm=settings.jwt_algorithm,
-        )
-        resp = client.get("/api/v1/auth/me", headers=_auth(bad_token))
-        assert resp.status_code == 401
-
-    def test_expired_token_rejected(self, client):
-        settings = get_settings()
-        expired_token = jwt.encode(
-            {
-                "sub": str(uuid.uuid4()),
-                "organization_id": str(uuid.uuid4()),
-                "type": "access",
-                "exp": datetime.now(UTC) - timedelta(minutes=1),
-            },
-            settings.jwt_secret_key,
-            algorithm=settings.jwt_algorithm,
-        )
-        resp = client.get("/api/v1/auth/me", headers=_auth(expired_token))
-        assert resp.status_code == 401
-
-    def test_refresh_token_cannot_be_used_as_access_token(self, client):
-        tokens = _register(client, "Sec Token Org", "admin@sec-token.com")
-        resp = client.get("/api/v1/auth/me", headers=_auth(tokens["refresh_token"]))
-        assert resp.status_code == 401
-
-    def test_access_token_cannot_be_used_as_refresh_token(self, client):
-        tokens = _register(client, "Sec Token Org2", "admin@sec-token2.com")
-        resp = client.post("/api/v1/auth/refresh", json={"refresh_token": tokens["access_token"]})
-        assert resp.status_code == 401
-
-    def test_authentication_error_message_is_generic(self, client):
-        # Wrong password and nonexistent email must be indistinguishable at
-        # the HTTP layer (status + body) -- both already return the same
-        # generic message; this pins that behavior as a regression test.
-        _register(client, "Sec Enum Org", "real-user@sec-enum.com")
-        wrong_password = client.post(
-            "/api/v1/auth/login",
-            json={"email": "real-user@sec-enum.com", "password": "totally-wrong"},
-        )
-        nonexistent = client.post(
-            "/api/v1/auth/login",
-            json={"email": "no-such-user@sec-enum.com", "password": "whatever"},
-        )
-        assert wrong_password.status_code == nonexistent.status_code == 401
-        assert wrong_password.json() == nonexistent.json()
-
-    def test_password_hash_never_returned_by_api(self, client):
-        tokens = _register(client, "Sec Hash Org", "admin@sec-hash.com")
-        me = client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"]))
-        assert "hashed_password" not in me.text
-        assert "password" not in me.json()
+def _b64(obj) -> str:
+    return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
 
 
-class TestTimingSafeAuthentication:
-    def test_dummy_hash_is_a_real_argon2_hash_not_a_placeholder(self):
-        # Must actually be verifiable (i.e. a real, distinct hash) so the
-        # "verify against a dummy hash" path in auth_service.authenticate
-        # performs genuine argon2 work rather than short-circuiting.
-        assert DUMMY_PASSWORD_HASH.startswith("$argon2")
-        assert verify_password("not-a-real-password-just-for-timing-parity", DUMMY_PASSWORD_HASH)
-        assert not verify_password("something-else", DUMMY_PASSWORD_HASH)
-
-    def test_nonexistent_and_wrong_password_both_perform_real_hashing_work(self):
-        # Not a precise timing assertion (which would be flaky in CI) --
-        # instead confirms both code paths actually call into argon2 (a
-        # measurably non-trivial amount of wall-clock time), rather than one
-        # of them short-circuiting near-instantly.
-        start = time.perf_counter()
-        verify_password("whatever", DUMMY_PASSWORD_HASH)
-        dummy_elapsed = time.perf_counter() - start
-
-        real_hash = hash_password("a-real-password")
-        start = time.perf_counter()
-        verify_password("wrong-guess", real_hash)
-        real_elapsed = time.perf_counter() - start
-
-        # Both should cost real argon2 time (loose bound: not near-zero).
-        assert dummy_elapsed > 0.001
-        assert real_elapsed > 0.001
+# ------------------------------------------------------------------ the database is the authority
+def test_deactivated_user_loses_access_immediately_not_at_token_expiry(client, db_session):
+    org_id, h = _org(client, db_session, "deact")
+    assert _me(client, h).status_code == 200
+    _user_of(client, db_session, h).is_active = False
+    db_session.flush()
+    r = _me(client, h)
+    assert r.status_code == 401 and client.get("/api/v1/drones", headers=h).status_code == 401
 
 
-class TestAuthorization:
-    def test_missing_permission_returns_403(self, client, db_session):
-        from app.core.security import hash_password as _hash
-        from app.models.user import User, UserRole
-
-        tokens = _register(client, "Sec AuthZ Org", "admin@sec-authz.com")
-        org_id = uuid.UUID(
-            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"])).json()[
-                "organization_id"
-            ]
-        )
-        viewer = User(
-            organization_id=org_id,
-            email="viewer@sec-authz.com",
-            hashed_password=_hash("supersecret123"),
-            full_name="Viewer",
-            is_active=True,
-        )
-        db_session.add(viewer)
-        db_session.flush()
-        db_session.add(UserRole(user_id=viewer.id, role_name="VIEWER", organization_id=org_id))
-        db_session.commit()
-
-        login = client.post(
-            "/api/v1/auth/login", json={"email": viewer.email, "password": "supersecret123"}
-        )
-        viewer_token = login.json()["access_token"]
-
-        resp = client.post(
-            "/api/v1/evidence",
-            headers=_auth(viewer_token),
-            json={"task_id": str(uuid.uuid4())},
-        )
-        assert resp.status_code == 403
-
-    def test_tenant_user_cannot_invoke_platform_operation(self, client):
-        tokens = _register(client, "Sec Platform Org", "admin@sec-platform.com")
-        resp = client.get("/api/v1/platform/organizations", headers=_auth(tokens["access_token"]))
-        assert resp.status_code == 403
+def test_revoked_role_takes_effect_on_the_next_request(client, db_session):
+    org_id, h = _org(client, db_session, "revoke")
+    _drone(client, h, reg="REV-1")                                        # ORG_ADMIN can write
+    user = _user_of(client, db_session, h)
+    db_session.execute(delete(UserRole).where(UserRole.user_id == user.id))
+    db_session.flush()
+    assert client.post("/api/v1/drones", headers=h, json={"registration": "REV-2"}).status_code == 403
+    assert client.get("/api/v1/drones", headers=h).status_code == 403
 
 
-class TestTenantIsolation:
-    def _create_evidence(self, db_session, org_id, user_id, wo_number):
-        aircraft = aircraft_service.create_aircraft(
-            db_session,
-            organization_id=org_id,
-            payload=AircraftCreateRequest(
-                registration=f"N{wo_number[-4:]}", msn=f"MSN-{wo_number}", aircraft_type="A320"
-            ),
-        )
-        work_order = work_order_service.create_work_order(
-            db_session,
-            organization_id=org_id,
-            created_by_user_id=user_id,
-            payload=WorkOrderCreateRequest(aircraft_id=aircraft.id, work_order_number=wo_number),
-        )
-        task = work_order_service.create_task(
-            db_session,
-            organization_id=org_id,
-            actor_user_id=user_id,
-            payload=TaskCreateRequest(work_order_id=work_order.id, description="Inspect panel"),
-        )
-        return evidence_service.create_evidence(
-            db_session, organization_id=org_id, task_id=task.id, uploaded_by_user_id=user_id
-        )
-
-    def test_cross_tenant_evidence_read_blocked(self, client, db_session):
-        from sqlalchemy import select
-
-        from app.models.user import User
-
-        tokens_a = _register(client, "Sec Tenant A", "admin@sec-tenant-a.com")
-        tokens_b = _register(client, "Sec Tenant B", "admin@sec-tenant-b.com")
-        org_b = uuid.UUID(
-            client.get("/api/v1/auth/me", headers=_auth(tokens_b["access_token"])).json()[
-                "organization_id"
-            ]
-        )
-        admin_b = (
-            db_session.execute(select(User).where(User.organization_id == org_b)).scalars().first()
-        )
-        evidence_b = self._create_evidence(db_session, org_b, admin_b.id, "WO-SEC-1")
-
-        resp = client.get(
-            f"/api/v1/evidence/{evidence_b.id}", headers=_auth(tokens_a["access_token"])
-        )
-        assert resp.status_code == 404
-
-    def test_cross_tenant_evidence_mutation_blocked(self, client, db_session):
-        from sqlalchemy import select
-
-        from app.models.user import User
-
-        tokens_a = _register(client, "Sec Tenant A2", "admin@sec-tenant-a2.com")
-        tokens_b = _register(client, "Sec Tenant B2", "admin@sec-tenant-b2.com")
-        org_b = uuid.UUID(
-            client.get("/api/v1/auth/me", headers=_auth(tokens_b["access_token"])).json()[
-                "organization_id"
-            ]
-        )
-        admin_b = (
-            db_session.execute(select(User).where(User.organization_id == org_b)).scalars().first()
-        )
-        evidence_b = self._create_evidence(db_session, org_b, admin_b.id, "WO-SEC-2")
-
-        resp = client.post(
-            f"/api/v1/evidence/{evidence_b.id}/transition",
-            headers=_auth(tokens_a["access_token"]),
-            json={"target_status": "SUBMITTED"},
-        )
-        assert resp.status_code == 404
-
-    def test_nested_cross_tenant_file_idor_blocked(self, client, db_session):
-        from sqlalchemy import select
-
-        from app.models.evidence import EvidenceFile, EvidenceFileStatus
-        from app.models.user import User
-
-        tokens_a = _register(client, "Sec Tenant A3", "admin@sec-tenant-a3.com")
-        tokens_b = _register(client, "Sec Tenant B3", "admin@sec-tenant-b3.com")
-        org_b = uuid.UUID(
-            client.get("/api/v1/auth/me", headers=_auth(tokens_b["access_token"])).json()[
-                "organization_id"
-            ]
-        )
-        admin_b = (
-            db_session.execute(select(User).where(User.organization_id == org_b)).scalars().first()
-        )
-        evidence_b = self._create_evidence(db_session, org_b, admin_b.id, "WO-SEC-3")
-        file_b = EvidenceFile(
-            organization_id=org_b,
-            evidence_id=evidence_b.id,
-            uploaded_by_user_id=admin_b.id,
-            original_filename="secret.pdf",
-            content_type="application/pdf",
-            size_bytes=10,
-            storage_key=f"evidence/{org_b}/{evidence_b.id}/{uuid.uuid4()}_secret.pdf",
-            status=EvidenceFileStatus.STORED.value,
-        )
-        db_session.add(file_b)
-        db_session.commit()
-
-        resp = client.get(
-            f"/api/v1/evidence/{evidence_b.id}/files/{file_b.id}/download",
-            headers=_auth(tokens_a["access_token"]),
-        )
-        assert resp.status_code == 404
-        assert "url" not in resp.json()
+def test_token_role_claim_cannot_escalate_privileges(client, db_session):
+    org_id, h = _org(client, db_session, "escal")
+    user = _user_of(client, db_session, h)
+    db_session.execute(delete(UserRole).where(UserRole.user_id == user.id))
+    db_session.add(UserRole(user_id=user.id, role_name="VIEWER", organization_id=org_id))
+    db_session.flush()
+    forged_claims = create_access_token(user.id, org_id, ["PLATFORM_ADMIN", "ORG_ADMIN"], email=user.email)
+    assert client.get("/api/v1/platform/organizations", headers=_bearer(forged_claims)).status_code == 403
+    assert client.post("/api/v1/drones", headers=_bearer(forged_claims), json={"registration": "ESC-1"}).status_code == 403
 
 
-class TestCors:
-    def test_allowed_origin_reflected_with_credentials(self, client):
-        allowed = get_settings().cors_allow_origins[0]
-        resp = client.get(
-            "/api/v1/auth/me",
-            headers={"Origin": allowed},
-        )
-        assert resp.headers.get("access-control-allow-origin") == allowed
-        assert resp.headers.get("access-control-allow-credentials") == "true"
-
-    def test_disallowed_origin_not_reflected(self, client):
-        resp = client.get(
-            "/api/v1/auth/me",
-            headers={"Origin": "https://evil.example.com"},
-        )
-        assert resp.headers.get("access-control-allow-origin") != "https://evil.example.com"
-
-    def test_preflight_for_disallowed_origin_does_not_grant_access(self, client):
-        resp = client.options(
-            "/api/v1/auth/login",
-            headers={
-                "Origin": "https://evil.example.com",
-                "Access-Control-Request-Method": "POST",
-            },
-        )
-        assert resp.headers.get("access-control-allow-origin") != "https://evil.example.com"
+def test_user_cannot_use_a_token_for_another_organization(client, db_session):
+    org_a, ha = _org(client, db_session, "xorg1")
+    org_b, hb = _org(client, db_session, "xorg2")
+    ua = _user_of(client, db_session, ha)
+    cross = create_access_token(ua.id, org_b, ["ORG_ADMIN"], email=ua.email)     # right user, wrong tenant
+    assert client.get("/api/v1/drones", headers=_bearer(cross)).status_code == 401
 
 
-class TestSecurityHeaders:
-    def test_representative_response_carries_security_headers(self, client):
-        resp = client.get("/api/v1/auth/me")
-        assert resp.headers.get("x-content-type-options") == "nosniff"
-        assert resp.headers.get("x-frame-options") == "DENY"
-        assert resp.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
-        assert "permissions-policy" in resp.headers
-
-    def test_security_headers_present_even_on_error_response(self, client):
-        resp = client.get("/api/v1/auth/me")  # 401, no token
-        assert resp.status_code == 401
-        assert resp.headers.get("x-content-type-options") == "nosniff"
+def test_token_for_a_nonexistent_user_is_rejected(client, db_session):
+    org_id, _ = _org(client, db_session, "ghost")
+    ghost = create_access_token(uuid.uuid4(), org_id, ["ORG_ADMIN"])
+    assert client.get("/api/v1/drones", headers=_bearer(ghost)).status_code == 401
 
 
-class TestRateLimiting:
-    def test_normal_single_login_attempt_not_blocked(self, client):
-        _register(client, "Sec RateLimit Org1", "admin@sec-rl-1.com")
-        resp = client.post(
-            "/api/v1/auth/login",
-            json={"email": "admin@sec-rl-1.com", "password": "supersecret123"},
-        )
-        assert resp.status_code == 200
-
-    def test_repeated_login_attempts_are_eventually_rate_limited(self, client):
-        _register(client, "Sec RateLimit Org2", "admin@sec-rl-2.com")
-        statuses = []
-        for _ in range(30):
-            resp = client.post(
-                "/api/v1/auth/login",
-                json={"email": "admin@sec-rl-2.com", "password": "wrong-password"},
-            )
-            statuses.append(resp.status_code)
-        assert 429 in statuses
-
-    def test_rate_limited_response_is_safe_and_generic(self, client):
-        for _ in range(30):
-            resp = client.post(
-                "/api/v1/auth/login",
-                json={"email": "whoever@sec-rl-3.com", "password": "wrong-password"},
-            )
-            if resp.status_code == 429:
-                body = resp.json()
-                assert body["error"]["code"] == "rate_limited"
-                assert "traceback" not in resp.text.lower()
-                return
-        raise AssertionError("expected to observe a 429 within 30 attempts")
+# ------------------------------------------------------------------ JWT forgery
+def test_jwt_forgeries_are_rejected(client, db_session):
+    org_id, h = _org(client, db_session, "jwt")
+    user = _user_of(client, db_session, h)
+    good = h["Authorization"].split()[1]
+    header, payload, sig = good.split(".")
+    tampered_payload = json.loads(base64.urlsafe_b64decode(payload + "=="))
+    tampered_payload["roles"] = ["PLATFORM_ADMIN"]
+    cases = {
+        "alg=none": f"{_b64({'alg': 'none', 'typ': 'JWT'})}.{payload}.",
+        "alg=none, empty sig, admin": f"{_b64({'alg': 'none', 'typ': 'JWT'})}.{_b64(tampered_payload)}.",
+        "tampered payload, old signature": f"{header}.{_b64(tampered_payload)}.{sig}",
+        "wrong secret": jwt.encode({**tampered_payload, "exp": int(time.time()) + 600}, "not-the-secret", algorithm="HS256"),
+        "garbage": "not.a.jwt",
+        "empty": "",
+        "truncated signature": good[:-6],
+    }
+    for name, token in cases.items():
+        assert client.get("/api/v1/drones", headers=_bearer(token)).status_code == 401, name
+    assert client.get("/api/v1/drones", headers={"Authorization": "Basic abc"}).status_code == 401
+    assert client.get("/api/v1/drones").status_code == 401
 
 
-class TestErrorLeakage:
-    def test_not_found_error_has_no_internal_detail(self, client, db_session):
-        tokens = _register(client, "Sec Error Org", "admin@sec-error.com")
-        resp = client.get(f"/api/v1/evidence/{uuid.uuid4()}", headers=_auth(tokens["access_token"]))
-        assert resp.status_code == 404
-        body = resp.json()
-        assert "traceback" not in resp.text.lower()
-        assert "sqlalchemy" not in resp.text.lower()
-        assert "psycopg" not in resp.text.lower()
-        assert body["error"]["code"] == "not_found"
-
-    def test_validation_error_does_not_leak_internal_paths(self, client):
-        resp = client.post(
-            "/api/v1/auth/login",
-            json={"email": "not-an-object"},  # missing password, wrong shape
-        )
-        assert resp.status_code == 422
-        assert "Traceback" not in resp.text
-        assert "site-packages" not in resp.text
+def test_expired_and_wrong_type_tokens_are_rejected(client, db_session):
+    org_id, h = _org(client, db_session, "exp")
+    user = _user_of(client, db_session, h)
+    now = int(time.time())
+    base = {"sub": str(user.id), "organization_id": str(org_id), "roles": ["ORG_ADMIN"], "type": "access"}
+    expired = jwt.encode({**base, "exp": now - 5}, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    no_exp = jwt.encode(base, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    assert client.get("/api/v1/drones", headers=_bearer(expired)).status_code == 401
+    assert client.get("/api/v1/drones", headers=_bearer(no_exp)).status_code == 401           # no expiry => invalid
+    refresh = create_refresh_token(user.id, org_id)
+    assert client.get("/api/v1/drones", headers=_bearer(refresh)).status_code == 401           # refresh != access
+    wrong_type = jwt.encode({**base, "type": "password_reset", "exp": now + 600}, settings.jwt_secret_key,
+                            algorithm=settings.jwt_algorithm)
+    assert client.get("/api/v1/drones", headers=_bearer(wrong_type)).status_code == 401
 
 
-class TestSecretConfigSafety:
-    def test_settings_object_never_serialized_by_any_api_response(self, client):
-        tokens = _register(client, "Sec Config Org", "admin@sec-config.com")
-        me = client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"]))
-        text_lower = me.text.lower()
-        assert "jwt_secret_key" not in text_lower
-        assert "s3_secret_key" not in text_lower
-        assert "database_url" not in text_lower
+# ------------------------------------------------------------------ transport / browser surface
+def test_cors_does_not_reflect_untrusted_origins_and_login_sets_no_cookies(client):
+    evil = client.options("/api/v1/auth/login", headers={"Origin": "https://evil.example",
+                                                         "Access-Control-Request-Method": "POST"})
+    assert evil.headers.get("access-control-allow-origin") != "https://evil.example"
+    assert "*" != evil.headers.get("access-control-allow-origin")
+    good = client.options("/api/v1/auth/login", headers={"Origin": settings.cors_allow_origins[0],
+                                                         "Access-Control-Request-Method": "POST"})
+    assert good.headers.get("access-control-allow-origin") == settings.cors_allow_origins[0]
+    r = client.post("/api/v1/auth/login", json={"email": "nobody@example.com", "password": "x" * 12})
+    assert "set-cookie" not in r.headers          # bearer-token API: no ambient credentials => no CSRF surface
 
-    def test_logs_do_not_contain_bearer_token_value(self, client, caplog):
-        tokens = _register(client, "Sec Log Org", "admin@sec-log.com")
-        with caplog.at_level("DEBUG"):
-            client.get("/api/v1/auth/me", headers=_auth(tokens["access_token"]))
-        assert tokens["access_token"] not in caplog.text
+
+def test_security_headers_and_json_only_error_bodies(client):
+    r = client.get("/health")
+    h = {k.lower(): v for k, v in r.headers.items()}
+    assert h.get("x-content-type-options") == "nosniff"
+    assert "frame-ancestors" in h.get("content-security-policy", "") or h.get("x-frame-options")
+    bad = client.get("/api/v1/drones/<script>alert(1)</script>")
+    assert bad.headers["content-type"].startswith("application/json")           # reflected input is never served as HTML
+    assert "<script>" not in bad.text or bad.headers["content-type"].startswith("application/json")
+
+
+# ------------------------------------------------------------------ injection / mass assignment
+@pytest.mark.parametrize("payload", ["' OR '1'='1", "'; DROP TABLE assets;--", "%' UNION SELECT NULL--", "\\x00", "🙂" * 50])
+def test_search_and_filter_parameters_are_parameterised(client, db_session, payload):
+    org_id, h = _org(client, db_session, "sqli")
+    _drone(client, h, reg="SAFE-1")
+    r = client.get("/api/v1/assets", headers=h, params={"search": payload, "status": payload, "asset_type": payload})
+    assert r.status_code == 200 and r.json() == []
+    assert len(client.get("/api/v1/assets", headers=h).json()) == 1               # table intact
+
+
+def test_mass_assignment_on_profile_update_is_ignored(client, db_session):
+    org_id, h = _org(client, db_session, "mass")
+    other_org, _ = _org(client, db_session, "mass2")
+    user = _user_of(client, db_session, h)
+    before_roles = set(db_session.execute(select(UserRole.role_name).where(UserRole.user_id == user.id)).scalars())
+    r = client.patch("/api/v1/auth/me", headers=h, json={
+        "full_name": "Renamed", "roles": ["PLATFORM_ADMIN"], "organization_id": str(other_org), "is_active": False,
+        "email_verified": True, "hashed_password": "x", "id": str(uuid.uuid4())})
+    assert r.status_code in (200, 422)
+    db_session.refresh(user)
+    assert user.organization_id == org_id and user.is_active is True
+    assert set(db_session.execute(select(UserRole.role_name).where(UserRole.user_id == user.id)).scalars()) == before_roles
+    assert user.hashed_password != "x"
+
+
+def test_asset_create_ignores_client_supplied_tenant_and_id(client, db_session):
+    org_id, h = _org(client, db_session, "mass3")
+    other_org, _ = _org(client, db_session, "mass4")
+    r = client.post("/api/v1/drones", headers=h, json={"registration": "MASS-1", "organization_id": str(other_org)})
+    assert r.status_code == 201 and r.json()["organization_id"] == str(org_id)

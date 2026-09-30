@@ -309,7 +309,7 @@ class TestSubscriptionStateBehavior:
 
 class TestPlatformAdminUnaffected:
     def test_platform_route_works_regardless_of_any_subscription_state(self, client, db_session):
-        from app.core.security import create_access_token
+        from tests.support.tokens import mint_token as create_access_token
         from app.models.organization import Organization
 
         platform_org = Organization(name="Platform Operations Test")

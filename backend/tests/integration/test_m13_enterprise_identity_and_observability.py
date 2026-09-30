@@ -23,7 +23,8 @@ from fastapi import status
 from sqlalchemy import select
 
 from app.core.permissions import Role
-from app.core.security import create_access_token, hash_password
+from app.core.security import hash_password
+from tests.support.tokens import mint_token as create_access_token
 from app.models.audit_event import AuditEvent
 from app.models.hums import HUMSSensor
 from app.models.organization import Organization

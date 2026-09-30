@@ -95,7 +95,11 @@ def db_session(engine):
     transaction = connection.begin()
     SessionLocal = sessionmaker(bind=connection, future=True)
     session = SessionLocal()
+    from tests.support import tokens as _tokens
+
+    _tokens.set_session(session)
     yield session
+    _tokens.set_session(None)
     session.close()
     transaction.rollback()
     connection.close()

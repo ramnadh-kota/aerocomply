@@ -144,12 +144,18 @@ def test_non_finite_reading_values_are_rejected(bad):
 
 
 def test_non_finite_value_over_http_is_422_not_stored(client, db_session):
-    from app.core.security import create_access_token
+    from tests.support.tokens import mint_token as create_access_token
     from tests.integration.conftest import grant_features
 
     org, drone = _tenant(db_session, "EXT-HTTP")
     grant_features(db_session, org.id, "flight_telemetry")
-    tok = create_access_token(uuid.uuid4(), org.id, ["ORG_ADMIN"], "x@example.com", "X", True)
+    from app.models.user import User
+
+    admin = User(organization_id=org.id, email=f"nan-{uuid.uuid4().hex[:8]}@example.com", hashed_password="x",
+                 full_name="X", is_active=True, email_verified=True)
+    db_session.add(admin)
+    db_session.flush()
+    tok = create_access_token(admin.id, org.id, ["ORG_ADMIN"], admin.email, "X", True)
     body = ('{"source_system":"%s","source_event_id":"nan-1","source_asset_id":"EXT-HTTP",'
             '"event_type":"REALTIME_TELEMETRY","event_timestamp":"2026-01-01T00:00:00Z",'
             '"readings":[{"sensor_code":"V","measurement_type":"vibration","value":NaN,"unit":"mm/s"}]}') % SRC

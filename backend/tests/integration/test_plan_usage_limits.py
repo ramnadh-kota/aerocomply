@@ -396,7 +396,7 @@ def test_platform_admin_vs_org_admin_authorization(client, db_session):
     db_session.add(UserRole(user_id=customer_user.id, role_name="ORG_ADMIN", organization_id=customer_org.id))
     db_session.commit()
 
-    from app.core.security import create_access_token
+    from tests.support.tokens import mint_token as create_access_token
     token = create_access_token(
         user_id=customer_user.id,
         organization_id=customer_org.id,

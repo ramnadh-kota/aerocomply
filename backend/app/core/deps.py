@@ -3,6 +3,7 @@ from collections.abc import Generator
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ForbiddenError, UnauthorizedError
@@ -11,6 +12,7 @@ from app.core.request_context import bind_request_identity
 from app.core.security import InvalidTokenError, decode_token
 from app.db.session import get_db
 from app.models.organization import Organization, OrganizationStatus
+from app.models.user import User, UserRole
 from app.schemas.auth import CurrentUser
 from app.core.feature_keys import canonicalize_feature_key, is_default_on_feature
 from app.services.entitlement_service import (
@@ -66,15 +68,23 @@ def get_current_user(
     if org is not None and org.deleted_at is not None:
         raise UnauthorizedError("This organization has requested deletion and is pending review")
 
+    # The database, not the token, is the authority on WHO this is and WHAT they may do: a deactivated user, a user moved
+    # to another organization, or a role that was revoked loses access on the next request instead of at token expiry.
+    user_id = uuid.UUID(payload["sub"])
+    user = db.get(User, user_id)
+    if user is None or not user.is_active or user.organization_id != organization_id:
+        raise UnauthorizedError("This account is no longer active")
+    roles = list(db.execute(select(UserRole.role_name).where(UserRole.user_id == user_id)).scalars().all())
+
     bind_request_identity(organization_id=payload["organization_id"], user_id=payload["sub"])
 
     return CurrentUser(
-        id=uuid.UUID(payload["sub"]),
+        id=user_id,
         organization_id=organization_id,
-        email=payload.get("email", ""),
-        full_name=payload.get("full_name", ""),
-        roles=payload.get("roles", []),
-        email_verified=payload.get("email_verified", False),
+        email=user.email,
+        full_name=user.full_name or "",
+        roles=roles,
+        email_verified=bool(user.email_verified),
     )
 
 

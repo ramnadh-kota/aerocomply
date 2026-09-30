@@ -101,7 +101,8 @@ def handle_poll(db: Session, job: BackgroundJob) -> dict[str, Any]:
         source.last_seen_at = datetime.now(UTC)      # alive, nothing new: not a failure
     else:
         result = acquisition_service.ingest(
-            db, organization_id=job.organization_id, data_source_id=source.id, raw=raw, actor_user_id=None
+            db, organization_id=job.organization_id, data_source_id=source.id, raw=raw, actor_user_id=None,
+            via_poller=True,
         ).to_dict()
     if next_cursor and next_cursor != meta.get("poll_cursor"):
         source.metadata_json = {**meta, "poll_cursor": next_cursor}

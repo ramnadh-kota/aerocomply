@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.core.security import create_access_token
+from tests.support.tokens import mint_token as create_access_token
 from app.models.asset import Asset, AssetType
 from app.models.component import Component, ComponentStatus, ComponentType
 from app.models.hums import HUMSDiagnosticCandidate
@@ -322,7 +322,7 @@ def test_cross_tenant_diagnostic_isolation(client: TestClient, user_a: User, use
     assert resp_confirm_b.status_code == 404  # org B cannot even see org A's candidate to confirm it
 
 
-def test_viewer_can_read_but_not_confirm_or_reject(client: TestClient, user_a: User, asset_a: Asset):
+def test_viewer_can_read_but_not_confirm_or_reject(client: TestClient, db_session, user_a: User, asset_a: Asset):
     headers_admin = _auth_headers(user_a)
     sensor = _create_sensor(client, headers_admin, str(asset_a.id), "H4-VIB-08")
     _establish_baseline(client, headers_admin, sensor["id"])
@@ -331,7 +331,13 @@ def test_viewer_can_read_but_not_confirm_or_reject(client: TestClient, user_a: U
     diagnostics = client.get(f"/api/v1/hums/assets/{asset_a.id}/diagnostics", headers=headers_admin).json()
     candidate_id = diagnostics[0]["id"]
 
-    headers_viewer = _auth_headers(user_a, roles=["VIEWER"])
+    # A viewer is a DIFFERENT user: roles come from the database, so re-minting user_a's token as "VIEWER" would
+    # (correctly) still carry user_a's ORG_ADMIN role.
+    viewer = User(organization_id=user_a.organization_id, email=f"viewer-{uuid.uuid4().hex[:8]}@example.com",
+                  hashed_password="x", full_name="Viewer", is_active=True)
+    db_session.add(viewer)
+    db_session.flush()
+    headers_viewer = _auth_headers(viewer, roles=["VIEWER"])
     read_resp = client.get(f"/api/v1/hums/assets/{asset_a.id}/diagnostics", headers=headers_viewer)
     assert read_resp.status_code == 200
 

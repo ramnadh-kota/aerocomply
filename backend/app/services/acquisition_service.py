@@ -265,9 +265,18 @@ def ingest(
     raw: bytes,
     topic: str | None = None,
     actor_user_id: uuid.UUID | None = None,
+    via_poller: bool = False,
 ) -> AcquisitionReport:
-    """Ingest one payload for a data source and record its health evidence."""
+    """Ingest one payload for a data source and record its health evidence.
+
+    `via_poller` is True only for the OEM poll job: OEM_API sources are PULL-based, so bytes pushed at them through the
+    HTTP ingest endpoint or a listener are refused (the only way in is the SSRF-guarded, credentialed poller)."""
     source = _load_source(db, organization_id, data_source_id)
+    if source.connector_type == DataSourceConnectorType.OEM_API and not via_poller:
+        raise ConflictError(
+            f"Data source type {source.connector_type} is pull-based; it does not accept pushed data",
+            code="unsupported_connector_type",
+        )
     # every log line emitted while processing this payload (persistence, HUMS, errors) now carries
     # the source, so an operator can follow one source through the whole pipeline
     structlog.contextvars.bind_contextvars(data_source_id=str(source.id), connector_type=source.connector_type)

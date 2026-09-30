@@ -8,7 +8,7 @@ refusal now applies to a request using an already-issued access token.
 """
 
 from app.core.deps import get_db_session
-from app.core.security import create_access_token
+from tests.support.tokens import mint_token as create_access_token
 from app.main import app
 from app.models.organization import Organization, OrganizationStatus
 from app.models.user import User, UserRole

@@ -15,7 +15,7 @@ from tests.integration.conftest import grant_features
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.core.security import create_access_token
+from tests.support.tokens import mint_token as create_access_token
 from app.models.aircraft import Aircraft
 from app.models.asset import Asset, AssetType
 from app.models.compliance import ComplianceObligation, ComplianceState

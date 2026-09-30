@@ -35,7 +35,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.security import create_access_token
+from tests.support.tokens import mint_token as create_access_token
 from app.models.asset import Asset, AssetType
 from app.models.battery import Battery
 from app.models.component import Component
