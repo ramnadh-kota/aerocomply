@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const SCRATCH = (process.env.BROWSER_SCRATCH ?? os.tmpdir()).split("\").join("/");
+const SCRATCH = (process.env.BROWSER_SCRATCH ?? os.tmpdir()).replaceAll(path.sep, "/");
 const SEED = JSON.parse(fs.readFileSync(`${SCRATCH}/browser_seed.json`, "utf8"));
 const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const PORT = 9333;
