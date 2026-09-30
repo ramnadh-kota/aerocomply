@@ -279,8 +279,8 @@ def test_missing_asset_safe_error(db_session):
         )
 
 
-def test_all_59_tools_registered_with_permissions_and_features():
-    assert len(TOOL_REGISTRY) == 59
+def test_all_60_tools_registered_with_permissions_and_features():
+    assert len(TOOL_REGISTRY) == 60  # 59 + list_fleet_assets
     for tool in TOOL_REGISTRY:
         assert tool.name
         assert tool.description

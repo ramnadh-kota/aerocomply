@@ -119,33 +119,37 @@ def _require_entitlement(db: Session, user: CurrentUser, spec: ToolSpec) -> None
 
     if spec.required_suite:
         allowed_suites = {s.strip().upper() for s in spec.required_suite.split(",")}
-        current_suite = (result.suite_code or "").strip().upper()
-        if current_suite and current_suite not in allowed_suites:
+        # A multi-suite organization reports suite_code MULTI_SUITE; the suites it actually holds are in active_suites.
+        held = {(x.get("suite_code") or "").strip().upper() for x in getattr(result, "active_suites", []) if x.get("suite_code")}
+        if result.suite_code and result.suite_code != "MULTI_SUITE":
+            held.add(result.suite_code.strip().upper())
+        if held and not (held & allowed_suites):
             raise ForbiddenError(
-                f"Organization product suite ({current_suite}) is not entitled to use tool '{spec.name}'. Required: {spec.required_suite}",
+                f"Organization product suite ({', '.join(sorted(held))}) is not entitled to use tool '{spec.name}'. Required: {spec.required_suite}",
                 code="SUITE_ENTITLEMENT_REQUIRED",
             )
 
     if spec.required_feature:
-        feature_key = spec.required_feature
-        canonical = canonicalize_feature_key(feature_key)
-        configured = [
-            v for v in (
-                result.effective_features.get(feature_key),
-                result.effective_features.get(canonical),
-            ) if v is not None
-        ]
-        if configured:
-            is_entitled = any(configured)
-        else:
-            is_entitled = is_default_on_feature(canonical)
+        # "a,b,c" means ANY of the listed features entitles the tool (e.g. any fleet-family feature).
+        candidates = [f.strip() for f in spec.required_feature.split(",") if f.strip()]
 
-        if not is_entitled:
-            outside_suite = bool(result.suite_code) and not is_feature_allowed_for_suite(
-                result.suite_code, feature_key
+        def _entitled(feature_key: str) -> bool:
+            canonical = canonicalize_feature_key(feature_key)
+            configured = [
+                v for v in (
+                    result.effective_features.get(feature_key),
+                    result.effective_features.get(canonical),
+                ) if v is not None
+            ]
+            return any(configured) if configured else is_default_on_feature(canonical)
+
+        if not any(_entitled(f) for f in candidates):
+            feature_key = candidates[0]
+            outside_suite = bool(result.suite_code) and result.suite_code != "MULTI_SUITE" and not any(
+                is_feature_allowed_for_suite(result.suite_code, f) for f in candidates
             )
             raise ForbiddenError(
-                f"Organization is not entitled to feature '{feature_key}' required by tool '{spec.name}'",
+                f"Organization is not entitled to feature '{spec.required_feature}' required by tool '{spec.name}'",
                 code="SUITE_ENTITLEMENT_REQUIRED" if outside_suite else "forbidden",
             )
 
@@ -1320,6 +1324,38 @@ def _handle_get_asset_integration_conflicts(db: Session, user: CurrentUser, args
     return {"conflicts": [c.model_dump(mode="json") for c in conflicts]}
 
 
+
+_FLEET_FAMILY_FEATURE = {
+    "AIRCRAFT": "aircraft_fleet_management",
+    "DRONE": "drone_fleet_management",
+    "HELICOPTER": "helicopter_fleet_management",
+    "EVTOL": "evtol_fleet_management",
+    "AAM": "evtol_fleet_management",
+}
+
+
+def _handle_list_fleet_assets(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    """Assets of the airframe families the organization is ENTITLED to (a drone tenant never sees helicopters
+    listed through LISA, even in a multi-suite account that lacks the helicopter feature)."""
+    from app.services import asset_service
+
+    result = resolve_entitlements(db, organization_id=user.organization_id)
+    entitled = {
+        t for t, f in _FLEET_FAMILY_FEATURE.items()
+        if result.effective_features.get(f) is True or result.effective_features.get(canonicalize_feature_key(f)) is True
+    }
+    wanted = str(args.get("asset_type") or "").strip().upper() or None
+    if wanted and wanted not in _FLEET_FAMILY_FEATURE:
+        raise AeroComplyError(f"asset_type must be one of {sorted(_FLEET_FAMILY_FEATURE)}", code="invalid_argument")
+    if wanted and wanted not in entitled:
+        raise ForbiddenError(f"Organization is not entitled to {wanted} assets", code="SUITE_ENTITLEMENT_REQUIRED")
+    rows = asset_service.list_assets(db, organization_id=user.organization_id, asset_type=wanted)
+    return {"assets": [
+        {"id": str(a.id), "asset_type": a.asset_type, "registration": a.registration, "manufacturer": a.manufacturer,
+         "model": a.model, "status": a.status}
+        for a in rows if a.asset_type in entitled][:200]}
+
+
 TOOL_REGISTRY: list[ToolSpec] = [
     ToolSpec(
         name="get_aircraft",
@@ -2264,6 +2300,20 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_get_asset_integration_conflicts,
         required_permission=Permission.MRO_INTELLIGENCE_READ,
         required_feature="mro_intelligence",
+    ),
+    ToolSpec(
+        name="list_fleet_assets",
+        description=(
+            "List the organization's airframes (aircraft, drones, helicopters, eVTOL) that its subscription "
+            "entitles it to, with registration, type and status. Optional asset_type filter."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"asset_type": {"type": "string", "description": "AIRCRAFT, DRONE, HELICOPTER or EVTOL"}},
+        },
+        handler=_handle_list_fleet_assets,
+        required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management,drone_fleet_management,helicopter_fleet_management,evtol_fleet_management",
     ),
 ]
 
