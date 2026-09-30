@@ -240,3 +240,28 @@ def test_platform_can_inspect_dead_letters_and_requeue_but_tenants_cannot(client
     assert r.status_code == 200 and r.json()["status"] == "QUEUED"
     assert client.post(f"/api/v1/platform/jobs/{dead.id}/requeue", headers=pa).status_code == 409   # no longer DEAD
     assert 'kota_job_queue{status="QUEUED"}' in client.get("/api/v1/platform/metrics", headers=pa).text
+
+
+def test_failure_evidence_written_by_the_after_rollback_hook_survives_the_handlers_rollback(db_session):
+    """A raising handler loses its own writes (SAVEPOINT), so failure evidence must go through the hook."""
+    org = Organization(name=f"hook-{uuid.uuid4().hex[:6]}")
+    db_session.add(org)
+    db_session.flush()
+
+    def handler(db, job):
+        org.name = "written-then-rolled-back"
+        db.flush()
+
+        def hook(session):
+            session.get(Organization, org.id).name = "evidence-survives"
+        raise job_service.NonRetryableJobError("nope", after_rollback=hook)
+
+    job_service.register_handler("test.hook", handler)
+    try:
+        job, _ = job_service.enqueue(db_session, job_type="test.hook", organization_id=org.id)
+        job_service.run_one(db_session, worker_id="w", job_types=["test.hook"])
+    finally:
+        job_service._HANDLERS.pop("test.hook", None)
+    db_session.refresh(org)
+    db_session.refresh(job)
+    assert org.name == "evidence-survives" and job.status == JobStatus.DEAD

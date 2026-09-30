@@ -36,8 +36,22 @@ VISIBILITY_TIMEOUT = timedelta(minutes=10)
 _MAX_ERROR = 512
 
 
-class NonRetryableJobError(Exception):
+class JobError(Exception):
+    """Handler failure that carries an `after_rollback(db)` hook. A raising handler has its writes rolled back (its
+    SAVEPOINT), so anything that must SURVIVE the failure (e.g. 'last_error' on a data source) goes in the hook, which
+    the runner calls after the rollback and before recording the outcome."""
+
+    def __init__(self, message: str = "", *, after_rollback: "Callable[[Session], None] | None" = None) -> None:
+        super().__init__(message)
+        self.after_rollback = after_rollback
+
+
+class NonRetryableJobError(JobError):
     """Handler signals a permanent failure (bad input, unknown source): go straight to dead-letter."""
+
+
+class RetryableJobError(JobError):
+    """Transient failure: retried with backoff (like any other exception, plus the after_rollback hook)."""
 
 
 Handler = Callable[[Session, BackgroundJob], "dict[str, Any] | None"]
@@ -173,6 +187,17 @@ def queue_counts(db: Session) -> dict[str, int]:
     return {s: n for s, n in rows}
 
 
+def _run_hook(db: Session, exc: BaseException) -> None:
+    hook = getattr(exc, "after_rollback", None)
+    if hook is None:
+        return
+    try:
+        with db.begin_nested():
+            hook(db)
+    except Exception:  # noqa: BLE001 - failure evidence is best effort; never mask the original failure
+        log.exception("job.after_rollback_failed")
+
+
 def run_one(db: Session, *, worker_id: str, job_types: list[str] | None = None) -> bool:
     """Claim and execute one job. Returns False when the queue is empty.
 
@@ -197,9 +222,11 @@ def run_one(db: Session, *, worker_id: str, job_types: list[str] | None = None) 
         log.info("job.succeeded", attempts=job.attempts)
     except NonRetryableJobError as exc:
         # the handler's SAVEPOINT already discarded its partial writes; only the job row is updated here
+        _run_hook(db, exc)
         fail(db, job, exc, retryable=False)
         log.warning("job.dead", error=str(exc)[:200])
     except Exception as exc:  # noqa: BLE001 - recorded, retried or dead-lettered; never crashes the worker
+        _run_hook(db, exc)
         try:
             status = fail(db, job, exc)
         except Exception:  # noqa: BLE001 - session poisoned outside the handler SAVEPOINT: reset and re-record

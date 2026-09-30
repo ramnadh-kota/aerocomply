@@ -55,3 +55,58 @@ def handle_retention_sweep(db: Session, job: BackgroundJob) -> dict[str, Any]:
 
 
 job_service.register_handler(RETENTION_SWEEP, handle_retention_sweep)
+
+
+POLL = "acquisition.poll"
+
+
+def handle_poll(db: Session, job: BackgroundJob) -> dict[str, Any]:
+    """One OEM pull for one OEM_API data source: fetch -> (skip if empty) -> the normal ingest pipeline -> save cursor.
+
+    Permanent problems (bad config, blocked target, refused credential) dead-letter immediately and are shown on the
+    data source; transient ones (network, 5xx, 429) retry with the queue's exponential backoff."""
+    from datetime import UTC, datetime
+
+    from app.models.data_source import DataSource, DataSourceConnectorType, DataSourceStatus
+    from app.services.edge import oem_poller
+
+    if job.organization_id is None or job.data_source_id is None:
+        raise job_service.NonRetryableJobError("poll job is missing its organization or data source")
+    source = db.get(DataSource, job.data_source_id)
+    if source is None or source.organization_id != job.organization_id:
+        raise job_service.NonRetryableJobError("data source not found")
+    if source.status != DataSourceStatus.ACTIVE or source.connector_type != DataSourceConnectorType.OEM_API:
+        return {"skipped": "source is not an ACTIVE OEM_API source"}
+    meta = dict(source.metadata_json or {})
+    source_id = source.id
+
+    def _record_failure(prefix: str, reason: str):
+        def hook(session: Session) -> None:
+            src = session.get(DataSource, source_id)
+            if src is not None:
+                src.last_error = f"{prefix}: {reason}"[:512]
+                src.last_failure_at = datetime.now(UTC)
+                src.consecutive_failures += 1
+        return hook
+
+    try:
+        fmt = oem_poller.parse_config(source.connection_config).fmt
+        raw, next_cursor = oem_poller.poll_once(source.connection_config, source.secret_reference, meta.get("poll_cursor"))
+    except oem_poller.PollConfigError as exc:
+        raise job_service.NonRetryableJobError(str(exc), after_rollback=_record_failure("poll refused", str(exc))) from exc
+    except oem_poller.PollTransientError as exc:
+        raise job_service.RetryableJobError(str(exc), after_rollback=_record_failure("poll failed", str(exc))) from exc
+    result: dict[str, Any] = {"empty": True}
+    if oem_poller.is_empty_payload(raw, fmt):
+        source.last_seen_at = datetime.now(UTC)      # alive, nothing new: not a failure
+    else:
+        result = acquisition_service.ingest(
+            db, organization_id=job.organization_id, data_source_id=source.id, raw=raw, actor_user_id=None
+        ).to_dict()
+    if next_cursor and next_cursor != meta.get("poll_cursor"):
+        source.metadata_json = {**meta, "poll_cursor": next_cursor}
+    db.flush()
+    return result
+
+
+job_service.register_handler(POLL, handle_poll)

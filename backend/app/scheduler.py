@@ -37,5 +37,30 @@ def tick(db: Session, *, now: datetime | None = None) -> int:
             max_attempts=3, correlation_id=f"schedule-{s.name}",
         )
         created += int(was_created)
+    created += enqueue_polls(db, now=now)
     db.commit()
+    return created
+
+
+def enqueue_polls(db: Session, *, now: datetime) -> int:
+    """One acquisition.poll job per ACTIVE OEM_API source per poll interval (idempotent across workers)."""
+    from sqlalchemy import select
+
+    from app.models.data_source import DataSource, DataSourceConnectorType, DataSourceStatus
+    from app.services.edge import oem_poller
+
+    created = 0
+    sources = db.execute(select(DataSource).where(
+        DataSource.status == DataSourceStatus.ACTIVE,
+        DataSource.connector_type == DataSourceConnectorType.OEM_API)).scalars().all()
+    for src in sources:
+        try:
+            interval = oem_poller.parse_config(src.connection_config).interval_seconds
+        except oem_poller.PollConfigError:
+            continue                              # misconfigured sources are surfaced when a poll is attempted/edited
+        bucket = int(now.timestamp() // interval)
+        _, was_created = job_service.enqueue(
+            db, job_type=job_handlers.POLL, organization_id=src.organization_id, data_source_id=src.id,
+            idempotency_key=f"poll:{src.id}:{bucket}", max_attempts=3, correlation_id="schedule-poll")
+        created += int(was_created)
     return created

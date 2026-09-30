@@ -54,6 +54,7 @@ _SOURCE_SYSTEM_DEFAULTS = {
     DataSourceConnectorType.CSV_BATCH: "CSV_BATCH",
     DataSourceConnectorType.JSON_BATCH: "JSON_BATCH",
     DataSourceConnectorType.GENERIC_WEBHOOK: "GENERIC_WEBHOOK",
+    DataSourceConnectorType.OEM_API: "OEM_API",
 }
 INGESTABLE_TYPES = frozenset(_SOURCE_SYSTEM_DEFAULTS)
 _MAX_ERROR_SAMPLES = 10
@@ -173,11 +174,15 @@ def _connector_for(source: DataSource) -> Any:
         return conn
     if ctype == DataSourceConnectorType.CSV_BATCH:
         return CSVBatchConnector(connector_id=f"ds-{source.id}", source_system=_source_system(source))
+    if ctype == DataSourceConnectorType.OEM_API:
+        if str(((cfg.get("poll") or {}).get("format")) or "json").lower() == "csv":
+            return CSVBatchConnector(connector_id=f"ds-{source.id}", source_system=_source_system(source))
+        return JSONBatchConnector(connector_id=f"ds-{source.id}", source_system=_source_system(source))
     if ctype in (DataSourceConnectorType.JSON_BATCH, DataSourceConnectorType.GENERIC_WEBHOOK):
         return JSONBatchConnector(connector_id=f"ds-{source.id}", source_system=_source_system(source))
     raise ConflictError(
         f"Data source type {ctype} is not ingestable through this endpoint "
-        "(DJI FlightHub uses its signed webhook; OEM_API is pull-based)",
+        "(DJI FlightHub uses its signed webhook)",
         code="unsupported_connector_type",
     )
 

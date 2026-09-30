@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     # Policy rate limiting (app/core/rate_limit_middleware.py). Overrides: {"lisa": "10/60", "default": "off"}.
     # Data retention (app/services/retention_service.py). Real deletion needs BOTH an enabled policy and this switch.
     retention_destructive_enabled: bool = False
+    # OEM pull polling (app/services/edge/oem_poller.py): hosts on private networks the OPERATOR explicitly allows.
+    oem_allowed_private_hosts: list[str] = []
     retention_archive_dir: str | None = None
     rate_limit_enabled: bool = True
     rate_limit_overrides: dict[str, str] = {}
