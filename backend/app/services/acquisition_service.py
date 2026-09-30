@@ -24,6 +24,7 @@ per worker, while idempotency of persisted events is enforced by the database.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -34,6 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core import secrets as secrets_layer
 from app.core.errors import AeroComplyError, ConflictError, NotFoundError
 from app.models.asset import Asset
 from app.models.data_source import DataSource, DataSourceConnectorType, DataSourceStatus
@@ -92,6 +94,21 @@ class AcquisitionReport:
 
 
 # ----------------------------------------------------------------------------- helpers
+def _mavlink_signing_key(secret_reference: str | None) -> bytes | None:
+    """32-byte MAVLink 2 signing key from the platform secret named by the data source. Accepts 64 hex characters,
+    or a passphrase (key = SHA-256(passphrase), the convention used by MAVLink ground stations)."""
+    secret = secrets_layer.resolve(secret_reference)
+    if not secret:
+        return None
+    try:
+        raw = bytes.fromhex(secret)
+        if len(raw) == 32:
+            return raw
+    except ValueError:
+        pass
+    return hashlib.sha256(secret.encode("utf-8")).digest()
+
+
 def _load_source(db: Session, organization_id: uuid.UUID, data_source_id: uuid.UUID) -> DataSource:
     source = db.execute(
         select(DataSource).where(
@@ -131,10 +148,14 @@ def _connector_for(source: DataSource) -> Any:
             sysid_map = {
                 int(k): str(v) for k, v in (cfg.get("system_id_map") or {}).items() if str(k).isdigit()
             }
+            signing_key = _mavlink_signing_key(source.secret_reference)
             conn = MAVLinkConnector(
                 connector_id=f"ds-{source.id}",
                 source_system=_source_system(source),
                 asset_mapping_override=sysid_map,
+                signing_key=signing_key,
+                # require_signing=true with no resolvable key fails CLOSED: every frame is rejected as unsigned
+                require_signed=True if cfg.get("require_signing") else None,
             )
             conn.connect()
             _CONNECTORS[source.id] = conn
@@ -188,6 +209,13 @@ def _decode(source: DataSource, raw: bytes, topic: str | None, report: Acquisiti
                 report.warnings.append(f"{delta} frame(s) dropped: {key}")
         if conn.integrity["crc_errors"] - before["crc_errors"]:
             report.errors.append("frames failed checksum verification")
+        for key, text in (("bad_signature", "frames failed MAVLink signature verification"),
+                          ("replayed_signature", "replayed (stale-timestamp) signed frames"),
+                          ("unsigned_rejected", "unsigned frames refused (signing required)")):
+            delta = conn.integrity[key] - before[key]
+            if delta:
+                report.rejected += delta       # security rejections are failures, never silent drops
+                report.errors.append(f"{delta} {text}")
         if conn.stats.parse_errors - errors_before and not events:
             report.errors.append("no valid MAVLink frames in payload")
         return _apply_binding(source, events)

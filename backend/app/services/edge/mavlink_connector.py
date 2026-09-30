@@ -19,6 +19,8 @@ Supported MAVLink Messages:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import math
 import struct
 import time
@@ -160,6 +162,8 @@ class MAVLinkConnector(TelemetryConnector):
         source_system: str = "KOTA_MAVLINK_GATEWAY",
         asset_mapping_override: dict[int, str] | None = None,
         on_event_callback: Callable[[NormalizedTelemetryEvent], Any] | None = None,
+        signing_key: bytes | None = None,
+        require_signed: bool | None = None,
     ) -> None:
         super().__init__(
             connector_id=connector_id,
@@ -174,14 +178,23 @@ class MAVLinkConnector(TelemetryConnector):
         # (sysid 255), gimbals, cameras and companion computers share a sysid but not its state.
         self.accepted_component_ids: frozenset[int] = frozenset({MAVLINK_AUTOPILOT_COMPONENT_ID})
         self._last_seq: dict[tuple[int, int], tuple[int, float]] = {}
+        # MAVLink 2 message signing (see verify_signature). With a key configured, unsigned frames are refused unless
+        # require_signed is explicitly False; without a key, signed frames are framed and counted but NOT verified.
+        if signing_key is not None and len(signing_key) != 32:
+            raise ValueError("MAVLink signing key must be exactly 32 bytes")
+        self._signing_key = signing_key
+        self.require_signed = bool(signing_key) if require_signed is None else require_signed
+        self._last_sig_ts: dict[tuple[int, int, int], int] = {}
         self.integrity: dict[str, int] = {
             "crc_errors": 0, "duplicates": 0, "late": 0, "lost": 0,
             "ignored_component": 0, "ignored_sysid": 0, "unsupported_msgid": 0, "signed_frames": 0,
+            "unsigned_rejected": 0, "bad_signature": 0, "replayed_signature": 0,
         }
 
     def connect(self, endpoint_uri: str = "udp://127.0.0.1:14550", **kwargs: Any) -> bool:
         """Connects to serial, UDP, TCP, or stream endpoint."""
         self._last_seq.clear()  # new link => sequence numbers restart
+        self._last_sig_ts.clear()
         self.state = ConnectorState.CONNECTED
         self.stats.state = ConnectorState.CONNECTED
         self.stats.connected_at = datetime.now(UTC)
@@ -483,6 +496,29 @@ class MAVLinkConnector(TelemetryConnector):
         self._last_seq[key] = (seq, now)
         return True
 
+    def _verify_signature(self, frame: bytes, body_end: int, sysid: int, compid: int) -> bool:
+        """MAVLink 2 signature: first 48 bits of SHA-256(key + header(10) + payload + CRC(2) + link_id + timestamp(6)).
+
+        The 13-byte block is link_id(1) + timestamp(6, little endian, 10 us units) + signature(6). A valid signature
+        must also carry a timestamp strictly greater than the last accepted one for the same
+        (sysid, compid, link_id) stream, which defeats replay of captured frames. The first frame of a stream is
+        accepted at any timestamp (the clock origin is vehicle-defined)."""
+        sig_block = frame[body_end + 2 :]
+        link_id, ts_bytes, signature = sig_block[0], sig_block[1:7], sig_block[7:13]
+        expected = hashlib.sha256(
+            self._signing_key + frame[:10] + frame[10 : body_end + 2] + bytes([link_id]) + ts_bytes  # type: ignore[operator]
+        ).digest()[:6]
+        if not hmac.compare_digest(expected, signature):
+            self.integrity["bad_signature"] += 1
+            return False
+        ts = int.from_bytes(ts_bytes, "little")
+        key = (sysid, compid, link_id)
+        if ts <= self._last_sig_ts.get(key, -1):
+            self.integrity["replayed_signature"] += 1
+            return False
+        self._last_sig_ts[key] = ts
+        return True
+
     def feed_bytes(self, raw_bytes: bytes) -> list[NormalizedTelemetryEvent]:
         """Parses MAVLink v1 / v2 binary frames from a stream buffer.
 
@@ -537,9 +573,17 @@ class MAVLinkConnector(TelemetryConnector):
                 self.stats.parse_errors += 1
                 continue
 
+            frame = bytes(buf[:frame_len]) if signed else b""
             del buf[:frame_len]
             if signed:
-                self.integrity["signed_frames"] += 1  # framing handled; signature not verified (no key)
+                self.integrity["signed_frames"] += 1
+            # Authenticity comes BEFORE sequence tracking so a forged frame can never poison loss/duplicate state.
+            if signed and self._signing_key is not None:
+                if not self._verify_signature(frame, body_end, sysid, compid):
+                    continue
+            elif self.require_signed:
+                self.integrity["unsigned_rejected"] += 1
+                continue
 
             if not self._accept_sequence(sysid, compid, seq):
                 continue
