@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # a real provider must be registered via billing_service.register_provider.
     billing_provider: str = "test"
     # Policy rate limiting (app/core/rate_limit_middleware.py). Overrides: {"lisa": "10/60", "default": "off"}.
+    # Data retention (app/services/retention_service.py). Real deletion needs BOTH an enabled policy and this switch.
+    retention_destructive_enabled: bool = False
+    retention_archive_dir: str | None = None
     rate_limit_enabled: bool = True
     rate_limit_overrides: dict[str, str] = {}
     # Enable only behind a proxy you control that overwrites X-Forwarded-For; otherwise clients can spoof it.

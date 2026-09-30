@@ -113,6 +113,7 @@ from app.models.work_order import WorkOrder
 from app.models import aog_event as _aog_event  # noqa: F401
 from app.models import billing as _billing  # noqa: F401
 from app.models import background_job as _background_job  # noqa: F401
+from app.models import retention as _retention  # noqa: F401
 from app.models import deferred_item as _deferred_item  # noqa: F401
 from app.models import inventory_transaction as _inventory_transaction  # noqa: F401
 from app.models import maintenance_requirement as _maintenance_requirement  # noqa: F401

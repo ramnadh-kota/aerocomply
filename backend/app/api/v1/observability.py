@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,7 +21,7 @@ from app.core.deps import get_current_user
 from app.models.background_job import BackgroundJob, JobStatus
 from app.models.data_source import DataSource
 from app.schemas.auth import CurrentUser
-from app.services import acquisition_service, audit_service, job_service
+from app.services import acquisition_service, audit_service, job_service, retention_service
 
 router = APIRouter(tags=["observability"])
 
@@ -92,3 +92,52 @@ def requeue_job(
         )
     db.commit()
     return _job_view(job)
+
+
+@router.get("/platform/retention/policies")
+def list_retention_policies(
+    db: Session = Depends(get_db_session),
+    _: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> dict[str, Any]:
+    return {"floors_days": retention_service.FLOOR_DAYS, "items": [
+        {"id": str(p.id), "organization_id": str(p.organization_id) if p.organization_id else None,
+         "data_class": p.data_class, "retention_days": p.retention_days, "enabled": p.enabled}
+        for p in retention_service.list_policies(db)]}
+
+
+@router.put("/platform/retention/policies")
+def put_retention_policy(
+    body: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db_session),
+    user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> dict[str, Any]:
+    try:
+        org = uuid.UUID(str(body["organization_id"])) if body.get("organization_id") else None
+        row = retention_service.set_policy(
+            db, organization_id=org, data_class=str(body.get("data_class")),
+            retention_days=int(body.get("retention_days", 0)), enabled=bool(body.get("enabled", False)))
+    except (retention_service.RetentionError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if row.organization_id:
+        audit_service.record_audit_event(
+            db, organization_id=row.organization_id, user_id=user.id, action="retention.policy_set",
+            entity_type="RetentionPolicy", entity_id=row.id,
+            metadata={"data_class": row.data_class, "retention_days": row.retention_days, "enabled": row.enabled})
+    db.commit()
+    return {"id": str(row.id), "data_class": row.data_class, "retention_days": row.retention_days, "enabled": row.enabled}
+
+
+@router.post("/platform/retention/run")
+def run_retention(
+    dry_run: bool = Query(default=True, description="true (default) only reports what WOULD be removed"),
+    organization_id: uuid.UUID | None = Query(default=None),
+    db: Session = Depends(get_db_session),
+    user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> dict[str, Any]:
+    try:
+        results = retention_service.run_retention(db, dry_run=dry_run, organization_id=organization_id,
+                                                  actor_user_id=user.id)
+    except retention_service.RetentionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    return {"dry_run": dry_run, "results": [r.to_dict() for r in results]}
