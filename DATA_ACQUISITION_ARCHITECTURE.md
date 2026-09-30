@@ -1,159 +1,106 @@
-# KOTA AEROSPACE — DATA ACQUISITION & INGESTION ARCHITECTURE
+# Kota Aerospace — Data Acquisition Architecture (as implemented)
 
-## 1. Executive Summary & Purpose
-The **Data Acquisition Layer (DAL)** provides a unified, deterministic, multi-modal ingestion pipeline that bridges diverse aerospace and drone telemetry, flight records, sensor data, MRO work orders, and compliance documents into Kota Aerospace's central intelligence fabric.
+> Supersedes the earlier specification-style version of this file, which described components that
+> do not exist in the code (Redis de-duplication, asynchronous worker queues, TimescaleDB, a
+> `/webhooks/dji` route, an async `BaseDataConnector`, a flat event model). Every statement below
+> is backed by code and by a test named in the last column. Things that are **not** built are listed
+> in §9 and are not claimed anywhere else.
 
-The architecture strictly decouples raw protocol framing and third-party vendor schemas from the internal analytical engine through canonical event representations, fail-closed validation, and organization-scoped tenant isolation.
-
----
-
-## 2. Ingestion Modalities & Data Flow
+## 1. The path
 
 ```text
-  [ REAL-TIME STREAMS ]           [ BATCH & FILES ]              [ ENTERPRISE CONNECTORS ]
-  ├── MAVLink (v1 / v2)           ├── Flight Log CSV/JSON/BIN    ├── OEM Fleet Management API
-  ├── MQTT Telemetry Feeds        ├── Maintenance Work Orders    ├── Maintenance / MRO ERP
-  ├── Edge Gateway (REST / WS)    ├── Sensor Dumps (Vib/Temp)    ├── Cloud Object Storage (S3)
-  └── Webhooks (DJI, Skyward)     └── Compliance Audit Records   └── Customer REST Pull Adapters
-               │                                │                              │
-               ▼                                ▼                              ▼
-    [ Protocol Decoders ]             [ File Staging & Parse ]       [ Connector Adapters ]
-   (Framing, CRC, Checksums)         (CSV/JSON Parser, Size Limit)  (Rate-limiting, Sync State)
-               │                                │                              │
-               └───────────────────────┬────────┴──────────────────────────────┘
-                                       │
-                                       ▼
-                       [ Schema Normalization Layer ]
-                    Converts to: NormalizedTelemetryEvent
-                                       │
-                                       ▼
-                     [ Validation & Authorization Gate ]
-                       ├── Tenant & Asset Scope Check
-                       ├── Subscription & Entitlement Check
-                       ├── Rate Limits & Quota Enforcement
-                       └── Duplicate / Out-of-Order Filter
-                                       │
-                                       ▼
-                          [ Ingestion Router & Queue ]
-                                       │
-        ┌──────────────────────────────┼──────────────────────────────┐
-        ▼                              ▼                              ▼
- [ Telemetry Storage ]       [ Real-time HUMS Engine ]      [ M7 Event Trigger ]
- (TimescaleDB / Hypertable)  (Feature Extraction & RUL)    (Signal & Finding Gen)
+ DataSource (tenant-bound, ACTIVE)              POST /api/v1/data-sources/{id}/ingest   (raw body, ≤ 25 MB)
+        │                                        POST /api/v1/telemetry/ingest           (already-normalised batch)
+        ▼                                        POST /api/v1/telemetry/dji/webhook      (HMAC-signed, tenant by header)
+ connector  ── MAVLink v1/v2 | MQTT | CSV | JSON | canonical webhook JSON
+        ▼
+ NormalizedTelemetryEvent          (app/schemas/telemetry.py)
+        ▼
+ acquisition_service.ingest        (app/services/acquisition_service.py)  ← per-event SAVEPOINT, health evidence, metrics
+        ▼
+ telemetry_service.process_normalized_event      ← THE persistence path (one implementation)
+   1. idempotency        unique (org, source_system, source_event_id)
+   2. quality gate       naive / future(>5 min) / pre-2000 timestamp → REJECTED
+   3. asset resolution   explicit mapping → asset id → UNIQUE exact serial/registration; ambiguous or unknown → QUARANTINED
+   4. flight             one Flight per streaming session (flight_number + start), advisory-locked per asset
+   5. battery            updates an EXISTING battery only; never invents cycle counts
+   6. sensors/readings   get-or-create sensor (race-safe), reading rows
+   7. exceedances        HUMS detection (failures logged, isolated by SAVEPOINT)
+   8. event log + audit  telemetry_event_logs row, audit event
+        ▼
+ hums_sensor_readings · flights · telemetry_event_logs · hums_exceedances → findings → M7 → LISA
 ```
 
----
+## 2. Canonical event (actual fields)
 
-## 3. Canonical Event Data Model
+`NormalizedTelemetryEvent`: `source_system`, `source_event_id`, `source_asset_id`, `event_type`,
+`event_timestamp`, optional `flight` (flight_number, duration_minutes, cycles, origin, destination,
+flown_at, notes), optional `battery` (serial_number, cycle_count, voltage_v, temperature_c,
+health_percent, …), `readings[]` (sensor_code, sensor_type, measurement_type, **value (finite only)**,
+unit, component_id, data_quality), `raw_metadata`.
+Reading `data_quality` ∈ VALID, SUSPECT, MISSING, OUT_OF_RANGE, STALE, DUPLICATE, INVALID.
+Processing status ∈ RECEIVED, VALIDATED, PROCESSED, DUPLICATE, REJECTED, QUARANTINED, FAILED.
 
-Every telemetry input, regardless of source protocol, is normalized into the authoritative `NormalizedTelemetryEvent` structure prior to downstream persistence or analysis:
+## 3. Data sources
 
-```python
-class NormalizedTelemetryEvent(BaseModel):
-    # Tenant & Vehicle Identity
-    organization_id: UUID
-    suite_id: SuiteType  # e.g., DRONE_UAV, AIRCRAFT, HELICOPTER, EVTOL
-    asset_id: UUID
-    source_protocol: str  # "MAVLINK_V2", "DJI_WEBHOOK", "MQTT_CANVAS", "CSV_IMPORT"
-    
-    # Timing & Ordering
-    timestamp_utc: datetime
-    sequence_number: Optional[int] = None
-    ingest_timestamp_utc: datetime = Field(default_factory=datetime.utcnow)
-    
-    # Flight Context
-    flight_id: Optional[UUID] = None
-    session_id: Optional[str] = None
-    flight_phase: Optional[str] = None  # "TAKEOFF", "CLIMB", "CRUISE", "HOVER", "LANDING"
-    
-    # Core Spatial & Dynamic Telemetry
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    altitude_msl_m: Optional[float] = None
-    altitude_relative_m: Optional[float] = None
-    ground_speed_mps: Optional[float] = None
-    air_speed_mps: Optional[float] = None
-    heading_deg: Optional[float] = None
-    
-    # Attitude & Inertial
-    roll_deg: Optional[float] = None
-    pitch_deg: Optional[float] = None
-    yaw_deg: Optional[float] = None
-    roll_rate_dps: Optional[float] = None
-    pitch_rate_dps: Optional[float] = None
-    yaw_rate_dps: Optional[float] = None
-    accel_x_g: Optional[float] = None
-    accel_y_g: Optional[float] = None
-    accel_z_g: Optional[float] = None
-    
-    # Power & Propulsion
-    battery_voltage_v: Optional[float] = None
-    battery_current_a: Optional[float] = None
-    battery_remaining_pct: Optional[float] = None
-    battery_temperature_c: Optional[float] = None
-    motor_rpm: Optional[Dict[str, float]] = None
-    motor_temp_c: Optional[Dict[str, float]] = None
-    
-    # Health & System Status
-    system_status: Optional[str] = None  # "STANDBY", "ACTIVE", "CRITICAL", "EMERGENCY"
-    sensor_health_flags: Optional[Dict[str, bool]] = None
-    vibration_rms_g: Optional[float] = None
-    
-    # Raw Payload Storage & Traceability
-    raw_payload_checksum: Optional[str] = None
-    raw_payload_ref: Optional[str] = None
-```
+Model `data_sources` (migrations 0062, 0063): `connector_type` ∈ MAVLINK, MQTT, DJI_FLIGHTHUB, CSV_BATCH,
+JSON_BATCH, OEM_API, GENERIC_WEBHOOK; status DRAFT → ACTIVE ⇄ PAUSED → DECOMMISSIONED; `connection_config`
+(no credentials — keys such as password/token/api_key are refused; use `secret_reference`);
+health evidence columns (last seen/success/failure, duplicate/quarantine/loss counters, latency).
+Only ACTIVE sources accept data (409 `data_source_not_active`). The whole `/data-sources` surface
+requires an active `flight_telemetry` entitlement in addition to RBAC.
 
----
+Configuration keys understood by the orchestrator: `system_id_map` (MAVLink sysid → asset id or
+external id), `topic_filter`, `source_system`, `expected_interval_seconds` (enables staleness health),
+`asset_binding: "SINGLE_ASSET"` + `default_asset_id` (explicit opt-in; the asset must belong to the
+source's own tenant).
 
-## 4. Ingestion Pipelines
+## 4. Connectors
 
-### 4.1 Real-Time Ingestion (MAVLink, MQTT, Webhooks)
-1. **Transport Layer**:
-   - Webhooks received via `POST /api/v1/telemetry/ingest` and `POST /api/v1/webhooks/dji`.
-   - MAVLink streams parsed directly from UDP/TCP socket listener or serial gateway.
-2. **De-duplication**:
-   - Evaluated via `(organization_id, asset_id, timestamp_utc, sequence_number)` cache key in Redis/Memory.
-   - Sliding window of 10,000 sequence IDs per vehicle prevents replay attacks or redundant packet processing.
-3. **Throughput & Backpressure**:
-   - Ingestion endpoints return `202 Accepted` with correlation ID in `< 25ms`.
-   - Streaming bursts are buffer-managed into asynchronous worker queues for feature extraction and long-term storage.
+| Connector | Input | Identity / ordering / integrity | Tests |
+|---|---|---|---|
+| MAVLink | raw v1/v2 bytes | CRC-16/X.25 + CRC_EXTRA verified (8 message types, seeds cross-checked against the official dialect); per-(sysid, compid) sequence: duplicates and late frames dropped, gaps counted as loss; GCS (sysid 0/255) and non-autopilot components ignored; signed v2 frames framed correctly (signature not verified); **no invented measurements** | `test_m20_mavlink_integrity`, `test_acquisition_pipeline` |
+| MQTT | one message payload (+ topic) | device timestamp honoured; content-derived event id (at-least-once redelivery is a duplicate); payload asset id outranks topic segment, conflict recorded in metadata | `test_acquisition_pipeline` |
+| CSV / JSON | file body (≤ 10 000 rows) | content-derived event id (re-upload idempotent, no cross-file collisions); ordered column priority; unparseable timestamp = row error (never "now"); empty/non-finite records rejected | `test_acquisition_pipeline`, `test_phase_b_data_acquisition` |
+| DJI FlightHub | signed webhook | HMAC mandatory; endpoint disabled (503) until `DJI_WEBHOOK_SECRET` is set; target tenant must hold `flight_telemetry` | `test_m13_telemetry_ingestion`, `test_m20_route_gating` |
 
-### 4.2 Batch File Ingestion (CSV, JSON, Flight Logs)
-1. **Staged Upload**:
-   - Files uploaded to temporary tenant-isolated storage: `POST /api/v1/data-import/{domain}/validate`.
-2. **Schema & Header Verification**:
-   - Inspects headers, data types, timestamp formats (ISO-8601, UNIX epoch, GPS milliseconds), and missing column mapping.
-3. **Job Execution**:
-   - Client triggers execution: `POST /api/v1/data-import/jobs/{job_id}/execute`.
-   - Processes records in chunks of 500 rows with transactional rollback on structural violation.
+## 5. Guarantees (each test-backed)
 
-### 4.3 Extensible Enterprise Connectors
-- Connector plugins implement the `BaseDataConnector` interface:
-  ```python
-  class BaseDataConnector(ABC):
-      @abstractmethod
-      async def authenticate(self, credentials: Dict[str, Any]) -> bool:
-          pass
-          
-      @abstractmethod
-      async def fetch_incremental(self, since_timestamp: datetime) -> AsyncIterator[NormalizedTelemetryEvent]:
-          pass
-          
-      @abstractmethod
-      async def health_check(self) -> Dict[str, Any]:
-          pass
-  ```
-- Adding a new vendor (e.g., Collins Aerospace, Garmin Pilot, FlightAware) requires implementing this adapter without touching database schemas or core ingestion endpoints.
+- **Tenant binding**: the organization comes from the DataSource row loaded with the caller's organization; another tenant's source is 404.
+- **No guessing**: unknown or ambiguous identifiers are quarantined, never attached; soft-deleted assets never receive data.
+- **Replay after fix**: a quarantined event re-sent after its mapping is corrected is processed (its log row is updated).
+- **Atomicity**: one event is one unit; a failing event rolls back only itself (SAVEPOINT).
+- **Concurrency**: duplicate-event race → exactly one PROCESSED; parallel first events of one flight/sensor → one Flight, one sensor (`test_concurrency`).
+- **Hostile input**: recursion bombs, binary junk, `Infinity`, oversized values never yield a 5xx and never store data (`test_customer_journeys_commercial`).
+- **Health is evidence**: derived from recorded counters/timestamps, never assumed; "NO_DATA_YET" is reported as such.
 
----
+## 6. Read side (Phase C)
 
-## 5. Security, Isolation & Auditability
+`GET /telemetry/assets/{id}/status | latest | history | flights`, `GET /telemetry/events` (real total, filters).
+`latest` reports each sensor's own reading time and age — a stalled feed shows growing age, not a fresh value.
 
-1. **Tenant Validation**:
-   - Telemetry packets must contain valid API keys, JWTs, or registered hardware device tokens bound to an active `organization_id`.
-   - Mismatched `asset_id` (e.g., drone registered to Org A, telemetry sent with Org B credentials) triggers an immediate `403 Forbidden` and security audit log entry.
-2. **Entitlement Enforcement**:
-   - If an organization's subscription has expired or exceeded its `max_telemetry_rate_hz` or `max_active_assets` limit, ingestion is throttled or rejected with `402 Payment Required / 429 Too Many Requests`.
-3. **Audit Trail**:
-   - Every ingest batch logs total packets received, parsed, dropped (with reason), and downstream processing latency.
+## 7. Health states
+
+HEALTHY / DEGRADED / FAILED / INACTIVE from: lifecycle status, consecutive failures (≥2 degraded, ≥5 failed),
+staleness against `expected_interval_seconds` (>3× degraded, >10× failed), packet loss ≥ 20 % (min 10), and
+quarantine ≥ 50 % (min 5).
+
+## 8. Time
+
+MAVLink `time_boot_ms` is boot-relative, so MAVLink events are stamped with **arrival time**, made strictly
+increasing per vehicle. Buffered/late frames therefore carry their delivery time. Batch/MQTT use the source's own timestamp when present
+(`raw_metadata.timestamp_source` = SOURCE | RECEIVED).
+
+## 9. NOT implemented (roadmap, not claims)
+
+| Item | State |
+|---|---|
+| MQTT broker subscription, MAVLink UDP/TCP/serial listener | **No process exists** that opens a socket. Connectors decode bytes handed to them; an external gateway/worker must deliver to `/ingest`. EXTERNAL / NOT IMPLEMENTED |
+| Asynchronous queue / workers / dead-letter | none — ingestion is synchronous in the request; bounded by 25 MB / 10 000 rows |
+| Rate limiting and quota (`max_telemetry_rate_hz`) | none on ingest (only body/row limits and entitlement) |
+| Redis/window de-duplication | not used; idempotency is the database unique constraint + connector sequence state (per worker process) |
+| OEM_API / ERP / cloud-storage pull connectors | type exists in the enum; **no pull implementation** |
+| Per-source machine credentials | ingest uses a tenant user/API token (JWT); no source-scoped key |
+| Flight-phase detection (takeoff/cruise/landing) | not implemented; a flight is only what the source supplies (MAVLink: one session flight per vehicle) |
+| MAVLink signature verification, GPS-epoch time (SYSTEM_TIME) | not implemented |
+| TimescaleDB / hypertables | not used; plain PostgreSQL tables |

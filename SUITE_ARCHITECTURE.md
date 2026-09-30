@@ -1,107 +1,63 @@
-# Kota Aerospace — Suite Architecture Specification
+# Kota Aerospace — Suite Architecture (as implemented)
 
-## 1. Core Architectural Principle
-Kota Aerospace implements a **Suite-First Commercial Architecture** designed to serve heterogeneous aerospace domains while sharing core platform capabilities.
-
-The canonical hierarchy is:
 ```text
-Platform Operator (Global Catalog)
-       ↓
-ProductSuite (AIRCRAFT | DRONE_UAV | HELICOPTER | EVTOL_AAM)
-       ↓
-Plan (with suite_id NOT NULL, e.g., Starter, Professional, Enterprise)
-       ↓
-Subscription (organization_id, plan_id, suite_id)
-       ↓
-Organization
-       ↓
-Users / Roles (RBAC)
-       ↓
-Effective Entitlements (Suite Modules, Feature Keys, Usage Limits)
+ProductSuite ──1:N──> Plan ──1:N──> Subscription ──N:1──> Organization
+    │                   │
+    ├─ ProductModule ── ProductPage / ProductFeature
+    └─ (code, name, icon, is_active, display_order)
 ```
 
----
+## Suites
 
-## 2. Supported Domain Product Suites
+Seeded by migration 0061 with stable machine codes (never display names):
 
-### 1. Aircraft Suite (`code: "AIRCRAFT"`)
-- **Target Market**: Fixed-wing commercial air carriers, cargo operators, regional airlines, business aviation, and PART-145 MROs.
-- **Core Modules & Capabilities**:
-  - `aircraft_fleet_management`: Aircraft tail registration, MSN tracking, flight hours/cycles, engine assignment, maintenance scheduling.
-  - `mro_intelligence`: Work orders, task cards, technician authorization, part tracking, RII second-inspector gates.
-  - `inspections_management`: Scheduled/unscheduled inspection programs, interval thresholds.
-  - `compliance_obligations`: Airworthiness Directives (ADs), Service Bulletins (SBs), regulatory applicability engines.
-  - `digital_evidence`: SHA-256 tamper-evident digital thread, maintenance sign-offs, inspector acceptance gates.
-  - `ai_chat_assistant` (LISA): Grounded AOG recovery, release readiness, procurement bottleneck tracking.
+| Code | Name |
+|---|---|
+| `DRONE_UAV` | Drone / UAV Suite |
+| `AIRCRAFT` | Aircraft Suite |
+| `HELICOPTER` | Helicopter Suite |
+| `EVTOL_AAM` | eVTOL / AAM Suite |
 
-### 2. Drone / UAV Suite (`code: "DRONE_UAV"`)
-- **Target Market**: Autonomous drone fleet operators, inspection service providers, BVLOS logistics, defense/enterprise UAV fleets.
-- **Core Modules & Capabilities**:
-  - `drone_fleet_management`: Drone registration, hardware serial tracking, firmware tracking.
-  - `drone_missions`: Mission planning, flight logging, automated telemetry capture.
-  - `battery_analytics`: Battery serial lineage, cycle counts, cell voltage balance, degradation modeling.
-  - `flight_telemetry` & `live_telemetry_streaming`: Real-time MAVLink v2 ingestion, DJI FlightHub 2 webhook integration.
-  - `hums_health_monitoring`: Vibration RMS, FFT spectral features, bearing degradation tracking.
-  - `proactive_maintenance_m7`: Automated exceedance detection, proactive maintenance signals.
+More suites can be created through the platform product-catalog API without frontend changes (the frontend reads suites, plans and
+navigation from the backend). The domain boundary rules (`_SUITE_DISALLOWED_FEATURES`, prefix rules in `is_feature_allowed_for_suite`)
+are currently code, not data — adding a suite with a new domain needs a code change there.
 
-### 3. Helicopter Suite (`code: "HELICOPTER"`)
-- **Target Market**: Rotary-wing operators, Emergency Medical Services (EMS), offshore oil & gas transport, utility/heavy-lift helicopters.
-- **Engine Reuse with Domain Grounding**:
-  - Reuses the core asset engine, work order management, compliance engine, and evidence thread.
-  - Uses specialized high-frequency rotor vibration analysis, transmission gearbox HUMS parameters, and rotor blade tracking algorithms.
+## Rules (each enforced in service code and covered by tests)
 
-### 4. eVTOL / AAM Suite (`code: "EVTOL_AAM"`)
-- **Target Market**: Electric vertical takeoff and landing aircraft, urban air mobility (UAM), advanced electric air cargo.
-- **Engine Reuse with Domain Grounding**:
-  - Reuses multi-rotor drone battery health telemetry algorithms combined with Part-135/Part-121 aircraft airworthiness and compliance frameworks.
-  - Specialized distributed electric propulsion (DEP) monitoring and high-voltage inverter thermal tracking.
+| Rule | Where | Tests |
+|---|---|---|
+| A plan belongs to exactly one suite (`plans.suite_id NOT NULL`, `UNIQUE(suite_id, code)`); same plan code in two suites is allowed | migration 0061, `plan_service` | `test_suite_plan_subscription_architecture`, `test_phase_a_…` |
+| Subscription suite = plan suite (`suite_plan_mismatch`); moving a subscription to another suite's plan is refused | `subscription_service` | `test_m20_commercial_entitlement_lifecycle` |
+| One current subscription per (organization, suite); different suites coexist | `subscription_service._assert_no_ambiguity` (+ per-organization row lock) | `test_phase_a_…`, `test_concurrency` |
+| A plan cannot hold features of another suite's domain; a plan with subscribers cannot change suite | `plan_service` | `test_m20_route_gating`, `test_update_plan_suite_move_guards` |
+| Overrides cannot cross the suite boundary | `tenant_entitlement_admin_service` | `test_suite_plan_subscription_architecture` |
+| Provisioning is atomic and refuses a plan outside the selected suite | `provisioning_service` | `test_provisioning`, `test_provisioning_suite_mismatch_leaves_nothing` |
 
----
+## Onboarding (platform-administered)
 
-## 3. Database Schema Mapping
+Select suite → select a plan **of that suite** → review → create organization + subscription + initial admin in one transaction
+(`provision_organization`, rolled back on any failure) → admin receives an onboarding OTP email (sent after commit; failure does not undo the account).
+Organization-side self-service change of suite/plan does not exist by design: the Platform Admin controls assignment.
 
-```sql
--- Product Suites Catalog Table (Platform-level)
-CREATE TABLE product_suites (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code VARCHAR(64) UNIQUE NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    icon VARCHAR(64),
-    display_order INTEGER NOT NULL DEFAULT 0,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
-);
+## What each suite actually delivers today (domain coverage)
 
--- Plans Table (Linked strictly to a ProductSuite)
-CREATE TABLE plans (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    suite_id UUID NOT NULL REFERENCES product_suites(id) ON DELETE RESTRICT,
-    code VARCHAR(64) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    CONSTRAINT uq_plans_suite_id_code UNIQUE (suite_id, code)
-);
+The earlier version of this document listed target markets and capabilities per suite. Measured against the code:
 
--- Subscriptions Table (Links Organization to a Plan and its Suite)
-CREATE TABLE subscriptions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    plan_id UUID NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,
-    suite_id UUID NOT NULL REFERENCES product_suites(id) ON DELETE RESTRICT,
-    status VARCHAR(32) NOT NULL,
-    starts_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    ends_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
-);
-```
+| Suite | Commercial architecture | Domain functionality in the codebase |
+|---|---|---|
+| `AIRCRAFT` | complete | **Implemented**: aircraft registry, work orders/tasks, inspections, evidence, compliance/applicability, deferred items, AOG, procurement, release readiness, TAT, LISA tools. |
+| `DRONE_UAV` | complete | **Implemented**: drones, batteries, flights/missions, telemetry acquisition (MAVLink/MQTT/CSV/JSON/DJI webhook), HUMS (features, baseline, exceedance, diagnostics, prognostics/RUL), M7 signals, LISA. |
+| `HELICOPTER` | suite, plans, entitlements, boundary rules | **Scaffolding only**: the shared asset model accepts `HELICOPTER` assets through the generic `/assets` endpoints. No rotorcraft-specific engines, rotor/gearbox vibration analysis or blade tracking exist. |
+| `EVTOL_AAM` | suite, plans, entitlements, boundary rules | **Scaffolding only**: `EVTOL`/`AAM` asset types exist. No distributed-propulsion or inverter-thermal monitoring exists. |
 
----
+Selling a Helicopter or eVTOL plan today sells the shared platform (assets, work orders, compliance, generic HUMS/telemetry APIs that are not suite-restricted), not domain engines.
 
-## 4. Multi-Suite Organization Support
-Kota Aerospace allows a single enterprise organization to hold subscriptions to multiple product suites simultaneously (e.g. an operator managing both commercial fixed-wing aircraft and an inspection drone fleet).
+## Suite changes are unsupported
 
-- **Per-Suite Ambiguity Guarding**: Overlapping subscription ambiguity checks (`_assert_no_ambiguity`) enforce uniqueness per `(organization_id, suite_id)`.
-- **Entitlement Aggregation**: An organization holding an active Aircraft subscription and an active Drone subscription receives access to the respective modules of both suites without authorization conflicts.
+Changing an organization from one suite to another is not a supported operation; provision the new suite as an additional subscription and cancel the old one.
+
+## Data protection at the suite boundary
+
+Suite boundaries are enforced at the API (feature/suite dependencies), in LISA (per-tool suite and feature), and in the resolver. **Row-level data is
+isolated by tenant (`organization_id`), not by suite**: a drone organization's data is unreachable because its tenant filter and entitlements exclude
+aircraft routes, and `test_tenant_isolation_end_to_end` proves no tenant-to-tenant leakage across 110 id-addressed and 58 list/aggregate operations.
