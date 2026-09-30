@@ -40,3 +40,37 @@ def test_database_engine_has_a_bounded_connect_timeout():
         "DB connection) hangs for the platform's default TCP timeout when "
         "the database is unreachable, instead of failing fast."
     )
+
+
+def test_readiness_reports_schema_and_job_health(client):
+    body = client.get("/api/v1/health/ready").json()
+    assert body["status"] == "ok" and body["database"] == "reachable"
+    assert body["schema"]["up_to_date"] is True and body["schema"]["current"] == body["schema"]["expected"]
+    assert set(body["jobs"]) == {"queued", "dead", "oldest_due_seconds"}
+
+
+def test_readiness_is_503_when_the_schema_is_behind_the_release(client, monkeypatch):
+    from app.api.v1 import health
+
+    monkeypatch.setattr(health, "expected_schema_heads", lambda: ("9999",))
+    r = client.get("/api/v1/health/ready")
+    assert r.status_code == 503 and r.json()["status"] == "schema_mismatch" and r.json()["schema"]["up_to_date"] is False
+
+
+def test_readiness_is_503_when_the_database_is_down(client, db_session, monkeypatch):
+    from app.core.deps import get_db_session
+    from app.main import app
+
+    class Dead:
+        def execute(self, *a, **k):
+            raise RuntimeError("db down")
+
+    def dead():
+        yield Dead()
+
+    app.dependency_overrides[get_db_session] = dead
+    try:
+        r = client.get("/api/v1/health/ready")
+        assert r.status_code == 503 and r.json() == {"status": "unavailable", "database": "unreachable"}
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)

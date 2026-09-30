@@ -172,3 +172,33 @@ def test_asset_create_ignores_client_supplied_tenant_and_id(client, db_session):
     other_org, _ = _org(client, db_session, "mass4")
     r = client.post("/api/v1/drones", headers=h, json={"registration": "MASS-1", "organization_id": str(other_org)})
     assert r.status_code == 201 and r.json()["organization_id"] == str(org_id)
+
+
+# ------------------------------------------------------------------ nothing sensitive reaches the logs
+def test_logs_never_contain_passwords_tokens_secrets_or_raw_telemetry(client, db_session, caplog, capsys, monkeypatch):
+    import logging
+
+    from app.core import secrets
+    from app.listeners.mqtt import validate_mqtt_config
+
+    caplog.set_level(logging.DEBUG)
+    org_id, h = _org(client, db_session, "logs")
+    token = h["Authorization"].split()[1]
+    password = "Sup3r-Secret-Passw0rd!"
+    monkeypatch.setenv(secrets.env_name("datasource/logs/mqtt"), "MQTT-BROKER-SECRET-VALUE")
+    validate_mqtt_config({"listen": {"host": "localhost", "topics": ["a/#"], "username": "u"}}, "datasource/logs/mqtt")
+
+    client.post("/api/v1/auth/login", json={"email": "nobody@example.com", "password": password})     # failed login
+    _drone(client, h, reg="LOG-1")
+    marker = "RAW-TELEMETRY-MARKER-9f3a"
+    from tests.integration.test_acquisition_pipeline import _csv, _ingest, _source
+
+    sid = _source(client, h, "CSV_BATCH")
+    _ingest(client, h, sid, _csv([{"asset_id": "LOG-1", "sensor_code": marker, "value": "1", "unit": "C",
+                                   "timestamp": "2026-09-01T10:00:00Z"}]))
+    client.get("/api/v1/drones", headers={"Authorization": "Bearer " + token + "tampered"})            # rejected token
+
+    out = capsys.readouterr()
+    blob = caplog.text + out.out + out.err
+    for needle in (password, token, "MQTT-BROKER-SECRET-VALUE", marker, "M20Preview"):
+        assert needle not in blob, f"sensitive value leaked into logs: {needle[:12]}..."
