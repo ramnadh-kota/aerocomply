@@ -47,10 +47,13 @@ The earlier version of this document listed target markets and capabilities per 
 |---|---|---|
 | `AIRCRAFT` | complete | **Implemented**: aircraft registry, work orders/tasks, inspections, evidence, compliance/applicability, deferred items, AOG, procurement, release readiness, TAT, LISA tools. |
 | `DRONE_UAV` | complete | **Implemented**: drones, batteries, flights/missions, telemetry acquisition (MAVLink/MQTT/CSV/JSON/DJI webhook), HUMS (features, baseline, exceedance, diagnostics, prognostics/RUL), M7 signals, LISA. |
-| `HELICOPTER` | suite, plans, entitlements, boundary rules | **Scaffolding only**: the shared asset model accepts `HELICOPTER` assets through the generic `/assets` endpoints. No rotorcraft-specific engines, rotor/gearbox vibration analysis or blade tracking exist. |
-| `EVTOL_AAM` | suite, plans, entitlements, boundary rules | **Scaffolding only**: `EVTOL`/`AAM` asset types exist. No distributed-propulsion or inverter-thermal monitoring exists. |
+| `HELICOPTER` | complete | **Implemented (2026-09-30)**: `/helicopters` API + UI gated by `helicopter_fleet_management`; asset with rotor-system / blade / engine / MTOW details (`helicopter_details`, 0068); components (rotor, transmission, engine…); flight hours & cycles; maintenance requirements and lifecycle history; HUMS starter sensors (main/tail rotor and gearbox vibration, gearbox temperature, engine torque, rotor speed) with per-sensor limits; work orders on the asset; findings, M7, LISA (`list_fleet_assets`, HUMS tools); telemetry/HUMS/MRO/compliance through the shared engines. **Not implemented**: rotorcraft-specific analytics (track & balance, gearbox condition indicators, torque-spectrum diagnostics) — they need OEM data and validated algorithms; the shared deterministic HUMS engine runs on the operator-configured sensors and limits. |
+| `EVTOL_AAM` | complete | **Implemented (2026-09-30)**: `/evtols` API + UI gated by `evtol_fleet_management`; configuration / propulsor count / battery energy / HV bus / MTOW / passenger details (`evtol_details`); battery packs (`battery_analytics`), components (motor, propeller, **inverter, HV distribution**, battery…) with an eVTOL-specific configuration-slot view, hours & cycles, HUMS starter sensors (one vibration sensor per propulsor, motor/inverter/battery temperature, HV bus voltage and current); the rest as above. **Not implemented**: propulsor-efficiency, inverter thermal-margin and high-voltage insulation models. |
 
-Selling a Helicopter or eVTOL plan today sells the shared platform (assets, work orders, compliance, generic HUMS/telemetry APIs that are not suite-restricted), not domain engines.
+The generic `/assets` create endpoint requires the asset family's feature (a drone organization cannot create a
+helicopter through it), and every operational sub-resource (components, batteries, maintenance, lifecycle, flights,
+utilization) is scoped to the asset **type** its own route family owns (`drone_service.get_airframe`), so
+`/helicopters/{drone-id}/…` is a 404.
 
 ## Suite changes are unsupported
 

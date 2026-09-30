@@ -7,7 +7,7 @@ BEGIN TRANSACTION READ ONLY;
 WITH checks AS (
   -- 1. Schema version: the expected head for this release
   SELECT 'alembic_head_is_0065' AS check_name,
-         CASE WHEN (SELECT count(*) FROM alembic_version WHERE version_num = '0065') = 1
+         CASE WHEN (SELECT count(*) FROM alembic_version WHERE version_num = '0070') = 1
                    AND (SELECT count(*) FROM alembic_version) = 1
               THEN 'PASS' ELSE 'FAIL' END AS status,
          (SELECT string_agg(version_num, ',') FROM alembic_version) AS detail

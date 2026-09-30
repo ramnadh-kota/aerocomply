@@ -1,97 +1,53 @@
-> **Implementation status (2026-09-30):** this document is a design/target description. The implemented behaviour is documented in `DATA_ACQUISITION_ARCHITECTURE.md`, `ENTITLEMENT_ARCHITECTURE.md`, `SECURITY_ARCHITECTURE.md`, `OBSERVABILITY_ARCHITECTURE.md`, `PRODUCTION_RUNBOOK.md` and `FINAL_RELEASE_READINESS.md`. Implemented: HTTP push ingest of raw MAVLink bytes through `MAVLinkConnector` (v1/v2 framing, CRC_EXTRA, per-(sysid,compid) sequence/loss/duplicate accounting, component filtering, arrival-time timestamps). NOT implemented: serial/UDP listener process, TimescaleDB, signature verification. Physical link behaviour is unvalidated (see `MAVLINK_HARDWARE_VALIDATION_PLAN.md`, `backend/scripts/mavlink_bench_harness.py`). Where this text disagrees with those, those win.
+# Kota Aerospace — MAVLink Architecture (as implemented)
 
-# KOTA AEROSPACE — MAVLINK PROTOCOL & INGESTION ARCHITECTURE
+> Replaces the earlier specification (serial listener, TimescaleDB, Redis router) that described components which do
+> not exist. Every statement below is backed by code and a test. **EXTERNAL VALIDATION REQUIRED** for anything that
+> depends on a physical radio, autopilot or vehicle: see `MAVLINK_HARDWARE_VALIDATION_PLAN.md` and the measurement tool
+> `backend/scripts/mavlink_bench_harness.py`.
 
-## 1. Scope & Protocol Compliance
-The MAVLink ingestion subsystem implements strict MAVLink v1 and v2 protocol handling for UAV fleets operating under ArduPilot, PX4, and custom MAVLink microservices.
+## 1. Entry paths
 
-### Key Protocol Standards
-- **MAVLink v2 Packet Structure**:
-  - `STX` (0xFD)
-  - `LEN` (payload length: 0–255)
-  - `INCOMP_FLAGS` / `COMP_FLAGS` (incompatibility/compatibility flags)
-  - `SEQ` (packet sequence 0–255)
-  - `SYS_ID` (1–255)
-  - `COMP_ID` (1–255)
-  - `MSG_ID` (24-bit message identifier)
-  - `PAYLOAD` (variable length)
-  - `CHECKSUM` (16-bit ITU X.25 / CRC-16-MCRF4XX with seed byte `CRC_EXTRA`)
-  - `SIGNATURE` (optional 13-byte link security signature)
+| Path | Component | Notes |
+|---|---|---|
+| HTTP push | `POST /api/v1/data-sources/{id}/ingest` (raw bytes; `?mode=async` queues) | tenant user token; 25 MB cap |
+| UDP listener | `python -m app.listeners` → `listeners/udp_mavlink.py` | datagram ≤ 2 048 B; `listen.udp_port`, `bind`, `allowed_cidrs` |
+| TCP listener (server mode) | `listeners/tcp_mavlink.py` | `listen.tcp_port`; ≤ 64 peers, 60 s idle timeout |
+| Edge gateway daemon | `app/services/edge/gateway_service.py` | companion computer / gateway host that uplinks over HTTPS |
+| Serial radio | **not built** | bridge to UDP/TCP with mavlink-router or the gateway host |
 
----
+Listeners buffer bytes in a bounded sink and enqueue `acquisition.ingest` jobs; a worker (`python -m app.worker`) runs
+them through `MAVLinkConnector` and the shared acquisition pipeline. A listener **refuses to start** unless
+`allowed_cidrs` is set and/or signing is configured (`secret_reference` resolving to a key, `require_signing` not
+false): UDP/TCP have no sender authentication.
 
-## 2. Ingestion & Vehicle Routing Architecture
+## 2. Frame handling (`app/services/edge/mavlink_connector.py`)
 
-```text
-  [ Physical Drones / GCS Radios ]
-  ├── Drone 1: SysID 1, CompID 1 (Flight Controller)
-  ├── Drone 2: SysID 2, CompID 1 (Flight Controller)
-  └── Drone 3: SysID 3, CompID 154 (Payload Gimbal)
-               │ (RF 915MHz / 433MHz / UDP / TCP)
-               ▼
-   [ Gateway / Serial Listener ]
-               │
-               ▼
-   [ MAVLink Packet Parser ]
-     ├── Magic byte validation (0xFD / 0xFE)
-     ├── CRC calculation with CRC_EXTRA table
-     └── Truncation & Framing check
-               │
-               ▼
-   [ Multi-Vehicle Router ]
-     ├── Match (Organization_ID, SysID, CompID) -> Registered Asset UUID
-     ├── Filter duplicate SEQ numbers per (SysID, CompID) stream
-     └── Track connection session state & Heartbeat watchdog
-               │
-               ▼
-   [ Message Decoders ]
-     ├── #0   HEARTBEAT
-     ├── #30  ATTITUDE
-     ├── #33  GLOBAL_POSITION_INT
-     ├── #74  VFR_HUD
-     ├── #147 BATTERY_STATUS
-     └── #241 VIBRATION
-               │
-               ▼
-   [ Canonical Telemetry Event Builder ]
-               │
-               ▼
-   [ Ingestion Dispatcher ] ──> TimescaleDB, HUMS Engine, M7 Intelligence
-```
+- v1 (`0xFE`) and v2 (`0xFD`) framing, partial frames buffered across reads, resync on corruption.
+- X.25 checksum with **CRC_EXTRA** for the supported messages (HEARTBEAT, SYS_STATUS, ATTITUDE, GLOBAL_POSITION_INT,
+  VIBRATION, …); unsupported message ids are consumed and counted, never trusted.
+- Per-`(sysid, compid)` sequence tracking: duplicates and late frames dropped, gaps counted as **packet loss**;
+  sysid 0/255 (GCS) and non-autopilot components never update vehicle state. Multi-vehicle streams are routed by
+  `system_id_map` (sysid → asset).
+- **Signing (MAVLink 2)**: signature = first 48 bits of SHA-256(key + header + payload + CRC + link id + timestamp).
+  Verified before sequence tracking, so a forged frame cannot poison loss accounting. A valid signature must carry a
+  timestamp strictly greater than the last accepted one for that `(sysid, compid, link)` (replay protection). With a key
+  configured, unsigned and v1 frames are refused; `require_signing: true` without a resolvable key rejects everything
+  (fail closed). Key = 64 hex characters or a passphrase (SHA-256 of it), resolved from the platform secrets layer
+  (`KOTA_SECRET_…` environment variables), never stored on the data source. Counters: `crc_errors`, `duplicates`,
+  `late`, `lost`, `unsigned_rejected`, `bad_signature`, `replayed_signature`.
+- Event time is **arrival time** (MAVLink `time_boot_ms` is boot-relative), strictly increasing per vehicle.
+- No invented measurements: a bare heartbeat produces no battery or vibration values.
 
----
+## 3. Verification status
 
-## 3. Supported Message Types & Field Mappings
+| Claim | Evidence |
+|---|---|
+| Parser, CRC, sequence, loss, components, multi-vehicle | `test_m20_mavlink_integrity`, `test_acquisition_pipeline` (frames built with the connector's own checksum; table cross-checked against the official dialect during development) |
+| Signing (valid / wrong key / tampered / replay / unsigned / forged-then-genuine) | `test_mavlink_signing`, `test_mavlink_signing_api` — the signer in the tests is written from the spec, **not** cross-checked against pymavlink or an autopilot |
+| UDP / TCP listeners, allow-list, caps, back-pressure, supervisor | `test_listeners` with real loopback sockets; `backend/scripts/e2e_listener_smoke.py` with separate listener and worker processes (30 frames → 30 events, health HEALTHY) |
+| Radio link, real autopilot, signing interop, sustained rates | **NOT VALIDATED** — 12 bench tests in `MAVLINK_HARDWARE_VALIDATION_PLAN.md` |
 
-| MAVLink Msg ID | Message Name | Target Telemetry Fields | Notes |
-|---|---|---|---|
-| **0** | `HEARTBEAT` | `system_status`, `flight_mode`, `base_mode`, `autopilot_type` | Maintains vehicle online state (1Hz expected). |
-| **30** | `ATTITUDE` | `roll_deg`, `pitch_deg`, `yaw_deg`, `roll_rate_dps`, `pitch_rate_dps`, `yaw_rate_dps` | Converted from radians to degrees. |
-| **33** | `GLOBAL_POSITION_INT` | `latitude`, `longitude`, `altitude_msl_m`, `altitude_relative_m`, `ground_speed_mps`, `heading_deg` | Scaled from 1e7 int coordinates. |
-| **74** | `VFR_HUD` | `air_speed_mps`, `ground_speed_mps`, `heading_deg`, `throttle_pct`, `climb_rate_mps` | Core flight deck parameters. |
-| **147** | `BATTERY_STATUS` | `battery_voltage_v`, `battery_current_a`, `battery_remaining_pct`, `battery_temperature_c` | Crucial for battery degradation tracking. |
-| **241** | `VIBRATION` | `vibration_rms_g`, `accel_x_g`, `accel_y_g`, `accel_z_g`, `clipping_0`, `clipping_1`, `clipping_2` | Direct input into HUMS vibration analysis. |
+## 4. Not implemented
 
----
-
-## 4. Multi-Vehicle Routing & Tenant Isolation
-
-1. **System ID & Component ID Mapping**:
-   - Each customer organization registers drone hardware in their fleet management portal with a designated `mavlink_system_id` (or hardware serial number paired with dynamic SysID assignment).
-   - Inbound packets must match an existing asset registered to the authenticated organization. Cross-tenant injection is strictly rejected at the router level.
-2. **Packet Loss & Sequence Handling**:
-   - The router tracks expected sequence numbers `(seq + 1) % 256`.
-   - Gaps indicate packet loss: metrics are reported to `telemetry_packet_loss_rate`.
-   - Packets arriving with older sequence numbers within a 10-packet window are flagged as duplicates and discarded to prevent distorted time-series metrics.
-3. **Session Lifecycle & Heartbeat Watchdog**:
-   - Vehicles emit `HEARTBEAT` at 1Hz.
-   - If no heartbeat is received for `> 5.0 seconds`, asset state transitions to `DISCONNECTED / LOST_LINK`.
-   - Flight records are automatically closed with end-of-mission summaries once landing is detected or link timeout persists past configured threshold.
-
----
-
-## 5. Error Recovery & Reliability
-
-- **Malformed Packets**: Discarded immediately without crashing the parser thread.
-- **CRC Failures**: Increments `mavlink_crc_error_count` metric with source IP/port logged.
-- **Burst Rate Limiting**: Token bucket rate limiter caps ingest to 50Hz per vehicle stream to protect downstream databases from unbounded serial flooding.
+Serial listener; MAVLink parameter/command protocol (read-only telemetry only); microservice sub-protocols (FTP, mission);
+GPS-epoch time from SYSTEM_TIME; parsing of message types beyond the supported set.

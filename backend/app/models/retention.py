@@ -15,7 +15,8 @@ class RetentionClass:
     TELEMETRY_READINGS = "TELEMETRY_READINGS"          # hums_sensor_readings (raw samples)
     TELEMETRY_EVENT_LOG = "TELEMETRY_EVENT_LOG"        # telemetry_event_logs (idempotency / provenance ledger)
     BACKGROUND_JOBS = "BACKGROUND_JOBS"                # finished background_jobs
-    ALL = frozenset({TELEMETRY_READINGS, TELEMETRY_EVENT_LOG, BACKGROUND_JOBS})
+    HUMS_FEATURES = "HUMS_FEATURES"                    # derived feature rows (the largest table per ingested event)
+    ALL = frozenset({TELEMETRY_READINGS, TELEMETRY_EVENT_LOG, BACKGROUND_JOBS, HUMS_FEATURES})
 
 
 class RetentionPolicy(UUIDPKMixin, TimestampMixin, Base):

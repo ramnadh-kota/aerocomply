@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import require_feature, get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.regulatory_document import (
@@ -13,9 +13,7 @@ from app.schemas.regulatory_document import (
 )
 from app.services import regulatory_service
 
-router = APIRouter(prefix="/regulatory-documents", tags=["regulatory"])
-
-
+router = APIRouter(prefix="/regulatory-documents", tags=["regulatory"], dependencies=[Depends(require_feature("compliance_management"))])
 @router.post("", response_model=RegulatoryDocumentResponse, status_code=201)
 def create_document(
     payload: RegulatoryDocumentCreateRequest,

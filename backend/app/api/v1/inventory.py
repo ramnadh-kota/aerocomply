@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import require_feature, get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.inventory_transaction import (
@@ -18,9 +18,7 @@ from app.schemas.inventory_transaction import (
 )
 from app.services import inventory_transaction_service
 
-router = APIRouter(prefix="/parts/{part_id}/inventory", tags=["inventory"])
-
-
+router = APIRouter(prefix="/parts/{part_id}/inventory", tags=["inventory"], dependencies=[Depends(require_feature("procurement_management"))])
 @router.post("/receive", response_model=InventoryTransactionResponse, status_code=201)
 def receive(
     part_id: uuid.UUID,

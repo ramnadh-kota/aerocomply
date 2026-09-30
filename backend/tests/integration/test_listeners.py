@@ -350,3 +350,31 @@ def test_supervisor_starts_a_tcp_listener(client, db_session):
         await sup.shutdown()
     asyncio.run(go())
     assert jobs_for(db_session, org_id)
+
+
+def test_a_quiet_tcp_peer_cannot_delay_graceful_shutdown(client, db_session):
+    """Regression: shutdown used to wait for every connected peer's idle timeout (60 s by default)."""
+    import time
+
+    from app.listeners.tcp_mavlink import run_tcp
+
+    org_id, h = _org(client, db_session, "tcp4")
+    port = free_udp_port()
+    sid = uuid.UUID(_source(client, h, "MAVLINK", {"listen": {"tcp_port": port, "allowed_cidrs": ["127.0.0.0/8"]}}))
+    settings = validate_udp_config({"listen": {"tcp_port": port, "allowed_cidrs": ["127.0.0.0/8"]}}, None)
+    sink = JobSink(organization_id=org_id, data_source_id=sid, session_factory=session_factory_for(db_session), protocol="tcp")
+
+    async def go():
+        stop, ready, addr = asyncio.Event(), asyncio.Event(), {}
+        task = asyncio.create_task(run_tcp(sink, settings, stop, flush_interval=0.1, idle_timeout=120.0,
+                                           on_ready=lambda a: (addr.update(a=a), ready.set())))
+        await asyncio.wait_for(ready.wait(), 5)
+        _r, w = await asyncio.open_connection(*addr["a"][:2])          # connects, then says nothing
+        await asyncio.sleep(0.2)
+        t0 = time.monotonic()
+        stop.set()
+        await asyncio.wait_for(task, timeout=10)
+        w.close()
+        return time.monotonic() - t0
+
+    assert asyncio.run(go()) < 3.0

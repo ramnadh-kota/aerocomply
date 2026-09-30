@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from app.core import metrics
 from app.core.deps import get_db_session, require_permission
 from app.core.permissions import Permission
-from app.core.deps import get_current_user
 from app.models.background_job import BackgroundJob, JobStatus
 from app.models.data_source import DataSource
 from app.schemas.auth import CurrentUser

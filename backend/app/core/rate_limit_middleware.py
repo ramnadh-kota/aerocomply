@@ -27,11 +27,11 @@ from typing import Any
 
 import structlog
 
-from app.core.config import get_settings
+from app.core.config import live_settings
 from app.core.metrics import REGISTRY, Counter
 from app.core.rate_limit import _limiter
 
-settings = get_settings()
+settings = live_settings
 log = structlog.get_logger(__name__)
 
 RATE_LIMITED = REGISTRY.register(Counter("kota_rate_limited_total", "Requests rejected with 429, by policy"))

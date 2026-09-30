@@ -45,9 +45,9 @@ def evtol_template(propulsor_count: int | None) -> list[SensorDef]:
     defs = [SensorDef(f"PROP{i}-VIB", "ACCELEROMETER", "vibration", "mm/s", f"Propulsor {i}") for i in range(1, n + 1)]
     defs += [
         SensorDef("MTR-TEMP", "THERMOCOUPLE", "temperature", "degC", "Propulsion motor winding", ComponentType.MOTOR),
-        SensorDef("INV-TEMP", "THERMOCOUPLE", "temperature", "degC", "Inverter heat sink"),
-        SensorDef("HVBUS-V", "VOLTAGE_SENSOR", "voltage", "V", "High-voltage bus"),
-        SensorDef("HVBUS-I", "CURRENT_SENSOR", "current", "A", "High-voltage bus"),
+        SensorDef("INV-TEMP", "THERMOCOUPLE", "temperature", "degC", "Inverter heat sink", ComponentType.INVERTER),
+        SensorDef("HVBUS-V", "VOLTAGE_SENSOR", "voltage", "V", "High-voltage bus", ComponentType.HV_DISTRIBUTION),
+        SensorDef("HVBUS-I", "CURRENT_SENSOR", "current", "A", "High-voltage bus", ComponentType.HV_DISTRIBUTION),
         SensorDef("BATT-TEMP", "THERMOCOUPLE", "temperature", "degC", "Battery pack", ComponentType.BATTERY),
     ]
     return defs

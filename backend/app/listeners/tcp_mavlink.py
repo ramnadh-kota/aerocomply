@@ -28,10 +28,12 @@ async def run_tcp(
     idle_timeout: float = IDLE_TIMEOUT, max_connections: int = MAX_CONNECTIONS,
 ) -> None:
     active = 0
+    writers: set[asyncio.StreamWriter] = set()
 
     async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         nonlocal active
         peer = writer.get_extra_info("peername") or ("unknown", 0)
+        writers.add(writer)
         try:
             if settings.nets and not ip_allowed(str(peer[0]), settings.nets):
                 RECEIVED.inc(protocol="tcp", outcome="source_not_allowed")
@@ -55,6 +57,7 @@ async def run_tcp(
         except (ConnectionError, OSError):
             pass                                   # a peer resetting the connection is routine, never fatal
         finally:
+            writers.discard(writer)
             writer.close()
 
     server = await asyncio.start_server(handle, host=settings.bind, port=settings.port)
@@ -73,6 +76,11 @@ async def run_tcp(
                 await asyncio.to_thread(sink.flush)
     finally:
         server.close()
-        await server.wait_closed()
+        for w in list(writers):                  # do not wait up to idle_timeout for quiet peers: drop them now
+            w.close()
+        try:
+            await asyncio.wait_for(server.wait_closed(), timeout=5.0)
+        except TimeoutError:
+            log.warning("tcp.shutdown_timeout", data_source_id=str(sink.data_source_id))
         await asyncio.to_thread(sink.flush)
         UP.set(0, protocol="tcp")

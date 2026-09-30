@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import require_feature, get_db_session, require_permission
 from app.core.errors import NotFoundError
 from app.core.permissions import Permission
 from app.schemas.assessment import (
@@ -20,9 +20,7 @@ from app.schemas.assessment import (
 from app.schemas.auth import CurrentUser
 from app.services.assessment import engine
 
-router = APIRouter(prefix="/assessments", tags=["assessments"])
-
-
+router = APIRouter(prefix="/assessments", tags=["assessments"], dependencies=[Depends(require_feature("advanced_compliance_intelligence"))])
 @router.post("", response_model=AssessmentResponse, status_code=201)
 def create_assessment(
     payload: AssessmentCreateRequest,

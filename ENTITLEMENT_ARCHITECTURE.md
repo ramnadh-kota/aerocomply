@@ -53,7 +53,7 @@ Used identically by REST (`require_feature`) and LISA tools (`_require_entitleme
 | LISA | `execute_tool` → `_require_entitlement` (per-tool suite + feature) | `ForbiddenError` |
 | Limits | `limit_enforcement_service` (`max_assets`, `max_users`, `monthly_work_orders`, `storage_gb`) | 403 `usage_limit_exceeded` |
 | Webhook | DJI webhook checks the *target* tenant's `flight_telemetry` | 403 |
-| Frontend | `EntitlementContext` (re-fetched on tab focus, ≤ every 15 s), sidebar (`isNavItemEntitlementGated`, greys items whose key is explicitly false), `RouteEntitlementGuard` (blocks direct URLs in `NAV_FEATURE_MAP`) | in-page "Feature Not Included" card |
+| Frontend | `EntitlementContext` (re-fetched on tab focus, ≤ every 15 s), sidebar (`isNavItemUnavailable`: **strict**, greys any item whose feature the organization does not have — same rule as the route guard and the backend; the older lenient `isNavItemEntitlementGated` remains only as a tested helper), `RouteEntitlementGuard` (blocks direct URLs in `NAV_FEATURE_MAP`; also hides sample-data-only pages from live sessions) | in-page "Feature Not Included" card |
 
 Frontend behaviour is display only; a hidden or blocked page is never the authorization.
 
@@ -62,8 +62,14 @@ Frontend behaviour is display only; a hidden or blocked page is never the author
 `work_order_management` work orders/TAT · `aircraft_fleet_management` aircraft · `drone_fleet_management` drones/missions ·
 `battery_analytics` batteries · `flight_telemetry` `/telemetry/*` (JWT routes), DJI webhook target, **all `/data-sources`** ·
 `hums` `/hums/*` · `predictive_maintenance` HUMS prognostics (RUL) · `digital_twin` · `mro_intelligence` · `lisa_ai_copilot` ·
-`procurement_management` · `compliance_management` (applicability) · `inspections_management` · `audit_logging` `/tenant/audit` (baseline) · `release_readiness` (baseline).
-**Not gated on the backend** (open commercial-behaviour decision): assessments and the remaining compliance endpoints.
+`helicopter_fleet_management` `/helicopters/*` · `evtol_fleet_management` `/evtols/*` (both: `battery_analytics` for eVTOL batteries) ·
+`procurement_management` procurement requests, **parts, vendors, vendor availability, purchase orders, receiving, inventory, part requirements, warehouses** ·
+`compliance_management` **`/compliance/*`, regulatory documents**, applicability · `advanced_compliance_intelligence` **`/assessments/*`** ·
+`inspections_management` · `audit_logging` `/tenant/audit` (baseline) · `release_readiness` (baseline) · `/fleet/components` (any fleet-family feature) ·
+generic `POST /assets` (the asset family's fleet feature).
+**Not gated on the backend** (baseline / cross-cutting by design): findings, evidence, deferred items, maintenance requirements, AOG, control center,
+intelligence and proactive signals, technicians, facilities, tenant administration. LISA gates the same data by feature, so the REST surface is
+intentionally slightly more permissive for these read-mostly, tenant-scoped views.
 
 ## 6. Overrides and audit
 
@@ -76,3 +82,10 @@ every create/update/remove writes an audit event **with previous values** (`plat
 An organization may hold one current subscription per suite (e.g. Drone Professional + Aircraft Enterprise). Their features aggregate;
 cancelling one closes only that suite's capabilities (`test_customer_journeys_commercial::test_multi_suite_…`).
 Concurrent creation of two current subscriptions for one organization/suite is serialised by a row lock and rejected (`test_concurrency`).
+Such an organization reports `suite_code = MULTI_SUITE`; suite checks (`require_suite`, LISA tools) match against the suites it actually holds
+(`active_suites`), not against that label. A tool or route may list several features (`require_any_feature`, comma-separated tool features):
+any one entitles it.
+
+## 8. Payment state and entitlement
+TRIALING, ACTIVE and PAST_DUE (payment grace, default 14 days, clock = `subscriptions.past_due_since`) grant access; CANCELED, expired and
+absent subscriptions do not. Grace expiry can cancel automatically (opt-in `BILLING_ENFORCE_GRACE`); see BILLING_ARCHITECTURE.md.

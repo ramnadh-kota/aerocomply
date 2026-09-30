@@ -117,3 +117,20 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+class _LiveSettings:
+    """Attribute proxy that always reads/writes the CURRENT cached Settings instance.
+
+    Modules that do `settings = get_settings()` at import time keep a stale object if anything later calls
+    `get_settings.cache_clear()`; this proxy cannot go stale. Reads and writes (tests toggle switches) hit the same
+    instance that `get_settings()` returns now."""
+
+    def __getattr__(self, name: str):
+        return getattr(get_settings(), name)
+
+    def __setattr__(self, name: str, value) -> None:
+        setattr(get_settings(), name, value)
+
+
+live_settings = _LiveSettings()

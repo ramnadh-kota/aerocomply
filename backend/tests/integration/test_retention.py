@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import func, select
 
-from app.core.config import get_settings
+from app.core.config import live_settings
 from app.models.audit_event import AuditEvent
 from app.models.background_job import BackgroundJob, JobStatus
 from app.models.hums import HUMSExceedance, HUMSSensor, HUMSSensorReading
@@ -19,7 +19,7 @@ from app.models.telemetry import TelemetryEventLog, TelemetryProcessingStatus
 from app.services import retention_service as rs
 from tests.integration.test_acquisition_pipeline import _csv, _drone, _ingest, _org, _source
 
-settings = get_settings()
+settings = live_settings
 NOW = datetime(2026, 9, 30, tzinfo=UTC)
 
 
@@ -217,3 +217,35 @@ def test_scheduler_enqueues_one_sweep_per_period_and_the_handler_is_dry_run_unle
         pass
     db_session.refresh(job)
     assert job.status == "SUCCEEDED" and job.result["dry_run"] is True and _n(db_session, org_id) == before
+
+
+def test_feature_retention_keeps_recent_history_for_baselines_and_features_behind_exceedances(client, db_session):
+    from app.models.hums import HUMSFeature
+
+    org_id, _, sensor = _tenant(client, db_session, "r11")
+    base = NOW - timedelta(days=400)
+
+    def feat(i, ftype="rms"):
+        return HUMSFeature(
+            organization_id=org_id, sensor_id=sensor.id, asset_id=sensor.asset_id, measurement_type="vibration",
+            feature_type=ftype, value=1.0, unit="mm/s", window_start=base + timedelta(days=i, minutes=-1),
+            window_end=base + timedelta(days=i), sample_count=20, quality="GOOD", calculation_method="test",
+            processor_version="t", source_reading_ids=[], feature_metadata={})
+
+    db_session.add_all([feat(i) for i in range(130)])           # 130 old rms rows (all > 90 days old)
+    db_session.add_all([feat(i, "kurtosis") for i in range(50)])   # 50 old kurtosis rows: under the keep-newest floor
+    # the oldest rms window backs a recorded exceedance
+    db_session.add(HUMSExceedance(organization_id=org_id, sensor_id=sensor.id, asset_id=sensor.asset_id,
+                                  parameter="vibration_rms", observed_value=9.0, threshold_value=5.0, severity="HIGH",
+                                  window_start=base - timedelta(minutes=1), window_end=base, contributing_reading_ids=[]))
+    db_session.flush()
+    rs.set_policy(db_session, organization_id=org_id, data_class=RC.HUMS_FEATURES, retention_days=90, enabled=True)
+    (res,) = rs.run_retention(db_session, dry_run=False, organization_id=org_id, now=NOW)
+    # rms: 130 - newest 100 kept = 30 candidates, minus the one behind the exceedance = 29 purged
+    assert res.deleted == 29 and res.data_class == RC.HUMS_FEATURES
+    left = db_session.scalar(select(func.count(HUMSFeature.id)).where(HUMSFeature.organization_id == org_id,
+                                                                     HUMSFeature.feature_type == "rms"))
+    assert left == 101
+    assert db_session.scalar(select(func.count(HUMSFeature.id)).where(HUMSFeature.organization_id == org_id,
+                                                                     HUMSFeature.feature_type == "kurtosis")) == 50
+    assert rs.run_retention(db_session, dry_run=False, organization_id=org_id, now=NOW)[0].deleted == 0

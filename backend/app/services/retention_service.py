@@ -26,22 +26,25 @@ import structlog
 from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import live_settings
 from app.models.background_job import BackgroundJob, JobStatus
-from app.models.hums import HUMSExceedance, HUMSSensorReading
+from app.models.hums import HUMSExceedance, HUMSFeature, HUMSSensorReading
 from app.models.organization import Organization
 from app.models.retention import RetentionClass, RetentionPolicy
 from app.models.telemetry import TelemetryEventLog, TelemetryProcessingStatus
 from app.services import audit_service
 
 log = structlog.get_logger(__name__)
-settings = get_settings()
+settings = live_settings
 
 FLOOR_DAYS = {
     RetentionClass.TELEMETRY_READINGS: 30,
     RetentionClass.TELEMETRY_EVENT_LOG: 7,
     RetentionClass.BACKGROUND_JOBS: 1,
+    RetentionClass.HUMS_FEATURES: 30,
 }
+# Baselines and prognostics are computed from the most recent feature history; never thin below this per (sensor, feature).
+KEEP_NEWEST_FEATURES = 100
 DEFAULT_BATCH = 5_000
 
 
@@ -112,6 +115,17 @@ def _eligible_ids_stmt(data_class: str, organization_id: uuid.UUID, cutoff: date
                                  HUMSExceedance.window_end >= r.recorded_at)),
         ).order_by(r.recorded_at)
         model = r
+    elif data_class == RetentionClass.HUMS_FEATURES:
+        f = HUMSFeature
+        rn = func.row_number().over(partition_by=(f.sensor_id, f.feature_type), order_by=f.window_end.desc()).label("rn")
+        sub = select(f.id, f.window_end, f.sensor_id, rn).where(f.organization_id == organization_id).subquery()
+        q = select(sub.c.id).where(
+            sub.c.window_end < cutoff,
+            sub.c.rn > KEEP_NEWEST_FEATURES,
+            ~exists().where(and_(HUMSExceedance.sensor_id == sub.c.sensor_id,
+                                 HUMSExceedance.window_end == sub.c.window_end)),
+        ).order_by(sub.c.window_end)
+        model = f
     elif data_class == RetentionClass.TELEMETRY_EVENT_LOG:
         e = TelemetryEventLog
         q = select(e.id).where(

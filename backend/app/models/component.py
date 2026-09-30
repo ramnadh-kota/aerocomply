@@ -27,6 +27,8 @@ class ComponentType:
 
     # Drone & electric propulsion systems
     MOTOR = "MOTOR"
+    INVERTER = "INVERTER"                  # eVTOL/AAM high-voltage motor inverter
+    HV_DISTRIBUTION = "HV_DISTRIBUTION"    # eVTOL/AAM high-voltage bus, contactors, fuses
     ESC = "ESC"
     PROPELLER = "PROPELLER"
     FLIGHT_CONTROLLER = "FLIGHT_CONTROLLER"

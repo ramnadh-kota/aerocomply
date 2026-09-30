@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_any_permission, require_permission
+from app.core.deps import require_feature, get_db_session, require_any_permission, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.compliance import (
@@ -29,9 +29,7 @@ from app.schemas.evidence import EvidenceCreateRequest, EvidenceResponse
 from app.services import compliance_service, evidence_service
 from app.services.compliance import intelligence_service, obligation_service
 
-router = APIRouter(tags=["compliance"])
-
-
+router = APIRouter(tags=["compliance"], dependencies=[Depends(require_feature("compliance_management"))])
 @router.post(
     "/regulatory-requirements", response_model=RegulatoryRequirementResponse, status_code=201
 )

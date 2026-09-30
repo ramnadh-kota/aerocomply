@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import require_feature, get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.part import PartResponse
@@ -16,9 +16,7 @@ from app.schemas.warehouse import (
 )
 from app.services import part_service, warehouse_service
 
-router = APIRouter(tags=["warehouses"])
-
-
+router = APIRouter(tags=["warehouses"], dependencies=[Depends(require_feature("procurement_management"))])
 @router.post("/warehouses", response_model=WarehouseResponse, status_code=201)
 def create_warehouse(
     payload: WarehouseCreateRequest,

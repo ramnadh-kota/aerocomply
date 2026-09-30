@@ -21,7 +21,7 @@ import { FAMILY_CONFIG, buildDetailPayload, detailToForm, formatHours, humanizeE
 
 const COMPONENT_TYPES: Record<AirframeFamily, string[]> = {
   helicopter: ["ROTOR", "TRANSMISSION", "ENGINE", "AVIONICS", "ACTUATOR", "HYDRAULIC", "LANDING_GEAR", "SENSOR", "OTHER"],
-  evtol: ["MOTOR", "PROPELLER", "BATTERY", "FLIGHT_CONTROLLER", "AVIONICS", "ACTUATOR", "SENSOR", "OTHER"],
+  evtol: ["MOTOR", "PROPELLER", "INVERTER", "BATTERY", "HV_DISTRIBUTION", "FLIGHT_CONTROLLER", "AVIONICS", "ACTUATOR", "SENSOR", "OTHER"],
 };
 
 export function AirframeDetail({ family }: { family: AirframeFamily }) {

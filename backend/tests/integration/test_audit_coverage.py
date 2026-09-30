@@ -79,10 +79,6 @@ def test_signal_lifecycle_transitions_are_audited_with_previous_status(client, d
 
 def test_assessment_and_inspection_requirement_creation_are_audited(client, db_session):
     org_id, h = _org(client, db_session, "audita")
-    from tests.integration.conftest import grant_features
-
-    grant_features(db_session, org_id, "advanced_compliance_intelligence", "compliance_management",
-                   "inspections_management", "work_order_management", suite_code="AIRCRAFT")
     r = client.post("/api/v1/assessments", headers=h, json={"name": "Q3 fleet", "scope_type": "FLEET"})
     assert r.status_code in (200, 201), r.text
     actions = [a for a, _ in _actions(db_session, org_id)]

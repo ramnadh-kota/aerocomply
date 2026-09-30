@@ -5,6 +5,32 @@
 > `/webhooks/dji` route, an async `BaseDataConnector`, a flat event model). Every statement below
 > is backed by code and by a test named in the last column. Things that are **not** built are listed
 > in §9 and are not claimed anywhere else.
+>
+> **Status (2026-09-30): IMPLEMENTED** — HTTP push (sync and async), server-side UDP/TCP MAVLink listeners, MQTT
+> subscriber, signed generic and DJI webhooks, credentialed OEM polling, durable job queue and worker, back-pressure,
+> retention. **EXTERNAL VALIDATION REQUIRED** — any real radio, broker, OEM API or DJI FlightHub.
+
+## 0. Entry paths (all converge on the same pipeline)
+
+```text
+ HTTP push   POST /data-sources/{id}/ingest            sync (default)  or  ?mode=async -> 202 + job id (Idempotency-Key)
+ UDP / TCP   python -m app.listeners  (MAVLink)        ┐  bytes -> bounded JobSink -> `acquisition.ingest` job
+ MQTT        python -m app.listeners  (subscriber)     ┘  one job per message (topic preserved)
+ Webhook     POST /webhooks/data-sources/{id}          HMAC-SHA256 + timestamp window + replay guard -> job
+ DJI         POST /telemetry/dji/webhook               HMAC, tenant by header -> synchronous
+ OEM pull    scheduler -> `acquisition.poll` job       SSRF-guarded, credentialed, cursored -> ingest(via_poller)
+                                   │
+                                   ▼
+ background_jobs (PostgreSQL, FOR UPDATE SKIP LOCKED) ── python -m app.worker [--schedule] ──► acquisition_service.ingest
+   retry with exponential backoff + jitter · dead-letter after max attempts · stale-job reclaim · idempotency keys
+   correlation id + tenant + data source on every log line · graceful shutdown (finishes the current job)
+```
+
+Tenant identity is never taken from the wire: HTTP uses the authenticated user, listeners/webhooks/pollers use the
+DataSource row. A listener refuses to start unless it is protected (source CIDR allow-list and/or MAVLink-2 signing for
+UDP/TCP; TLS or loopback for MQTT) and records the refusal on the source (`last_error`). Back-pressure: when an
+organization already has `max_queue_depth` (5 000) queued jobs the listener drops and counts new data instead of growing
+the queue; buffers are bounded (256 KiB per source).
 
 ## 1. The path
 
@@ -59,10 +85,14 @@ source's own tenant).
 
 | Connector | Input | Identity / ordering / integrity | Tests |
 |---|---|---|---|
-| MAVLink | raw v1/v2 bytes | CRC-16/X.25 + CRC_EXTRA verified (8 message types, seeds cross-checked against the official dialect); per-(sysid, compid) sequence: duplicates and late frames dropped, gaps counted as loss; GCS (sysid 0/255) and non-autopilot components ignored; signed v2 frames framed correctly (signature not verified); **no invented measurements** | `test_m20_mavlink_integrity`, `test_acquisition_pipeline` |
+| MAVLink | raw v1/v2 bytes | CRC-16/X.25 + CRC_EXTRA verified (8 message types, seeds cross-checked against the official dialect); per-(sysid, compid) sequence: duplicates and late frames dropped, gaps counted as loss; GCS (sysid 0/255) and non-autopilot components ignored; MAVLink-2 signatures verified when a key is configured (SHA-256/48 bit, per-link replay protection, unsigned frames refused, verification before sequence tracking; without a key signed frames are framed and counted only); **no invented measurements** | `test_m20_mavlink_integrity`, `test_mavlink_signing`, `test_mavlink_signing_api`, `test_acquisition_pipeline` |
 | MQTT | one message payload (+ topic) | device timestamp honoured; content-derived event id (at-least-once redelivery is a duplicate); payload asset id outranks topic segment, conflict recorded in metadata | `test_acquisition_pipeline` |
 | CSV / JSON | file body (≤ 10 000 rows) | content-derived event id (re-upload idempotent, no cross-file collisions); ordered column priority; unparseable timestamp = row error (never "now"); empty/non-finite records rejected | `test_acquisition_pipeline`, `test_phase_b_data_acquisition` |
 | DJI FlightHub | signed webhook | HMAC mandatory; endpoint disabled (503) until `DJI_WEBHOOK_SECRET` is set; target tenant must hold `flight_telemetry` | `test_m13_telemetry_ingestion`, `test_m20_route_gating` |
+| Generic webhook | signed POST (`X-Kota-Timestamp`, `X-Kota-Signature: sha256=HMAC(secret, ts + "." + body)`) | secret from `secret_reference` (env `KOTA_SECRET_…`); ±5 min window; one acceptance per signature; every failure is the same 401 | `test_webhooks` |
+| OEM API (pull) | HTTPS GET with bearer / header credential | https only, public addresses only (operator allow-list for private hosts), no redirects, size cap, cursor in `metadata_json.poll_cursor`, empty poll ≠ failure; the push endpoint refuses OEM sources | `test_oem_polling` |
+| UDP / TCP MAVLink listener | byte stream | allow-list and/or signing mandatory; oversize datagrams dropped; TCP: connection cap 64, idle timeout 60 s | `test_listeners`, `scripts/e2e_listener_smoke.py` |
+| MQTT subscriber | broker messages | TLS (or loopback) required; password from secrets layer; topic filter enforced; reconnect with exponential backoff; QoS-1 redelivery = duplicate | `test_listeners` (in-memory broker = **test double**) |
 
 ## 5. Guarantees (each test-backed)
 
@@ -95,12 +125,15 @@ increasing per vehicle. Buffered/late frames therefore carry their delivery time
 
 | Item | State |
 |---|---|
-| MQTT broker subscription, MAVLink UDP/TCP/serial listener | **No process exists** that opens a socket. Connectors decode bytes handed to them; an external gateway/worker must deliver to `/ingest`. EXTERNAL / NOT IMPLEMENTED |
-| Asynchronous queue / workers / dead-letter | none — ingestion is synchronous in the request; bounded by 25 MB / 10 000 rows |
-| Rate limiting and quota (`max_telemetry_rate_hz`) | none on ingest (only body/row limits and entitlement) |
-| Redis/window de-duplication | not used; idempotency is the database unique constraint + connector sequence state (per worker process) |
-| OEM_API / ERP / cloud-storage pull connectors | type exists in the enum; **no pull implementation** |
-| Per-source machine credentials | ingest uses a tenant user/API token (JWT); no source-scoped key |
+| Serial-port MAVLink listener | not built: needs a device and `pyserial`; bridge the radio to UDP/TCP (mavlink-router or the edge gateway daemon). EXTERNAL_ONLY |
+| Validation against a real broker, radio, autopilot signer, OEM API or DJI FlightHub | tests use socket loopback, an in-memory broker (test double), `httpx.MockTransport` and self-built signed frames. **EXTERNAL VALIDATION REQUIRED** |
+| Shared (multi-instance) rate limiter | limits are process-local; see SECURITY_ARCHITECTURE.md |
+| Redis/window de-duplication | not used; idempotency is the database unique constraint + connector sequence state (per worker process — run MAVLink workers per source or accept that a restart forgets sequence state) |
+| ERP / cloud-storage pull connectors | not built (OEM REST pull is) |
+| Per-source machine credentials for HTTP push | push uses a tenant user/API token (JWT); webhook sources use their own HMAC secret |
 | Flight-phase detection (takeoff/cruise/landing) | not implemented; a flight is only what the source supplies (MAVLink: one session flight per vehicle) |
-| MAVLink signature verification, GPS-epoch time (SYSTEM_TIME) | not implemented |
-| TimescaleDB / hypertables | not used; plain PostgreSQL tables |
+| GPS-epoch time (SYSTEM_TIME) | not implemented; MAVLink events carry arrival time |
+| TimescaleDB / hypertables | not used; plain PostgreSQL tables (raw-data growth is handled by retention, see DATA_RETENTION_STRATEGY.md) |
+
+Throughput: single API worker, HTTP push, 500-event CSV batches, scratch database: 1 000 events 339 ev/s,
+10 000 events 206 ev/s, 100 000 events 279 ev/s (see PERFORMANCE_BENCHMARK.md).

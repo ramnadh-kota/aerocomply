@@ -3,15 +3,13 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import require_feature, get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.vendor import VendorCreateRequest, VendorResponse, VendorUpdateRequest
 from app.services import vendor_service
 
-router = APIRouter(prefix="/vendors", tags=["vendors"])
-
-
+router = APIRouter(prefix="/vendors", tags=["vendors"], dependencies=[Depends(require_feature("procurement_management"))])
 @router.post("", response_model=VendorResponse, status_code=201)
 def create_vendor(
     payload: VendorCreateRequest,

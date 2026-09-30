@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import require_feature, get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.vendor_part_availability import (
@@ -14,9 +14,7 @@ from app.schemas.vendor_part_availability import (
 )
 from app.services import vendor_fit_service, vendor_part_availability_service
 
-router = APIRouter(tags=["vendor-part-availability"])
-
-
+router = APIRouter(tags=["vendor-part-availability"], dependencies=[Depends(require_feature("procurement_management"))])
 @router.post(
     "/vendor-part-availability", response_model=VendorPartAvailabilityResponse, status_code=201
 )

@@ -1,33 +1,49 @@
 # Performance Benchmark
 
-Tool: `backend/scripts/ingest_benchmark.py` (real HTTP, CSV_BATCH, 500 events/request, unique timestamps).
-Target: local dev API (uvicorn, single process) + **scratch** Postgres DB (`aerocomply_m20_preview`), Windows laptop.
-Not production hardware, not a load-balanced deployment. Treat as relative, not as capacity numbers.
+Tools: `backend/scripts/ingest_benchmark.py` (real HTTP, `CSV_BATCH`, 500 events per request, unique timestamps) and
+`backend/tests/integration/test_zz_ingest_profile.py` (in-process profile: SQL statements and CPU per event).
+Target: one uvicorn worker on a Windows laptop, **scratch** PostgreSQL database (`aerocomply_bench`), API and database
+on the same machine. These are relative numbers for this software path, **not capacity numbers for production hardware
+(EXTERNAL VALIDATION REQUIRED)**.
+
+## Result (after optimization)
 
 | Events | Wall time | Events/s | Batch (500) p50 / p95 |
 |---|---|---|---|
-| 100 | 6.9 s | 14.4 | 6.9 s / 6.9 s (1 batch) |
-| 1,000 | 54.2 s | 18.4 | 27.1 s / 15.9 s* |
-| 10,000 | 376.9 s | 26.5 | 16.1 s / 43.8 s |
-| 100,000 | **NOT RUN** (~1 h at this rate) | - | - |
+| 1 000 | 2.95 s | 339 | 1.5 s / 1.3 s |
+| 10 000 | 48.6 s | 206 | 2.4 s / 3.0 s |
+| **100 000** | **358.9 s** | **279** | 1.7 s / 2.4 s |
 
-\* percentiles over 2 batches are not meaningful. All events were accepted (0 loss, 0 duplicates).
+All events accepted (0 rejected, 0 duplicates). Read APIs after 111 000 readings on one asset (median of 5): status 20 ms,
+latest 46 ms, history(limit 500) 37 ms, flights 17 ms — bounded and indexed, no degradation with volume.
 
-Reads after 11,100 readings on one asset (median of 5): status 38 ms, latest 25 ms, history(limit 500) 19 ms,
-flights 24 ms -> read APIs do not degrade at this size (indexed, bounded).
+Before: 14.4 / 18.4 / 26.5 events/s (100 / 1 000 / 10 000 events), 100 000 not attempted (~1 h).
+Improvement ≈ 10–24× (23× at 1 000 events, 11× at 10 000; 100 000 was previously not attempted).
 
-## Findings
-1. **Ingest costs ~40-70 ms per event** (throughput rose from 14 to 26 ev/s as caches warmed, so part of the
-   small-batch cost is fixed overhead). One worker sustains roughly 20-25 events/s. A single 10 Hz vibration
-   stream per vehicle would saturate one worker at ~2-3 vehicles.
-2. The design is correctness-first: per-event SAVEPOINT, asset/sensor resolution, flight advisory lock, reading
-   insert, freshness/exceedance evaluation. The per-event query count was **not profiled** here; cause of the
-   cost is therefore unverified. Suspects: per-event sensor/asset lookups, per-event exceedance evaluation, dev
-   server (no `--workers`).
-3. Not done (would be the next performance work): SQL statement counting per event (N+1 audit), bulk
-   insert path for high-rate raw samples, multi-worker scaling test, 100k run, PostgreSQL tuning.
-4. Mitigation available today without code: downsample at the gateway (send RMS/summary windows rather than raw
-   10 Hz), run several API workers, keep batches <= 25 MB.
+## Where the time went (profiled, 300 events in-process)
 
-Verdict: functionally correct at 10k events; **capacity for high-rate fleets is PARTIAL / unproven** and must be
-measured on production-like hardware (EXTERNAL VALIDATION REQUIRED).
+| Step | Before | After |
+|---|---|---|
+| ms per event | 39.5 | 5.5 |
+| SQL statements per event | 25.0 | 6.6 |
+| dominant cost | per-event HUMS feature extraction + baseline versioning (8 feature inserts, 1 baseline insert + update, ~20 statements) = 75 % of request time | one insert each for reading and event-ledger row, plus amortised evaluation |
+
+Root causes and fixes (each with a regression test):
+1. **HUMS evaluated on every event** although the health service's own contract says "once per ingested batch".
+   Batch ingestion now evaluates each sensor every 10 new readings (half the 20-reading window, so every reading falls in
+   an evaluated window) and once at the end; a mid-batch spike is still detected (`test_mid_batch_vibration_spike_…`,
+   mutation-checked). Single-event callers keep per-event evaluation.
+2. **Repeated identical lookups** (asset mapping → asset → sensor for every row of a batch): batch-scoped cache; nothing
+   created inside a SAVEPOINT is cached until the event succeeds (`test_a_sensor_created_by_a_failed_event_…`).
+3. **One immutable audit row per telemetry event** (unbounded, unpurgeable): batches now write one summary audit row;
+   per-event provenance stays in `telemetry_event_logs`.
+
+## Remaining limits (honest)
+* ≈ 200–340 events/s per API worker on this laptop. One 10 Hz sensor per vehicle is 10 ev/s, so a worker carries
+  roughly 20–30 such streams; scale with workers (jobs are `SKIP LOCKED`, listeners only enqueue).
+* Not done: multi-worker scaling test and PostgreSQL tuning on production-like hardware; bulk-insert path for very
+  high-rate raw samples (the remaining per-event cost is two single-row INSERTs inside a SAVEPOINT).
+* `hums_features` dominates storage (≈ 1.4 KB/row): see DATA_RETENTION_STRATEGY.md.
+
+Reproduce: create a scratch database, `alembic upgrade head`, start the API, seed an org with a CSV_BATCH source, then
+`python -m scripts.ingest_benchmark --api … --sizes 1000 10000 100000 --batch 500`.

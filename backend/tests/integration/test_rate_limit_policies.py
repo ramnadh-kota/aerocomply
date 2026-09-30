@@ -4,12 +4,12 @@ import uuid
 import pytest
 
 from app.core import rate_limit_middleware as rlm
-from app.core.config import get_settings
+from app.core.config import live_settings
 from app.core.metrics import REGISTRY
 from app.core.rate_limit import reset_rate_limits
 from tests.integration.test_acquisition_pipeline import _org, _source
 
-settings = get_settings()
+settings = live_settings
 pytestmark = pytest.mark.usefixtures("db_session")
 
 

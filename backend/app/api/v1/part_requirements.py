@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import require_feature, get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.part_requirement import (
@@ -13,9 +13,7 @@ from app.schemas.part_requirement import (
 )
 from app.services import part_requirement_service
 
-router = APIRouter(prefix="/part-requirements", tags=["part-requirements"])
-
-
+router = APIRouter(prefix="/part-requirements", tags=["part-requirements"], dependencies=[Depends(require_feature("procurement_management"))])
 @router.post("", response_model=PartRequirementResponse, status_code=201)
 def create_part_requirement(
     payload: PartRequirementCreateRequest,

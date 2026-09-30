@@ -303,7 +303,18 @@ def get_asset_configuration(
             ("Hydraulic System", ComponentType.HYDRAULIC),
             ("Primary Sensor Payload", ComponentType.SENSOR),
         ]
-    else:  # AIRCRAFT, EVTOL, OTHER
+    elif asset.asset_type == AssetType.EVTOL.value:
+        standard_slots = [
+            ("Electric Propulsion Motors", ComponentType.MOTOR),
+            ("Propellers / Rotors", ComponentType.PROPELLER),
+            ("Motor Inverters", ComponentType.INVERTER),
+            ("High-Voltage Battery Pack", ComponentType.BATTERY),
+            ("High-Voltage Distribution", ComponentType.HV_DISTRIBUTION),
+            ("Flight Control Computer", ComponentType.FLIGHT_CONTROLLER),
+            ("Avionics Suite", ComponentType.AVIONICS),
+            ("Flight Control Actuators", ComponentType.ACTUATOR),
+        ]
+    else:  # AIRCRAFT, OTHER
         standard_slots = [
             ("Engine Position 1 (Left)", ComponentType.ENGINE),
             ("Engine Position 2 (Right)", ComponentType.ENGINE),

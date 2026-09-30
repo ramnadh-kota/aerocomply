@@ -37,8 +37,21 @@ Tenant (own organization only): list invoices, list payments of an invoice. Tena
 Adding a real provider = implement `BillingProvider`, register it, add webhook signature verification
 (secrets from environment only), then run the external validation below.
 
+## Payment failure, grace period and consequences (migration 0069)
+* A failed payment moves an ACTIVE/TRIALING subscription to **PAST_DUE** and records `subscriptions.past_due_since`
+  (set on the transition, cleared on recovery or end). PAST_DUE **keeps access** during the grace period
+  (`DEFAULT_GRACE_DAYS` = 14). A successful payment returns it to ACTIVE and clears the clock.
+* The grace clock runs from `past_due_since`, not `updated_at` (which any unrelated edit resets) — tested.
+* `evaluate_dunning` reports subscriptions past grace (unpaid amount, days). `enforce_grace_expiry(execute=True)`
+  **cancels** them (entitlements revoked; the organization keeps its login and its data, like any expired customer),
+  marks their open invoices `UNCOLLECTIBLE`, and writes `billing.grace_expired`. Reversible: a new subscription restores
+  access. Idempotent; a subscription that recovered meanwhile is skipped.
+* The daily `billing.dunning` job (`python -m app.worker --schedule`) always reports; it executes only when
+  `BILLING_ENFORCE_GRACE=true` (default off).
+* Entitlement consequences of every state are resolved live by the entitlement resolver (ACTIVE/TRIALING/PAST_DUE grant;
+  CANCELED/expired/none do not).
+
 ## Not implemented / external
-* Real provider (Stripe/Razorpay/etc.), webhooks, tax/GST, PDF invoices, emailing invoices: NOT IMPLEMENTED.
-* Dunning is a read-only report of overdue open invoices; automated retries/notifications need a scheduler
-  (see `PRODUCTION_RUNBOOK.md`, "Background jobs").
+* Real provider (Stripe/Razorpay/etc.), provider webhooks, tax/GST, PDF invoices, emailing invoices/dunning notices:
+  NOT IMPLEMENTED (provider items need credentials: EXTERNAL_ONLY; tax/PDF/email are software but out of the current scope).
 * Live payment, refund and reconciliation with a provider: EXTERNAL VALIDATION REQUIRED.

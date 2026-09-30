@@ -30,9 +30,9 @@ from urllib.parse import urlsplit
 import httpx
 
 from app.core import secrets as secrets_layer
-from app.core.config import get_settings
+from app.core.config import live_settings
 
-settings = get_settings()
+settings = live_settings
 
 DEFAULT_MAX_BYTES = 5 * 1024 * 1024
 HARD_MAX_BYTES = 25 * 1024 * 1024

@@ -3,16 +3,14 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db_session, require_permission
+from app.core.deps import require_feature, get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
 from app.schemas.purchase_order import PurchaseOrderResponse
 from app.schemas.receiving import ReceivePurchaseOrderRequest
 from app.services import receiving_service
 
-router = APIRouter(prefix="/purchase-orders", tags=["receiving"])
-
-
+router = APIRouter(prefix="/purchase-orders", tags=["receiving"], dependencies=[Depends(require_feature("procurement_management"))])
 @router.post("/{po_id}/receive", response_model=PurchaseOrderResponse)
 def receive_purchase_order(
     po_id: uuid.UUID,

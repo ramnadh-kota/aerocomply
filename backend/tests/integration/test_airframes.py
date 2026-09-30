@@ -274,3 +274,19 @@ def test_fleet_component_register_is_tenant_scoped_filterable_and_entitlement_ga
     _, hn = suite_org(client, db_session, "fc3", "HELICOPTER", ("hums",))
     assert client.get("/api/v1/fleet/components", headers=hn).status_code == 403
     assert client.get("/api/v1/fleet/components").status_code == 401
+
+
+def test_evtol_has_its_own_configuration_slots_and_binds_template_sensors_to_hv_components(client, db_session, evtol):
+    org_id, h = evtol
+    a = make_evtol(client, h, reg="EV-CFG")
+    for t, n in (("INVERTER", "Inverter A"), ("HV_DISTRIBUTION", "HV bus")):
+        assert client.post(f"/api/v1/evtols/{a['id']}/components", headers=h,
+                           json={"component_type": t, "name": n}).status_code == 201
+    cfg = client.get(f"/api/v1/assets/{a['id']}/configuration", headers=h)
+    assert cfg.status_code == 200
+    assert "Motor Inverters" in cfg.text and "High-Voltage Distribution" in cfg.text and "Engine Position" not in cfg.text
+    client.post(f"/api/v1/evtols/{a['id']}/hums/apply-template", headers=h)
+    by_code = {s.sensor_code: s for s in db_session.execute(
+        select(HUMSSensor).where(HUMSSensor.organization_id == org_id)).scalars()}
+    assert by_code["INV-TEMP"].component_id is not None
+    assert by_code["HVBUS-V"].component_id == by_code["HVBUS-I"].component_id is not None

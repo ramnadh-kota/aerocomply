@@ -1,4 +1,19 @@
-> **Implementation status (2026-09-30):** this document is a design/target description. The implemented behaviour is documented in `DATA_ACQUISITION_ARCHITECTURE.md`, `ENTITLEMENT_ARCHITECTURE.md`, `SECURITY_ARCHITECTURE.md`, `OBSERVABILITY_ARCHITECTURE.md`, `PRODUCTION_RUNBOOK.md` and `FINAL_RELEASE_READINESS.md`. Implemented: tool-based, tenant-scoped copilot with entity/reference resolution of drones and airframes by name, id or serial. Metrics: `kota_lisa_tool_*`. No claim is made about answer quality on real customer questions. Where this text disagrees with those, those win.
+> **Implementation status (2026-09-30).** The sections below are a design narrative; this block is authoritative.
+>
+> | Capability | Status | Verification |
+> |---|---|---|
+> | Tool registry: **60 tools**, each with a required RBAC permission and feature; unknown tool = error | IMPLEMENTED | `test_lisa_tool_matrix` pins the inventory |
+> | Per-call checks in order: permission → subscription state → suite → feature (comma list = any-of) | IMPLEMENTED | `ai/tools.py::_require_entitlement`; **multi-suite organizations** are matched on the suites they actually hold (a previous defect locked them out); `SUITE_ENTITLEMENT_REQUIRED` vs `forbidden` codes |
+> | Tenant comes only from the authenticated user; no tool accepts an organization argument | IMPLEMENTED | inventory test + smuggled-org-id test |
+> | Matrix over every tool: role without permission, no/cancelled subscription, plan without feature, wrong suite, hostile/malformed ids (clean error or empty result, never an unexpected exception) | IMPLEMENTED | 257 parametrised cases |
+> | `list_fleet_assets`: airframes filtered to the families the organization is entitled to (helicopter and eVTOL orgs get their fleet through LISA) | IMPLEMENTED | `test_lisa_tool_matrix`, `test_customer_journey_airframes` |
+> | Entity / reference resolution of drones, helicopters, eVTOL by name, id or serial | IMPLEMENTED | `test_lisa_asset_resolution`, `test_lisa_entity_resolution` |
+> | Grounding: answers cite the tools actually run; no fabricated evidence | IMPLEMENTED | `test_lisa_grounded_intelligence`, journey tests |
+> | Aircraft-table tools (`get_aircraft`, AOG, maintenance-due, control center…) only see `Aircraft` rows | IMPLEMENTED with that scope — helicopter/eVTOL/drone assets are reached through the asset-based tools |
+> | Answer quality / model behaviour on real customer questions; the LLM provider itself | EXTERNAL VALIDATION REQUIRED | provider is configured per deployment; without it LISA reports "not configured" |
+>
+> Metrics: `kota_lisa_tool_duration_seconds`, `kota_lisa_tool_errors_total`; rate limited by the `lisa` policy (per user).
+> Related: `ENTITLEMENT_ARCHITECTURE.md`, `SECURITY_ARCHITECTURE.md`.
 
 # KOTA AEROSPACE — LISA (INTELLIGENT SAFETY & OPERATIONS ASSISTANT) ARCHITECTURE
 
@@ -52,7 +67,7 @@ LISA operates under strict **grounded truth and fail-closed security guarantees*
 
 ---
 
-## 3. Tool Registry & Authorization Matrix (59 Validated Tools)
+## 3. Tool Registry & Authorization Matrix (60 tools)
 
 Every tool registered in `app/services/ai/tools.py` implements deterministic authorization:
 
