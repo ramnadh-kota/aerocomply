@@ -6,7 +6,7 @@ default per tenant. It reuses the same fixed-window counter (`_limiter`), so `re
 
 | policy    | matches                                   | key  | default       |
 |-----------|-------------------------------------------|------|---------------|
-| webhook   | POST .../telemetry/dji/webhook            | ip   | 600 / 60 s    |
+| webhook   | POST .../telemetry/dji/webhook, /webhooks/* | ip | 600 / 60 s    |
 | ingest    | POST .../ingest                           | org  | 1200 / 60 s   |
 | lisa      | POST /lisa/*                              | user | 30 / 60 s     |
 | analytics | GET /hums, /intelligence, /proactive, ... | user | 300 / 60 s    |
@@ -57,7 +57,7 @@ def classify(method: str, path: str) -> str | None:
     rest = p[len(prefix):]
     if rest.startswith("/auth/"):
         return None
-    if rest.endswith("/telemetry/dji/webhook"):
+    if rest.endswith("/telemetry/dji/webhook") or rest.startswith("/webhooks/"):
         return "webhook"
     if method == "POST" and rest.endswith("/ingest"):
         return "ingest"

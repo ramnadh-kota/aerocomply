@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import model_validator, BaseModel, ConfigDict, Field
 
 DataQuality = Literal["VALID", "SUSPECT", "MISSING", "OUT_OF_RANGE", "STALE", "DUPLICATE", "INVALID"]
 
@@ -35,7 +35,24 @@ class HUMSSensorResponse(BaseModel):
     installation_location: str | None
     status: str
     source: str
+    warning_threshold: float | None = None
+    critical_threshold: float | None = None
     created_at: datetime
+
+
+class HUMSSensorThresholdUpdate(BaseModel):
+    """Both limits, or both null to return to the platform defaults."""
+
+    warning_threshold: float | None = Field(default=None, allow_inf_nan=False, gt=0)
+    critical_threshold: float | None = Field(default=None, allow_inf_nan=False, gt=0)
+
+    @model_validator(mode="after")
+    def _both_or_neither_and_ordered(self) -> "HUMSSensorThresholdUpdate":
+        if (self.warning_threshold is None) != (self.critical_threshold is None):
+            raise ValueError("warning_threshold and critical_threshold must be set together (or both null)")
+        if self.warning_threshold is not None and self.critical_threshold <= self.warning_threshold:  # type: ignore[operator]
+            raise ValueError("critical_threshold must be greater than warning_threshold")
+        return self
 
 
 class HUMSReadingIn(BaseModel):
@@ -373,6 +390,7 @@ class HUMSSpectrumResponse(BaseModel):
 
 __all__ = [
     "HUMSSensorCreate",
+    "HUMSSensorThresholdUpdate",
     "HUMSSensorResponse",
     "HUMSReadingIn",
     "HUMSReadingBatchCreate",

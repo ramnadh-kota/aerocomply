@@ -31,10 +31,15 @@ from app.services.hums.degradation_engine import compute_rul, detect_model_drift
 _MAINTENANCE_THRESHOLD_FEATURE_TYPES = {"rms"}
 
 
-def _get_threshold(feature_type: str, reference_mean: float | None) -> tuple[float | None, str | None]:
+def _get_threshold(
+    feature_type: str, reference_mean: float | None, sensor: HUMSSensor | None = None
+) -> tuple[float | None, str | None]:
     if feature_type in _MAINTENANCE_THRESHOLD_FEATURE_TYPES:
         from app.services import hums_service  # local import: avoids a hums_service <-> app.services.hums import cycle
 
+        if sensor is not None:
+            _warn, critical, _source = hums_service.vibration_limits(sensor)   # configured limit wins over the default
+            return critical, "MAINTENANCE_THRESHOLD"
         return hums_service.VIBRATION_CRITICAL_RMS, "MAINTENANCE_THRESHOLD"
 
     if reference_mean is not None:
@@ -109,7 +114,7 @@ def evaluate_and_persist_prognostic(
 
     baseline = get_current_baseline(db, organization_id=organization_id, sensor_id=sensor.id, feature_type=feature_type)
     reference_mean = baseline.mean if baseline else None
-    threshold_value, threshold_type = _get_threshold(feature_type, reference_mean)
+    threshold_value, threshold_type = _get_threshold(feature_type, reference_mean, sensor)
 
     direction = degradation_service.degrading_direction(feature_type)
     fit = _fit_from_model_row(model)

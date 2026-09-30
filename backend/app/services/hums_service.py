@@ -116,6 +116,31 @@ def list_sensors(db: Session, *, organization_id: uuid.UUID, asset_id: uuid.UUID
     return list(db.execute(query).scalars().all())
 
 
+def vibration_limits(sensor: HUMSSensor) -> tuple[float, float, str]:
+    """(warning, critical, source) RMS limits for a sensor: its configured limits, else the platform defaults.
+    The defaults are generic starting values and are NOT an OEM or regulatory limit."""
+    if sensor.warning_threshold is not None and sensor.critical_threshold is not None:
+        return sensor.warning_threshold, sensor.critical_threshold, "CONFIGURED"
+    return VIBRATION_WARNING_RMS, VIBRATION_CRITICAL_RMS, "PLATFORM_DEFAULT"
+
+
+def set_sensor_thresholds(
+    db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID | None, sensor_id: uuid.UUID,
+    warning_threshold: float | None, critical_threshold: float | None,
+) -> HUMSSensor:
+    sensor = _get_sensor(db, organization_id=organization_id, sensor_id=sensor_id)
+    previous = {"warning_threshold": sensor.warning_threshold, "critical_threshold": sensor.critical_threshold}
+    sensor.warning_threshold, sensor.critical_threshold = warning_threshold, critical_threshold
+    db.flush()
+    audit_service.record_audit_event(
+        db, organization_id=organization_id, user_id=user_id, action="hums_sensor.thresholds_set",
+        entity_type="HUMSSensor", entity_id=sensor.id,
+        metadata={"previous": previous, "new": {"warning_threshold": warning_threshold,
+                                                "critical_threshold": critical_threshold}},
+    )
+    return sensor
+
+
 def _get_sensor(db: Session, *, organization_id: uuid.UUID, sensor_id: uuid.UUID) -> HUMSSensor:
     sensor = db.execute(
         select(HUMSSensor).where(HUMSSensor.id == sensor_id, HUMSSensor.organization_id == organization_id)
@@ -220,16 +245,17 @@ def evaluate_sensor_health(
             confidence="INSUFFICIENT_DATA",
         )
 
-    if feature.value >= VIBRATION_CRITICAL_RMS:
+    warn_limit, crit_limit, _limit_source = vibration_limits(sensor)
+    if feature.value >= crit_limit:
         status = "CRITICAL"
-        health_score = max(0.0, 40.0 - (feature.value - VIBRATION_CRITICAL_RMS) * 10)
-    elif feature.value >= VIBRATION_WARNING_RMS:
+        health_score = max(0.0, 40.0 - (feature.value - crit_limit) * 10)
+    elif feature.value >= warn_limit:
         status = "DEGRADED"
-        span = VIBRATION_CRITICAL_RMS - VIBRATION_WARNING_RMS
-        health_score = 40.0 + (1 - (feature.value - VIBRATION_WARNING_RMS) / span) * 40.0
+        span = crit_limit - warn_limit
+        health_score = 40.0 + (1 - (feature.value - warn_limit) / span) * 40.0
     else:
         status = "HEALTHY"
-        health_score = 80.0 + (1 - feature.value / VIBRATION_WARNING_RMS) * 20.0
+        health_score = 80.0 + (1 - feature.value / warn_limit) * 20.0
 
     confidence = "HIGH" if feature.sample_count >= FEATURE_WINDOW_READING_COUNT else "MEDIUM"
 
@@ -300,12 +326,13 @@ def detect_and_record_exceedances(
     if sensor.measurement_type.lower() not in ("vibration", "vib"):
         return None
 
+    warn_limit, crit_limit, limit_source = vibration_limits(sensor)
     feature = _compute_rms_feature(readings)
-    if feature is None or feature.value < VIBRATION_WARNING_RMS:
+    if feature is None or feature.value < warn_limit:
         return None
 
-    severity = "CRITICAL" if feature.value >= VIBRATION_CRITICAL_RMS else "HIGH"
-    threshold = VIBRATION_CRITICAL_RMS if severity == "CRITICAL" else VIBRATION_WARNING_RMS
+    severity = "CRITICAL" if feature.value >= crit_limit else "HIGH"
+    threshold = crit_limit if severity == "CRITICAL" else warn_limit
 
     crest_factor_feature = feature_service.get_feature(persisted_features, "crest_factor")
     kurtosis_feature = feature_service.get_feature(persisted_features, "kurtosis")
@@ -361,6 +388,7 @@ def detect_and_record_exceedances(
         status=EvidenceStatus.SUBMITTED.value,
         provenance={
             "sensor_id": str(sensor.id),
+            "threshold_source": limit_source,
             "reading_ids": [str(r.id) for r in valid_readings],
             "feature": feature.model_dump(mode="json"),
             "supporting_features": {

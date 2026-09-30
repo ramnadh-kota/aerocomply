@@ -27,7 +27,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,6 +46,12 @@ class HUMSSensor(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "asset_id", "sensor_code", name="uq_hums_sensor_org_asset_code"),
         Index("ix_hums_sensor_org_asset", "organization_id", "asset_id"),
+        CheckConstraint(
+            "(warning_threshold IS NULL AND critical_threshold IS NULL) OR "
+            "(warning_threshold IS NOT NULL AND critical_threshold IS NOT NULL "
+            "AND warning_threshold > 0 AND critical_threshold > warning_threshold)",
+            name="ck_hums_sensor_thresholds",
+        ),
     )
 
     asset_id: Mapped[uuid.UUID] = mapped_column(
@@ -58,6 +64,9 @@ class HUMSSensor(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base):
     sensor_type: Mapped[str] = mapped_column(String(64), nullable=False)
     measurement_type: Mapped[str] = mapped_column(String(64), nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Operator-configured vibration RMS limits (OEM / maintenance-manual values). NULL/NULL = platform defaults.
+    warning_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    critical_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     installation_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="ACTIVE")
     source: Mapped[str] = mapped_column(

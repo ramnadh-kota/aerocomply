@@ -54,6 +54,7 @@ from app.api.v1 import (
     vendor_part_availability,
     vendors,
     warehouses,
+    webhooks,
     work_orders,
 )
 
@@ -114,3 +115,4 @@ api_router.include_router(mro_intelligence.router)
 api_router.include_router(data_sources.router)
 api_router.include_router(billing.router)
 api_router.include_router(observability.router)
+api_router.include_router(webhooks.router)

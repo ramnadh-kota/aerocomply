@@ -34,6 +34,7 @@ from app.schemas.hums import (
     HUMSPrognosticRecordResponse,
     HUMSReadingBatchCreate,
     HUMSSensorCreate,
+    HUMSSensorThresholdUpdate,
     HUMSSensorReadingResponse,
     HUMSSensorResponse,
     HUMSSpectrumResponse,
@@ -56,6 +57,23 @@ def create_sensor(
 ) -> HUMSSensorResponse:
     sensor = hums_service.create_sensor(
         db, organization_id=current_user.organization_id, user_id=current_user.id, payload=payload
+    )
+    db.commit()
+    return HUMSSensorResponse.model_validate(sensor)
+
+
+@router.put("/sensors/{sensor_id}/thresholds", response_model=HUMSSensorResponse)
+def set_sensor_thresholds(
+    sensor_id: uuid.UUID,
+    payload: HUMSSensorThresholdUpdate,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.HUMS_WRITE)),
+) -> HUMSSensorResponse:
+    """Configure the vibration RMS warning/critical limits for one sensor (OEM / maintenance-manual values), or send
+    both as null to return to the platform defaults. Audited with the previous values."""
+    sensor = hums_service.set_sensor_thresholds(
+        db, organization_id=current_user.organization_id, user_id=current_user.id, sensor_id=sensor_id,
+        warning_threshold=payload.warning_threshold, critical_threshold=payload.critical_threshold,
     )
     db.commit()
     return HUMSSensorResponse.model_validate(sensor)
