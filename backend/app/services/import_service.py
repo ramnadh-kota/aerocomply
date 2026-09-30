@@ -982,9 +982,13 @@ def get_import_mapping(
 
 
 def delete_import_mapping(
-    db: Session, *, organization_id: uuid.UUID, mapping_id: uuid.UUID
+    db: Session, *, organization_id: uuid.UUID, mapping_id: uuid.UUID, actor_user_id: uuid.UUID | None = None
 ) -> None:
     m = get_import_mapping(db, organization_id=organization_id, mapping_id=mapping_id)
+    record_audit_event(
+        db, organization_id=organization_id, user_id=actor_user_id, action="import_mapping.deleted",
+        entity_type="TenantImportMapping", entity_id=m.id, metadata={"domain": m.domain},
+    )
     db.delete(m)
     db.commit()
 

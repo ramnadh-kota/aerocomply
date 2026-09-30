@@ -432,7 +432,15 @@ def create_or_sync_from_evaluation(
         )
         db.add(obligation)
         db.flush()
+        record_audit_event(
+            db, organization_id=organization_id, user_id=actor_user_id,
+            action="compliance_obligation.created_from_evaluation", entity_type="ComplianceObligation",
+            entity_id=obligation.id,
+            metadata={"requirement_id": str(req_id), "rule_id": str(rule.id), "status": status,
+                      "evaluation_result": evaluation.system_result},
+        )
     else:
+        previous_status = obligation.status
         obligation.applicability_evaluation_id = evaluation.id
         obligation.rule_id = rule.id
         if evaluation.system_result == EvaluationResult.APPLICABLE.value:
@@ -455,6 +463,14 @@ def create_or_sync_from_evaluation(
 
         resolve_obligation_compliance(db, obligation, actor_user_id=actor_user_id)
         db.add(obligation)
+        if obligation.status != previous_status:
+            record_audit_event(
+                db, organization_id=organization_id, user_id=actor_user_id,
+                action="compliance_obligation.status_changed", entity_type="ComplianceObligation",
+                entity_id=obligation.id,
+                metadata={"from_status": previous_status, "to_status": obligation.status,
+                          "evaluation_result": evaluation.system_result, "source": "applicability_evaluation"},
+            )
 
     db.commit()
     db.refresh(obligation)

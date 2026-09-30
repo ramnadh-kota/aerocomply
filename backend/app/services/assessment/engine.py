@@ -311,6 +311,13 @@ def create_assessment(
         created_by_user_id=actor_user_id,
     )
     db.add(assessment)
+    db.flush()
+    record_audit_event(
+        db, organization_id=organization_id, user_id=actor_user_id, action="assessment.created",
+        entity_type="Assessment", entity_id=assessment.id,
+        metadata={"name": payload.name, "scope_type": str(payload.scope_type),
+                  "scope_id": str(payload.scope_id) if payload.scope_id else None},
+    )
     db.commit()
     db.refresh(assessment)
     return assessment

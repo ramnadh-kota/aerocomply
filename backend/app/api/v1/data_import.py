@@ -170,5 +170,6 @@ def delete_mapping(
     current_user: CurrentUser = Depends(require_import_write),
 ) -> None:
     import_service.delete_import_mapping(
-        db, organization_id=current_user.organization_id, mapping_id=mapping_id
+        db, organization_id=current_user.organization_id, mapping_id=mapping_id,
+        actor_user_id=current_user.id,
     )

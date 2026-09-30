@@ -118,11 +118,12 @@ def put_retention_policy(
             retention_days=int(body.get("retention_days", 0)), enabled=bool(body.get("enabled", False)))
     except (retention_service.RetentionError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if row.organization_id:
-        audit_service.record_audit_event(
-            db, organization_id=row.organization_id, user_id=user.id, action="retention.policy_set",
-            entity_type="RetentionPolicy", entity_id=row.id,
-            metadata={"data_class": row.data_class, "retention_days": row.retention_days, "enabled": row.enabled})
+    # A platform-default policy has no tenant; it is audited under the acting operator's own organization.
+    audit_service.record_audit_event(
+        db, organization_id=row.organization_id or user.organization_id, user_id=user.id, action="retention.policy_set",
+        entity_type="RetentionPolicy", entity_id=row.id,
+        metadata={"data_class": row.data_class, "retention_days": row.retention_days, "enabled": row.enabled,
+                  "scope": "organization" if row.organization_id else "platform_default"})
     db.commit()
     return {"id": str(row.id), "data_class": row.data_class, "retention_days": row.retention_days, "enabled": row.enabled}
 

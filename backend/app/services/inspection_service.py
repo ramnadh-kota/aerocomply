@@ -256,6 +256,14 @@ def create_inspection_requirement(
         status=InspectionRequirementStatus.PENDING.value,
     )
     db.add(requirement)
+    db.flush()
+    record_audit_event(
+        db, organization_id=organization_id, user_id=None, action="inspection_requirement.created",
+        entity_type="InspectionRequirement", entity_id=requirement.id,
+        metadata={"task_id": str(task_id) if task_id else None,
+                  "work_order_id": str(work_order_id) if work_order_id else None, "required": required,
+                  "compliance_obligation_id": str(compliance_obligation_id) if compliance_obligation_id else None},
+    )
     db.commit()
     db.refresh(requirement)
     return requirement

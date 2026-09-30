@@ -41,7 +41,7 @@ from app.schemas.intelligence_signal import (
     SignalStatus,
     SignalType,
 )
-from app.services import flight_service
+from app.services import audit_service, flight_service
 from app.services.hums_service import exceedance_signal_key
 from app.services.intelligence import readiness_intelligence_service, risk_intelligence_service
 
@@ -1219,6 +1219,16 @@ def get_proactive_summary(
     )
 
 
+def _audit_transition(db: Session, organization_id: uuid.UUID, user_id: uuid.UUID, signal: ProactiveSignalRecord,
+                      action: str, previous_status: str) -> None:
+    audit_service.record_audit_event(
+        db, organization_id=organization_id, user_id=user_id, action=action, entity_type="ProactiveSignal",
+        entity_id=signal.id,
+        metadata={"signal_key": signal.signal_key, "signal_type": signal.signal_type,
+                  "from_status": previous_status, "to_status": signal.status},
+    )
+
+
 def acknowledge_signal(
     db: Session, *, organization_id: uuid.UUID, signal_id: uuid.UUID, user_id: uuid.UUID
 ) -> ProactiveSignalResponse:
@@ -1232,10 +1242,12 @@ def acknowledge_signal(
     if not signal:
         raise NotFoundError("Signal not found", code="signal_not_found")
 
+    previous = signal.status
     signal.status = "ACKNOWLEDGED"
     signal.acknowledged_by_user_id = user_id
     signal.acknowledged_at = datetime.datetime.now(datetime.UTC)
     db.flush()
+    _audit_transition(db, organization_id, user_id, signal, "proactive_signal.acknowledged", previous)
 
     signals = sync_and_get_signals(db, organization_id=organization_id)
     for s in signals:
@@ -1257,7 +1269,9 @@ def set_signal_in_review(
     if not signal:
         raise NotFoundError("Signal not found", code="signal_not_found")
 
+    previous = signal.status
     signal.status = "IN_REVIEW"
+    _audit_transition(db, organization_id, user_id, signal, "proactive_signal.in_review", previous)
     if notes:
         signal.resolution_notes = notes
     db.flush()
@@ -1282,11 +1296,13 @@ def resolve_signal(
     if not signal:
         raise NotFoundError("Signal not found", code="signal_not_found")
 
+    previous = signal.status
     signal.status = "RESOLVED"
     signal.resolved_by_user_id = user_id
     signal.resolved_at = datetime.datetime.now(datetime.UTC)
     signal.resolution_notes = resolution_notes
     db.flush()
+    _audit_transition(db, organization_id, user_id, signal, "proactive_signal.resolved", previous)
 
     signals = sync_and_get_signals(db, organization_id=organization_id)
     for s in signals:
@@ -1308,11 +1324,13 @@ def dismiss_signal(
     if not signal:
         raise NotFoundError("Signal not found", code="signal_not_found")
 
+    previous = signal.status
     signal.status = "DISMISSED"
     signal.dismissed_by_user_id = user_id
     signal.dismissed_at = datetime.datetime.now(datetime.UTC)
     signal.dismissal_reason = dismissal_reason
     db.flush()
+    _audit_transition(db, organization_id, user_id, signal, "proactive_signal.dismissed", previous)
 
     signals = sync_and_get_signals(db, organization_id=organization_id)
     for s in signals:
