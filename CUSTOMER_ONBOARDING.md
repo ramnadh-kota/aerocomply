@@ -79,3 +79,6 @@ An enterprise organization can operate multiple suites simultaneously under a si
   - `Subscription 1`: Org X + Drone Suite + Professional
   - `Subscription 2`: Org X + Helicopter Suite + Enterprise
 - Users seamlessly toggle between active suite contexts in the top navigation bar with dynamic entitlement switching.
+
+## Background services and suites
+Production needs two extra processes besides the API: `python -m app.worker --schedule` (queue, retries, retention, dunning) and, if you ingest MAVLink/MQTT over the network, `python -m app.listeners`. Enable the Aircraft, Drone, Helicopter or eVTOL suite on the organization's plan; features and navigation follow the plan. Retention is OFF by default. See `PRODUCTION_RUNBOOK.md`.
