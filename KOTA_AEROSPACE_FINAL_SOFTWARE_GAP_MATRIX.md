@@ -13,13 +13,16 @@ reports). Statuses: `COMPLETE`, `PARTIAL`, `MISSING`, `BROKEN`, `MOCKED`, `ASPIR
 | EXTERNAL VALIDATION | PENDING (not performed, not simulated, not claimed) |
 
 EXTERNAL VALIDATION REQUIRED:
-- physical drone / aircraft / autopilot telemetry
-- real MAVLink hardware and RF validation
-- real MQTT / OEM / DJI environments where applicable
-- production-scale infrastructure validation
-- payment-provider validation where applicable
-- customer UAT
-- external penetration testing
+- Physical drone/aircraft/autopilot testing
+- Real telemetry-source validation
+- Real MAVLink/RF validation
+- Real MQTT/OEM/DJI environments where applicable
+- Production-scale infrastructure validation
+- Payment-provider validation where applicable
+- Customer UAT
+- External penetration testing
+
+None of the above has been performed; no external validation is described or claimed as completed.
 
 The absence of physical hardware or external environments is not a software gap. The software is verified through
 deterministic simulators, fixtures, synthetic telemetry, protocol test vectors and local integration environments; those
