@@ -3,15 +3,23 @@
 Branch `feature/post-freeze-productionization`. Tag `KOTA-AEROSPACE-FORENSIC-VALIDATED-2026-09-30` untouched. Supersedes `KOTA_AEROSPACE_FINAL_COMPLETION_REPORT.md`.
 
 ## 1. Executive status
-Software-completable gap count is **not zero**: one item (G1) remains. Everything else in scope is implemented and tested; external items are listed in section 19. No external validation has been performed.
+**SOFTWARE-COMPLETABLE GAP COUNT: 0** (verified 2026-10-01 on branch `feature/post-freeze-productionization`, scratch databases only, nothing pushed or deployed). G1 is closed: no live session can see sample data. External items are in section 19; none has been performed.
 
-## 2. Test results
-- Backend: 2654 collected-and-run passed, 0 failed, 0 skipped, 16 deselected (376 s).
-- Frontend: vitest 381 passed / 36 files; `tsc` clean.
-- Ruff `E9,F63,F7,F82`: clean.
-- Migrations: 0070 -> 0065 -> 0070 round trip OK on scratch DB.
-- Browser harnesses (earlier this branch): 44/44, 56/56, 42/42; 0 console errors.
-- ESLint (0 errors) and `next build` (OK) were last run before the final frontend commit and not re-run in the final pass.
+## 2. Test results (re-run 2026-10-01)
+- Backend (scratch DB `kota_scratch_verify`): **2690 passed, 0 failed, 0 skipped, 16 deselected** (`real_storage` marker, needs a live S3 endpoint), 478 s.
+- Frontend: vitest **383 passed / 37 files**; `tsc --noEmit` clean; ESLint **0 errors** (129 pre-existing warnings); `next build` OK.
+- Migrations (fresh scratch DB `kota_scratch_roundtrip`): upgrade head -> 0070, downgrade base (empty schema), upgrade head -> 0070; 96 tables / 434 indexes / 390 constraints after re-upgrade. Note: downgrading 0047 on a database that already holds non-task evidence rows fails by design (`evidence.task_id` NOT NULL cannot be restored over NULL rows); the clean round trip is the supported path.
+- Browser (headless Chrome, local API :8001 + `next start` :3000, scratch DB): validate 44/44, validate2 56/56, validate3 42/42, validate4 25/25, validate5 leak scan 2 organizations x 146 page loads over 132 routes = no sample-data marker and no crash. Console errors 0. Scripted validation, not human UAT. Temporary servers were stopped afterwards.
+- Ruff `E9,F63,F7,F82`: clean at last run.
+
+## 2a. G1 closure
+34 routes render only bundled sample data. For a live (non-demo) session: 24 are redirected to a connected equivalent (`LIVE_REDIRECTS`, now including `/maintenance/projects` and `/procurement/cart`); 10 show a "Not connected to live data" notice (`/automation`, `/finance`, `/finance/[id]`, `/maintenance/projects/[id]`, `/maintenance/projects/[id]/intelligence`, `/organization/readiness`, `/pilot`, `/reports`, `/reports/[id]`, `/workspace`). Sample pages remain reachable only in explicit demo mode. Global search and the welcome tour are live-only. `tests/mock-only-routes.test.ts` fails if a new sample-only page is not registered. Building live backends for the 10 notice-only pages is new product scope, not a defect: they are honestly labelled and leak nothing.
+
+## 2b. Verified architecture decisions
+- Knowledge graph: PostgreSQL is the single source of truth; `app/services/knowledge_graph.py` (`GraphRepository` seam) serves traversals; no Neo4j (docs/AEROSPACE_INTELLIGENCE_GRAPH.md).
+- Rate limiting: `RateLimiter` protocol with in-memory and Redis backends, fail-closed policies for security-sensitive buckets (`tests/unit/test_rate_limiter_backends.py`). Shared Redis in a multi-instance deployment is external validation.
+- Observability: metrics endpoint plus optional `metrics_server`, readiness checks schema head and job health.
+- Forensic scan: the only `TODO` in `backend/app` is a documented policy-decision string in `lifecycle_policy.py`; `NotImplementedError` appears only as an abstract provider method and a Windows signal-handler guard.
 
 ## 3. Backend
 DB-authoritative auth (roles not read from JWT; `exp`/`sub` required), router-level feature gates, LISA multi-suite fix, audit coverage for compliance/inspection/assessment/signal mutations.
@@ -48,4 +56,4 @@ Jobs, retention and metrics endpoints; readiness checks schema head and job heal
 ## 19. Remaining external validation
 Physical MAVLink/serial, real customer UAT, production infra/credentials, real payment provider, real broker/radio/OEM/DJI credentials, shared multi-instance rate limiter deployment, penetration test.
 ## 20. Remaining software work
-**G1** — 21 sample-only routes (aircraft configuration, assessment review, automation, pre-audit, documents, finance, aircraft health, integrations, discrepancies, material readiness, planning, projects, org readiness, pilot, procurement cart, reports, workspace). They are hidden from live sessions and need a build-or-retire product decision. Not "NONE".
+None. SOFTWARE-COMPLETABLE GAP COUNT: 0.

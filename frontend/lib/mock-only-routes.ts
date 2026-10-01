@@ -77,6 +77,17 @@ export const LIVE_REDIRECTS: Readonly<Record<string, string>> = {
   "/maintenance/operations": "/maintenance/work-orders",
   "/platform/features": "/platform/product-catalog",
   "/evidence/[id]": "/compliance/evidence/[id]",
+  "/assessments/[id]/review": "/assessments/[id]",
+  "/fleet/aircraft/[id]/health": "/aircraft/[id]",
+  "/aircraft/[id]/configuration": "/aircraft/[id]",
+  "/maintenance/planning/[id]": "/maintenance/work-orders/[id]",
+  "/maintenance/discrepancies": "/maintenance/defects",
+  "/maintenance/material-readiness": "/maintenance/parts",
+  "/documents": "/evidence",
+  "/compliance/pre-audit": "/compliance",
+  "/integrations": "/data-sources",
+  "/maintenance/projects": "/maintenance/work-orders",
+  "/procurement/cart": "/procurement",
 };
 
 function toRegex(pattern: string): RegExp {
@@ -106,6 +117,10 @@ export function liveRedirectFor(pathname: string): string | null {
   if (!pattern) return null;
   const target = LIVE_REDIRECTS[pattern];
   if (!target) return null;
-  const id = pathname.replace(/\/+$/, "").split("/").pop() ?? "";
+  // The id is the segment that sits at the pattern's "[id]" position (not always the last segment).
+  const patternSegs = pattern.split("/");
+  const pathSegs = pathname.replace(/\/+$/, "").split("/");
+  const at = patternSegs.findIndex((seg) => /^\[.+\]$/.test(seg));
+  const id = at >= 0 ? (pathSegs[at] ?? "") : "";
   return target.replace("[id]", id);
 }

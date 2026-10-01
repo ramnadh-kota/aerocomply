@@ -13,6 +13,7 @@ import { combinedAuditHistory } from "@/lib/mock/audit";
 import { ActionHistory } from "@/components/audit/ActionHistory";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useSession } from "@/lib/auth/SessionContext";
+import { LiveAogRecovery } from "@/components/maintenance/LiveAogRecovery";
 import { aircraftApi } from "@/lib/api/aircraft";
 import { aogRecoveryApi, type BackendAogRecoveryStatus, type BackendCriticalPathStage } from "@/lib/api/aogRecovery";
 
@@ -100,7 +101,7 @@ type IdentityState =
   | { kind: "unmatched" }
   | { kind: "unavailable" };
 
-export default function AogRecoveryPage() {
+function DemoAogRecoveryPage() {
   const params = useParams<{ aircraftId: string }>();
   const aircraftId = params.aircraftId;
   const [version, setVersion] = useState(0);
@@ -545,4 +546,15 @@ export default function AogRecoveryPage() {
       </section>
     </div>
   );
+}
+
+/**
+ * A live organization sees only its own aircraft's recovery status from the backend (LiveAogRecovery); the sample-data
+ * analysis above is Demo-mode only, so no bundled aircraft can appear in a live session.
+ */
+export default function AogRecoveryPage() {
+  const params = useParams<{ aircraftId: string }>();
+  const { isDemo, loading } = useSession();
+  if (loading) return <div className="ac-card" style={{ padding: 24, textAlign: "center" }}>Checking access…</div>;
+  return isDemo ? <DemoAogRecoveryPage /> : <LiveAogRecovery aircraftId={params.aircraftId} />;
 }

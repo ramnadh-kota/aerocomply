@@ -219,7 +219,7 @@ export default function SettingsPage() {
   const current = getCurrentUser();
   const org = current?.organization ?? organizations[0];
   const { mode, setMode, apiBaseUrl } = useDataMode();
-  const { user: realUser, isAuthenticated, logout } = useSession();
+  const { user: realUser, isAuthenticated, logout, isDemo, organizationName } = useSession();
   const router = useRouter();
 
   const [notifPrefs, setNotifPrefs] = useState<Record<string, boolean>>(
@@ -262,8 +262,9 @@ export default function SettingsPage() {
           <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>General</h2>
           <div className="ac-card">
             <div>
-              <Row label="Organization" value={org?.name ?? "Unknown"} />
-              <Row label="Organization Type" value={org?.orgType ?? "Unknown"} />
+              {/* Live organizations see their own organization; the bundled sample organization is Demo-only. */}
+              <Row label="Organization" value={isDemo ? (org?.name ?? "Unknown") : (organizationName ?? "Unknown")} />
+              <Row label="Organization Type" value={isDemo ? (org?.orgType ?? "Unknown") : "Not recorded"} />
               <Row label="Workspace" value={COMPANY_NAME} note="DEMO DATA — single-workspace prototype, no multi-workspace model exists yet." />
               <Row label="Timezone" value="Asia/Kolkata (UTC+05:30)" note="DEMO DATA — not read from a user/org preference record." />
               <Row label="Date Format" value="YYYY-MM-DD" note="DEMO DATA — matches the format used throughout mock data." />
@@ -386,7 +387,22 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {tab === "Compliance" && (
+      {tab === "Compliance" && !isDemo && (
+        <section className="ac-section">
+          <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>Compliance</h2>
+          <div className="ac-card">
+            <p className="ac-text-sm" style={{ margin: "0 0 10px" }}>
+              Regulatory documents, requirements and obligations for your organization are managed in the compliance module.
+            </p>
+            <div className="ac-flex ac-gap-2">
+              <Link href="/compliance/regulatory-register" className="ac-btn">Regulatory register</Link>
+              <Link href="/compliance" className="ac-btn">Compliance overview</Link>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {tab === "Compliance" && isDemo && (
         <section className="ac-section">
           <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>Compliance</h2>
           <p className="ac-text-sm ac-text-muted" style={{ marginBottom: 12 }}>
@@ -500,7 +516,26 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {tab === "Security" && (
+      {tab === "Security" && !isDemo && (
+        <section className="ac-section">
+          <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>Security</h2>
+          <EmailVerificationCard />
+          <div className="ac-card">
+            <p className="ac-text-sm" style={{ marginBottom: 4 }}>
+              Signed in as <strong>{realUser?.full_name ?? realUser?.email ?? "Unknown"}</strong> — {(realUser?.roles ?? []).join(", ") || "No role"}
+            </p>
+            <p className="ac-text-sm ac-text-muted" style={{ margin: "0 0 10px" }}>
+              Access is enforced by the server on every request from the roles assigned to your account.
+            </p>
+            <div className="ac-flex ac-gap-2">
+              <Link href="/tenant/roles" className="ac-btn">Roles</Link>
+              <Link href="/tenant/users" className="ac-btn">Users</Link>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {tab === "Security" && isDemo && (
         <section className="ac-section">
           <h2 className="ac-eyebrow" style={{ marginBottom: 10 }}>Security</h2>
           <EmailVerificationCard />

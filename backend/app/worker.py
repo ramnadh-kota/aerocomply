@@ -22,6 +22,9 @@ from app.services import (  # noqa: F401  (job_handlers registers the handlers)
     job_service,
 )
 
+from app.core.metrics import WORKER_LAST_POLL, WORKER_LOOP_ERRORS
+from app.core.metrics_server import start_metrics_server
+
 log = structlog.get_logger("worker")
 
 
@@ -40,19 +43,28 @@ def run_worker(
     processed, last_reclaim, last_tick = 0, 0.0, -1e9
     log.info("worker.started", worker_id=worker_id, job_types=job_types)
     while not stop.is_set():
-        with session_factory() as db:
-            if time.monotonic() - last_reclaim > 60:
-                n = job_service.reclaim_stale(db)
-                db.commit()
-                last_reclaim = time.monotonic()
-                if n:
-                    log.warning("worker.reclaimed_stale_jobs", count=n)
-            if schedule and time.monotonic() - last_tick > 60:
-                from app import scheduler
+        try:
+            WORKER_LAST_POLL.set(time.time())
+            with session_factory() as db:
+                if time.monotonic() - last_reclaim > 60:
+                    n = job_service.reclaim_stale(db)
+                    db.commit()
+                    last_reclaim = time.monotonic()
+                    if n:
+                        log.warning("worker.reclaimed_stale_jobs", count=n)
+                if schedule and time.monotonic() - last_tick > 60:
+                    from app import scheduler
 
-                scheduler.tick(db)
-                last_tick = time.monotonic()
-            did = job_service.run_one(db, worker_id=worker_id, job_types=job_types)
+                    scheduler.tick(db)
+                    last_tick = time.monotonic()
+                did = job_service.run_one(db, worker_id=worker_id, job_types=job_types)
+        except Exception:  # noqa: BLE001 - e.g. the database is unreachable: count it, back off, keep the worker alive
+            WORKER_LOOP_ERRORS.inc()
+            log.exception("worker.loop_error")
+            if once:
+                raise
+            stop.wait(max(poll_interval, 1.0))
+            continue
         if did:
             processed += 1
             continue
@@ -69,7 +81,9 @@ def main() -> None:
     ap.add_argument("--poll", type=float, default=1.0)
     ap.add_argument("--schedule", action="store_true", help="also enqueue recurring jobs (retention sweep)")
     ap.add_argument("--types", nargs="*", default=None)
+    ap.add_argument("--metrics-port", type=int, default=None, help="serve /metrics and /healthz on this port (or METRICS_PORT)")
     args = ap.parse_args()
+    start_metrics_server(args.metrics_port)
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())

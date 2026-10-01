@@ -158,6 +158,16 @@ INGEST_EVENT_AGE = REGISTRY.register(Histogram(
 LISA_TOOL_LATENCY = REGISTRY.register(Histogram("kota_lisa_tool_duration_seconds", "LISA tool execution latency by tool"))
 LISA_TOOL_ERRORS = REGISTRY.register(Counter("kota_lisa_tool_errors_total", "LISA tool failures by tool and error code"))
 SOURCES_BY_HEALTH = REGISTRY.register(Gauge("kota_data_sources", "Data sources by evidence-derived health (refreshed on scrape)"))
+TELEMETRY_NEWEST_EVENT_AGE = REGISTRY.register(Gauge(
+    "kota_telemetry_newest_event_age_seconds", "Seconds since the newest stored telemetry event, deployment-wide (refreshed on scrape)"))
+TELEMETRY_STALE_SOURCES = REGISTRY.register(Gauge(
+    "kota_telemetry_stale_sources", "Active data sources with no accepted event inside their freshness window (refreshed on scrape)"))
+HUMS_EVALUATIONS = REGISTRY.register(Counter("kota_hums_evaluations_total", "HUMS per-sensor evaluations by outcome (ok/failed)"))
+HUMS_EVAL_LATENCY = REGISTRY.register(Histogram("kota_hums_evaluation_duration_seconds", "Duration of one HUMS sensor evaluation"))
+HUMS_EXCEEDANCES = REGISTRY.register(Counter("kota_hums_exceedances_total", "HUMS exceedances recorded, by severity"))
+M7_SIGNALS = REGISTRY.register(Counter("kota_m7_signals_total", "M7 proactive signals by event (created, or the status transitioned to) and type"))
+WORKER_LOOP_ERRORS = REGISTRY.register(Counter("kota_worker_loop_errors_total", "Unexpected errors in the worker loop (the loop continues)"))
+WORKER_LAST_POLL = REGISTRY.register(Gauge("kota_worker_last_poll_timestamp_seconds", "Unix time of the worker's last queue poll"))
 
 
 class Timer:

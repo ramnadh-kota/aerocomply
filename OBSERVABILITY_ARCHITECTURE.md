@@ -16,15 +16,21 @@ payloads are never logged (`test_logs_never_contain_passwords_tokens_secrets_or_
 
 ## Metrics
 `GET /api/v1/platform/metrics` (Prometheus text, `PLATFORM_MANAGE`). The registry is **in-process**: each API/worker/
-listener process exposes only its own counters — scrape every API instance and sum in Prometheus. The listener and worker
-processes do not serve HTTP, so their counters are only visible in logs; the **DB-derived gauges** below are exact from
-any API instance.
+listener process exposes only its own counters — scrape every API instance and sum in Prometheus. The **DB-derived gauges**
+below are exact from any API instance. The worker and listener processes have no API, so they serve their own registry on a
+small stdlib HTTP endpoint (`app/core/metrics_server.py`): `python -m app.worker --metrics-port 9101` /
+`METRICS_PORT=9102 python -m app.listeners` expose `GET /metrics` (Prometheus text) and `GET /healthz` on 127.0.0.1
+(`METRICS_HOST` to change; off unless a port is set). The format is Prometheus/OpenMetrics-compatible; no vendor is required.
 
 | Metric | Type | Labels |
 |---|---|---|
 | `kota_http_requests_total`, `kota_http_request_duration_seconds` | counter/histogram | method, route template, status |
 | `kota_auth_failures_total`, `kota_authorization_failures_total` | counter | route |
-| `kota_rate_limited_total`, `kota_rate_limiter_errors_total` | counter | policy |
+| `kota_rate_limited_total`, `kota_rate_limiter_errors_total`, `kota_rate_limit_backend_errors_total` | counter | policy (, outcome) |
+| `kota_hums_evaluations_total`, `kota_hums_evaluation_duration_seconds`, `kota_hums_exceedances_total` | counter/histogram | outcome (ok/failed), severity |
+| `kota_m7_signals_total` | counter | event (created / acknowledged / in_review / resolved / dismissed), signal_type |
+| `kota_telemetry_newest_event_age_seconds`, `kota_telemetry_stale_sources` | gauge | — **DB-derived on scrape** (telemetry freshness) |
+| `kota_worker_loop_errors_total`, `kota_worker_last_poll_timestamp_seconds` | counter/gauge | — per worker process (a stale poll timestamp = stuck worker) |
 | `kota_ingest_requests_total`, `kota_ingest_events_total`, `kota_ingest_packets_lost_total`, `kota_ingest_duration_seconds`, `kota_ingest_event_age_seconds` | counter/histogram | connector |
 | `kota_jobs_total` | counter | type, outcome (succeeded / retry / dead) — per worker process |
 | `kota_job_queue` | gauge | status (QUEUED/RUNNING/SUCCEEDED/DEAD/CANCELED) — **DB-derived on scrape** |
@@ -51,5 +57,5 @@ refusals, OEM poll failures and signature rejections appear as the source's `las
 * `rate(kota_ingest_packets_lost_total[5m])` sustained rise (link quality)
 
 ## Not implemented
-Distributed tracing, log-shipping configuration, dashboards-as-code, SLO burn-rate alerts, a metrics HTTP endpoint on the
-worker/listener processes (use logs, or scrape the DB-derived gauges). Alert thresholds above are unvalidated defaults.
+Distributed tracing (OpenTelemetry spans), log-shipping configuration, dashboards-as-code, SLO burn-rate alerts. These need
+a chosen vendor/collector and are deployment work, not application code. Alert thresholds above are unvalidated defaults.

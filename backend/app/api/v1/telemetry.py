@@ -43,6 +43,10 @@ router = APIRouter(
 webhook_router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 
 
+# FlightHub flight records are small JSON documents; anything near this size is not one.
+DJI_WEBHOOK_MAX_BODY_BYTES = 1024 * 1024
+
+
 @webhook_router.post("/dji/webhook", status_code=status.HTTP_200_OK)
 async def dji_flighthub_webhook(
     request: Request,
@@ -55,7 +59,18 @@ async def dji_flighthub_webhook(
     Verifies HMAC signature when configured, normalizes the event, and routes through
     authoritative domain services without creating duplicate flights or bypassing RBAC.
     """
-    raw_body = await request.body()
+    # Bounded read BEFORE authentication: an unauthenticated caller must not be able to make us buffer an arbitrary body.
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > DJI_WEBHOOK_MAX_BODY_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large")
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > DJI_WEBHOOK_MAX_BODY_BYTES:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large")
+        chunks.append(chunk)
+    raw_body = b"".join(chunks)
     body_hash = hashlib.sha256(raw_body).hexdigest()
     settings = get_settings()
 
@@ -110,7 +125,7 @@ async def dji_flighthub_webhook(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Malformed DJI webhook payload: {exc}",
+            detail="Malformed DJI webhook payload",
         )
 
     # 4. Normalize & Process Event

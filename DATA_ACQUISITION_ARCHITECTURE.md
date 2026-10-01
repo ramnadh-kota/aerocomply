@@ -127,7 +127,7 @@ increasing per vehicle. Buffered/late frames therefore carry their delivery time
 |---|---|
 | Serial-port MAVLink listener | not built: needs a device and `pyserial`; bridge the radio to UDP/TCP (mavlink-router or the edge gateway daemon). EXTERNAL_ONLY |
 | Validation against a real broker, radio, autopilot signer, OEM API or DJI FlightHub | tests use socket loopback, an in-memory broker (test double), `httpx.MockTransport` and self-built signed frames. **EXTERNAL VALIDATION REQUIRED** |
-| Shared (multi-instance) rate limiter | limits are process-local; see SECURITY_ARCHITECTURE.md |
+| Shared (multi-instance) rate limiter | implemented (`RATE_LIMIT_BACKEND=redis`); needs a running Redis, not validated against a real one; see SECURITY_ARCHITECTURE.md |
 | Redis/window de-duplication | not used; idempotency is the database unique constraint + connector sequence state (per worker process — run MAVLink workers per source or accept that a restart forgets sequence state) |
 | ERP / cloud-storage pull connectors | not built (OEM REST pull is) |
 | Per-source machine credentials for HTTP push | push uses a tenant user/API token (JWT); webhook sources use their own HMAC secret |

@@ -50,13 +50,24 @@ environment variables (populate from your secret manager); values are never stor
 logged (`test_logs_never_contain_passwords_tokens_secrets_or_raw_telemetry`). The test billing provider is refused in
 production. Startup refuses default JWT/DB placeholders outside development.
 
-## Rate limiting (process-local)
+## Rate limiting (pluggable: in-memory or shared Redis)
 Auth endpoints and evidence upload: per-IP dependency limits. Everything else: middleware policies `webhook` (IP),
 `ingest` (tenant), `lisa` (user), `analytics` (user), `admin` (user), `default` (tenant), overridable with
 `RATE_LIMIT_OVERRIDES='{"lisa":"10/60","default":"off"}'`; tenant/user keys come from a signature-verified token, anything
 else is keyed by client IP (`X-Forwarded-For` only if `RATE_LIMIT_TRUST_FORWARDED_FOR`). 429 + `Retry-After`,
-`kota_rate_limited_total{policy}`, fails open on an internal limiter error. **With several API workers/instances the
-effective limit is multiplied and resets on restart** — put a shared limiter at the proxy for hard guarantees.
+`kota_rate_limited_total{policy}`.
+
+**Backends** (`app/core/rate_limit.py`, one `RateLimiter` interface): `RATE_LIMIT_BACKEND=memory` (default; process-local,
+deterministic, used by tests and single-process deployments) or `redis` (shared across API workers/instances through
+`REDIS_URL`; `pip install aerocomply-backend[redis]`). With `memory` and several workers each process counts on its own, so
+the effective limit is multiplied — use `redis` for multi-instance deployments. The Redis server is deployment infrastructure.
+
+**Failure policy**: when the shared store fails, the auth/upload dependency limits and every policy in
+`RATE_LIMIT_FAIL_CLOSED_POLICIES` (default `webhook`, `admin`) answer **503** (fail closed — a limiter outage must not open
+brute-force or unauthenticated-ingest paths); every other policy degrades to a local in-memory count (fail open, less
+accurate). Backend failures are counted in `kota_rate_limit_backend_errors_total{policy,outcome}`. A bug inside the
+middleware itself still allows the request (logged, `kota_rate_limiter_errors_total`).
+Tested deterministically (fake clock, fake Redis shared by two "instances", broken Redis): `tests/unit/test_rate_limiter_backends.py`.
 No per-account lockout after repeated failed logins.
 
 ## Audit
@@ -67,8 +78,9 @@ UPDATE/DELETE) with previous values where a value changes (`test_audit_coverage`
 Telemetry batches write one summary audit row per batch; per-event provenance is `telemetry_event_logs`.
 
 ## Known gaps
-* Shared rate limiter, account lockout, WAF — infrastructure/EXTERNAL.
+* Running Redis for the shared limiter (and validating it against a real Redis), account lockout, WAF — infrastructure/EXTERNAL.
 * Signing interoperability with a real autopilot; a signed-frame timestamp window against wall clock is not enforced
   (only monotonicity), because vehicles define their own clock origin.
-* Metrics endpoint is protected by platform permission, not network policy; restrict at the proxy too.
+* The API metrics endpoint is protected by platform permission, not network policy; restrict at the proxy too. The worker/listener
+  metrics endpoint (`METRICS_PORT`) has no authentication of its own and binds 127.0.0.1 by default.
 * No external penetration test or dependency-CVE gate: EXTERNAL VALIDATION REQUIRED.

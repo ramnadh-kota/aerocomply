@@ -130,3 +130,102 @@ def test_ingest_binds_source_context_into_logs_and_unbinds_after(client, db_sess
         _ingest(client, h, sid, vibration(1, 1, 1, seq=1))
     assert any(rec.get("event") == "acquisition.ingested" and rec.get("data_source_id") == sid for rec in logs)
     assert "data_source_id" not in structlog.contextvars.get_contextvars()                 # nothing leaks to the next request
+
+
+# ------------------------------------------------------------------ instrumentation of HUMS, M7, freshness, worker, exporters
+def _metric_value(text: str, name: str, **labels: str) -> float:
+    want = {f'{k}="{v}"' for k, v in labels.items()}
+    total = 0.0
+    for line in text.splitlines():
+        if line.startswith(name + "{") or line.startswith(name + " "):
+            if want <= set(re.findall(r'(\w+="[^"]*")', line)):
+                total += float(line.rsplit(" ", 1)[1])
+    return total
+
+
+def test_hums_m7_and_freshness_metrics_move_with_real_processing(client, db_session):
+    org_id, h = _org(client, db_session, "obs-hums")
+    asset = _drone(client, h, reg="OBS-HUMS-1")
+    sid = _source(client, h, "MAVLINK", {"system_id_map": {"1": asset}})
+    admin = _platform_headers(client, db_session)
+    before = client.get("/api/v1/platform/metrics", headers=admin).text
+
+    frames = [heartbeat(seq=1)] + [vibration(1.5, 1.6, 1.7, seq=2 + i) for i in range(6)] + [vibration(45.0, 52.0, 48.0, seq=9)]
+    assert _ingest(client, h, sid, b"".join(frames)).status_code in (200, 202)
+    after = client.get("/api/v1/platform/metrics", headers=admin).text
+
+    assert _metric_value(after, "kota_hums_evaluations_total", outcome="ok") > _metric_value(before, "kota_hums_evaluations_total", outcome="ok")
+    assert "kota_hums_evaluation_duration_seconds_count" in after
+    assert sum(_metric_value(after, "kota_hums_exceedances_total", severity=s) for s in ("WARNING", "CRITICAL", "HIGH", "MEDIUM", "LOW")) > \
+        sum(_metric_value(before, "kota_hums_exceedances_total", severity=s) for s in ("WARNING", "CRITICAL", "HIGH", "MEDIUM", "LOW"))
+    assert _metric_value(after, "kota_m7_signals_total", event="created") > _metric_value(before, "kota_m7_signals_total", event="created")
+    # telemetry freshness is derived from stored events at scrape time: just ingested -> small, non-negative
+    age = _metric_value(after, "kota_telemetry_newest_event_age_seconds")
+    assert 0 <= age < 120
+    assert "kota_telemetry_stale_sources" in after
+
+
+def test_m7_transition_is_counted(client, db_session):
+    org_id, h = _org(client, db_session, "obs-m7")
+    asset = _drone(client, h, reg="OBS-M7-1")
+    sid = _source(client, h, "MAVLINK", {"system_id_map": {"1": asset}})
+    frames = [heartbeat(seq=1)] + [vibration(1.5, 1.6, 1.7, seq=2 + i) for i in range(6)] + [vibration(45.0, 52.0, 48.0, seq=9)]
+    _ingest(client, h, sid, b"".join(frames))
+    signals = client.get(f"/api/v1/intelligence/assets/{asset}/signals", headers=h).json()
+    items = signals if isinstance(signals, list) else signals.get("signals", signals.get("items", []))
+    assert items, "expected an M7 signal for the excursion"
+    before = metrics.REGISTRY.render()
+    r = client.post(f"/api/v1/intelligence/signals/{items[0]["id"]}/acknowledge", headers=h)
+    assert r.status_code == 200, r.text
+    after = metrics.REGISTRY.render()
+    assert _metric_value(after, "kota_m7_signals_total", event="acknowledged") == _metric_value(before, "kota_m7_signals_total", event="acknowledged") + 1
+
+
+def test_worker_loop_errors_are_counted_and_the_worker_survives(db_session):
+    import threading
+
+    from app.worker import run_worker
+
+    calls = {"n": 0}
+    stop = threading.Event()
+
+    def broken_factory():
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            stop.set()
+        raise ConnectionError("database unreachable")
+
+    before = _metric_value(metrics.REGISTRY.render(), "kota_worker_loop_errors_total")
+    run_worker(stop, session_factory=broken_factory, poll_interval=0.01)
+    assert calls["n"] >= 2                                   # it kept looping after the first failure
+    assert _metric_value(metrics.REGISTRY.render(), "kota_worker_loop_errors_total") >= before + 2
+    assert _metric_value(metrics.REGISTRY.render(), "kota_worker_last_poll_timestamp_seconds") > 0
+
+
+def test_standalone_metrics_endpoint_for_worker_and_listener_processes():
+    import urllib.error
+    import urllib.request
+
+    import app.listeners.common  # noqa: F401 - registers the listener metrics, as in a real listener process
+    import app.services.job_service  # noqa: F401 - and the job metrics, as in a worker process
+
+    from app.core.metrics_server import start_metrics_server
+
+    server = start_metrics_server(0, "127.0.0.1")
+    try:
+        port = server.server_address[1]
+        body = urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=5).read().decode()
+        assert "# TYPE kota_jobs_total counter" in body and "kota_listener_up" in body
+        assert urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=5).read() == b"ok"
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/secrets", timeout=5)
+        assert e.value.code == 404
+    finally:
+        server.shutdown()
+
+
+def test_metrics_server_is_off_without_a_port(monkeypatch):
+    from app.core.metrics_server import start_metrics_server
+
+    monkeypatch.delenv("METRICS_PORT", raising=False)
+    assert start_metrics_server() is None

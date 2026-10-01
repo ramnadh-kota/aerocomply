@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { COMPANY_NAME, AI_NAME } from "@/lib/brand";
+import { useSession } from "@/lib/auth/SessionContext";
 
 // Persisted so the tour only auto-appears once per browser. Re-launchable
 // any time from the Topbar's Help panel (see HelpPanel.tsx), which is why
@@ -19,6 +20,7 @@ interface TourStep {
   title: string;
   body: string;
   why?: string;
+  demoOnly?: boolean;
 }
 
 const STEPS: TourStep[] = [
@@ -52,6 +54,7 @@ const STEPS: TourStep[] = [
     why: `${AI_NAME} answers from the same data and rules you see in the UI — it doesn't replace approved maintenance data or human inspection authority.`,
   },
   {
+    demoOnly: true,
     title: "Try it on the demo aircraft",
     body: `${DEMO_AIRCRAFT_REG} is the aircraft used throughout this walkthrough. Jump straight to its detail page to see the concepts above in context.`,
   },
@@ -68,6 +71,9 @@ export function WelcomeTour({ forceOpen, onClose }: WelcomeTourProps = {}) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
   const router = useRouter();
+  const { isDemo } = useSession();
+  // The walkthrough's hero aircraft is sample data: live organizations never see that step or button.
+  const steps = useMemo(() => STEPS.filter((s) => isDemo || !s.demoOnly), [isDemo]);
 
   useEffect(() => {
     if (forceOpen) return;
@@ -117,9 +123,9 @@ export function WelcomeTour({ forceOpen, onClose }: WelcomeTourProps = {}) {
 
   if (!open) return null;
 
-  const isLast = step === STEPS.length - 1;
+  const isLast = step === steps.length - 1;
   const isFirst = step === 0;
-  const current = STEPS[step];
+  const current = steps[step];
 
   return (
     <div
@@ -140,7 +146,7 @@ export function WelcomeTour({ forceOpen, onClose }: WelcomeTourProps = {}) {
     >
       <div className="ac-card" style={{ maxWidth: 460, width: "100%" }} onClick={(e) => e.stopPropagation()}>
         <p className="ac-eyebrow" style={{ marginBottom: 6 }}>
-          Welcome tour · Step {step + 1} of {STEPS.length}
+          Welcome tour · Step {step + 1} of {steps.length}
         </p>
         <h2 id="ac-tour-title" className="ac-h1" style={{ fontSize: 20, marginBottom: 10 }}>
           {current.title}
@@ -155,7 +161,7 @@ export function WelcomeTour({ forceOpen, onClose }: WelcomeTourProps = {}) {
         )}
 
         <div className="ac-flex ac-items-center ac-gap-2" style={{ marginBottom: 14 }}>
-          {STEPS.map((_, i) => (
+          {steps.map((_, i) => (
             <span
               key={i}
               aria-hidden="true"
@@ -184,9 +190,14 @@ export function WelcomeTour({ forceOpen, onClose }: WelcomeTourProps = {}) {
                 Next
               </button>
             )}
-            {isLast && (
+            {isLast && isDemo && (
               <button className="ac-btn ac-btn-primary" style={{ padding: "6px 12px", fontSize: 13 }} onClick={goToDemoAircraft}>
                 Open {DEMO_AIRCRAFT_REG}
+              </button>
+            )}
+            {isLast && !isDemo && (
+              <button className="ac-btn ac-btn-primary" style={{ padding: "6px 12px", fontSize: 13 }} onClick={close}>
+                Done
               </button>
             )}
           </div>

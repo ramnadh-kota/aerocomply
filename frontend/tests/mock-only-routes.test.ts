@@ -68,6 +68,12 @@ describe("mock-only route registry", () => {
     expect(liveRedirectFor("/audit")).toBe("/tenant/audit");
     expect(liveRedirectFor("/evidence/abc-123")).toBe("/compliance/evidence/abc-123");
     expect(liveRedirectFor("/organization/roles/new")).toBe("/tenant/roles");
+    expect(liveRedirectFor("/assessments/a1/review")).toBe("/assessments/a1");
+    expect(liveRedirectFor("/fleet/aircraft/ac9/health")).toBe("/aircraft/ac9");
+    expect(liveRedirectFor("/aircraft/ac9/configuration")).toBe("/aircraft/ac9");
+    expect(liveRedirectFor("/maintenance/planning/wo7")).toBe("/maintenance/work-orders/wo7");
+    expect(liveRedirectFor("/maintenance/discrepancies")).toBe("/maintenance/defects");
+    expect(liveRedirectFor("/maintenance/material-readiness")).toBe("/maintenance/parts");
     expect(liveRedirectFor("/finance")).toBeNull();          // mock-only with no live equivalent: notice card
     expect(liveRedirectFor("/dashboard")).toBeNull();        // not mock-only at all
   });

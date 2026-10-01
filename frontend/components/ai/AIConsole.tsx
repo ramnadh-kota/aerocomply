@@ -102,6 +102,32 @@ interface Turn {
 // ambiguous: the active pane always shows exactly one question and its
 // one response together.
 
+const LIVE_SUGGESTED_QUESTIONS = [
+  {
+    category: "Fleet",
+    questions: [
+      "What is the current readiness of my fleet?",
+      "Which of my assets have open findings?",
+      "Which assets are grounded or restricted, and why?",
+    ],
+  },
+  {
+    category: "Maintenance",
+    questions: [
+      "What is blocking release on my open work orders?",
+      "Which work orders are overdue?",
+      "What maintenance actions are due soon?",
+    ],
+  },
+  {
+    category: "Health monitoring",
+    questions: [
+      "Which sensors have exceeded their limits recently?",
+      "Summarise the latest proactive signals across my fleet.",
+    ],
+  },
+];
+
 export function AIConsole({
   initialProjectId,
   initialAircraftId,
@@ -274,7 +300,11 @@ export function AIConsole({
           href: backendAlertHref(a),
         }))
       : getProactiveAlerts(roleId);
-  const suggestedQuestionCategories = useMemo(() => getSuggestedQuestionsForRole(roleId), [roleId]);
+  // Live organizations get prompts that name no sample asset; the role-ordered sample-fleet prompts are Demo-only.
+  const suggestedQuestionCategories = useMemo(
+    () => (isRealModeSession ? LIVE_SUGGESTED_QUESTIONS : getSuggestedQuestionsForRole(roleId)),
+    [roleId, isRealModeSession],
+  );
   const proactiveAlerts = allAlerts.slice(0, 3);
   const dailyBrief = useMemo(() => getDailyBrief(5, roleId), [roleId]);
   const releaseBlockedCount = isRealModeSession
@@ -427,7 +457,8 @@ export function AIConsole({
 
   const projectAnalytics = initialProjectId ? getProjectAnalytics(initialProjectId) : null;
   const aircraftAnalytics = initialAircraftId ? getAircraftAnalytics(initialAircraftId) : null;
-  const fleetAnalytics = !projectAnalytics && !aircraftAnalytics ? getFleetAnalytics() : null;
+  // Fleet Context is computed from the bundled sample fleet: shown in Demo mode only.
+  const fleetAnalytics = !isRealModeSession && !projectAnalytics && !aircraftAnalytics ? getFleetAnalytics() : null;
   const hasContext = !!(projectAnalytics || aircraftAnalytics);
 
   return (
@@ -736,9 +767,9 @@ export function AIConsole({
           {!active ? (
             <div className="ac-card" style={{ borderStyle: "dashed" }}>
               <p className="ac-text-sm ac-text-secondary" style={{ margin: 0 }}>
-                Ask a question on the left, or click a suggestion. Responses are generated from the current {COMPANY_NAME} demo
-                dataset — {AI_NAME} explains, summarizes, and ranks; it never makes or overrides a compliance, inspection, release,
-                or airworthiness decision.
+                Ask a question on the left, or click a suggestion. Responses are generated from{" "}
+                {isRealModeSession ? "your organization's own records" : `the current ${COMPANY_NAME} demo dataset`} — {AI_NAME} explains,
+                summarizes, and ranks; it never makes or overrides a compliance, inspection, release, or airworthiness decision.
               </p>
             </div>
           ) : (

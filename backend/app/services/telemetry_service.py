@@ -45,6 +45,7 @@ from app.schemas.telemetry import (
 from app.services import audit_service, flight_service
 import structlog
 
+from app.core import metrics
 log = structlog.get_logger(__name__)
 
 
@@ -353,11 +354,14 @@ def evaluate_sensors(db: Session, *, organization_id: uuid.UUID, sensor_ids) -> 
         try:
             # SAVEPOINT: a failure here must not abort the ingestion transaction
             # (Postgres poisons the whole transaction after any statement error).
-            with db.begin_nested():
+            with metrics.Timer() as timer, db.begin_nested():
                 hums_service.detect_and_record_exceedances(
                     db, organization_id=organization_id, sensor_id=s_id, user_id=None
                 )
+            metrics.HUMS_EVAL_LATENCY.observe(timer.seconds)
+            metrics.HUMS_EVALUATIONS.inc(outcome="ok")
         except Exception:
+            metrics.HUMS_EVALUATIONS.inc(outcome="failed")
             # Non-fatal to ingestion, but never silent: an operator must be able to see it.
             log.exception(
                 "telemetry.exceedance_evaluation_failed",

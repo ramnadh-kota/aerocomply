@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { searchAll, type SearchResult, type SearchResultType } from "@/lib/mock/search";
+import { useSession } from "@/lib/auth/SessionContext";
+import { assetsApi } from "@/lib/api/assets";
+import { workOrdersApi } from "@/lib/api/workOrders";
+import { LIVE_GROUP_LABEL, LIVE_GROUP_ORDER, assetResults, workOrderResults, type LiveSearchResult } from "@/lib/search/live";
 
 const TYPE_ORDER: SearchResultType[] = [
   "Aircraft",
@@ -33,8 +37,50 @@ export function GlobalSearch() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const results = useMemo(() => searchAll(query), [query]);
-  const groups = useMemo(() => groupResults(results), [results]);
+  const { isDemo, accessToken } = useSession();
+  const [liveResults, setLiveResults] = useState<LiveSearchResult[]>([]);
+
+  // Demo sessions search the bundled sample data; live sessions search only the organization's own records via the API.
+  useEffect(() => {
+    if (isDemo) return;
+    const q = query.trim();
+    if (!q || !accessToken) {
+      setLiveResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const [assets, orders] = await Promise.allSettled([
+        assetsApi.listAssets(accessToken, { search: q }),
+        workOrdersApi.list(accessToken, { search: q, limit: 10 }),
+      ]);
+      if (cancelled) return;
+      setLiveResults([
+        ...(assets.status === "fulfilled" ? assetResults(assets.value) : []),
+        ...(orders.status === "fulfilled" ? workOrderResults(orders.value) : []),
+      ]);
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, isDemo, accessToken]);
+
+  const demoResults = useMemo(() => (isDemo ? searchAll(query) : []), [query, isDemo]);
+  const groups = useMemo<Array<{ type: string; label: string; items: Array<SearchResult | LiveSearchResult> }>>(() => {
+    if (isDemo) {
+      return groupResults(demoResults).map((g) => ({
+        type: g.type,
+        label: g.type === "WorkOrder" ? "Work Orders" : g.type === "PurchaseOrder" ? "Purchase Orders" : `${g.type}s`,
+        items: g.items,
+      }));
+    }
+    return LIVE_GROUP_ORDER.map((type) => ({
+      type,
+      label: LIVE_GROUP_LABEL[type],
+      items: liveResults.filter((r) => r.type === type).slice(0, MAX_PER_GROUP),
+    })).filter((g) => g.items.length > 0);
+  }, [isDemo, demoResults, liveResults]);
   const flatResults = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   const [activeIndex, setActiveIndex] = useState(-1);
 
@@ -118,7 +164,7 @@ export function GlobalSearch() {
           {groups.map((group) => (
             <div key={group.type} style={{ marginBottom: 6 }}>
               <p className="ac-eyebrow" style={{ margin: "6px 8px 2px" }}>
-                {group.type === "WorkOrder" ? "Work Orders" : group.type === "PurchaseOrder" ? "Purchase Orders" : `${group.type}s`}
+                {group.label}
               </p>
               {group.items.map((r) => {
                 const flatIdx = flatResults.indexOf(r);

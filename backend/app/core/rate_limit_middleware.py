@@ -2,7 +2,7 @@
 
 Auth endpoints and evidence upload keep their existing dependency limits (app/core/rate_limit.py); this middleware
 adds tenant-aware limits for ingestion, webhooks, LISA, expensive analytics and platform-admin APIs, plus a generous
-default per tenant. It reuses the same fixed-window counter (`_limiter`), so `reset_rate_limits()` resets both.
+default per tenant. It uses the same limiter backend as the per-route dependency (rate_limit.py), so `reset_rate_limits()` resets both.
 
 | policy    | matches                                   | key  | default       |
 |-----------|-------------------------------------------|------|---------------|
@@ -14,8 +14,9 @@ default per tenant. It reuses the same fixed-window counter (`_limiter`), so `re
 | default   | everything else                           | org  | 3000 / 60 s   |
 
 Configure with settings.rate_limit_overrides, e.g. {"lisa": "10/60", "default": "off"}; master switch
-settings.rate_limit_enabled. State is process-local (see rate_limit.py for the multi-instance caveat).
-Fail-safe: an internal error in this middleware allows the request (logged + counted); a bucket that says no rejects.
+settings.rate_limit_enabled. Backend: in-memory (default) or shared Redis (settings.rate_limit_backend; see rate_limit.py). If the store fails, policies in
+settings.rate_limit_fail_closed_policies answer 503, all others fall back to a local count; a bug in this middleware allows the
+request (logged + counted); a bucket that says no rejects.
 The tenant/user key comes from a signature-verified JWT; anything else is keyed by client IP (never X-Forwarded-For
 unless settings.rate_limit_trust_forwarded_for is set behind a proxy that overwrites it).
 """
@@ -29,7 +30,7 @@ import structlog
 
 from app.core.config import live_settings
 from app.core.metrics import REGISTRY, Counter
-from app.core.rate_limit import _limiter
+from app.core.rate_limit import RateLimiterUnavailable, check_limit, fail_closed
 
 settings = live_settings
 log = structlog.get_logger(__name__)
@@ -110,6 +111,12 @@ def _ip(scope: dict, headers: dict[bytes, bytes]) -> str:
     return client[0] if client else "unknown"
 
 
+async def _send_json(send: Any, status: int, payload: dict, extra_headers: list[tuple[bytes, bytes]]) -> None:
+    await send({"type": "http.response.start", "status": status,
+                "headers": [(b"content-type", b"application/json"), *extra_headers]})
+    await send({"type": "http.response.body", "body": json.dumps(payload).encode()})
+
+
 class RateLimitMiddleware:
     def __init__(self, app: Any) -> None:
         self.app = app
@@ -130,9 +137,21 @@ class RateLimitMiddleware:
                 key = {"org": f"org:{org}" if org else f"ip:{ip}",
                        "user": f"user:{user}" if user else f"ip:{ip}",
                        "ip": f"ip:{ip}"}[key_kind]
-                allowed, retry, _remaining = _limiter.check(policy, key, limit=limit, window_seconds=window)
+                allowed, retry, _remaining = check_limit(
+                    policy, key, limit=limit, window_seconds=window, closed=fail_closed(policy)
+                )
                 if not allowed:
                     verdict = (policy, retry, limit)
+        except RateLimiterUnavailable:
+            LIMITER_ERRORS.inc()
+            log.error("rate_limit.fail_closed", policy=policy)
+            await _send_json(
+                send, 503,
+                {"error": {"code": "rate_limiter_unavailable",
+                           "message": "Service temporarily unavailable. Please try again shortly."}},
+                [(b"retry-after", b"5")],
+            )
+            return
         except Exception:  # noqa: BLE001 - fail-safe: limiter bugs must not take the API down
             LIMITER_ERRORS.inc()
             log.exception("rate_limit.internal_error")
@@ -143,12 +162,9 @@ class RateLimitMiddleware:
         policy, retry, limit = verdict
         RATE_LIMITED.inc(policy=policy)
         log.warning("rate_limit.rejected", policy=policy, path=scope["path"])
-        body = json.dumps({"error": {"code": "rate_limited",
-                                     "message": "Too many requests. Please try again shortly."}}).encode()
-        await send({"type": "http.response.start", "status": 429, "headers": [
-            (b"content-type", b"application/json"),
-            (b"retry-after", str(retry).encode()),
-            (b"x-ratelimit-limit", str(limit).encode()),
-            (b"x-ratelimit-remaining", b"0"),
-        ]})
-        await send({"type": "http.response.body", "body": body})
+        await _send_json(
+            send, 429,
+            {"error": {"code": "rate_limited", "message": "Too many requests. Please try again shortly."}},
+            [(b"retry-after", str(retry).encode()), (b"x-ratelimit-limit", str(limit).encode()),
+             (b"x-ratelimit-remaining", b"0")],
+        )

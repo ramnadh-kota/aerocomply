@@ -1274,6 +1274,16 @@ def _handle_get_asset_twin_timeline(db: Session, user: CurrentUser, args: dict[s
     return {"timeline": [e.model_dump(mode="json") for e in events]}
 
 
+def _handle_trace_lineage(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services import knowledge_graph
+
+    graph = knowledge_graph.get_subgraph(
+        db, organization_id=user.organization_id, node_type=str(args["node_type"]),
+        node_id=_uuid(args["node_id"], "node_id"), depth=int(args.get("depth", 2)),
+    )
+    return knowledge_graph.to_dict(graph)
+
+
 # --- H7: MRO + Compliance + Readiness Intelligence Integration -------------
 # Every handler below simply wraps an existing mro_intelligence_service
 # function -- none recomputes or reimplements business logic. Each returns
@@ -2199,6 +2209,29 @@ TOOL_REGISTRY: list[ToolSpec] = [
             "required": ["asset_id"],
         },
         handler=_handle_get_asset_twin_timeline,
+        required_permission=Permission.DIGITAL_TWIN_READ,
+        required_feature="digital_twin",
+    ),
+    ToolSpec(
+        name="trace_lineage",
+        description=(
+            "Trace how records are connected: from an asset, component, HUMS sensor, exceedance, finding, M7 "
+            "signal or work order, return the surrounding graph (sensor -> exceedance -> finding -> signal -> work "
+            "order -> asset/component) up to a few hops. Use for 'what is connected to this finding', 'what raised "
+            "this signal' or 'what is impacted if this component is grounded'. Returns ids and relationships only; "
+            "fetch details with the other tools."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "node_type": {"type": "string",
+                              "enum": ["ASSET", "COMPONENT", "SENSOR", "EXCEEDANCE", "FINDING", "SIGNAL", "WORK_ORDER"]},
+                "node_id": {"type": "string", "description": "UUID of the starting record"},
+                "depth": {"type": "integer", "minimum": 0, "maximum": 4, "description": "Hops to follow (default 2)"},
+            },
+            "required": ["node_type", "node_id"],
+        },
+        handler=_handle_trace_lineage,
         required_permission=Permission.DIGITAL_TWIN_READ,
         required_feature="digital_twin",
     ),

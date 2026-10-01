@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, event
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -67,3 +67,11 @@ class ProactiveSignalRecord(UUIDPKMixin, TenantScopedMixin, TimestampMixin, Base
 
 
 __all__ = ["ProactiveSignalRecord"]
+
+
+@event.listens_for(ProactiveSignalRecord, "after_insert")
+def _count_created_signal(mapper, connection, target) -> None:  # noqa: ANN001 - SQLAlchemy event signature
+    """Every M7 signal creation path (HUMS exceedance/health/diagnostic/prognostic and the proactive sync) is counted here."""
+    from app.core import metrics
+
+    metrics.M7_SIGNALS.inc(event="created", signal_type=str(target.signal_type))

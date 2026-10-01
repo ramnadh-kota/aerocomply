@@ -28,6 +28,8 @@ from app.listeners.tcp_mavlink import run_tcp
 from app.listeners.udp_mavlink import ListenerRefused, run_udp, validate_udp_config
 from app.models.data_source import DataSource, DataSourceConnectorType, DataSourceStatus
 
+from app.core.metrics_server import start_metrics_server
+
 log = structlog.get_logger("listener.supervisor")
 
 
@@ -149,6 +151,7 @@ class Supervisor:
 
 def main() -> None:
     async def _amain() -> None:
+        start_metrics_server()  # METRICS_PORT; off when unset
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):

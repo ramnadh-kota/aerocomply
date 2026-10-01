@@ -7,8 +7,9 @@ endpoints (assets, hums, work_orders, ...).
 """
 
 import uuid
+from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db_session, require_feature, require_permission
@@ -22,7 +23,7 @@ from app.schemas.digital_twin import (
     DigitalTwinGenealogyEntry,
     DigitalTwinTimelineEvent,
 )
-from app.services import digital_twin_service
+from app.services import digital_twin_service, knowledge_graph
 
 router = APIRouter(
     prefix="/digital-twin",
@@ -94,3 +95,19 @@ def get_component_timeline(
     current_user: CurrentUser = Depends(require_permission(Permission.DIGITAL_TWIN_READ)),
 ) -> list[DigitalTwinTimelineEvent]:
     return digital_twin_service.get_component_timeline(db, organization_id=current_user.organization_id, component_id=component_id)
+
+
+@router.get("/graph")
+def get_lineage_graph(
+    node_type: str = Query(description="ASSET, COMPONENT, SENSOR, EXCEEDANCE, FINDING, SIGNAL or WORK_ORDER"),
+    node_id: uuid.UUID = Query(),
+    depth: int = Query(default=2, ge=0, le=knowledge_graph.MAX_DEPTH),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DIGITAL_TWIN_READ)),
+) -> dict[str, Any]:
+    """Evidence-lineage / impact subgraph around one entity, computed from PostgreSQL (the only store) and scoped to
+    the caller's organization. Bounded by depth and node count; `truncated` says when the cap was hit."""
+    return knowledge_graph.to_dict(
+        knowledge_graph.get_subgraph(db, organization_id=current_user.organization_id,
+                                     node_type=node_type, node_id=node_id, depth=depth)
+    )

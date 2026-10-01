@@ -87,12 +87,19 @@ def test_master_switch(client):
 
 
 def test_limiter_internal_error_fails_open(client, monkeypatch):
-    def boom(*a, **k):
-        raise RuntimeError("limiter down")
+    from app.core import rate_limit as rl
 
-    monkeypatch.setattr(rlm._limiter, "check", boom)
+    class Broken:
+        def check(self, *a, **k):
+            raise RuntimeError("limiter down")
+
+        def reset(self):
+            pass
+
+    monkeypatch.setattr(rl, "_limiter", Broken())
+    # Fail-open policy ("default"): the shared store is down, the request is still served (local fallback count).
     assert client.get("/api/v1/drones").status_code != 429
-    assert "kota_rate_limiter_errors_total" in REGISTRY.render()
+    assert 'kota_rate_limit_backend_errors_total{outcome="local_fallback",policy="default"}' in REGISTRY.render()
 
 
 def test_rejections_are_counted_in_metrics(client):

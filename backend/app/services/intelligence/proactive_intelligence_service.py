@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.core import metrics
 from app.core.errors import NotFoundError
 from app.models.aircraft import Aircraft
 from app.models.asset import Asset, AssetType
@@ -1221,6 +1222,7 @@ def get_proactive_summary(
 
 def _audit_transition(db: Session, organization_id: uuid.UUID, user_id: uuid.UUID, signal: ProactiveSignalRecord,
                       action: str, previous_status: str) -> None:
+    metrics.M7_SIGNALS.inc(event=str(signal.status).lower(), signal_type=str(signal.signal_type))
     audit_service.record_audit_event(
         db, organization_id=organization_id, user_id=user_id, action=action, entity_type="ProactiveSignal",
         entity_id=signal.id,

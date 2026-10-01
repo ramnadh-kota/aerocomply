@@ -7,11 +7,12 @@ app/core/metrics.py); those are in the structured logs.
 
 from __future__ import annotations
 
+import datetime
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import metrics
@@ -19,6 +20,7 @@ from app.core.deps import get_db_session, require_permission
 from app.core.permissions import Permission
 from app.models.background_job import BackgroundJob, JobStatus
 from app.models.data_source import DataSource
+from app.models.telemetry import TelemetryEventLog
 from app.schemas.auth import CurrentUser
 from app.services import acquisition_service, audit_service, job_service, retention_service
 
@@ -36,10 +38,19 @@ def platform_metrics(
     time (bounded scan); everything else is a live in-process counter/histogram."""
     metrics.SOURCES_BY_HEALTH.reset()
     counts: dict[str, int] = {"HEALTHY": 0, "DEGRADED": 0, "FAILED": 0, "INACTIVE": 0}
+    stale = 0
     for source in db.execute(select(DataSource).limit(_MAX_SOURCES_SCANNED)).scalars():
-        counts[acquisition_service.compute_health_detail(source)["status"]] += 1
+        detail = acquisition_service.compute_health_detail(source)
+        counts[detail["status"]] += 1
+        if "no data since" in str(detail.get("reason", "")) or "no data since" in str(detail.get("reasons", "")):
+            stale += 1
     for status, n in counts.items():
         metrics.SOURCES_BY_HEALTH.set(n, health=status)
+    newest = db.execute(select(func.max(TelemetryEventLog.created_at))).scalar()
+    metrics.TELEMETRY_NEWEST_EVENT_AGE.set(
+        max(0.0, (datetime.datetime.now(datetime.UTC) - newest).total_seconds()) if newest else -1
+    )
+    metrics.TELEMETRY_STALE_SOURCES.set(stale)
     job_service.QUEUE_DEPTH.reset()
     counts_by_status = job_service.queue_counts(db)
     for st in JobStatus.ALL:

@@ -59,6 +59,7 @@ from app.services.hums.feature_extractors import vibration_time_domain_features
 from app.services.hums.health_engine import FeatureHealthResult
 import structlog
 
+from app.core import metrics
 log = structlog.get_logger(__name__)
 
 # PLATFORM DEFAULT vibration RMS limits (mm/s): a generic starting point used only for sensors that have no limits
@@ -416,6 +417,7 @@ def detect_and_record_exceedances(
     )
     db.add(exceedance)
     db.flush()
+    metrics.HUMS_EXCEEDANCES.inc(severity=str(severity))
 
     _sync_exceedance_signal(
         db,

@@ -2,7 +2,7 @@
 >
 > | Capability | Status | Verification |
 > |---|---|---|
-> | Tool registry: **60 tools**, each with a required RBAC permission and feature; unknown tool = error | IMPLEMENTED | `test_lisa_tool_matrix` pins the inventory |
+> | Tool registry: **61 tools**, each with a required RBAC permission and feature; unknown tool = error | IMPLEMENTED | `test_lisa_tool_matrix` pins the inventory |
 > | Per-call checks in order: permission → subscription state → suite → feature (comma list = any-of) | IMPLEMENTED | `ai/tools.py::_require_entitlement`; **multi-suite organizations** are matched on the suites they actually hold (a previous defect locked them out); `SUITE_ENTITLEMENT_REQUIRED` vs `forbidden` codes |
 > | Tenant comes only from the authenticated user; no tool accepts an organization argument | IMPLEMENTED | inventory test + smuggled-org-id test |
 > | Matrix over every tool: role without permission, no/cancelled subscription, plan without feature, wrong suite, hostile/malformed ids (clean error or empty result, never an unexpected exception) | IMPLEMENTED | 257 parametrised cases |
@@ -67,7 +67,7 @@ LISA operates under strict **grounded truth and fail-closed security guarantees*
 
 ---
 
-## 3. Tool Registry & Authorization Matrix (60 tools)
+## 3. Tool Registry & Authorization Matrix (61 tools)
 
 Every tool registered in `app/services/ai/tools.py` implements deterministic authorization:
 

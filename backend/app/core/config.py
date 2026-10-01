@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     rate_limit_overrides: dict[str, str] = {}
     # Enable only behind a proxy you control that overwrites X-Forwarded-For; otherwise clients can spoof it.
     rate_limit_trust_forwarded_for: bool = False
+    # "memory" (process-local) or "redis" (shared across API instances; needs REDIS_URL + the redis package).
+    rate_limit_backend: str = "memory"
+    # Policies that reject (503) when the shared store is down; all other policies degrade to a local count.
+    rate_limit_fail_closed_policies: list[str] = ["webhook", "admin"]
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
