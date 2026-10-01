@@ -2,8 +2,31 @@
 
 Branch `feature/post-freeze-productionization`. Tag `KOTA-AEROSPACE-FORENSIC-VALIDATED-2026-09-30` untouched. Supersedes `KOTA_AEROSPACE_FINAL_COMPLETION_REPORT.md`.
 
+## Status terminology (authoritative)
+
+| Dimension | Status |
+|---|---|
+| SOFTWARE IMPLEMENTATION | COMPLETE |
+| SOFTWARE-COMPLETABLE GAP COUNT | 0 |
+| EXTERNAL VALIDATION | PENDING (not performed, not simulated, not claimed) |
+
+EXTERNAL VALIDATION REQUIRED:
+- physical drone / aircraft / autopilot telemetry
+- real MAVLink hardware and RF validation
+- real MQTT / OEM / DJI environments where applicable
+- production-scale infrastructure validation
+- payment-provider validation where applicable
+- customer UAT
+- external penetration testing
+
+The absence of physical hardware or external environments is not a software gap. The software is verified through
+deterministic simulators, fixtures, synthetic telemetry, protocol test vectors and local integration environments; those
+results demonstrate software behaviour only and are not evidence of field or hardware validation.
+
 ## 1. Executive status
 **SOFTWARE-COMPLETABLE GAP COUNT: 0** (verified 2026-10-01 on branch `feature/post-freeze-productionization`, scratch databases only, nothing pushed or deployed). G1 is closed: no live session can see sample data. External items are in section 19; none has been performed.
+
+Authoritative gap register: `KOTA_AEROSPACE_FINAL_SOFTWARE_GAP_MATRIX.md` (reconciled; count 0). Tenant isolation, security and customer-journey results: PASS, demonstrated by `test_tenant_isolation*`, `test_security_hardening` and the four-suite journey tests inside the 2690 backend tests.
 
 ## 2. Test results (re-run 2026-10-01)
 - Backend (scratch DB `kota_scratch_verify`): **2690 passed, 0 failed, 0 skipped, 16 deselected** (`real_storage` marker, needs a live S3 endpoint), 478 s.

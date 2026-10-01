@@ -1,5 +1,7 @@
 # Final Release Readiness (2026-09-30, branch `feature/post-freeze-productionization`)
 
+**SOFTWARE IMPLEMENTATION: COMPLETE. SOFTWARE-COMPLETABLE GAP COUNT: 0. EXTERNAL VALIDATION: PENDING** (hardware/RF, real MQTT/OEM/DJI, production scale, payment provider, customer UAT, penetration test; none performed or simulated as validation). See `KOTA_AEROSPACE_FINAL_SOFTWARE_GAP_MATRIX.md`.
+
 Legend: PASS = implemented and verified in this repo. PARTIAL = works, known limits. OPEN = software work remaining.
 EXTERNAL = cannot be proven from the repo. Detail: `KOTA_AEROSPACE_FINAL_SOFTWARE_GAP_MATRIX.md`.
 

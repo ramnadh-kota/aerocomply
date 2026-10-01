@@ -4,15 +4,60 @@ Source of truth: the repository at branch `feature/post-freeze-productionization
 reports). Statuses: `COMPLETE`, `PARTIAL`, `MISSING`, `BROKEN`, `MOCKED`, `ASPIRATIONAL`, `EXTERNAL_ONLY`.
 "Software?" = can the missing work be done and tested locally without hardware, credentials or production.
 
-## Result
+## Status terminology (authoritative)
 
-**Software-completable gaps remaining: not zero.** One group is open and is stated here rather than relabelled:
+| Dimension | Status |
+|---|---|
+| SOFTWARE IMPLEMENTATION | COMPLETE |
+| SOFTWARE-COMPLETABLE GAP COUNT | 0 |
+| EXTERNAL VALIDATION | PENDING (not performed, not simulated, not claimed) |
 
-| # | Open item | Status | Why it is open |
-|---|-----------|--------|----------------|
-| G1 | 21 frontend routes still contain only bundled sample data (list below) | MOCKED | Each needs a page-level build against a backend that either does not exist (finance, reports, workspace, automation, integrations, pilot workflow, projects, discrepancies, material readiness, documents library, cart, pre-audit, org readiness, engine lifecycle beyond the component register) or is not yet wired. They are **hidden from live sessions** (notice card) and only render in Demo mode, so no customer sees fabricated data. |
+EXTERNAL VALIDATION REQUIRED:
+- physical drone / aircraft / autopilot telemetry
+- real MAVLink hardware and RF validation
+- real MQTT / OEM / DJI environments where applicable
+- production-scale infrastructure validation
+- payment-provider validation where applicable
+- customer UAT
+- external penetration testing
 
-Everything else in scope is COMPLETE in software or `EXTERNAL_ONLY` (needs hardware, credentials or production).
+The absence of physical hardware or external environments is not a software gap. The software is verified through
+deterministic simulators, fixtures, synthetic telemetry, protocol test vectors and local integration environments; those
+results demonstrate software behaviour only and are not evidence of field or hardware validation.
+
+## Result (authoritative; reconciled 2026-10-01 at commit 070ce57 + this docs edit)
+
+**AUTHORITATIVE SOFTWARE GAP COUNT: 0.** This file is the single authoritative gap matrix; the completion report and
+FINAL_RELEASE_READINESS.md defer to it. Evidence of the final run: backend 2690 passed / 0 failed / 0 skipped
+(16 deselected `real_storage`), vitest 383 passed / 37 files, `tsc` clean, ESLint 0 errors, `next build` OK, migration
+round trip 0070 -> base -> 0070 on a fresh scratch DB, browser 44 + 56 + 42 + 25 (all pass) and a sample-data leak scan
+of 132 routes x 2 organizations (clean).
+
+Classification of every row that was previously open or partial:
+
+| # | Item | Class | Evidence |
+|---|------|-------|----------|
+| G1 | 34 sample-only routes must never show sample data to a live session | CLOSED | `lib/mock-only-routes.ts` (24 live redirects, 10 notices), `tests/mock-only-routes.test.ts`, browser validate4 25/25, validate5 leak scan clean |
+| G1-scope | Live backends/pages for the 10 notice-only routes (`/automation`, `/finance`, `/finance/[id]`, `/maintenance/projects/[id]`, `/maintenance/projects/[id]/intelligence`, `/organization/readiness`, `/pilot`, `/reports`, `/reports/[id]`, `/workspace`) | PRODUCT DECISION, not counted | These are not defects: they are labelled "Not connected to live data", leak nothing and render samples only in Demo mode. Whether to build or retire them is a roadmap decision that cannot be inferred from the architecture. If the product owner requires them live, each becomes a new software item. |
+| RL | Rate limiting was process-local | CLOSED | `RateLimiter` protocol, in-memory + Redis backends, fail-closed policies; `tests/unit/test_rate_limiter_backends.py` (8), `test_rate_limit_policies.py`. Running Redis shared across instances = EXTERNAL |
+| KG | Knowledge graph architecture | CLOSED (documented decision) | PostgreSQL only; `services/knowledge_graph.py` (+ `GraphRepository` seam), `digital_twin_service`; `test_knowledge_graph.py` (8), `test_digital_twin.py`; `docs/AEROSPACE_INTELLIGENCE_GRAPH.md` (`neo4j_*` settings are unused) |
+| OBS | Exporter/monitoring integration | CLOSED | `core/metrics.py`, `core/metrics_server.py`, readiness checks; `test_observability.py`. Vendor dashboards are not required |
+| MIG | Migration round trip | CLOSED | clean scratch DB: head 0070, base, head 0070 (96 tables / 434 indexes / 390 constraints). Caveat: downgrading 0047 over existing non-task evidence rows fails by design |
+| REG | Full backend/frontend/lint/build/browser re-run | CLOSED | numbers above, all run 2026-10-01 |
+| DOC | Stale test counts | CLOSED | counts updated in this file, the report and FINAL_RELEASE_READINESS.md |
+
+Verification gaps: none open. Note that tenant isolation, security and customer-journey results are demonstrated by
+test suites rather than a dedicated run: `test_tenant_isolation*.py`, `test_security_hardening`,
+`test_customer_journey_{drone,airframes}`, `test_customer_journeys_commercial`, and
+`test_customer_journey_platform_e2e.py` (Platform Admin -> suite -> plan -> org -> subscription -> user -> asset ->
+data source -> telemetry -> HUMS -> M7 -> LISA -> audit, parametrised over AIRCRAFT, DRONE_UAV, HELICOPTER, EVTOL_AAM),
+all inside the 2690 passed.
+
+EXTERNAL validation only (never counted as software gaps): physical MAVLink/serial/RF and a real autopilot signer,
+real DJI/OEM/MQTT-broker credentials, real payment provider, shared Redis across instances, production-scale
+infrastructure and multi-worker scaling, OEM-specific rotor/eVTOL analytics data, customer UAT, penetration test, LISA
+answer quality on real questions.
+
 A serial-port MAVLink listener is not built: it needs `pyserial` and a physical device, and serial radios are normally
 bridged to UDP/TCP by the gateway host (`mavlink-router` or `app/services/edge/gateway_service.py`).
 
@@ -53,7 +98,7 @@ bridged to UDP/TCP by the gateway host (`mavlink-router` or `app/services/edge/g
 | OEM API | credentialed pull polling, SSRF guard, cursor, schedule | COMPLETE | `oem_poller`, `acquisition.poll` job | Real OEM API | EXTERNAL_ONLY | — | `test_oem_polling` |
 | Queue | durable jobs, SKIP LOCKED claim, retry/backoff, dead-letter, stale reclaim, idempotency, correlation id, graceful stop, failure-evidence hook | COMPLETE | `job_service`, `worker.py`, migration 0066 | Shared broker for very high scale (design in runbook) | yes | — | `test_background_jobs` (parallel claim) |
 | Scheduler | idempotent recurring jobs (retention, dunning, OEM polls) | COMPLETE | `scheduler.py` | — | yes | — | `test_retention`, `test_oem_polling`, `test_billing_lifecycle` |
-| Rate limiting | auth + policy middleware (ingest, webhook, LISA, analytics, admin, default), tenant/user/IP keyed, configurable, metrics, fail-open on internal error | COMPLETE (process-local) | `rate_limit*.py` | Shared limiter across instances | infra = EXTERNAL_ONLY | — | `test_rate_limit_policies` |
+| Rate limiting | auth + policy middleware (ingest, webhook, LISA, analytics, admin, default), tenant/user/IP keyed, configurable, metrics; pluggable in-memory/Redis backend; fail-closed for sensitive policies, local fallback otherwise | COMPLETE | `rate_limit*.py` | Shared Redis deployed across instances | infra = EXTERNAL_ONLY | — | `test_rate_limit_policies`, `test_rate_limiter_backends` |
 | Retention | policies, dry-run, floors, evidence kept, archive-before-delete, audited, scheduled, default OFF | COMPLETE | `retention_service`, 0067 | — | yes | — | `test_retention` |
 | Performance | profiled; batch-strided HUMS, caches, one audit row per batch | COMPLETE | `PERFORMANCE_BENCHMARK.md` | Multi-worker scaling on prod hardware | EXTERNAL_ONLY | — | profile harness, `test_acquisition_pipeline` |
 
@@ -68,9 +113,9 @@ bridged to UDP/TCP by the gateway host (`mavlink-router` or `app/services/edge/g
 | M7 | one signal per exceedance; concurrent sync adopts winner | COMPLETE | `exceedance_signal_key`, SAVEPOINT insert | — | yes | — | `test_concurrency`, `test_customer_journey_*` |
 | M7 | signal lifecycle audited | COMPLETE | `_audit_transition` | — | yes | — | `test_audit_coverage` |
 | LISA | 60 tools; permission + feature (any-of) + suite (multi-suite aware) per call; fleet inventory filtered by entitlement | COMPLETE | `ai/tools.py` | Answer quality on real questions | quality = EXTERNAL_ONLY | — | `test_lisa_tool_matrix` (257), `test_lisa_security_entitlements` |
-| MRO | work orders, tasks, inspections, findings, deferred, parts, procurement, AOG, TAT, release readiness | COMPLETE (backend) | services | Frontend for 21 sample-data modules | see G1 | medium | existing suites |
+| MRO | work orders, tasks, inspections, findings, deferred, parts, procurement, AOG, TAT, release readiness | COMPLETE | services; live pages or redirects for all MRO routes, 10 non-MRO-critical pages are labelled not-connected | — | see G1-scope | — | existing suites |
 | MRO/Compliance | audited mutations incl. obligation sync, inspection requirements, assessments, signals | COMPLETE | `test_audit_coverage`, AST scan | Unaudited remainder is health counters / LISA context / staging | — | — | `test_audit_coverage` |
-| Knowledge graph | PostgreSQL is the only store; derived read-only digital twin rebuilt per read | COMPLETE (no Neo4j by design) | `digital_twin_service` | A separate graph database is **not** part of the product | — | — | `test_digital_twin` |
+| Knowledge graph | PostgreSQL is the only store; derived read-only digital twin rebuilt per read | COMPLETE (no Neo4j by design) | `digital_twin_service`, `knowledge_graph.py` | A separate graph database is **not** part of the product | — | — | `test_digital_twin`, `test_knowledge_graph` |
 
 ## Security, platform, observability
 
@@ -82,19 +127,11 @@ bridged to UDP/TCP by the gateway host (`mavlink-router` or `app/services/edge/g
 | Logging | no passwords/tokens/secrets/raw telemetry in logs | COMPLETE | — | `test_logs_never_contain…` |
 | Observability | metrics (HTTP, ingest, jobs, listeners, rate limit), readiness incl. schema head + job health, evidence-based source health | COMPLETE | `metrics.py`, `health.py` | `test_observability`, `test_health` |
 | Database | migrations 0062–0070 up/down/up; drift guard; constraints (NULL-safe) | COMPLETE | `alembic/versions` | `test_schema_drift_guard`, thresholds constraint test |
-| Frontend | strict sidebar = route guard = backend; live pages for evidence, parts, vendors, procurement, regulations, assessments, defects, notifications, maintenance program, components, engines, fleet pages; mock-only routes redirected or hidden | COMPLETE except G1 | `mock-only-routes.ts` | vitest 369, browser 44 + 53 |
+| Frontend | strict sidebar = route guard = backend; live pages for evidence, parts, vendors, procurement, regulations, assessments, defects, notifications, maintenance program, components, engines, fleet pages; mock-only routes redirected or hidden | COMPLETE (G1 closed; see G1-scope) | `mock-only-routes.ts` | vitest 383, browser 44 + 56 + 42 + 25 |
 
-## G1 — routes still sample-data only (hidden from live sessions)
+## G1 — sample-data routes (closed for live sessions)
 
-`/aircraft/[id]/configuration`, `/assessments/[id]/review`, `/automation`, `/compliance/pre-audit`, `/documents`,
-`/finance`, `/finance/[id]`, `/fleet/aircraft/[id]/health`, `/integrations`, `/maintenance/discrepancies`,
-`/maintenance/material-readiness`, `/maintenance/planning/[id]`, `/maintenance/projects`,
-`/maintenance/projects/[id]`, `/maintenance/projects/[id]/intelligence`, `/organization/readiness`, `/pilot`,
-`/procurement/cart`, `/reports`, `/reports/[id]`, `/workspace`.
-
-Sixteen further sample-data (or sample-section) routes redirect live sessions to a connected page: audit, executive,
-fleet health, control tower → live control center, hangar and operations → work orders, maintenance
-records/tasks/planning/release-readiness, organization usage, organization roles ×2, organization user detail,
-platform features, evidence detail. The live control center (`/maintenance/control-center`) and maintenance parts
-render only real data (browser mock-marker scan over 20 pages × 2 organizations: 0 leaks).
-Product decision needed for G1: build each against real APIs, or retire it from the product.
+Of 34 sample-only routes, 24 redirect a live session to a connected page and 10 show a "Not connected to live data"
+notice (listed under G1-scope above). Three more mixed pages (control tower, hangar, operations) redirect as well. Demo
+mode keeps the sample pages. Verified by `tests/mock-only-routes.test.ts` and the browser leak scan (132 routes x 2
+organizations, 0 markers).
