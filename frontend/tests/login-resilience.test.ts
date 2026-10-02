@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { authApi, normalizeApiError } from "../lib/apiClient";
+import { authApi, normalizeApiError, getApiBaseUrl } from "../lib/apiClient";
 
 // Login resilience: one automatic retry for a genuine network-level failure
 // (fetch() throwing, or our own timeout), never for a completed HTTP response.
@@ -159,5 +159,51 @@ describe("authApi.login resilience", () => {
     resolveFirst(jsonResponse(200, { access_token: "a3", refresh_token: "r3", token_type: "bearer" }));
     await first;
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("I. server unavailable (503) maps to unavailable message", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(503, { error: { code: "service_unavailable", message: "Server overloaded" } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await authApi.login("user@example.com", "correct-password");
+      expect.unreachable();
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      expect(normalized.kind).toBe("server");
+      expect(normalized.message).toBe("The server is temporarily unavailable. Please try again shortly.");
+    }
+  });
+});
+
+describe("getApiBaseUrl resolution", () => {
+  const originalEnv = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+  afterEach(() => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = originalEnv;
+    vi.unstubAllGlobals();
+  });
+
+  it("resolves to NEXT_PUBLIC_API_BASE_URL when set in environment", () => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "https://custom-api.example.com/api/v1/";
+    expect(getApiBaseUrl()).toBe("https://custom-api.example.com/api/v1");
+  });
+
+  it("resolves to Render staging on Vercel preview hostnames when env is unset", () => {
+    delete process.env.NEXT_PUBLIC_API_BASE_URL;
+    vi.stubGlobal("window", {
+      location: { hostname: "aerocomply-ct196idr4-ram-ee15.vercel.app" },
+    });
+    expect(getApiBaseUrl()).toBe("https://aerocomply-backend-staging.onrender.com/api/v1");
+  });
+
+  it("resolves to Render staging on Vercel production hostname when env is unset", () => {
+    delete process.env.NEXT_PUBLIC_API_BASE_URL;
+    vi.stubGlobal("window", {
+      location: { hostname: "aerocomply.vercel.app" },
+    });
+    expect(getApiBaseUrl()).toBe("https://aerocomply-backend-staging.onrender.com/api/v1");
   });
 });

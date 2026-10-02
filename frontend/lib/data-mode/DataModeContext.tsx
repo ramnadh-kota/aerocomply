@@ -8,6 +8,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSession } from "@/lib/auth/SessionContext";
+import { getApiBaseUrl } from "@/lib/apiClient";
 
 export const DATA_MODE_STORAGE_KEY = "aerocomply-data-mode";
 
@@ -75,7 +76,7 @@ export function DataModeProvider({ children }: { children: ReactNode }) {
       mode: effectiveMode,
       setMode,
       isReal: effectiveMode === "REAL",
-      apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1",
+      apiBaseUrl: getApiBaseUrl(),
       hydrated,
     }),
     [effectiveMode, hydrated]

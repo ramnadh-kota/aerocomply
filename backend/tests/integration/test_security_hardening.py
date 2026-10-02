@@ -128,6 +128,12 @@ def test_cors_does_not_reflect_untrusted_origins_and_login_sets_no_cookies(clien
     good = client.options("/api/v1/auth/login", headers={"Origin": settings.cors_allow_origins[0],
                                                          "Access-Control-Request-Method": "POST"})
     assert good.headers.get("access-control-allow-origin") == settings.cors_allow_origins[0]
+    vercel_prod = client.options("/api/v1/auth/login", headers={"Origin": "https://aerocomply.vercel.app",
+                                                               "Access-Control-Request-Method": "POST"})
+    assert vercel_prod.headers.get("access-control-allow-origin") == "https://aerocomply.vercel.app"
+    vercel_preview = client.options("/api/v1/auth/login", headers={"Origin": "https://aerocomply-ct196idr4-ram-ee15.vercel.app",
+                                                                 "Access-Control-Request-Method": "POST"})
+    assert vercel_preview.headers.get("access-control-allow-origin") == "https://aerocomply-ct196idr4-ram-ee15.vercel.app"
     r = client.post("/api/v1/auth/login", json={"email": "nobody@example.com", "password": "x" * 12})
     assert "set-cookie" not in r.headers          # bearer-token API: no ambient credentials => no CSRF surface
 

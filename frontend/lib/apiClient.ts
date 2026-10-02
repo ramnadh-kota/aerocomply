@@ -1,4 +1,15 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
+export function getApiBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "");
+  }
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host.endsWith(".vercel.app") || host === "aerocomply.vercel.app") {
+      return "https://aerocomply-backend-staging.onrender.com/api/v1";
+    }
+  }
+  return "http://localhost:8000/api/v1";
+}
 
 export class ApiError extends Error {
   constructor(
@@ -33,7 +44,7 @@ export interface NormalizedApiError {
 }
 
 const DEFAULT_MESSAGES: Record<ApiErrorKind, string> = {
-  unauthorized: "Your session has expired. Please sign in again.",
+  unauthorized: "Invalid credentials or session expired. Please sign in again.",
   forbidden: "You do not have permission to perform this action.",
   not_found: "The requested item could not be found.",
   validation: "The request could not be processed — please check the submitted data.",
@@ -85,7 +96,7 @@ export function normalizeApiError(err: unknown): NormalizedApiError {
     // errors); 5xx bodies may leak internals, so use the generic message.
     const message =
       kind === "server"
-        ? DEFAULT_MESSAGES.server
+        ? (err.status === 503 ? "The server is temporarily unavailable. Please try again shortly." : DEFAULT_MESSAGES.server)
         : kind === "validation"
           ? friendlyValidationMessage(err.message || DEFAULT_MESSAGES.validation)
           : err.message || DEFAULT_MESSAGES[kind];
@@ -149,7 +160,7 @@ export async function requestTokenRefresh(): Promise<string> {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      const response = await fetch(`${getApiBaseUrl()}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: storedRefreshToken }),
@@ -223,13 +234,14 @@ async function fetchOnce(
   body: BodyInit | undefined,
   timeoutMs: number | undefined
 ): Promise<Response> {
+  const baseUrl = getApiBaseUrl();
   if (!timeoutMs) {
-    return fetch(`${API_BASE_URL}${path}`, { method, headers, body });
+    return fetch(`${baseUrl}${path}`, { method, headers, body });
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(`${API_BASE_URL}${path}`, { method, headers, body, signal: controller.signal });
+    return await fetch(`${baseUrl}${path}`, { method, headers, body, signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
@@ -312,7 +324,7 @@ export async function apiUploadFile<T>(
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     method: "POST",
     headers,
     body: formData,
@@ -361,7 +373,7 @@ export async function apiPostRaw<T>(
   };
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { method: "POST", headers, body });
+  const response = await fetch(`${getApiBaseUrl()}${path}`, { method: "POST", headers, body });
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {

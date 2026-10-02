@@ -77,7 +77,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
-    cors_allow_origins: list[str] = ["http://localhost:3000"]
+    cors_allow_origins: list[str] = ["http://localhost:3000", "https://aerocomply.vercel.app"]
+    cors_allow_origin_regex: str | None = r"^https:\/\/([a-zA-Z0-9_-]+\.)?vercel\.app$"
 
     # Outbound email (forgot-password / email-verification OTP). Absent
     # smtp_host -> ConsoleEmailSender (dev/CI safe, no real mail server
