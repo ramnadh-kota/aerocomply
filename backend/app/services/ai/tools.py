@@ -28,7 +28,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import AeroComplyError, ForbiddenError
+from app.core.errors import AeroComplyError, ForbiddenError, NotFoundError
 from app.core.feature_keys import (
     canonicalize_feature_key,
     is_default_on_feature,
@@ -161,6 +161,13 @@ def _uuid(raw: Any, field: str) -> uuid.UUID:
         raise AeroComplyError(
             f"Invalid UUID for {field}: {raw!r}", code="invalid_tool_input"
         ) from exc
+
+
+def _try_uuid(raw: Any) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(raw))
+    except (ValueError, TypeError):
+        return None
 
 
 def _assessment_to_dict(a: Any) -> dict[str, Any]:
@@ -1366,6 +1373,78 @@ def _handle_list_fleet_assets(db: Session, user: CurrentUser, args: dict[str, An
         for a in rows if a.asset_type in entitled][:200]}
 
 
+def _handle_get_alert_details(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    alert_id = str(args.get("alert_id", "")).strip()
+    if not alert_id:
+        raise AeroComplyError("alert_id is required", code="invalid_argument")
+
+    from app.models.proactive_signal import ProactiveSignalRecord
+    from app.services import asset_service
+
+    # Check proactive signals
+    as_uuid = _try_uuid(alert_id)
+    signal = None
+    if as_uuid is not None:
+        signal = db.execute(
+            select(ProactiveSignalRecord).where(
+                ProactiveSignalRecord.organization_id == user.organization_id,
+                ProactiveSignalRecord.id == as_uuid,
+            )
+        ).scalar_one_or_none()
+    if signal is None:
+        signal = db.execute(
+            select(ProactiveSignalRecord).where(
+                ProactiveSignalRecord.organization_id == user.organization_id,
+                ProactiveSignalRecord.signal_key == alert_id,
+            )
+        ).scalar_one_or_none()
+
+    if signal is not None:
+        from app.schemas.intelligence_signal import ProactiveSignalResponse
+        return ProactiveSignalResponse.model_validate(signal).model_dump(mode="json")
+
+    # Check proactive service alerts
+    alerts = proactive_service.get_proactive_alerts(db, organization_id=user.organization_id)
+    matched = next((a for a in alerts if a.id == alert_id or str(a.source_id) == alert_id), None)
+    if matched is not None:
+        return matched.model_dump(mode="json")
+
+    raise NotFoundError(f"Alert with identifier '{alert_id}' not found in organization")
+
+
+def _handle_get_mission_details(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    mission_id = _uuid(args["mission_id"], "mission_id")
+    from app.services import mission_service, asset_service
+
+    mission = mission_service.get_mission(db, organization_id=user.organization_id, mission_id=mission_id)
+    pilot_names = mission_service.resolve_pilot_names(db, organization_id=user.organization_id, missions=[mission])
+    pilot_name = pilot_names.get(mission.pilot_user_id) if mission.pilot_user_id else None
+
+    asset_reg = None
+    try:
+        asset = asset_service.get_asset(db, organization_id=user.organization_id, asset_id=mission.asset_id)
+        asset_reg = asset.registration or asset.serial_number or str(asset.id)
+    except Exception:
+        pass
+
+    return {
+        "id": str(mission.id),
+        "asset_id": str(mission.asset_id),
+        "asset_registration": asset_reg,
+        "status": mission.status.value if hasattr(mission.status, "value") else str(mission.status),
+        "purpose": mission.purpose,
+        "operating_area": mission.operating_area,
+        "planned_start": mission.planned_start.isoformat() if mission.planned_start else None,
+        "planned_end": mission.planned_end.isoformat() if mission.planned_end else None,
+        "pilot_user_id": str(mission.pilot_user_id) if mission.pilot_user_id else None,
+        "pilot_name": pilot_name,
+        "authorized_at": mission.authorized_at.isoformat() if mission.authorized_at else None,
+        "notes": mission.notes,
+        "created_at": mission.created_at.isoformat() if mission.created_at else None,
+        "execution_state": "PLANNED_OR_AUTHORIZED (flight not automatically executed without verified telemetry)",
+    }
+
+
 TOOL_REGISTRY: list[ToolSpec] = [
     ToolSpec(
         name="get_aircraft",
@@ -2347,6 +2426,41 @@ TOOL_REGISTRY: list[ToolSpec] = [
         handler=_handle_list_fleet_assets,
         required_permission=Permission.AIRCRAFT_READ,
         required_feature="aircraft_fleet_management,drone_fleet_management,helicopter_fleet_management,evtol_fleet_management",
+    ),
+    ToolSpec(
+        name="get_alert_details",
+        description=(
+            "Get the verified, authoritative record and evidence for an individual operational or "
+            "proactive alert by alert_id or signal_key (e.g. 'aog-...', 'shortage-...', 'deferred-...', "
+            "'compliance-...', or proactive signal UUID/key). Returns severity, headline, contributing "
+            "factors, evidence refs, and recommended actions. Never fabricate an alert or claim resolution "
+            "without verified record state."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"alert_id": {"type": "string", "description": "Alert UUID or signal key"}},
+            "required": ["alert_id"],
+        },
+        handler=_handle_get_alert_details,
+        required_permission=Permission.AIRCRAFT_READ,
+        required_feature="aircraft_fleet_management,drone_fleet_management",
+    ),
+    ToolSpec(
+        name="get_mission_details",
+        description=(
+            "Get the authoritative mission details for a planned or authorized drone mission by mission UUID: "
+            "purpose, operating area, status, planned start/end times, assigned pilot name, and associated asset. "
+            "Clearly distinguishes planned/authorized mission context from actual flight execution — never infer "
+            "flight completion without verified flight telemetry."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"mission_id": {"type": "string", "description": "Mission UUID"}},
+            "required": ["mission_id"],
+        },
+        handler=_handle_get_mission_details,
+        required_permission=Permission.DRONE_READ,
+        required_feature="drone_fleet_management",
     ),
 ]
 
