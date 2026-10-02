@@ -29,8 +29,8 @@ autonomous commands.
 | G-C2-2 | C2 | Caller-supplied `auth_secret` was accepted as the device secret (weak-secret risk); re-provisioning replaced credential silently, no rotation/expiry/audit. | High — **FIXED** |
 | G-C2-3 | C2 | No device↔approved MAVLink data-source binding; no connectivity/freshness state with configurable timeout. | Med — **FIXED** |
 | G-C2-4 | C2 | Legacy `/edge/devices/{id}/heartbeat` and `/edge/ingest` still accept user JWT (backward compatible); `/edge/ingest` ingests for unregistered devices. | Med — OPEN (deprecate after fleet migrates) |
-| G-C3-1 | C3 | MISSION_CURRENT, MISSION_ITEM_REACHED, STATUSTEXT not parsed. | Med — OPEN |
-| G-C3-2 | C3 | No canonical *versioned* drone live-state event; MAVLink event time = arrival time (boot-relative `time_boot_ms`), no GPS-epoch. | Med — OPEN |
+| G-C3-1 | C3 | MISSION_CURRENT, MISSION_ITEM_REACHED, STATUSTEXT not parsed. | Med — **FIXED** |
+| G-C3-2 | C3 | No canonical *versioned* drone live-state event; MAVLink event time = arrival time (boot-relative `time_boot_ms`), no GPS-epoch. | Med — **FIXED** (versioned `live_state` in event metadata; time remains arrival time, documented) |
 | G-C3-3 | C3 | Connector state (`_CONNECTORS`) is process-local (documented). | Low — documented |
 | G-C4-1 | C4 | **No latest-state store, no snapshot API, no SSE/WebSocket anywhere in the backend.** | High — OPEN |
 | G-C4-2 | C4 | No state-freshness/offline detection independent of last value (only data-source health). | High — OPEN |
@@ -87,7 +87,7 @@ Files: `services/device_auth_service.py` (new), `api/v1/device_gateway.py` (new)
 |---|---|
 | C1 audit + contracts | DONE (this document); backlog below |
 | C2 enrollment/connectivity | Implemented; tests: 5 new + 7 existing M16 pass. Exit met locally (no real hardware) |
-| C3 MAVLink ingestion extensions | NOT STARTED |
+| C3 MAVLink ingestion extensions | Implemented; `tests/unit/test_c3_mavlink_live_state.py` + full unit suite (574) pass |
 | C4 live state + SSE | NOT STARTED |
 | C5 geofence + alerts | NOT STARTED |
 | C6 LISA live tools + analytics | NOT STARTED |

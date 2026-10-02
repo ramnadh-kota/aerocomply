@@ -763,7 +763,7 @@ class MAVLinkConnector(TelemetryConnector):
                 custom_mode, type_b, autopilot, base_mode, sys_status, mav_ver = struct.unpack("<IBBBBB", payload[:9])
                 return self.decode_message(
                     "HEARTBEAT",
-                    {"sysid": sysid, "custom_mode": custom_mode, "base_mode": base_mode, "autopilot": autopilot},
+                    {"sysid": sysid, "custom_mode": custom_mode, "base_mode": base_mode, "autopilot": autopilot, "_trigger": trigger},
                 )
 
             # GLOBAL_POSITION_INT (33): time_boot_ms (I), lat (i), lon (i), alt (i), relative_alt (i), vx (h), vy (h), vz (h), hdg (H)
@@ -771,7 +771,7 @@ class MAVLinkConnector(TelemetryConnector):
                 t_ms, lat, lon, alt, rel_alt, vx, vy, vz, hdg = struct.unpack("<IiiiihhhH", payload[:28])
                 return self.decode_message(
                     "GLOBAL_POSITION_INT",
-                    {"sysid": sysid, "lat": lat, "lon": lon, "alt": alt, "relative_alt": rel_alt, "vx": vx, "vy": vy, "hdg": hdg},
+                    {"sysid": sysid, "lat": lat, "lon": lon, "alt": alt, "relative_alt": rel_alt, "vx": vx, "vy": vy, "hdg": hdg, "_trigger": trigger},
                 )
 
             # ATTITUDE (30): time_boot_ms (I), roll (f), pitch (f), yaw (f), rollspeed (f), pitchspeed (f), yawspeed (f)
@@ -779,7 +779,7 @@ class MAVLinkConnector(TelemetryConnector):
                 t_ms, roll, pitch, yaw, r_spd, p_spd, y_spd = struct.unpack("<Iffffff", payload[:28])
                 return self.decode_message(
                     "ATTITUDE",
-                    {"sysid": sysid, "roll": roll, "pitch": pitch, "yaw": yaw},
+                    {"sysid": sysid, "roll": roll, "pitch": pitch, "yaw": yaw, "_trigger": trigger},
                 )
 
             # SYS_STATUS (1): sensors_present (I), sensors_enabled (I), sensors_health (I), load (H), voltage (H), current (h), remaining (b), drop (H), ...
@@ -793,7 +793,7 @@ class MAVLinkConnector(TelemetryConnector):
                 )
                 return self.decode_message(
                     "SYS_STATUS",
-                    {"sysid": sysid, "voltage_battery": volt, "current_battery": curr, "battery_remaining": rem},
+                    {"sysid": sysid, "voltage_battery": volt, "current_battery": curr, "battery_remaining": rem, "_trigger": trigger},
                 )
 
             # VIBRATION (241): time_usec (Q), vibration_x (f), vibration_y (f), vibration_z (f), clipping_0 (I), clipping_1 (I), clipping_2 (I)
@@ -801,7 +801,7 @@ class MAVLinkConnector(TelemetryConnector):
                 t_us, vx, vy, vz, c0, c1, c2 = struct.unpack("<QfffIII", payload[:32])
                 return self.decode_message(
                     "VIBRATION",
-                    {"sysid": sysid, "vibration_x": vx, "vibration_y": vy, "vibration_z": vz},
+                    {"sysid": sysid, "vibration_x": vx, "vibration_y": vy, "vibration_z": vz, "_trigger": trigger},
                 )
 
             # MISSION_CURRENT (42): seq (H), then extensions total (H), mission_state (B), mission_mode (B), ...
