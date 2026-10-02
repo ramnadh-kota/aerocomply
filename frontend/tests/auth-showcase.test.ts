@@ -2,13 +2,22 @@ import { describe, expect, it } from "vitest";
 import { SHOWCASE_SLIDES, easeToward, wrapOffset } from "@/components/auth-showcase/slides";
 
 describe("auth showcase content", () => {
-  it("covers the five approved categories with headline, description and CTA", () => {
-    expect(SHOWCASE_SLIDES.map((s) => s.id)).toEqual(["drone", "aircraft", "helicopter", "evtol", "intelligence"]);
+  it("covers the six approved categories with headline, description, CTA and authentic photography", () => {
+    expect(SHOWCASE_SLIDES.map((s) => s.id)).toEqual([
+      "drone",
+      "aircraft",
+      "drone-fleet",
+      "helicopter",
+      "evtol",
+      "intelligence",
+    ]);
     for (const s of SHOWCASE_SLIDES) {
       expect(s.headline.length).toBeGreaterThan(0);
       expect(s.description.length).toBeGreaterThan(0);
       expect(s.cta.length).toBeGreaterThan(0);
       expect(s.capabilities.length).toBeGreaterThan(0);
+      expect(s.photo).toBeDefined();
+      expect(s.photo?.startsWith("/images/showcase/")).toBe(true);
     }
   });
 
@@ -16,13 +25,10 @@ describe("auth showcase content", () => {
     const byId = Object.fromEntries(SHOWCASE_SLIDES.map((s) => [s.id, s.headline]));
     expect(byId.drone).toBe("Beyond Flight. Into Intelligence.");
     expect(byId.aircraft).toBe("Precision Engineered. Intelligence Driven.");
+    expect(byId["drone-fleet"]).toBe("Connected Fleets. Complete Visibility.");
     expect(byId.helicopter).toBe("Mission Ready. Always Connected.");
     expect(byId.evtol).toBe("A New Dimension of Aerial Mobility.");
     expect(byId.intelligence).toBe("One Intelligence Layer. Every Asset.");
-  });
-
-  it("ships no unlicensed photo references by default", () => {
-    expect(SHOWCASE_SLIDES.every((s) => s.photo === undefined)).toBe(true);
   });
 });
 

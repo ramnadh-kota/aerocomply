@@ -7,7 +7,7 @@
 // repo. Set it to a local /images/... path to replace the vector scene; the
 // card falls back to the scene if the image fails to load.
 
-export type SceneId = "drone" | "aircraft" | "helicopter" | "evtol" | "intelligence";
+export type SceneId = "drone" | "aircraft" | "drone-fleet" | "helicopter" | "evtol" | "intelligence";
 
 export interface ShowcaseSlide {
   id: SceneId;
@@ -17,16 +17,18 @@ export interface ShowcaseSlide {
   cta: string;
   capabilities: string[];
   photo?: string;
+  photoPosition?: string;
 }
 
 export const SHOWCASE_SLIDES: ShowcaseSlide[] = [
   {
     id: "drone",
-    category: "Autonomous drones",
+    category: "Drone operations",
     headline: "Beyond Flight. Into Intelligence.",
-    description:
-      "Explore autonomous fleets, live telemetry, mission awareness and predictive drone health.",
+    description: "Autonomous fleets, connected telemetry and predictive drone intelligence.",
     cta: "Discover Drone Intelligence",
+    photo: "/images/showcase/drone-operations.avif",
+    photoPosition: "center 35%",
     capabilities: [
       "Drone registry with per-asset detail records",
       "Drone Ops: live map, telemetry, health and alerts",
@@ -38,9 +40,10 @@ export const SHOWCASE_SLIDES: ShowcaseSlide[] = [
     id: "aircraft",
     category: "Aircraft",
     headline: "Precision Engineered. Intelligence Driven.",
-    description:
-      "Experience connected aircraft, fleet readiness, predictive maintenance and intelligent operational visibility.",
+    description: "Connected aircraft, fleet readiness and predictive maintenance.",
     cta: "Explore Aircraft Intelligence",
+    photo: "/images/showcase/aircraft-runway.avif",
+    photoPosition: "center 45%",
     capabilities: [
       "Aircraft registry, configuration and fleet health",
       "Maintenance planning, defects and work orders",
@@ -49,12 +52,28 @@ export const SHOWCASE_SLIDES: ShowcaseSlide[] = [
     ],
   },
   {
+    id: "drone-fleet",
+    category: "Drone fleet operations",
+    headline: "Connected Fleets. Complete Visibility.",
+    description: "Fleet monitoring, coordinated operations and real-time aerospace intelligence.",
+    cta: "Explore Fleet Intelligence",
+    photo: "/images/showcase/drone-fleet-formation.webp",
+    photoPosition: "center 40%",
+    capabilities: [
+      "Fleet-wide telemetry ingestion and live tracking",
+      "Multi-drone coordination and airspace awareness",
+      "Automated geofencing and real-time alert dispatch",
+      "Consolidated fleet operational reporting",
+    ],
+  },
+  {
     id: "helicopter",
     category: "Helicopters",
     headline: "Mission Ready. Always Connected.",
-    description:
-      "Discover helicopter health monitoring, component intelligence, fleet readiness and advanced maintenance operations.",
+    description: "Advanced helicopter health, fleet monitoring and operational intelligence.",
     cta: "Discover Helicopter Intelligence",
+    photo: "/images/showcase/helicopter-operations.jpg",
+    photoPosition: "center 45%",
     capabilities: [
       "Helicopter asset records and detail pages",
       "Component and engine tracking",
@@ -65,9 +84,10 @@ export const SHOWCASE_SLIDES: ShowcaseSlide[] = [
     id: "evtol",
     category: "eVTOL and advanced air mobility",
     headline: "A New Dimension of Aerial Mobility.",
-    description:
-      "Explore electric aviation, advanced air mobility, battery health and intelligent fleet operations.",
+    description: "Electric aviation, advanced air mobility and intelligent fleet operations.",
     cta: "Explore Advanced Air Mobility",
+    photo: "/images/showcase/evtol-demonstrator.jpg",
+    photoPosition: "center 50%",
     capabilities: [
       "eVTOL asset records and detail pages",
       "Battery component maintenance records",
@@ -78,9 +98,10 @@ export const SHOWCASE_SLIDES: ShowcaseSlide[] = [
     id: "intelligence",
     category: "Aerospace intelligence",
     headline: "One Intelligence Layer. Every Asset.",
-    description:
-      "Connect aircraft, drones, helicopters, telemetry, HUMS and AI-powered operational intelligence.",
+    description: "Connected aerospace assets, telemetry and AI-powered intelligence.",
     cta: "Explore Aerospace Intelligence",
+    photo: "/images/showcase/aerospace-intelligence.jpg",
+    photoPosition: "center 40%",
     capabilities: [
       "Fleet intelligence across asset types",
       "HUMS limits and exceedance tracking",

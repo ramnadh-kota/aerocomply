@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { COMPANY_NAME } from "@/lib/brand";
-import { ShowcaseScene } from "./Scenes";
 import { SHOWCASE_SLIDES, easeToward, wrapOffset, type ShowcaseSlide } from "./slides";
 import styles from "./showcase.module.css";
 
@@ -14,6 +13,7 @@ const DRAG_THRESHOLD_PX = 6;
 const TINTS: Record<string, [string, string]> = {
   drone: ["#1c3c6b", "#0b1a2e"],
   aircraft: ["#23405f", "#0c1a2b"],
+  "drone-fleet": ["#16325c", "#091729"],
   helicopter: ["#27414f", "#0b1a26"],
   evtol: ["#1a4a58", "#0a1c27"],
   intelligence: ["#2a3566", "#0c1730"],
@@ -235,7 +235,7 @@ export function AerospaceShowcase() {
 
   const renderCards = (copy: 0 | 1) =>
     SHOWCASE_SLIDES.map((slide) => {
-      const [a, b] = TINTS[slide.id];
+      const [a, b] = TINTS[slide.id] || ["#162a45", "#091424"];
       const hidden = copy === 1;
       return (
         <button
@@ -251,22 +251,22 @@ export function AerospaceShowcase() {
           onClick={(e) => openSlide(slide, e.currentTarget)}
           draggable={false}
         >
-          <span className={styles.cardGrid} aria-hidden="true" />
           {slide.photo ? (
-            // eslint-disable-next-line @next/next/no-img-element -- optional licensed photo; falls back to the vector scene on error
-            <img
-              className={styles.photo}
-              src={slide.photo}
-              alt=""
-              draggable={false}
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-              }}
-            />
+            <div className={styles.photoContainer}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                className={styles.photo}
+                src={slide.photo}
+                alt=""
+                loading={copy === 0 ? "eager" : "lazy"}
+                style={{ objectPosition: slide.photoPosition || "center" }}
+                draggable={false}
+                onError={(e) => {
+                  e.currentTarget.style.opacity = "0";
+                }}
+              />
+            </div>
           ) : null}
-          <span className={styles.sceneWrap} aria-hidden="true">
-            <ShowcaseScene id={slide.id} className={styles.scene} />
-          </span>
           <span className={styles.scrim} aria-hidden="true" />
           <span className={styles.copy}>
             <span className={styles.cat}>{slide.category}</span>
