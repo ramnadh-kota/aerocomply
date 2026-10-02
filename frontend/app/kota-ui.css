@@ -1,0 +1,44 @@
+/* KOTA Aerospace design-system additions (Milestone 1).
+   Strictly additive: nothing here redefines an existing --ac-* token. New
+   surfaces should consume these alongside the --ac-* colour tokens in
+   globals.css. Motion durations collapse to 0 under prefers-reduced-motion,
+   so anything built on them degrades to a static layout automatically. */
+
+:root {
+  /* Typography. The display face is a system serif stack on purpose: no
+     web-font download, no layout shift, no third-party request. */
+  --kota-font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --kota-tracking-eyebrow: 0.18em;
+
+  /* Motion */
+  --kota-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --kota-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --kota-dur-fast: 140ms;
+  --kota-dur-base: 280ms;
+  --kota-dur-slow: 640ms;
+
+  /* Elevation */
+  --kota-shadow-1: 0 1px 2px rgba(5, 11, 20, 0.06), 0 1px 3px rgba(5, 11, 20, 0.08);
+  --kota-shadow-2: 0 4px 12px rgba(5, 11, 20, 0.1), 0 2px 4px rgba(5, 11, 20, 0.06);
+  --kota-shadow-3: 0 18px 40px rgba(5, 11, 20, 0.28), 0 6px 12px rgba(5, 11, 20, 0.16);
+
+  /* Focus: a two-ring treatment that stays visible on light and dark. */
+  --kota-focus-ring: 0 0 0 2px var(--ac-bg-elevated, #fff), 0 0 0 4px var(--ac-accent, #1f56d6);
+
+  /* Aerospace hero surfaces (always dark, independent of the app theme). */
+  --kota-hero-bg: #050b14;
+  --kota-hero-bg-2: #0b1624;
+  --kota-hero-line: rgba(160, 190, 235, 0.16);
+  --kota-hero-text: #e8edf7;
+  --kota-hero-text-muted: #a4b4cf;
+  --kota-hero-accent: #7db2ff;
+  --kota-hero-brass: #c8a96a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --kota-dur-fast: 0ms;
+    --kota-dur-base: 0ms;
+    --kota-dur-slow: 0ms;
+  }
+}

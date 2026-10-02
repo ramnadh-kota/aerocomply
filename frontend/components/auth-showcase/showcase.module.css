@@ -1,0 +1,505 @@
+/* Right-hand aerospace showcase for the sign-in page. Always dark: it is a
+   brand surface, independent of the app light/dark theme. Motion is limited
+   to transform/opacity and is switched off under prefers-reduced-motion. */
+
+.pane {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: clamp(24px, 3.2vw, 48px) 0 clamp(20px, 2.4vw, 32px);
+  color: var(--kota-hero-text);
+  background:
+    radial-gradient(120% 80% at 70% 0%, #14233a 0%, transparent 60%),
+    linear-gradient(180deg, var(--kota-hero-bg-2) 0%, var(--kota-hero-bg) 100%);
+}
+
+.grid {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image:
+    linear-gradient(var(--kota-hero-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--kota-hero-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  opacity: 0.35;
+  mask-image: radial-gradient(70% 70% at 50% 40%, #000 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(70% 70% at 50% 40%, #000 30%, transparent 100%);
+}
+
+.orbits {
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  top: 38%;
+  width: min(1100px, 130%);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  color: var(--kota-hero-line);
+  pointer-events: none;
+}
+
+.orbitsSpin {
+  transform-origin: 50% 50%;
+  animation: spin 260s linear infinite;
+}
+
+.star {
+  fill: var(--kota-hero-text);
+  opacity: 0.55;
+  animation: twinkle 6s ease-in-out infinite;
+}
+
+.trail {
+  stroke: var(--kota-hero-text);
+  stroke-opacity: 0.55;
+  stroke-width: 1.5;
+  fill: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.hero {
+  padding: 0 clamp(24px, 3.4vw, 56px);
+  text-align: center;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--kota-tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--kota-hero-text-muted);
+}
+
+.eyebrow::before,
+.eyebrow::after {
+  content: "";
+  width: 36px;
+  height: 1px;
+  background: var(--kota-hero-text-muted);
+  opacity: 0.6;
+}
+
+.lead {
+  margin: clamp(10px, 1.6vw, 20px) 0 0;
+  font-family: var(--kota-font-display);
+  font-style: italic;
+  font-size: clamp(17px, 1.5vw, 24px);
+  color: var(--kota-hero-text-muted);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--kota-font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(44px, 5.4vw, 92px);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  color: var(--kota-hero-text);
+}
+
+.sub {
+  max-width: 46ch;
+  margin: clamp(8px, 1.2vw, 16px) auto 0;
+  font-size: clamp(13px, 1vw, 15px);
+  line-height: 1.55;
+  color: var(--kota-hero-text-muted);
+}
+
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 360px;
+  margin-top: clamp(20px, 2.6vw, 36px);
+  display: flex;
+  flex-direction: column;
+}
+
+.viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 320px;
+  overflow: hidden;
+  touch-action: pan-y;
+  cursor: grab;
+  /* Soft edges so cards fade in and out instead of being clipped hard. */
+  mask-image: linear-gradient(90deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+}
+
+.viewport.dragging {
+  cursor: grabbing;
+}
+
+.track {
+  display: flex;
+  height: 100%;
+  width: max-content;
+  padding: 6px 0;
+  will-change: transform;
+}
+
+.card {
+  position: relative;
+  flex: 0 0 auto;
+  width: clamp(240px, 21vw, 300px);
+  height: 100%;
+  min-height: 320px;
+  margin: 0 18px 0 0;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  color: inherit;
+  border: 1px solid rgba(160, 190, 235, 0.18);
+  border-radius: 18px;
+  background:
+    linear-gradient(165deg, var(--tint-a) 0%, var(--tint-b) 70%),
+    var(--kota-hero-bg-2);
+  box-shadow: var(--kota-shadow-3);
+  cursor: pointer;
+  transition:
+    transform var(--kota-dur-base) var(--kota-ease-out),
+    border-color var(--kota-dur-base) var(--kota-ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.card:hover,
+.card:focus-visible {
+  transform: translateY(-4px);
+  border-color: rgba(125, 178, 255, 0.55);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--kota-hero-accent);
+  outline-offset: 3px;
+}
+
+.cardGrid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(160, 190, 235, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(160, 190, 235, 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sceneWrap {
+  position: absolute;
+  inset: 0 0 38% 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  color: rgba(205, 224, 255, 0.9);
+  transition: transform calc(var(--kota-dur-slow) + 200ms) var(--kota-ease-out);
+}
+
+.scene {
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+}
+
+.card:hover .sceneWrap,
+.card:focus-visible .sceneWrap {
+  transform: scale(1.06);
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 38%, rgba(5, 11, 20, 0.92) 78%, rgba(5, 11, 20, 0.97) 100%);
+}
+
+.copy {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 20px 20px 18px;
+}
+
+.cat {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: var(--kota-tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--kota-hero-brass);
+}
+
+.headline {
+  display: block;
+  font-family: var(--kota-font-display);
+  font-size: clamp(20px, 1.7vw, 24px);
+  line-height: 1.18;
+  color: #fff;
+}
+
+.reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--kota-dur-base) var(--kota-ease-out),
+    opacity var(--kota-dur-base) var(--kota-ease-out);
+}
+
+.revealInner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.card:hover .reveal,
+.card:focus-visible .reveal {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.desc {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #c9d6ec;
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--kota-hero-accent);
+}
+
+.cta::after {
+  content: "→";
+  transition: transform var(--kota-dur-fast) var(--kota-ease-out);
+}
+
+.card:hover .cta::after,
+.card:focus-visible .cta::after {
+  transform: translateX(3px);
+}
+
+/* No hover on touch screens: keep the description and CTA visible. */
+@media (hover: none) {
+  .reveal {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 16px;
+}
+
+.ctl {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(160, 190, 235, 0.28);
+  background: rgba(11, 22, 36, 0.7);
+  color: var(--kota-hero-text);
+  transition:
+    background-color var(--kota-dur-fast) var(--kota-ease-out),
+    border-color var(--kota-dur-fast) var(--kota-ease-out);
+}
+
+.ctl:hover {
+  background: rgba(125, 178, 255, 0.16);
+  border-color: rgba(125, 178, 255, 0.6);
+}
+
+.ctl:focus-visible {
+  outline: 2px solid var(--kota-hero-accent);
+  outline-offset: 2px;
+}
+
+.ctl svg {
+  width: 16px;
+  height: 16px;
+}
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 18px clamp(24px, 3.4vw, 56px) 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--kota-hero-text-muted);
+}
+
+.note {
+  margin: 0;
+}
+
+/* Capability panel: opened by a card CTA. Stays in-page so sign-in is
+   never interrupted. */
+.panelScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 clamp(16px, 3vw, 48px) 8px;
+  background: linear-gradient(180deg, rgba(5, 11, 20, 0.35), rgba(5, 11, 20, 0.8));
+  animation: fadeIn var(--kota-dur-base) var(--kota-ease-out) both;
+}
+
+.panel {
+  position: relative;
+  width: min(560px, 100%);
+  padding: 24px 24px 20px;
+  border: 1px solid rgba(160, 190, 235, 0.28);
+  border-radius: 18px;
+  background: rgba(8, 16, 28, 0.96);
+  box-shadow: var(--kota-shadow-3);
+  animation: rise var(--kota-dur-slow) var(--kota-ease-out) both;
+}
+
+.panelTitle {
+  margin: 0 36px 0 0;
+  font-family: var(--kota-font-display);
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1.15;
+  color: #fff;
+}
+
+.panelDesc {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #c9d6ec;
+}
+
+.caps {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.caps li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--kota-hero-text);
+}
+
+.caps li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 7px;
+  height: 1px;
+  background: var(--kota-hero-brass);
+}
+
+.fine {
+  margin: 14px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--kota-hero-text-muted);
+}
+
+.close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbitsSpin,
+  .star {
+    animation: none;
+  }
+  .trailDot {
+    display: none;
+  }
+  .card:hover,
+  .card:focus-visible,
+  .card:hover .sceneWrap,
+  .card:focus-visible .sceneWrap {
+    transform: none;
+  }
+  .panelScrim,
+  .panel {
+    animation: none;
+  }
+}
+
+/* Stacked layout: showcase sits under the form and stays secondary. */
+@media (max-width: 959px) {
+  .pane {
+    min-height: 0;
+    padding-top: 36px;
+  }
+  .stage {
+    min-height: 440px;
+  }
+  .card {
+    width: min(78vw, 280px);
+  }
+}

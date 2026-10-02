@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import "./globals.css";
+import "./kota-ui.css";
 import { PLATFORM_NAME, PLATFORM_TAGLINE } from "@/lib/brand";
 import { DataModeProvider } from "@/lib/data-mode/DataModeContext";
 import { SessionProvider } from "@/lib/auth/SessionContext";
