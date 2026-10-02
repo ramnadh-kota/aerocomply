@@ -28,6 +28,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Callable
 
+from app.schemas.live_state import GPS_FIX, MAV_SEVERITY, MISSION_STATE, LiveStateEventV1
 from app.schemas.telemetry import (
     NormalizedTelemetryEvent,
     TelemetryBatteryPayload,
@@ -55,12 +56,15 @@ MAVLINK_CRC_EXTRA: dict[int, int] = {
     24: 24,    # GPS_RAW_INT
     30: 39,    # ATTITUDE
     33: 104,   # GLOBAL_POSITION_INT
+    42: 28,    # MISSION_CURRENT
+    46: 11,    # MISSION_ITEM_REACHED
     74: 20,    # VFR_HUD
     147: 154,  # BATTERY_STATUS
     241: 90,   # VIBRATION
+    253: 83,   # STATUSTEXT
 }
 # Minimum full payload length per message (MAVLink v2 trims trailing zero bytes).
-_MAVLINK_MIN_PAYLOAD: dict[int, int] = {0: 9, 1: 31, 24: 30, 30: 28, 33: 28, 74: 20, 147: 36, 241: 32}
+_MAVLINK_MIN_PAYLOAD: dict[int, int] = {0: 9, 1: 31, 24: 30, 30: 28, 33: 28, 42: 18, 46: 2, 74: 20, 147: 36, 241: 32, 253: 54}
 MAVLINK_AUTOPILOT_COMPONENT_ID = 1
 _SEQ_STREAM_TIMEOUT_S = 5.0  # no frames this long => next frame starts a fresh stream (reboot/reconnect)
 
@@ -83,10 +87,35 @@ MSG_ID_SCALED_IMU = 26
 MSG_ID_RAW_IMU = 27
 MSG_ID_ATTITUDE = 30
 MSG_ID_GLOBAL_POSITION_INT = 33
+MSG_ID_MISSION_CURRENT = 42
+MSG_ID_MISSION_ITEM_REACHED = 46
 MSG_ID_VFR_HUD = 74
 MSG_ID_BATTERY_STATUS = 147
 MSG_ID_VIBRATION = 241
 MSG_ID_ESC_STATUS = 291
+MSG_ID_STATUSTEXT = 253
+STATUSTEXT_MAX_STORED = 10     # bounded history carried in the live-state snapshot
+STATUSTEXT_MAX_CHARS = 200     # a chunked STATUSTEXT (4 x 50) is truncated to this
+_STATUSTEXT_CHUNK_TIMEOUT_S = 2.0
+# Which live-state group each message type refreshes (drives per-group observed_at).
+_GROUPS_BY_MESSAGE: dict[str, tuple[str, ...]] = {
+    "HEARTBEAT": ("mode",), "SYS_STATUS": ("battery",), "GPS_RAW_INT": ("position",),
+    "GLOBAL_POSITION_INT": ("position", "motion"), "ATTITUDE": ("attitude",), "VFR_HUD": ("motion",),
+    "BATTERY_STATUS": ("battery",), "MISSION_CURRENT": ("mission",), "MISSION_ITEM_REACHED": ("mission",),
+}
+_NUMERIC_MESSAGE_NAMES = {
+    "0": "HEARTBEAT", "1": "SYS_STATUS", "24": "GPS_RAW_INT", "30": "ATTITUDE", "33": "GLOBAL_POSITION_INT",
+    "42": "MISSION_CURRENT", "46": "MISSION_ITEM_REACHED", "74": "VFR_HUD", "147": "BATTERY_STATUS",
+    "241": "VIBRATION", "253": "STATUSTEXT", "291": "ESC_STATUS",
+}
+
+
+def sanitize_statustext(raw: bytes | str) -> str:
+    """STATUSTEXT is free text from vehicle firmware/peripherals: cut at the first NUL, decode leniently, drop control
+    characters and cap the length. It is stored and shown as data only, never interpreted."""
+    if isinstance(raw, bytes):
+        raw = raw.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+    return "".join(ch for ch in raw if ch.isprintable()).strip()[:STATUSTEXT_MAX_CHARS]
 
 # Common ArduPilot / PX4 Flight Mode Mapping
 CUSTOM_MODE_MAP: dict[int, str] = {
@@ -151,6 +180,18 @@ class MAVLinkVehicleState:
         self.esc_temperature_c: float | None = None
         self.esc_voltage_v: float | None = None
         self.esc_current_a: float | None = None
+
+        # Mission (C3). None = the vehicle has not reported it.
+        self.mission_current_seq: int | None = None
+        self.mission_total: int | None = None
+        self.mission_state: int | None = None
+        self.mission_last_reached_seq: int | None = None
+        self.mission_last_reached_at: datetime | None = None
+        self.custom_mode: int | None = None
+        # Arrival time of the last message that updated each live-state group.
+        self.group_observed_at: dict[str, datetime] = {}
+        self.status_texts: list[tuple[int, str, datetime]] = []  # (severity, text, at), most recent first
+        self._status_chunks: dict[int, tuple[float, dict[int, bytes], int]] = {}  # id -> (t0, chunks, severity)
 
 
 class MAVLinkConnector(TelemetryConnector):
@@ -344,6 +385,20 @@ class MAVLinkConnector(TelemetryConnector):
             if axes:
                 vehicle.vibration_rms = round(math.sqrt(sum(a ** 2 for a in axes) / len(axes)), 3)
 
+        # 10. MISSION_CURRENT / MISSION_ITEM_REACHED / STATUSTEXT (C3)
+        elif message_type in ("MISSION_CURRENT", "42"):
+            vehicle.mission_current_seq = int(payload_dict["seq"])
+            vehicle.mission_total = int(payload_dict.get("total") or 0) or None  # 0 on the wire = not reported
+            state = payload_dict.get("mission_state")
+            vehicle.mission_state = int(state) if state is not None else None
+
+        elif message_type in ("MISSION_ITEM_REACHED", "46"):
+            vehicle.mission_last_reached_seq = int(payload_dict["seq"])
+            vehicle.mission_last_reached_at = now
+
+        elif message_type in ("STATUSTEXT", "253"):
+            self._record_statustext(vehicle, payload_dict, now)
+
         # 9. ESC_STATUS / ESC_TELEMETRY
         elif message_type in ("ESC_STATUS", "291", "ESC_TELEMETRY"):
             rpm = payload_dict.get("rpm") or payload_dict.get("esc_rpm")
@@ -359,10 +414,48 @@ class MAVLinkConnector(TelemetryConnector):
             if volt is not None:
                 vehicle.esc_voltage_v = float(volt)
 
+        name = _NUMERIC_MESSAGE_NAMES.get(str(message_type), str(message_type))
+        for group in _GROUPS_BY_MESSAGE.get(name, ()):
+            vehicle.group_observed_at[group] = now
+        if name == "HEARTBEAT":
+            vehicle.custom_mode = int(payload_dict.get("custom_mode", 0))
         # Build and return canonical NormalizedTelemetryEvent
-        return self._build_canonical_event(vehicle, now)
+        return self._build_canonical_event(vehicle, now, trigger=payload_dict.get("_trigger"), message_name=name)
 
-    def _build_canonical_event(self, vehicle: MAVLinkVehicleState, timestamp: datetime) -> NormalizedTelemetryEvent:
+    def _record_statustext(self, vehicle: MAVLinkVehicleState, payload: dict[str, Any], now: datetime) -> None:
+        """Stores one STATUSTEXT. Chunked messages (id != 0) are reassembled in chunk order; an incomplete set is
+        flushed after a short timeout so a lost chunk can never hide text that did arrive."""
+        severity = int(payload.get("severity", 6))
+        raw = payload.get("text", b"")
+        msg_id = int(payload.get("id", 0) or 0)
+        chunk_seq = int(payload.get("chunk_seq", 0) or 0)
+        mono = time.monotonic()
+        for stale_id in [k for k, (t0, _c, _s) in vehicle._status_chunks.items() if mono - t0 > _STATUSTEXT_CHUNK_TIMEOUT_S]:
+            _t0, chunks, sev = vehicle._status_chunks.pop(stale_id)
+            self._push_statustext(vehicle, sev, b"".join(chunks[k] for k in sorted(chunks)), now)
+        text_bytes = (raw if isinstance(raw, bytes) else str(raw).encode("utf-8", errors="replace"))[:50]
+        if msg_id == 0:
+            self._push_statustext(vehicle, severity, text_bytes, now)
+            return
+        t0, chunks, _sev = vehicle._status_chunks.get(msg_id, (mono, {}, severity))
+        chunks[chunk_seq] = text_bytes
+        vehicle._status_chunks[msg_id] = (t0, chunks, severity)
+        # A chunk shorter than 50 bytes (or containing NUL) terminates the message.
+        if len(text_bytes) < 50 or b"\x00" in text_bytes:
+            del vehicle._status_chunks[msg_id]
+            self._push_statustext(vehicle, severity, b"".join(chunks[k] for k in sorted(chunks)), now)
+
+    @staticmethod
+    def _push_statustext(vehicle: MAVLinkVehicleState, severity: int, data: bytes, now: datetime) -> None:
+        text = sanitize_statustext(data)
+        if text:
+            vehicle.status_texts.insert(0, (severity, text, now))
+            del vehicle.status_texts[STATUSTEXT_MAX_STORED:]
+
+    def _build_canonical_event(
+        self, vehicle: MAVLinkVehicleState, timestamp: datetime, *,
+        trigger: dict[str, Any] | None = None, message_name: str = "UNKNOWN",
+    ) -> NormalizedTelemetryEvent:
         """Constructs an authoritative NormalizedTelemetryEvent from current vehicle state."""
         duration_minutes = max(1, int(round((timestamp - vehicle.flight_start_time).total_seconds() / 60.0)))
         event_id = f"mavlink-sys{vehicle.system_id}-{int(timestamp.timestamp() * 1000)}-{uuid.uuid4().hex[:6]}"
@@ -452,6 +545,7 @@ class MAVLinkConnector(TelemetryConnector):
             "vibration_x_mms": vehicle.vibration_x_mms,
             "vibration_y_mms": vehicle.vibration_y_mms,
             "vibration_z_mms": vehicle.vibration_z_mms,
+            "live_state": self._live_state_dict(vehicle, timestamp, trigger, message_name),
         }
 
         event = NormalizedTelemetryEvent(
@@ -468,6 +562,58 @@ class MAVLinkConnector(TelemetryConnector):
 
         self.dispatch_event(event)
         return event
+
+    @staticmethod
+    def _live_state_dict(
+        vehicle: MAVLinkVehicleState, timestamp: datetime, trigger: dict[str, Any] | None, message_name: str,
+    ) -> dict[str, Any]:
+        """Cumulative `kota.drone.live_state.v1` snapshot as known at this message. Anything the vehicle has not
+        reported is None (0.0 is a value; unknown is null)."""
+        g = vehicle.group_observed_at
+        position: dict[str, Any] = {"observed_at": g.get("position")}
+        if "position" in g:
+            position.update(
+                lat=vehicle.latitude, lon=vehicle.longitude, alt_msl_m=vehicle.altitude_m,
+                alt_rel_m=vehicle.relative_alt_m, gps_fix_type=vehicle.gps_fix_type,
+                gps_fix=GPS_FIX.get(vehicle.gps_fix_type), satellites=vehicle.satellites_visible,
+            )
+        motion: dict[str, Any] = {"observed_at": g.get("motion")}
+        if "motion" in g:
+            motion.update(
+                ground_speed_mps=vehicle.groundspeed_mps, air_speed_mps=vehicle.airspeed_mps,
+                climb_rate_mps=vehicle.climb_rate_mps, heading_deg=vehicle.heading_deg,
+            )
+        attitude: dict[str, Any] = {"observed_at": g.get("attitude")}
+        if "attitude" in g:
+            attitude.update(roll_deg=vehicle.roll_deg, pitch_deg=vehicle.pitch_deg, yaw_deg=vehicle.yaw_deg)
+        battery = {
+            "observed_at": g.get("battery"), "voltage_v": vehicle.battery_voltage_v,
+            "current_a": vehicle.battery_current_a, "remaining_pct": vehicle.battery_remaining_pct,
+            "temperature_c": vehicle.battery_temp_c,
+        }
+        mode: dict[str, Any] = {"observed_at": g.get("mode")}
+        if "mode" in g:
+            mode.update(
+                armed=vehicle.is_armed, flight_mode=vehicle.flight_mode, custom_mode=vehicle.custom_mode,
+                autopilot=vehicle.autopilot,
+            )
+        mission = {
+            "observed_at": g.get("mission"), "current_seq": vehicle.mission_current_seq,
+            "total_items": vehicle.mission_total,
+            "state": None if vehicle.mission_state is None else MISSION_STATE.get(vehicle.mission_state, "UNKNOWN"),
+            "last_reached_seq": vehicle.mission_last_reached_seq, "last_reached_at": vehicle.mission_last_reached_at,
+        }
+        return LiveStateEventV1(
+            identity={"source_system": "MAVLINK", "source_asset_id": vehicle.source_asset_id,
+                      "mavlink_system_id": vehicle.system_id},
+            observed_at=timestamp, position=position, motion=motion, attitude=attitude, battery=battery, mode=mode,
+            mission=mission,
+            status_texts=[
+                {"severity": sev, "severity_name": MAV_SEVERITY.get(sev, "UNKNOWN"), "text": txt, "observed_at": at}
+                for sev, txt, at in vehicle.status_texts
+            ],
+            trigger={"message_type": message_name, "received_at": timestamp, **(trigger or {})},
+        ).model_dump(mode="json", by_alias=True)
 
     def _accept_sequence(self, sysid: int, compid: int, seq: int) -> bool:
         """Per-(sysid, compid) sequence check. Returns False for duplicates and
@@ -596,7 +742,10 @@ class MAVLinkConnector(TelemetryConnector):
 
             if stx == MAVLINK_STX_V2:  # v2 trims trailing zero bytes of the payload
                 payload = payload.ljust(_MAVLINK_MIN_PAYLOAD.get(msgid, 0), b"\x00")
-            evt = self._parse_binary_payload(msgid, sysid, payload)
+            evt = self._parse_binary_payload(
+                msgid, sysid, payload,
+                trigger={"msgid": msgid, "system_id": sysid, "component_id": compid, "link_seq": seq, "signed": signed},
+            )
             if evt:
                 events.append(evt)
 
@@ -604,7 +753,9 @@ class MAVLinkConnector(TelemetryConnector):
 
     parse_and_ingest_stream = feed_bytes
 
-    def _parse_binary_payload(self, msgid: int, sysid: int, payload: bytes) -> NormalizedTelemetryEvent | None:
+    def _parse_binary_payload(
+        self, msgid: int, sysid: int, payload: bytes, trigger: dict[str, Any] | None = None,
+    ) -> NormalizedTelemetryEvent | None:
         """Unpacks binary payload based on standard MAVLink struct formats."""
         try:
             # HEARTBEAT (0): custom_mode (I), type (B), autopilot (B), base_mode (B), system_status (B), mavlink_version (B)
@@ -651,6 +802,34 @@ class MAVLinkConnector(TelemetryConnector):
                 return self.decode_message(
                     "VIBRATION",
                     {"sysid": sysid, "vibration_x": vx, "vibration_y": vy, "vibration_z": vz},
+                )
+
+            # MISSION_CURRENT (42): seq (H), then extensions total (H), mission_state (B), mission_mode (B), ...
+            elif msgid == MSG_ID_MISSION_CURRENT and len(payload) >= 6:
+                seq, total, m_state = struct.unpack("<HHB", payload[:5])
+                return self.decode_message(
+                    "MISSION_CURRENT",
+                    {"sysid": sysid, "seq": seq, "total": total, "mission_state": m_state, "_trigger": trigger},
+                )
+
+            # MISSION_ITEM_REACHED (46): seq (H)
+            elif msgid == MSG_ID_MISSION_ITEM_REACHED and len(payload) >= 2:
+                (seq,) = struct.unpack("<H", payload[:2])
+                return self.decode_message(
+                    "MISSION_ITEM_REACHED", {"sysid": sysid, "seq": seq, "_trigger": trigger},
+                )
+
+            # STATUSTEXT (253): severity (B), text (char[50]), extensions id (H), chunk_seq (B)
+            elif msgid == MSG_ID_STATUSTEXT and len(payload) >= 51:
+                severity = payload[0]
+                text = payload[1:51]
+                chunk_id, chunk_seq = (0, 0)
+                if len(payload) >= 54:
+                    chunk_id, chunk_seq = struct.unpack("<HB", payload[51:54])
+                return self.decode_message(
+                    "STATUSTEXT",
+                    {"sysid": sysid, "severity": severity, "text": text, "id": chunk_id, "chunk_seq": chunk_seq,
+                     "_trigger": trigger},
                 )
 
             return None

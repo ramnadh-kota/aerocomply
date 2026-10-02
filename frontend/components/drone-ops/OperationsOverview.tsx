@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { DroneKPIBar } from "./DroneKPIBar";
 import { FleetStatusCards } from "./FleetStatusCards";
-import { MapPlaceholder } from "./MapPlaceholder";
+import { FleetMap } from "./FleetMap";
 import { AlertsPanel } from "./AlertsPanel";
 import { MissionStatusPanel } from "./MissionStatusPanel";
 import { BatteryOverviewBar } from "./BatteryOverviewBar";
@@ -161,10 +161,12 @@ export function OperationsOverview() {
         {/* CENTER: Interactive map + bottom panels */}
         <div className="ac-drone-overview-center">
           {/* Map area */}
-          <div className="ac-drone-map-area">
-            <MapPlaceholder
-              droneCount={kpis.total}
-              airborneCount={kpis.airborne}
+          <div className="ac-drone-map-area" style={{ position: "relative", overflow: "hidden" }}>
+            <FleetMap 
+              drones={snapshot.drones}
+              selectedDroneId={selectedDroneId}
+              onSelectDrone={setSelectedDroneId}
+              isSimulated={isSimulated}
             />
           </div>
 
