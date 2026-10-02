@@ -3,16 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { dronesApi, type DroneResponse } from "@/lib/api/drones";
+import { telemetryApi, type TelemetryFlight } from "@/lib/api/telemetry";
 import { useSession } from "@/lib/auth/SessionContext";
 import type { DroneState } from "@/lib/drone-ops/types";
 
 export function DroneDetailPanel({ droneState, onClose }: { droneState: DroneState; onClose: () => void }) {
   const { accessToken } = useSession();
   const [droneDetails, setDroneDetails] = useState<DroneResponse | null>(null);
+  const [flights, setFlights] = useState<TelemetryFlight[] | null>(null);
 
   useEffect(() => {
     if (!accessToken) return;
     dronesApi.getDrone(accessToken, droneState.asset_id).then(setDroneDetails).catch(console.error);
+    telemetryApi.flights(accessToken, droneState.asset_id).then(setFlights).catch(console.error);
   }, [accessToken, droneState.asset_id]);
 
   return (
@@ -90,6 +93,31 @@ export function DroneDetailPanel({ droneState, onClose }: { droneState: DroneSta
             <Link href={`/drone-ops/missions?assetId=${droneState.asset_id}`} className="ac-btn-secondary" style={{ textAlign: "center", textDecoration: "none", padding: "6px", fontSize: 11 }}>Mission Planner</Link>
             <Link href={`/drones/${droneState.asset_id}`} className="ac-btn-secondary" style={{ textAlign: "center", textDecoration: "none", padding: "6px", fontSize: 11 }}>Asset Profile</Link>
           </div>
+        </div>
+
+        {/* Flight History */}
+        <div>
+          <h4 className="ac-drone-stub-cap-heading">Recent Flights</h4>
+          {flights === null ? (
+            <div style={{ fontSize: 11, color: "var(--ac-text-muted)" }}>Loading...</div>
+          ) : flights.length === 0 ? (
+            <div style={{ fontSize: 11, color: "var(--ac-text-muted)" }}>No recent flights</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {flights.map(f => (
+                <div key={f.flight_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.02)", padding: "6px 8px", borderRadius: "4px", border: "1px solid var(--ac-border-subtle)", fontSize: 11 }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: "var(--ac-text-primary)" }}>{f.flight_number || "Unnumbered"}</div>
+                    <div style={{ color: "var(--ac-text-muted)" }}>{new Date(f.flown_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: f.status === "COMPLETED" ? "var(--ac-status-compliant)" : "var(--ac-text-secondary)" }}>{f.status}</div>
+                    <div style={{ color: "var(--ac-text-muted)" }}>{Math.round(f.duration_minutes)}m ({f.cycles}c)</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

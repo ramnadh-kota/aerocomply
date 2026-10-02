@@ -157,6 +157,8 @@ class MAVLinkVehicleState:
         self.heading_deg: float = 0.0
         self.satellites_visible: int = 0
         self.gps_fix_type: int = 0
+        self.gps_fix_reported: bool = False  # True once a GPS_RAW_INT arrived; before that the fix is UNKNOWN, not "no GPS"
+        self.hdop: float | None = None
 
         # Attitude (deg)
         self.roll_deg: float = 0.0
@@ -293,16 +295,20 @@ class MAVLinkConnector(TelemetryConnector):
         # 3. GPS_RAW_INT
         elif message_type in ("GPS_RAW_INT", "24"):
             vehicle.gps_fix_type = int(payload_dict.get("fix_type", 0))
+            vehicle.gps_fix_reported = True
             vehicle.satellites_visible = int(payload_dict.get("satellites_visible", 0))
+            eph = payload_dict.get("eph")
+            vehicle.hdop = round(float(eph) / 100.0, 2) if eph is not None and int(eph) != 65535 else None
             lat = payload_dict.get("lat")
             lon = payload_dict.get("lon")
             alt = payload_dict.get("alt")
-            if lat is not None:
-                vehicle.latitude = float(lat) / 1e7
-            if lon is not None:
-                vehicle.longitude = float(lon) / 1e7
-            if alt is not None:
-                vehicle.altitude_m = round(float(alt) / 1000.0, 2)
+            if vehicle.gps_fix_type >= 2:  # without a fix lat/lon are 0/0 placeholders, not a position
+                if lat is not None:
+                    vehicle.latitude = float(lat) / 1e7
+                if lon is not None:
+                    vehicle.longitude = float(lon) / 1e7
+                if alt is not None:
+                    vehicle.altitude_m = round(float(alt) / 1000.0, 2)
 
         # 4. ATTITUDE
         elif message_type in ("ATTITUDE", "30"):
@@ -576,9 +582,13 @@ class MAVLinkConnector(TelemetryConnector):
         if "position" in g:
             position.update(
                 lat=vehicle.latitude, lon=vehicle.longitude, alt_msl_m=vehicle.altitude_m,
-                alt_rel_m=vehicle.relative_alt_m, gps_fix_type=vehicle.gps_fix_type,
-                gps_fix=GPS_FIX.get(vehicle.gps_fix_type), satellites=vehicle.satellites_visible,
+                alt_rel_m=vehicle.relative_alt_m,
             )
+            if vehicle.gps_fix_reported:
+                position.update(
+                    gps_fix_type=vehicle.gps_fix_type, gps_fix=GPS_FIX.get(vehicle.gps_fix_type),
+                    satellites=vehicle.satellites_visible, hdop=vehicle.hdop,
+                )
         motion: dict[str, Any] = {"observed_at": g.get("motion")}
         if "motion" in g:
             motion.update(
@@ -805,6 +815,15 @@ class MAVLinkConnector(TelemetryConnector):
                 return self.decode_message(
                     "VIBRATION",
                     {"sysid": sysid, "vibration_x": vx, "vibration_y": vy, "vibration_z": vz, "_trigger": trigger},
+                )
+
+            # GPS_RAW_INT (24): time_usec (Q), lat (i), lon (i), alt (i), eph (H), epv (H), vel (H), cog (H), fix_type (B), sats (B)
+            elif msgid == MSG_ID_GPS_RAW_INT and len(payload) >= 30:
+                _t, lat, lon, alt, eph, _epv, _vel, _cog, fix, sats = struct.unpack("<QiiiHHHHBB", payload[:30])
+                return self.decode_message(
+                    "GPS_RAW_INT",
+                    {"sysid": sysid, "lat": lat, "lon": lon, "alt": alt, "eph": eph, "fix_type": fix,
+                     "satellites_visible": 0 if sats == 255 else sats, "_trigger": trigger},  # 255 = unknown
                 )
 
             # MISSION_CURRENT (42): seq (H), then extensions total (H), mission_state (B), mission_mode (B), ...
