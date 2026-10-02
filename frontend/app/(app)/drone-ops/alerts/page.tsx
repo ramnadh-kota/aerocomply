@@ -100,7 +100,7 @@ export default function AlertsPage() {
           <p style={{ margin: 0, fontSize: 13, color: "var(--ac-text-muted)", lineHeight: 1.5 }}>
             LISA can be queried for asset-level context.
             <br /><br />
-            <em>Note: Dedicated root-cause analysis for specific alert IDs is pending backend integration. Use "Ask LISA" on an alert to open the Copilot with the associated asset's context.</em>
+            <em>Note: Dedicated root-cause analysis for specific alert IDs is pending backend integration. Use &quot;Ask LISA&quot; on an alert to open the Copilot with the associated asset&apos;s context.</em>
           </p>
         </div>
       </div>
