@@ -88,9 +88,10 @@ describe("Sidebar NAV_GROUPS (M21.2 IA regrouping)", () => {
     expect(hrefs).toContain("/tenant/settings");
   });
 
-  it("has exactly 69 total tenant nav items across all 7 groups (including M4/M4.2 /assets, /intelligence/fleet; +1 /data-sources in Phase B/I; +2 /helicopters and /evtols)", () => {
-    expect(allHrefs(NAV_GROUPS).length).toBe(69);
+  it("has exactly 70 total tenant nav items across all 7 groups (including M4/M4.2 /assets, /intelligence/fleet; +1 /data-sources in Phase B/I; +2 /helicopters and /evtols; +1 /drone-ops/overview entry in Operations group)", () => {
+    expect(allHrefs(NAV_GROUPS).length).toBe(70);
   });
+
 });
 
 describe("PLATFORM_NAV_GROUPS (M2 Platform Control Plane)", () => {

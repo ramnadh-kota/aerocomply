@@ -10,6 +10,7 @@ import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useEntitlements } from "@/lib/entitlements/EntitlementContext";
 import { isNavItemUnavailable } from "@/lib/entitlements/navFeatureMap";
 import { isMockOnlyRoute } from "@/lib/mock-only-routes";
+import { isRouteForbidden } from "@/lib/rbac/routePermissions";
 
 export interface NavItem {
   href: string;
@@ -39,6 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Operations",
     items: [
       { href: "/dashboard", label: "Dashboard", glyph: "◧" },
+      { href: "/drone-ops/overview", label: "Drone Ops →", glyph: "◆" },
       { href: "/executive", label: "Executive", glyph: "◆" },
       { href: "/notifications", label: "Notifications", glyph: "🔔" },
       { href: "/pilot", label: "Pilot Workflow", glyph: "▶" },
@@ -209,6 +211,13 @@ export function Sidebar() {
   // require_feature() enforcement.
   const { hasFeature } = useEntitlements();
 
+  // RBAC: items the user's effective permissions (from /auth/me, same table the API enforces) do not allow are removed
+  // from the nav rather than shown disabled; a group with nothing left is dropped. Display only -- the API enforces.
+  const permitted = (href: string) => isPlatformUser || !isRouteForbidden(href, user?.permissions);
+  const visibleGroups = groups
+    .map((g) => ({ ...g, items: g.items.filter((i) => permitted(i.href)) }))
+    .filter((g) => g.items.length > 0);
+
   return (
     <>
       <div className={`ac-sidebar-backdrop${open ? " open" : ""}`} onClick={close} aria-hidden="true" />
@@ -224,7 +233,7 @@ export function Sidebar() {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 8 }}>
-        {groups.map((group, gi) => (
+        {visibleGroups.map((group, gi) => (
           <div key={group.label}>
             {gi > 0 && <p className="ac-nav-section-label">{group.label}</p>}
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>

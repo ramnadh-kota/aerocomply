@@ -7,7 +7,8 @@
    alone) — see components/status/StatusBadge.tsx. */
 
 :root {
-  /* Light mode (default) */
+  /* Light mode (default). Text/status tokens are tuned to >= 4.5:1 (WCAG AA) on every light surface and on their own
+     12% tinted badge backgrounds; tests/theme-contrast.test.ts guards this. */
   --ac-bg: #f6f8fa;
   --ac-bg-elevated: #ffffff;
   --ac-bg-surface: #ffffff;
@@ -17,21 +18,54 @@
 
   --ac-text-primary: #16202b;
   --ac-text-secondary: #55636f;
-  --ac-text-muted: #8a97a3;
+  --ac-text-muted: #5f6b78;
 
-  --ac-accent: #2563eb;
-  --ac-accent-hover: #1d4fc4;
-  --ac-accent-muted: rgba(37, 99, 235, 0.1);
+  --ac-accent: #1f56d6;
+  --ac-accent-hover: #1b4bbd;
+  --ac-accent-muted: rgba(31, 86, 214, 0.1);
+  /* Pages reference --ac-primary (with a #38bdf8 fallback that is ~2:1 on white); it is an alias of the accent. */
+  --ac-primary: var(--ac-accent);
+  --ac-on-primary: #ffffff;
+  --ac-btn-primary-bg: var(--ac-accent);
+  --ac-btn-primary-bg-hover: var(--ac-accent-hover);
 
-  --ac-status-compliant: #1f9d5a;
+  /* Aliases for names that pages reference but that were never defined. Without these every use fell back to a
+     dark-theme hex literal (e.g. var(--border-color, #27272a)) or to nothing at all. They resolve through the themed
+     tokens above, so both themes stay consistent. Prefer the --ac-* names in new code. */
+  --primary: var(--ac-accent);
+  --danger: var(--ac-status-non-compliant);
+  --ac-danger: var(--ac-status-non-compliant);
+  --success: var(--ac-status-compliant);
+  --ac-success: var(--ac-status-compliant);
+  --warning: var(--ac-status-review);
+  --border-color: var(--ac-border);
+  --bg-card: var(--ac-bg-surface);
+  --ac-card-bg: var(--ac-bg-surface);
+  --ac-bg-input: var(--ac-bg-surface);
+  --ac-surface: var(--ac-bg-surface);
+  --ac-surface-1: var(--ac-bg-surface);
+  --ac-surface-2: var(--ac-bg-surface-hover);
+  --bg-subtle: var(--ac-bg-surface-hover);
+  --ac-bg-subtle: var(--ac-bg-surface-hover);
+  --ac-card-subtle: var(--ac-bg-surface-hover);
+  --ac-text: var(--ac-text-primary);
+  --ac-radius: var(--ac-radius-md);
+  --ac-status-non_compliant: var(--ac-status-non-compliant);
+  --ac-status-noncompliant: var(--ac-status-non-compliant);
+  --ac-status-critical: var(--ac-status-non-compliant);
+  --ac-status-review-required: var(--ac-status-review);
+  --ac-status-applicable: var(--ac-accent);
+  --ac-status-in-progress: var(--ac-accent);
+
+  --ac-status-compliant: #12703e;
   --ac-status-compliant-bg: rgba(31, 157, 90, 0.12);
-  --ac-status-non-compliant: #d53f3f;
+  --ac-status-non-compliant: #b82a2a;
   --ac-status-non-compliant-bg: rgba(213, 63, 63, 0.12);
-  --ac-status-insufficient: #7c5cfc;
+  --ac-status-insufficient: #6240e0;
   --ac-status-insufficient-bg: rgba(124, 92, 252, 0.12);
-  --ac-status-review: #c6821f;
+  --ac-status-review: #8c5808;
   --ac-status-review-bg: rgba(198, 130, 31, 0.12);
-  --ac-status-unknown: #6b7686;
+  --ac-status-unknown: #58647a;
   --ac-status-unknown-bg: rgba(107, 118, 134, 0.1);
 
   --ac-space-1: 4px;
@@ -75,21 +109,25 @@
 
   --ac-text-primary: #e8edf7;
   --ac-text-secondary: #9fb0cc;
-  --ac-text-muted: #6b7c9c;
+  --ac-text-muted: #8193b3;
 
-  --ac-accent: #3d8bff;
-  --ac-accent-hover: #5c9dff;
-  --ac-accent-muted: rgba(61, 139, 255, 0.14);
+  --ac-accent: #5a9bff;
+  --ac-accent-hover: #78aaff;
+  --ac-accent-muted: rgba(90, 155, 255, 0.14);
+  --ac-on-primary: #04101f;
+  /* White button text on the bright dark-theme accent is only 3.3:1; use a deeper blue so white stays AA (>= 4.5). */
+  --ac-btn-primary-bg: #2a68d8;
+  --ac-btn-primary-bg-hover: #2f6fe0;
 
   --ac-status-compliant: #2fbf71;
   --ac-status-compliant-bg: rgba(47, 191, 113, 0.14);
-  --ac-status-non-compliant: #e5484d;
+  --ac-status-non-compliant: #f0686c;
   --ac-status-non-compliant-bg: rgba(229, 72, 77, 0.14);
-  --ac-status-insufficient: #9a6bff;
+  --ac-status-insufficient: #ad88ff;
   --ac-status-insufficient-bg: rgba(154, 107, 255, 0.14);
   --ac-status-review: #e8a33d;
   --ac-status-review-bg: rgba(232, 163, 61, 0.14);
-  --ac-status-unknown: #6b7c9c;
+  --ac-status-unknown: #93a4c2;
   --ac-status-unknown-bg: rgba(107, 124, 156, 0.16);
 
   --ac-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -941,14 +979,14 @@ button.ac-menu-toggle {
 }
 
 .ac-btn-primary {
-  background: var(--ac-accent);
-  border-color: var(--ac-accent);
+  background: var(--ac-btn-primary-bg);
+  border-color: var(--ac-btn-primary-bg);
   color: white;
 }
 
 .ac-btn-primary:hover {
-  background: var(--ac-accent-hover);
-  border-color: var(--ac-accent-hover);
+  background: var(--ac-btn-primary-bg-hover);
+  border-color: var(--ac-btn-primary-bg-hover);
 }
 
 .ac-btn:disabled {
@@ -1068,6 +1106,12 @@ button.ac-menu-toggle {
   font-size: 13px;
   font-weight: 500;
   color: var(--ac-text-secondary);
+  /* <button class="ac-tab"> must not fall back to the UA ButtonFace
+     (grey, and low-contrast against --ac-text-secondary in dark mode). */
+  background: transparent;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   /* Keep each tab at its natural width instead of the flex default of
@@ -1179,7 +1223,7 @@ button.ac-menu-toggle {
   left: -9999px;
   top: 0;
   background: var(--ac-accent);
-  color: white;
+  color: var(--ac-on-primary);
   padding: var(--ac-space-2) var(--ac-space-4);
   z-index: 100;
 }
@@ -1187,3 +1231,1350 @@ button.ac-menu-toggle {
 .ac-skip-link:focus {
   left: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DRONE OPERATIONS — Premium aerospace command-center UI system.
+   All classes prefixed ac-drone-* or ac-drone-ops-* to avoid collisions.
+   Designed exclusively for dark-theme usage; light-theme overrides apply
+   reduced opacity and border visibility rather than inverting the palette.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Shell & Layout ─────────────────────────────────────────────────────── */
+
+.ac-drone-ops-shell {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--ac-bg);
+  position: relative;
+}
+
+.ac-drone-ops-sidebar-wrapper {
+  width: 220px;
+  flex-shrink: 0;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--ac-bg-elevated);
+  border-right: 1px solid var(--ac-border);
+  z-index: 10;
+  transition: transform 200ms ease;
+}
+
+.ac-drone-ops-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.ac-drone-ops-menu-toggle {
+  display: none;
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 20;
+  background: var(--ac-bg-surface);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-sm);
+  padding: 6px 10px;
+  color: var(--ac-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  align-items: center;
+  gap: 4px;
+}
+
+.ac-drone-ops-menu-toggle:hover {
+  background: var(--ac-bg-surface-hover);
+  color: var(--ac-text-primary);
+}
+
+.ac-drone-ops-sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 9;
+}
+
+@media (max-width: 900px) {
+  .ac-drone-ops-menu-toggle {
+    display: inline-flex;
+  }
+
+  .ac-drone-ops-sidebar-wrapper {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translateX(-100%);
+    z-index: 50;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .ac-drone-ops-sidebar-wrapper.open {
+    transform: translateX(0);
+  }
+
+  .ac-drone-ops-sidebar-backdrop {
+    display: block;
+  }
+}
+
+/* ── Drone Ops Sidebar ──────────────────────────────────────────────────── */
+
+.ac-drone-ops-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.ac-drone-ops-sidebar-header {
+  padding: 16px 16px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--ac-border-subtle);
+  flex-shrink: 0;
+}
+
+.ac-drone-ops-logo-link {
+  display: flex;
+  align-items: center;
+  opacity: 0.9;
+  transition: opacity 0.15s;
+}
+
+.ac-drone-ops-logo-link:hover {
+  opacity: 1;
+}
+
+.ac-drone-ops-sidebar-module-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-accent);
+  border: 1px solid var(--ac-accent-muted);
+  border-radius: 3px;
+  padding: 2px 5px;
+  background: var(--ac-accent-muted);
+  white-space: nowrap;
+}
+
+.ac-drone-ops-sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.ac-drone-ops-nav-group {
+  margin-top: 4px;
+}
+
+.ac-drone-ops-nav-group-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+  padding: 10px 16px 4px;
+  margin: 0;
+}
+
+.ac-drone-ops-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ac-drone-ops-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ac-text-secondary);
+  border-radius: 0;
+  text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+  position: relative;
+  cursor: pointer;
+}
+
+.ac-drone-ops-nav-link:hover {
+  background: var(--ac-bg-surface-hover);
+  color: var(--ac-text-primary);
+}
+
+.ac-drone-ops-nav-link.active {
+  background: var(--ac-accent-muted);
+  color: var(--ac-accent);
+  font-weight: 600;
+}
+
+.ac-drone-ops-nav-link.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--ac-accent);
+  border-radius: 0 2px 2px 0;
+}
+
+.ac-drone-ops-nav-link.unimplemented {
+  opacity: 0.55;
+}
+
+.ac-drone-ops-nav-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.ac-drone-ops-nav-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ac-drone-ops-nav-soon {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 1px 4px;
+  background: rgba(129, 147, 179, 0.15);
+  border: 1px solid rgba(129, 147, 179, 0.2);
+  border-radius: 2px;
+  color: var(--ac-text-muted);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.ac-drone-ops-nav-badge {
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--ac-status-non-compliant);
+  color: #fff;
+  border-radius: 8px;
+  padding: 1px 5px;
+  margin-left: auto;
+  min-width: 18px;
+  text-align: center;
+}
+
+.ac-drone-ops-sidebar-footer {
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--ac-border-subtle);
+  flex-shrink: 0;
+}
+
+.ac-drone-ops-back-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ac-text-muted);
+  padding: 6px 0;
+  transition: color 0.12s;
+}
+
+.ac-drone-ops-back-link:hover {
+  color: var(--ac-text-secondary);
+}
+
+/* ── Operations Topbar / KPI Bar ───────────────────────────────────────── */
+
+.ac-drone-ops-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  height: 48px;
+  background: var(--ac-bg-elevated);
+  border-bottom: 1px solid var(--ac-border);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.ac-drone-ops-topbar-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ac-drone-ops-topbar-module {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+}
+
+.ac-drone-ops-topbar-sep {
+  color: var(--ac-border);
+}
+
+.ac-drone-ops-topbar-workspace {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-accent);
+}
+
+.ac-drone-kpi-bar {
+  display: flex;
+  gap: 1px;
+  flex: 1;
+  overflow: hidden;
+  background: var(--ac-border);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-sm);
+}
+
+.ac-drone-kpi-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 4px 12px;
+  background: var(--ac-bg-surface);
+  min-width: 72px;
+  flex: 1;
+}
+
+.ac-drone-kpi-value {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--ac-font-mono, monospace);
+  color: var(--ac-text-primary);
+}
+
+.ac-drone-kpi-pulse {
+  animation: drone-kpi-pulse 2s ease-in-out infinite;
+}
+
+@keyframes drone-kpi-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.ac-drone-kpi-label {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+  white-space: nowrap;
+}
+
+.ac-drone-ops-topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ac-drone-ops-connection-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--ac-radius-sm);
+  background: var(--ac-bg-surface);
+  border: 1px solid var(--ac-border);
+}
+
+.ac-drone-ops-connection-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ac-drone-ops-connection-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ac-drone-ops-time {
+  font-size: 11px;
+  font-family: var(--ac-font-mono, monospace);
+  color: var(--ac-text-muted);
+  white-space: nowrap;
+}
+
+/* ── Overview 3-column layout ──────────────────────────────────────────── */
+
+.ac-drone-overview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.ac-drone-overview-body {
+  display: grid;
+  grid-template-columns: 220px 1fr 240px;
+  gap: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+@media (max-width: 1200px) {
+  .ac-drone-overview-body {
+    grid-template-columns: 200px 1fr 220px;
+  }
+}
+
+@media (max-width: 900px) {
+  .ac-drone-overview-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+    overflow-y: auto;
+  }
+}
+
+.ac-drone-overview-center {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--ac-border);
+  border-right: 1px solid var(--ac-border);
+  overflow: hidden;
+}
+
+.ac-drone-map-area {
+  flex: 1;
+  overflow: hidden;
+}
+
+.ac-drone-overview-bottom {
+  display: flex;
+  height: 96px;
+  border-top: 1px solid var(--ac-border);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.ac-drone-overview-right {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Fleet Panel (left) ────────────────────────────────────────────────── */
+
+.ac-drone-fleet-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--ac-border);
+}
+
+.ac-drone-fleet-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--ac-border-subtle);
+  flex-shrink: 0;
+}
+
+.ac-drone-fleet-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ac-drone-panel-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+}
+
+.ac-drone-panel-count {
+  font-size: 10px;
+  color: var(--ac-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Drone Cards ───────────────────────────────────────────────────────── */
+
+.ac-drone-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--ac-bg-surface);
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: var(--ac-radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+  position: relative;
+  width: 100%;
+}
+
+.ac-drone-card:hover {
+  background: var(--ac-bg-surface-hover);
+  border-color: var(--ac-border);
+}
+
+.ac-drone-card.selected {
+  background: var(--ac-accent-muted);
+  border-color: var(--ac-accent);
+}
+
+.ac-drone-card.airborne::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--ac-status-compliant);
+  border-radius: var(--ac-radius-sm) 0 0 var(--ac-radius-sm);
+}
+
+.ac-drone-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.ac-drone-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ac-drone-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ac-drone-card-reg {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ac-text-primary);
+  font-family: var(--ac-font-mono, monospace);
+  white-space: nowrap;
+}
+
+.ac-drone-card-mode {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: var(--ac-bg-elevated);
+  white-space: nowrap;
+}
+
+.ac-drone-card-telemetry {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 6px;
+}
+
+.ac-drone-telem-cell {
+  display: flex;
+  flex-direction: column;
+}
+
+.ac-drone-telem-label {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+  line-height: 1;
+}
+
+.ac-drone-telem-value {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--ac-font-mono, monospace);
+  color: var(--ac-text-secondary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+/* Battery bar (horizontal, inside card) */
+.ac-drone-battery-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ac-drone-battery-bar-track {
+  flex: 1;
+  height: 4px;
+  background: var(--ac-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ac-drone-battery-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease, background 0.3s;
+}
+
+.ac-drone-battery-pct {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--ac-font-mono, monospace);
+  min-width: 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ac-drone-card-stale {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--ac-status-review);
+  text-align: center;
+  border-top: 1px solid var(--ac-border-subtle);
+  padding-top: 3px;
+}
+
+.ac-drone-card-detail-link {
+  font-size: 10px;
+  color: var(--ac-accent);
+  text-align: right;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.ac-drone-card:hover .ac-drone-card-detail-link,
+.ac-drone-card.selected .ac-drone-card-detail-link {
+  opacity: 1;
+}
+
+/* ── Map Placeholder ────────────────────────────────────────────────────── */
+
+.ac-drone-map-placeholder {
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 50%, rgba(90, 155, 255, 0.04) 0%, transparent 70%),
+    var(--ac-bg);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ac-drone-map-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(90, 155, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(90, 155, 255, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.ac-drone-map-dots {
+  position: absolute;
+  inset: 0;
+}
+
+.ac-drone-map-paths {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ac-drone-map-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.ac-drone-map-dot.airborne {
+  background: var(--ac-status-compliant);
+  box-shadow: 0 0 0 3px rgba(47, 191, 113, 0.25);
+}
+
+.ac-drone-map-dot.airborne.pulse {
+  animation: drone-dot-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes drone-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(47, 191, 113, 0.25); }
+  50% { box-shadow: 0 0 0 8px rgba(47, 191, 113, 0.08); }
+}
+
+.ac-drone-map-dot.grounded {
+  background: var(--ac-text-muted);
+  box-shadow: 0 0 0 2px rgba(129, 147, 179, 0.2);
+}
+
+.ac-drone-map-dot.offline {
+  background: var(--ac-status-non-compliant);
+  opacity: 0.4;
+}
+
+.ac-drone-map-geofence {
+  position: absolute;
+  border: 1px dashed rgba(90, 155, 255, 0.3);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.ac-drone-map-label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  text-align: left;
+  z-index: 1;
+  padding: 20px 24px;
+  background: rgba(14, 27, 42, 0.85);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-lg);
+  backdrop-filter: blur(4px);
+}
+
+.ac-drone-map-label-icon {
+  font-size: 32px;
+  color: var(--ac-accent);
+  opacity: 0.7;
+}
+
+.ac-drone-map-label-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ac-drone-map-label-text strong {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ac-text-primary);
+}
+
+.ac-drone-map-label-text span {
+  font-size: 12px;
+  color: var(--ac-text-secondary);
+}
+
+.ac-drone-map-label-text small {
+  font-size: 10px;
+  color: var(--ac-text-muted);
+}
+
+.ac-drone-map-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 2px;
+  z-index: 2;
+}
+
+.ac-drone-map-ctrl-btn {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 9px;
+  background: var(--ac-bg-elevated);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-sm);
+  color: var(--ac-text-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ac-drone-map-ctrl-btn.active {
+  background: var(--ac-accent-muted);
+  border-color: var(--ac-accent);
+  color: var(--ac-accent);
+  opacity: 1;
+}
+
+/* ── Alerts Panel ───────────────────────────────────────────────────────── */
+
+.ac-drone-alerts-panel {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--ac-border);
+  flex: 0 0 auto;
+  max-height: 50%;
+  overflow: hidden;
+}
+
+.ac-drone-panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--ac-border-subtle);
+  flex-shrink: 0;
+}
+
+.ac-drone-alerts-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  background: var(--ac-status-non-compliant);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 8px;
+}
+
+.ac-drone-alerts-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ac-drone-alert-item {
+  padding: 7px 10px;
+  border-radius: var(--ac-radius-sm);
+  border-left: 3px solid transparent;
+  background: var(--ac-bg-surface);
+  border-top: 1px solid var(--ac-border-subtle);
+  border-right: 1px solid var(--ac-border-subtle);
+  border-bottom: 1px solid var(--ac-border-subtle);
+}
+
+.ac-drone-alert-item.severity-critical {
+  border-left-color: var(--ac-status-non-compliant);
+  background: rgba(240, 104, 108, 0.05);
+}
+
+.ac-drone-alert-item.severity-warning {
+  border-left-color: var(--ac-status-review);
+  background: rgba(232, 163, 61, 0.04);
+}
+
+.ac-drone-alert-item.severity-info {
+  border-left-color: var(--ac-accent);
+}
+
+.ac-drone-alert-item.cleared {
+  opacity: 0.5;
+  border-left-color: transparent;
+}
+
+.ac-drone-alert-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 2px;
+}
+
+.ac-drone-alert-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.ac-drone-alert-reg {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--ac-font-mono, monospace);
+  flex: 1;
+}
+
+.ac-drone-alert-time {
+  font-size: 9px;
+  color: var(--ac-text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ac-drone-alert-desc {
+  font-size: 11px;
+  color: var(--ac-text-secondary);
+  margin: 0 0 4px;
+  line-height: 1.35;
+}
+
+.ac-drone-alert-ack-btn {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--ac-border);
+  border-radius: 3px;
+  color: var(--ac-text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.ac-drone-alert-ack-btn:hover {
+  background: var(--ac-bg-surface-hover);
+  color: var(--ac-text-primary);
+}
+
+.ac-drone-alerts-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ac-text-muted);
+}
+
+.ac-drone-alerts-divider::before,
+.ac-drone-alerts-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ac-border-subtle);
+}
+
+.ac-drone-alerts-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ac-text-muted);
+}
+
+.cleared-text {
+  opacity: 0.6;
+}
+
+/* ── Mission Status Panel ──────────────────────────────────────────────── */
+
+.ac-drone-mission-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ac-drone-mission-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ac-drone-mission-card {
+  padding: 8px 10px;
+  background: var(--ac-bg-surface);
+  border: 1px solid var(--ac-border-subtle);
+  border-radius: var(--ac-radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ac-drone-mission-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.ac-drone-mission-reg {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--ac-font-mono, monospace);
+  color: var(--ac-text-primary);
+}
+
+.ac-drone-mission-status-pill {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ac-drone-mission-purpose {
+  font-size: 11px;
+  color: var(--ac-text-secondary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.ac-drone-mission-waypoints {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ac-drone-mission-wp-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--ac-text-muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.ac-drone-mission-progress-track {
+  height: 4px;
+  background: var(--ac-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ac-drone-mission-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ac-accent) 0%, var(--ac-status-compliant) 100%);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.ac-drone-mission-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--ac-text-secondary);
+}
+
+.ac-drone-mission-meta-key {
+  color: var(--ac-text-muted);
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 2px;
+  font-weight: 600;
+}
+
+.ac-drone-mission-area {
+  font-size: 9.5px;
+  color: var(--ac-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ac-drone-mission-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ac-text-muted);
+}
+
+/* ── Battery Overview Bar (bottom-left) ───────────────────────────────── */
+
+.ac-drone-battery-overview {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 8px 12px;
+  border-right: 1px solid var(--ac-border);
+  overflow-x: auto;
+  flex-shrink: 0;
+  width: 260px;
+}
+
+.ac-drone-battery-overview-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.ac-drone-battery-overview-items {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 1;
+}
+
+.ac-drone-battery-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ac-drone-battery-cell-reg {
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--ac-text-muted);
+  font-family: var(--ac-font-mono, monospace);
+  white-space: nowrap;
+}
+
+.ac-drone-battery-cell-track {
+  width: 14px;
+  height: 48px;
+  background: var(--ac-border);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  border: 1px solid var(--ac-border);
+}
+
+.ac-drone-battery-cell-fill {
+  width: 100%;
+  border-radius: 2px;
+  transition: height 0.5s ease, background 0.3s;
+}
+
+.ac-drone-battery-cell-pct {
+  font-size: 8px;
+  font-weight: 700;
+  font-family: var(--ac-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Flight Event Log (bottom-right of bottom strip) ─────────────────── */
+
+.ac-drone-event-log {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 10px;
+  overflow: hidden;
+}
+
+.ac-drone-event-log-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  flex-shrink: 0;
+  align-self: flex-start;
+  padding-top: 2px;
+}
+
+.ac-drone-event-log-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ac-drone-event-log-empty {
+  font-size: 10px;
+  color: var(--ac-text-muted);
+  padding: 4px 0;
+}
+
+.ac-drone-event-log-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.ac-drone-event-log-time {
+  font-size: 9.5px;
+  font-family: var(--ac-font-mono, monospace);
+  color: var(--ac-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ac-drone-event-log-sev {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--ac-font-mono, monospace);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  min-width: 28px;
+}
+
+.ac-drone-event-log-reg {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--ac-font-mono, monospace);
+  color: var(--ac-text-secondary);
+  flex-shrink: 0;
+  min-width: 64px;
+}
+
+.ac-drone-event-log-msg {
+  font-size: 10px;
+  color: var(--ac-text-muted);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Stub Pages ─────────────────────────────────────────────────────────── */
+
+.ac-drone-stub-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 48px);
+  padding: 32px 16px;
+}
+
+.ac-drone-stub-card {
+  max-width: 560px;
+  width: 100%;
+  background: var(--ac-bg-elevated);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-lg);
+  padding: 36px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ac-drone-stub-milestone {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ac-accent);
+  background: var(--ac-accent-muted);
+  border: 1px solid rgba(90, 155, 255, 0.2);
+  border-radius: var(--ac-radius-sm);
+  padding: 3px 9px;
+}
+
+.ac-drone-stub-icon {
+  font-size: 36px;
+  margin: 4px 0;
+  line-height: 1;
+}
+
+.ac-drone-stub-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ac-text-primary);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.ac-drone-stub-subtitle {
+  font-size: 13px;
+  color: var(--ac-text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.ac-drone-stub-description {
+  font-size: 13px;
+  color: var(--ac-text-muted);
+  margin: 0;
+  line-height: 1.6;
+  border-top: 1px solid var(--ac-border-subtle);
+  padding-top: 12px;
+}
+
+.ac-drone-stub-capabilities {
+  width: 100%;
+}
+
+.ac-drone-stub-cap-heading {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ac-text-muted);
+  margin: 0 0 8px;
+}
+
+.ac-drone-stub-cap-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ac-drone-stub-cap-item {
+  font-size: 12px;
+  color: var(--ac-text-secondary);
+  display: flex;
+  align-items: baseline;
+}
+
+.ac-drone-stub-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  border-top: 1px solid var(--ac-border-subtle);
+  padding-top: 16px;
+  width: 100%;
+}
+
+.ac-btn-primary {
+  background: var(--ac-btn-primary-bg, var(--ac-accent)) !important;
+  color: #fff !important;
+}
+
+.ac-btn-primary:hover {
+  background: var(--ac-btn-primary-bg-hover, var(--ac-accent-hover)) !important;
+}
+
+/* ── Light theme overrides for drone-ops ─────────────────────────────── */
+
+:root:not([data-theme="dark"]) .ac-drone-map-placeholder {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 50%, rgba(31, 86, 214, 0.04) 0%, transparent 70%),
+    var(--ac-bg);
+}
+
+:root:not([data-theme="dark"]) .ac-drone-map-grid {
+  background-image:
+    linear-gradient(rgba(31, 86, 214, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31, 86, 214, 0.06) 1px, transparent 1px);
+}
+

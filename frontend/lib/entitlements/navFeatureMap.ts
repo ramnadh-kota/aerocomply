@@ -20,6 +20,10 @@ export const NAV_FEATURE_MAP: Record<string, NavFeatureKey> = {
   "/helicopters": FEATURE_KEYS.HELICOPTER_FLEET_MANAGEMENT,
   "/evtols": FEATURE_KEYS.EVTOL_FLEET_MANAGEMENT,
 
+  // Drone Operations workspace — all /drone-ops/* routes are entitlement-gated
+  // via the SuiteGuard in the layout. The sidebar links directly to /drone-ops/overview.
+  "/drone-ops/overview": FEATURE_KEYS.DRONE_FLEET_MANAGEMENT,
+
   // Data acquisition (ingest endpoint is gated by flight_telemetry on the backend)
   "/data-sources": FEATURE_KEYS.FLIGHT_TELEMETRY,
 
