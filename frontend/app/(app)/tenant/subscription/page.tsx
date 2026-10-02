@@ -1,5 +1,6 @@
 "use client";
 
+import { dedupeEffectiveFeatures } from "@/lib/entitlements/featureKeys";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -134,14 +135,14 @@ export default function TenantSubscriptionPage() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-            {Object.entries(entitlements?.effective_features ?? {
+            {(entitlements ? dedupeEffectiveFeatures(entitlements.effective_features) : Object.entries({
               drone_fleet_management: true,
               work_order_management: true,
               compliance_audit_suite: true,
               airworthiness_management: true,
               flight_logging: true,
               procurement_management: true,
-            }).map(([feat, enabled]) => (
+            })).map(([feat, enabled]) => (
               <div
                 key={feat}
                 style={{

@@ -298,7 +298,7 @@ function RealAircraftDetail({ aircraftId }: { aircraftId: string }) {
           {record && isEditing && (
             <div className="ac-card">
               {saveError && (
-                <p className="ac-text-sm" style={{ color: "#ef4444", marginTop: 0 }}>{saveError}</p>
+                <p className="ac-text-sm" style={{ color: "var(--ac-status-non-compliant)", marginTop: 0 }}>{saveError}</p>
               )}
               <div className="ac-grid-2" style={{ gap: 12, marginBottom: 12 }}>
                 <div>

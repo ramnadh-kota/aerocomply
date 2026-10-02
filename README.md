@@ -40,6 +40,12 @@ export TEST_DATABASE_URL=postgresql+psycopg://aerocomply:aerocomply@localhost:54
 pytest -v
 ```
 
+The database is configured by `TEST_DATABASE_URL`, or piecewise by `TEST_DB_HOST`, `TEST_DB_PORT` (default `5432`),
+`TEST_DB_USER`, `TEST_DB_PASSWORD` and `TEST_DB_NAME`. A native Postgres on another port (e.g. `55432`) only needs
+`TEST_DB_PORT=55432`. The integration conftest checks the database first and exits within seconds with a clear message
+if it is unreachable, and it refuses a database whose name does not contain `test` (the session ends with
+`alembic downgrade base`; override only deliberately with `ALLOW_NON_TEST_DATABASE=1`).
+
 ### 4. Frontend
 
 ```bash

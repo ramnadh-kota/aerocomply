@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db_session, require_feature, require_permission
-from app.core.permissions import Permission
+from app.core.permissions import Permission, permissions_for_roles
 from app.schemas.auth import CurrentUser, MessageResponse
 from app.schemas.deletion import OrganizationDeletionRequest
 from app.schemas.platform import AuditEventResponse
@@ -33,13 +33,19 @@ router = APIRouter(prefix="/tenant", tags=["tenant"])
 # --- DASHBOARD & PROFILE ---
 
 
+def _can_manage_org(user: CurrentUser) -> bool:
+    return Permission.ORG_MANAGE.value in permissions_for_roles(user.roles)
+
+
 @router.get("/dashboard", response_model=TenantDashboardResponse)
 def get_tenant_dashboard(
     db: Session = Depends(get_db_session),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> TenantDashboardResponse:
     return tenant_service.get_tenant_dashboard(
-        db, organization_id=current_user.organization_id
+        db,
+        organization_id=current_user.organization_id,
+        include_restricted=_can_manage_org(current_user),
     )
 
 
@@ -49,7 +55,9 @@ def get_tenant_profile(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> TenantProfileResponse:
     return tenant_service.get_tenant_profile(
-        db, organization_id=current_user.organization_id
+        db,
+        organization_id=current_user.organization_id,
+        include_contact=_can_manage_org(current_user),
     )
 
 
@@ -126,7 +134,7 @@ def request_organization_deletion(
 @router.get("/users", response_model=list[TenantUserResponse])
 def list_tenant_users(
     db: Session = Depends(get_db_session),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> list[TenantUserResponse]:
     return tenant_service.list_tenant_users(
         db, organization_id=current_user.organization_id
@@ -137,7 +145,7 @@ def list_tenant_users(
 def get_tenant_user(
     user_id: uuid.UUID,
     db: Session = Depends(get_db_session),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> TenantUserResponse:
     return tenant_service.get_tenant_user(
         db, organization_id=current_user.organization_id, user_id=user_id
@@ -291,7 +299,7 @@ def cancel_tenant_invitation(
 @router.get("/teams", response_model=list[TenantTeamResponse])
 def get_tenant_teams(
     db: Session = Depends(get_db_session),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_permission(Permission.USER_MANAGE)),
 ) -> list[TenantTeamResponse]:
     return tenant_service.get_tenant_teams(
         db, organization_id=current_user.organization_id
@@ -301,7 +309,8 @@ def get_tenant_teams(
 @router.get("/usage", response_model=TenantUsageResponse)
 def get_tenant_usage(
     db: Session = Depends(get_db_session),
-    current_user: CurrentUser = Depends(get_current_user),
+    # Usage limits are commercial terms: same tier as other org-management data.
+    current_user: CurrentUser = Depends(require_permission(Permission.ORG_MANAGE)),
 ) -> TenantUsageResponse:
     return tenant_service.get_tenant_usage(
         db, organization_id=current_user.organization_id

@@ -87,7 +87,7 @@ function DemoDrones() {
           <button
             type="button"
             className="ac-btn"
-            style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+            style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
             onClick={() => setIsModalOpen(true)}
           >
             + Add Drone
@@ -329,7 +329,7 @@ function RealDrones() {
           <button
             type="button"
             className="ac-btn"
-            style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+            style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
             onClick={() => setIsModalOpen(true)}
           >
             + Add Drone

@@ -64,6 +64,7 @@ export interface FlightResponse {
   duration_minutes: number;
   cycles: number;
   pilot_user_id: string | null;
+  pilot_name?: string | null;
   notes: string | null;
   created_at: string;
 }

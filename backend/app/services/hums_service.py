@@ -227,6 +227,7 @@ def evaluate_sensor_health(
     readings = _latest_readings(db, organization_id=organization_id, sensor_id=sensor.id)
     feature = _compute_rms_feature(readings) if sensor.measurement_type == "vibration" else None
 
+    # Counts all RECORDED exceedances; the model has no status/resolved field.
     active_exceedances = db.execute(
         select(HUMSExceedance).where(
             HUMSExceedance.organization_id == organization_id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { DroneKPIBar } from "./DroneKPIBar";
 import { FleetStatusCards } from "./FleetStatusCards";
 import { MapPlaceholder } from "./MapPlaceholder";
@@ -8,13 +8,17 @@ import { AlertsPanel } from "./AlertsPanel";
 import { MissionStatusPanel } from "./MissionStatusPanel";
 import { BatteryOverviewBar } from "./BatteryOverviewBar";
 import { FlightEventLog } from "./FlightEventLog";
+import { DroneDetailPanel } from "./DroneDetailPanel";
+import { dronesApi, type DroneResponse } from "@/lib/api/drones";
+import { useSession } from "@/lib/auth/SessionContext";
+
 import {
   buildFleetSnapshot,
   computeFleetKPIs,
   SIM_EVENTS,
   SIM_MISSIONS,
 } from "@/lib/drone-ops/mockDroneState";
-import type { FleetSnapshot, FleetKPIs, OperationalEvent } from "@/lib/drone-ops/types";
+import type { FleetSnapshot, FleetKPIs, OperationalEvent, DroneState } from "@/lib/drone-ops/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tick-based live simulation refresh (A1 — replace with WebSocket/SSE in A6).
@@ -32,27 +36,84 @@ function nowUTC(): string {
 }
 
 export function OperationsOverview() {
+  const { accessToken } = useSession();
   const [tick, setTick] = useState(0);
-  const [snapshot, setSnapshot] = useState<FleetSnapshot>(() => buildFleetSnapshot(0));
-  const [kpis, setKpis] = useState<FleetKPIs>(() => computeFleetKPIs(buildFleetSnapshot(0)));
+  const [isSimulated, setIsSimulated] = useState(false);
+  const [realDrones, setRealDrones] = useState<DroneResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
   const [events, setEvents] = useState<OperationalEvent[]>(SIM_EVENTS);
   const [operationalTime, setOperationalTime] = useState(nowUTC());
+
+  const loadDrones = useCallback(async () => {
+    if (!accessToken) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await dronesApi.listDrones(accessToken);
+      setRealDrones(data);
+    } catch (err: any) {
+      setError(err.message || "Failed to load fleet inventory.");
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    loadDrones();
+  }, [loadDrones]);
+
 
   // Advance simulation tick
   useEffect(() => {
     const interval = setInterval(() => {
       setTick((t) => {
         const nextTick = t + 1;
-        const next = buildFleetSnapshot(nextTick);
-        setSnapshot(next);
-        setKpis(computeFleetKPIs(next));
         setOperationalTime(nowUTC());
         return nextTick;
       });
     }, TICK_INTERVAL_MS);
     return () => clearInterval(interval);
   }, []);
+
+  const snapshot = useMemo<FleetSnapshot>(() => {
+    if (isSimulated) {
+      return buildFleetSnapshot(tick);
+    }
+    
+    // Live mode: map real drones to DroneState (no fabricated telemetry)
+    const drones: DroneState[] = realDrones.map(rd => ({
+      organization_id: rd.organization_id,
+      asset_id: rd.id,
+      registration: rd.registration ?? rd.id,
+      device_id: null,
+      latitude: null,
+      longitude: null,
+      altitude: null,
+      heading: null,
+      speed: null,
+      battery_percentage: null,
+      battery_voltage: null,
+      flight_mode: "UNKNOWN",
+      connection_status: "UNKNOWN",
+      source_timestamp: null,
+      received_timestamp: null,
+      freshness_status: "UNKNOWN",
+    }));
+
+    return {
+      organization_id: realDrones[0]?.organization_id ?? "unknown",
+      snapshot_at: new Date().toISOString(),
+      drones,
+      active_missions: [], // Live missions not yet integrated
+      recent_events: [], // Live events not yet integrated
+    };
+  }, [isSimulated, tick, realDrones]);
+
+  const kpis = useMemo<FleetKPIs>(() => computeFleetKPIs(snapshot), [snapshot]);
+
 
   const handleAcknowledge = useCallback((eventId: string) => {
     setEvents((prev) =>
@@ -67,12 +128,26 @@ export function OperationsOverview() {
   return (
     <div className="ac-drone-overview">
       {/* ── Top bar: KPIs + org identity ── */}
-      <DroneKPIBar
-        kpis={kpis}
-        operationalTime={operationalTime}
-        connectionLabel="MAVLink Connected"
-        isSimulated={true}
-      />
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <DroneKPIBar
+          kpis={kpis}
+          operationalTime={operationalTime}
+          connectionLabel={isSimulated ? "SIMULATED NETWORK" : "LIVE MAVLINK"}
+          isSimulated={isSimulated}
+        />
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 16px", background: "var(--ac-bg-elevated)", borderBottom: "1px solid var(--ac-border-subtle)", fontSize: "11px", gap: "12px", alignItems: "center" }}>
+          <span style={{ color: "var(--ac-text-muted)" }}>{loading ? "Syncing Fleet..." : "Fleet Synced"}</span>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+            <input 
+              type="checkbox" 
+              checked={isSimulated} 
+              onChange={e => setIsSimulated(e.target.checked)} 
+            />
+            <span style={{ color: "var(--ac-text-secondary)", fontWeight: 600 }}>Simulation Mode</span>
+          </label>
+        </div>
+      </div>
+
 
       {/* ── Main 3-column body ── */}
       <div className="ac-drone-overview-body">
@@ -100,11 +175,22 @@ export function OperationsOverview() {
           </div>
         </div>
 
-        {/* RIGHT: Alerts + missions */}
-        <div className="ac-drone-overview-right">
-          <AlertsPanel events={events} onAcknowledge={handleAcknowledge} />
-          <MissionStatusPanel missions={SIM_MISSIONS} />
-        </div>
+        {/* RIGHT: Alerts + missions OR Detail Panel */}
+        {selectedDroneId ? (
+          <div className="ac-drone-overview-right" style={{ width: "320px", flexShrink: 0 }}>
+            {snapshot.drones.find((d: DroneState) => d.asset_id === selectedDroneId) && (
+              <DroneDetailPanel 
+                droneState={snapshot.drones.find((d: DroneState) => d.asset_id === selectedDroneId)!} 
+                onClose={() => setSelectedDroneId(null)} 
+              />
+            )}
+          </div>
+        ) : (
+          <div className="ac-drone-overview-right">
+            <AlertsPanel events={isSimulated ? events : []} onAcknowledge={handleAcknowledge} />
+            <MissionStatusPanel missions={isSimulated ? SIM_MISSIONS : []} />
+          </div>
+        )}
       </div>
     </div>
   );

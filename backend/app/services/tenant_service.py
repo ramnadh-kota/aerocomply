@@ -5,6 +5,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, ForbiddenError, NotFoundError
+from app.core.feature_keys import canonicalize_feature_key
 from app.core.permissions import ROLE_PERMISSIONS, Role
 from app.core.security import hash_password
 from app.models.asset import Asset
@@ -54,7 +55,9 @@ ROLE_DESCRIPTIONS: dict[Role, str] = {
 }
 
 
-def get_tenant_profile(db: Session, *, organization_id: uuid.UUID) -> TenantProfileResponse:
+def get_tenant_profile(
+    db: Session, *, organization_id: uuid.UUID, include_contact: bool = True
+) -> TenantProfileResponse:
     org = db.get(Organization, organization_id)
     if org is None:
         raise NotFoundError("Organization not found")
@@ -73,8 +76,8 @@ def get_tenant_profile(db: Session, *, organization_id: uuid.UUID) -> TenantProf
         status=org.status,
         industry=org.industry,
         created_at=org.created_at,
-        primary_contact_email=primary_user.email if primary_user else None,
-        primary_contact_name=primary_user.full_name if primary_user else None,
+        primary_contact_email=primary_user.email if primary_user and include_contact else None,
+        primary_contact_name=primary_user.full_name if primary_user and include_contact else None,
     )
 
 
@@ -782,8 +785,16 @@ def get_tenant_usage(db: Session, *, organization_id: uuid.UUID) -> TenantUsageR
     return TenantUsageResponse(organization_id=organization_id, metrics=metrics)
 
 
-def get_tenant_dashboard(db: Session, *, organization_id: uuid.UUID) -> TenantDashboardResponse:
-    profile = get_tenant_profile(db, organization_id=organization_id)
+def get_tenant_dashboard(
+    db: Session, *, organization_id: uuid.UUID, include_restricted: bool = True
+) -> TenantDashboardResponse:
+    """Fleet/operational counts are visible to every authenticated tenant user.
+    Seat/invitation figures, plan, subscription status, entitlement counts and
+    primary-contact details are only populated when include_restricted
+    (caller holds org:manage); otherwise they are None."""
+    profile = get_tenant_profile(
+        db, organization_id=organization_id, include_contact=include_restricted
+    )
 
     users = list_tenant_users(db, organization_id=organization_id)
     users_count = len(users)
@@ -815,10 +826,13 @@ def get_tenant_dashboard(db: Session, *, organization_id: uuid.UUID) -> TenantDa
 
     # Entitlements & Subscription
     entitlements = resolve_entitlements(db, organization_id=organization_id)
-    effective_features_count = len([v for v in entitlements.effective_features.values() if v])
+    # effective_features also carries lookup aliases for every feature; count each feature once.
+    effective_features_count = len(
+        {canonicalize_feature_key(k) for k, v in entitlements.effective_features.items() if v}
+    )
 
     attention_items: list[TenantDashboardAttentionItem] = []
-    if pending_invitations_count > 0:
+    if include_restricted and pending_invitations_count > 0:
         attention_items.append(
             TenantDashboardAttentionItem(
                 severity="INFO",
@@ -856,17 +870,18 @@ def get_tenant_dashboard(db: Session, *, organization_id: uuid.UUID) -> TenantDa
 
     return TenantDashboardResponse(
         organization=profile,
-        users_count=users_count,
-        active_users_count=active_users_count,
-        pending_invitations_count=pending_invitations_count,
+        users_count=users_count if include_restricted else None,
+        active_users_count=active_users_count if include_restricted else None,
+        pending_invitations_count=pending_invitations_count if include_restricted else None,
         fleet_count=fleet_count,
         aircraft_count=aircraft_count,
         drone_count=drone_count,
         facility_count=facility_count,
         team_count=team_count,
-        current_plan=entitlements.plan_code,
-        subscription_status=entitlements.subscription_status,
-        effective_features_count=effective_features_count,
+        current_plan=entitlements.plan_code if include_restricted else None,
+        subscription_status=entitlements.subscription_status if include_restricted else None,
+        effective_features_count=effective_features_count if include_restricted else None,
+        restricted=not include_restricted,
         attention_items=attention_items,
     )
 

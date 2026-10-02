@@ -226,7 +226,7 @@ export function Topbar() {
                   padding: "0 3px",
                   borderRadius: 8,
                   background: "var(--ac-status-non-compliant)",
-                  color: "#fff",
+                  color: "var(--ac-on-primary)",
                   fontSize: 10,
                   fontWeight: 700,
                   display: "flex",

@@ -1,0 +1,9 @@
+flowchart LR
+    O[Organization ACTIVE] --> S[Suite] --> P[Suite plan] --> SUB[Subscription TRIALING/ACTIVE/PAST_DUE] --> F[Effective features + overrides + limits]
+    U[User DB-authoritative] --> R[Roles user_roles] --> PE[Permissions] --> RO[Resource ownership]
+    F --> D{Final access decision}
+    RO --> D
+    D -->|both| A[Allow]
+    D -->|feature outside suite| E1[403 SUITE_ENTITLEMENT_REQUIRED]
+    D -->|not purchased / no permission| E2[403 forbidden]
+    D -->|limit| E3[403 usage_limit_exceeded]

@@ -123,7 +123,7 @@ export function TelemetryPanel({ assetId, accessToken }: { assetId: string; acce
 
       {flights.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Flights from telemetry
           </div>
           <ul style={{ margin: 0, paddingLeft: 18 }}>

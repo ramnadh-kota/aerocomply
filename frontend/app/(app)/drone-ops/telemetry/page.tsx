@@ -1,21 +1,31 @@
-import { DroneOpsStubPage } from "@/components/drone-ops/DroneOpsStubPage";
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { useSession } from "@/lib/auth/SessionContext";
+import { TelemetryPanel } from "@/components/intelligence/TelemetryPanel";
+import { Suspense } from "react";
+
+function TelemetryContent() {
+  const searchParams = useSearchParams();
+  const assetId = searchParams.get("assetId");
+  const { accessToken } = useSession();
+
+  if (!assetId) {
+    return <div style={{ padding: 24, color: "var(--ac-text-muted)" }}>Select a drone to view telemetry.</div>;
+  }
+
+  return (
+    <div style={{ padding: "24px" }}>
+      <h2 style={{ color: "var(--ac-text-primary)", marginTop: 0 }}>Telemetry Stream: {assetId}</h2>
+      <TelemetryPanel assetId={assetId} accessToken={accessToken} />
+    </div>
+  );
+}
+
 export default function TelemetryPage() {
   return (
-    <DroneOpsStubPage
-      icon="⇄"
-      title="Connectivity & Telemetry"
-      subtitle="MAVLink telemetry streams, connection health, and data quality"
-      milestone="Milestone A2 — Live Fleet Overview & Drone Details"
-      description="Monitor the health of every drone's telemetry link. View signal quality, data latency, packet loss rates, and connection history. Diagnose connectivity issues and configure MAVLink integration endpoints."
-      capabilities={[
-        "Per-drone connection status and RSSI monitoring",
-        "MAVLink telemetry stream visualization",
-        "Packet loss and latency metrics",
-        "Data freshness and staleness indicators",
-        "Integration diagnostics and setup workflow",
-        "WebSocket / SSE connection state display",
-        "Telemetry history and gap detection",
-      ]}
-    />
+    <Suspense fallback={<div style={{ padding: 24, color: "var(--ac-text-muted)" }}>Loading...</div>}>
+      <TelemetryContent />
+    </Suspense>
   );
 }

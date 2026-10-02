@@ -123,6 +123,8 @@ class AssetFlightResponse(BaseModel):
     status: str = "COMPLETED"
     source: str = "MANUAL"
     pilot_user_id: uuid.UUID | None = None
+    # Display name resolved within the caller's organization; None if unavailable.
+    pilot_name: str | None = None
     notes: str | None = None
     created_at: datetime
 

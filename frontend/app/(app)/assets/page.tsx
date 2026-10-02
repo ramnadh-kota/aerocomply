@@ -162,7 +162,7 @@ function DemoAssets() {
             <Link
               href={`/drones/${a.id}`}
               className="ac-button-secondary"
-              style={{ fontSize: "0.75rem", padding: "4px 8px", color: "#38bdf8" }}
+              style={{ fontSize: "0.75rem", padding: "4px 8px", color: "var(--ac-accent)" }}
             >
               Drone Ops →
             </Link>
@@ -181,7 +181,7 @@ function DemoAssets() {
           <button
             type="button"
             className="ac-btn"
-            style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+            style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
             onClick={() => setIsModalOpen(true)}
           >
             + Add Asset
@@ -202,39 +202,39 @@ function DemoAssets() {
           <div style={{ fontSize: "0.75rem", color: "var(--ac-text-muted, #9ca3af)", textTransform: "uppercase" }}>
             Total Airframes
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#fff", marginTop: 4 }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-text-primary)", marginTop: 4 }}>
             {stats.total}
           </div>
         </div>
         <div className="ac-card" style={{ padding: "16px 20px" }}>
-          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
             ✈ Fixed-Wing
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#38bdf8", marginTop: 4 }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-accent)", marginTop: 4 }}>
             {stats.aircraft}
           </div>
         </div>
         <div className="ac-card" style={{ padding: "16px 20px" }}>
-          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
             ◆ Drones (sUAS)
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#a855f7", marginTop: 4 }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-status-insufficient)", marginTop: 4 }}>
             {stats.drones}
           </div>
         </div>
         <div className="ac-card" style={{ padding: "16px 20px" }}>
-          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
             🚁 Rotorcraft
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#10b981", marginTop: 4 }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-status-compliant)", marginTop: 4 }}>
             {stats.helicopters}
           </div>
         </div>
         <div className="ac-card" style={{ padding: "16px 20px" }}>
-          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
             ⚡ eVTOL / AAM
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#f59e0b", marginTop: 4 }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-status-review)", marginTop: 4 }}>
             {stats.evtol}
           </div>
         </div>
@@ -277,10 +277,10 @@ function DemoAssets() {
             flex: 1,
             minWidth: 240,
             padding: "8px 12px",
-            background: "#1f2937",
-            border: "1px solid #374151",
+            background: "var(--ac-bg-surface-hover)",
+            border: "1px solid var(--ac-border)",
             borderRadius: 6,
-            color: "#fff",
+            color: "var(--ac-text-primary)",
             fontSize: "0.875rem",
           }}
         />
@@ -289,10 +289,10 @@ function DemoAssets() {
           onChange={(e) => setStatusFilter(e.target.value)}
           style={{
             padding: "8px 12px",
-            background: "#1f2937",
-            border: "1px solid #374151",
+            background: "var(--ac-bg-surface-hover)",
+            border: "1px solid var(--ac-border)",
             borderRadius: 6,
-            color: "#fff",
+            color: "var(--ac-text-primary)",
             fontSize: "0.875rem",
           }}
         >
@@ -435,7 +435,7 @@ function RealAssets() {
             padding: "3px 8px",
             borderRadius: 4,
             background: a.readiness_state === "READY" ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)",
-            color: a.readiness_state === "READY" ? "#10b981" : "#ef4444",
+            color: a.readiness_state === "READY" ? "var(--ac-status-compliant)" : "var(--ac-status-non-compliant)",
           }}
         >
           {a.readiness_state}
@@ -455,7 +455,7 @@ function RealAssets() {
     {
       key: "next_action",
       header: "Next Required Action",
-      render: (a) => <span className="ac-text-sm" style={{ color: "#d1d5db" }}>{a.next_action || "Ready"}</span>,
+      render: (a) => <span className="ac-text-sm" style={{ color: "var(--ac-text-secondary)" }}>{a.next_action || "Ready"}</span>,
     },
     {
       key: "actions",
@@ -484,14 +484,14 @@ function RealAssets() {
             <Link
               href="/data-import"
               className="ac-btn"
-              style={{ background: "#374151", color: "#fff" }}
+              style={{ background: "var(--ac-border)", color: "var(--ac-text-primary)" }}
             >
               Import Flight Data
             </Link>
             <button
               type="button"
               className="ac-btn"
-              style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+              style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
               onClick={() => setIsModalOpen(true)}
             >
               + Add Asset
@@ -513,31 +513,31 @@ function RealAssets() {
           <div style={{ fontSize: "0.75rem", color: "var(--ac-text-muted, #9ca3af)", textTransform: "uppercase" }}>
             Total Airframes
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#fff", marginTop: 4 }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-text-primary)", marginTop: 4 }}>
             {stats.total}
           </div>
         </div>
         <div className="ac-card" style={{ padding: "16px 20px" }}>
-          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
             Operational Ready
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#10b981", marginTop: 4 }}>
-            {stats.ready} <span style={{ fontSize: "0.85rem", color: "#9ca3af" }}>/ {stats.total}</span>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-status-compliant)", marginTop: 4 }}>
+            {stats.ready} <span style={{ fontSize: "0.85rem", color: "var(--ac-text-secondary)" }}>/ {stats.total}</span>
           </div>
         </div>
         <div className="ac-card" style={{ padding: "16px 20px" }}>
-          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
             Restricted / Blocked
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: stats.blocked > 0 ? "#ef4444" : "#10b981", marginTop: 4 }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: stats.blocked > 0 ? "var(--ac-status-non-compliant)" : "var(--ac-status-compliant)", marginTop: 4 }}>
             {stats.blocked}
           </div>
         </div>
         <div className="ac-card" style={{ padding: "16px 20px" }}>
-          <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
             ✈ Aircraft / ◆ Drones
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#38bdf8", marginTop: 4 }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-accent)", marginTop: 4 }}>
             {stats.aircraft} / {stats.drones}
           </div>
         </div>
@@ -580,10 +580,10 @@ function RealAssets() {
             flex: 1,
             minWidth: 240,
             padding: "8px 12px",
-            background: "#1f2937",
-            border: "1px solid #374151",
+            background: "var(--ac-bg-surface-hover)",
+            border: "1px solid var(--ac-border)",
             borderRadius: 6,
-            color: "#fff",
+            color: "var(--ac-text-primary)",
             fontSize: "0.875rem",
           }}
         />
@@ -592,10 +592,10 @@ function RealAssets() {
           onChange={(e) => setStatusFilter(e.target.value)}
           style={{
             padding: "8px 12px",
-            background: "#1f2937",
-            border: "1px solid #374151",
+            background: "var(--ac-bg-surface-hover)",
+            border: "1px solid var(--ac-border)",
             borderRadius: 6,
-            color: "#fff",
+            color: "var(--ac-text-primary)",
             fontSize: "0.875rem",
           }}
         >

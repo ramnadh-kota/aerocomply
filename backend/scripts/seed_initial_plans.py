@@ -1,12 +1,17 @@
 """Deterministic, idempotent seed for the 4 initial Kota Aerospace commercial plans.
 
 Configures:
-1. Kota Drone (Code: DRONE_001, Scope: DRONE)
-2. Kota Aircraft (Code: AIRCRAFT_001, Scope: AIRCRAFT)
-3. Kota Helicopter (Code: HELICOPTER_001, Scope: HELICOPTER)
-4. Kota eVTOL (Code: EVTOL_001, Scope: EVTOL)
+1. Kota Drone (Code: DRONE_001, Suite: DRONE_UAV)
+2. Kota Aircraft (Code: AIRCRAFT_001, Suite: AIRCRAFT)
+3. Kota Helicopter (Code: HELICOPTER_001, Suite: HELICOPTER)
+4. Kota eVTOL (Code: EVTOL_001, Suite: EVTOL_AAM)
 
-Safe to run multiple times: checks by plan `code` and upserts plan features.
+Plans are suite-specific (plans.suite_id is NOT NULL, unique on (suite_id, code)).
+The product suites must already exist (created by the migrations / seed_product_catalog.py);
+the script aborts without writing anything if one is missing.
+
+Safe to run multiple times: plans are looked up by (suite, code), so a rerun updates in place
+and never creates duplicates. Features that the suite boundary forbids are refused.
 """
 
 import os
@@ -17,14 +22,18 @@ from sqlalchemy.orm import Session, sessionmaker
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import app.models  # noqa: E402,F401  (register all mappers)
 from app.models.plan import Plan, PlanFeature, PlanLimit  # noqa: E402
+from app.models.product_catalog import ProductSuite  # noqa: E402
+from app.services.entitlement_service import is_feature_allowed_for_suite  # noqa: E402
 
 _INITIAL_PLANS = [
     {
         "name": "Kota Drone",
         "code": "DRONE_001",
+        "suite_code": "DRONE_UAV",
         "description": "Commercial autonomous drone operations, fleet tracking, battery analytics, and maintenance.",
-        "asset_scope": "DRONE",
+        "asset_scope": "DRONE_UAV",
         "is_active": True,
         "features": {
             "drone_fleet_management": True,
@@ -49,6 +58,7 @@ _INITIAL_PLANS = [
     {
         "name": "Kota Aircraft",
         "code": "AIRCRAFT_001",
+        "suite_code": "AIRCRAFT",
         "description": "Fixed-wing commercial aircraft airworthiness, CAMO, MRO work orders, and regulatory compliance.",
         "asset_scope": "AIRCRAFT",
         "is_active": True,
@@ -73,10 +83,12 @@ _INITIAL_PLANS = [
     {
         "name": "Kota Helicopter",
         "code": "HELICOPTER_001",
+        "suite_code": "HELICOPTER",
         "description": "Rotorcraft airframe lifecycle, dynamic component tracking, inspections, and flight maintenance.",
         "asset_scope": "HELICOPTER",
         "is_active": True,
         "features": {
+            "helicopter_fleet_management": True,
             "work_order_management": True,
             "inspections_management": True,
             "compliance_management": True,
@@ -96,11 +108,12 @@ _INITIAL_PLANS = [
     {
         "name": "Kota eVTOL",
         "code": "EVTOL_001",
+        "suite_code": "EVTOL_AAM",
         "description": "Next-gen eVTOL and Advanced Air Mobility (AAM) operations, AI predictive maintenance, and battery intelligence.",
-        "asset_scope": "EVTOL",
+        "asset_scope": "EVTOL_AAM",
         "is_active": True,
         "features": {
-            "drone_fleet_management": True,
+            "evtol_fleet_management": True,
             "flight_telemetry": True,
             "battery_analytics": True,
             "work_order_management": True,
@@ -123,14 +136,31 @@ _INITIAL_PLANS = [
 ]
 
 
+def _resolve_suites(db: Session) -> dict[str, ProductSuite]:
+    suites: dict[str, ProductSuite] = {}
+    for spec in _INITIAL_PLANS:
+        code = spec["suite_code"]
+        suite = db.execute(select(ProductSuite).where(ProductSuite.code == code)).scalar_one_or_none()
+        if suite is None:
+            raise RuntimeError(f"Product suite {code!r} not found; run migrations / seed_product_catalog first.")
+        suites[code] = suite
+    return suites
+
+
 def seed_plans(db: Session) -> None:
+    suites = _resolve_suites(db)
     for plan_spec in _INITIAL_PLANS:
+        suite = suites[plan_spec["suite_code"]]
+        forbidden = [k for k in plan_spec["features"] if not is_feature_allowed_for_suite(suite.code, k)]
+        if forbidden:
+            raise RuntimeError(f"Plan {plan_spec['code']}: features {forbidden} are outside the {suite.code} suite boundary.")
         plan = db.execute(
-            select(Plan).where(Plan.code == plan_spec["code"])
+            select(Plan).where(Plan.suite_id == suite.id, Plan.code == plan_spec["code"])
         ).scalar_one_or_none()
 
         if plan is None:
             plan = Plan(
+                suite_id=suite.id,
                 name=plan_spec["name"],
                 code=plan_spec["code"],
                 description=plan_spec["description"],

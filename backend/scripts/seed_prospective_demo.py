@@ -88,7 +88,8 @@ from app.models.sso import (  # noqa: E402
     IncidentSeverity,
     IncidentStatus,
 )
-from app.models.plan import Plan, PlanFeature, PlanLimit  # noqa: E402
+from app.models.plan import Plan  # noqa: E402
+from app.models.product_catalog import ProductSuite  # noqa: E402
 from app.models.subscription import Subscription, SubscriptionStatus  # noqa: E402
 from app.models.tenant_entitlement import TenantFeatureOverride, TenantUsageLimit  # noqa: E402
 from app.models.mission import Mission, MissionStatus  # noqa: E402
@@ -1317,40 +1318,36 @@ def seed_demo_environment() -> None:
         # ------------------------------------------------------------------
         # 19. Plan / Subscription / Entitlements
         # ------------------------------------------------------------------
-        plan = db.execute(select(Plan).where(Plan.code == "ENTERPRISE_CUSTOM")).scalar_one_or_none()
-        if plan is None:
-            plan = Plan(
-                name="Enterprise Custom",
-                code="ENTERPRISE_CUSTOM",
-                description="Full-platform enterprise plan for strategic aerospace accounts.",
-                is_active=True,
-                asset_scope="AIRCRAFT",
-            )
-            db.add(plan)
-            db.flush()
-            db.add(PlanFeature(plan_id=plan.id, feature_key="HUMS", enabled=True))
-            db.add(PlanFeature(plan_id=plan.id, feature_key="MRO_INTELLIGENCE", enabled=True))
-            db.add(PlanFeature(plan_id=plan.id, feature_key="LISA", enabled=True))
-            db.add(PlanFeature(plan_id=plan.id, feature_key="SSO", enabled=True))
-            db.add(PlanLimit(plan_id=plan.id, limit_key="max_assets", limit_value=None, is_unlimited=True))
-            db.add(PlanLimit(plan_id=plan.id, limit_key="max_users", limit_value=250, is_unlimited=False))
-            db.flush()
-            bump("plans")
-
-        sub = db.execute(
-            select(Subscription).where(Subscription.organization_id == org.id, Subscription.status == SubscriptionStatus.ACTIVE)
-        ).scalar_one_or_none()
-        if sub is None:
-            sub = Subscription(
-                organization_id=org.id,
-                plan_id=plan.id,
-                status=SubscriptionStatus.ACTIVE,
-                starts_at=now - timedelta(days=180),
-                ends_at=None,
-            )
-            db.add(sub)
-            db.flush()
-            bump("subscriptions")
+        # Apex operates both fixed-wing aircraft and drones, so it is subscribed to the catalog Enterprise plan of
+        # each suite (seed_product_catalog.py must have run first). Plans/features are shared catalog data and are
+        # never created or edited here -- per-org differences go through TenantFeatureOverride below.
+        for suite_code, plan_code in (("AIRCRAFT", "AIRCRAFT_ENTERPRISE"), ("DRONE_UAV", "DRONE_ENTERPRISE")):
+            suite = db.execute(select(ProductSuite).where(ProductSuite.code == suite_code)).scalar_one_or_none()
+            plan = db.execute(
+                select(Plan).where(Plan.code == plan_code, Plan.suite_id == (suite.id if suite else None))
+            ).scalar_one_or_none()
+            if suite is None or plan is None:
+                raise SystemExit(
+                    f"Catalog plan {plan_code} (suite {suite_code}) not found -- run scripts/seed_product_catalog.py first."
+                )
+            sub = db.execute(
+                select(Subscription).where(
+                    Subscription.organization_id == org.id,
+                    Subscription.suite_id == suite.id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+            ).scalar_one_or_none()
+            if sub is None:
+                db.add(Subscription(
+                    organization_id=org.id,
+                    plan_id=plan.id,
+                    suite_id=suite.id,
+                    status=SubscriptionStatus.ACTIVE,
+                    starts_at=now - timedelta(days=180),
+                    ends_at=None,
+                ))
+                db.flush()
+                bump("subscriptions")
 
         override = db.execute(
             select(TenantFeatureOverride).where(

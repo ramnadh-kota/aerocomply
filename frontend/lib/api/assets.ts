@@ -108,6 +108,7 @@ export interface AssetFlightResponse {
   status?: string;
   source?: string;
   pilot_user_id: string | null;
+  pilot_name?: string | null;
   notes: string | null;
   created_at: string;
 }

@@ -50,15 +50,15 @@ function assetScopeBadge(scope?: string | null) {
   const normalized = (scope ?? "ALL").toUpperCase();
   switch (normalized) {
     case "DRONE":
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(34, 197, 94, 0.15)", color: "#4ade80", border: "1px solid rgba(34, 197, 94, 0.3)" }}>DRONE</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "rgba(34, 197, 94, 0.15)", color: "var(--ac-status-compliant)", border: "1px solid rgba(34, 197, 94, 0.3)" }}>DRONE</span>;
     case "AIRCRAFT":
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)", color: "#60a5fa", border: "1px solid rgba(59, 130, 246, 0.3)" }}>AIRCRAFT</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "var(--ac-accent-muted)", color: "var(--ac-accent)", border: "1px solid rgba(59, 130, 246, 0.3)" }}>AIRCRAFT</span>;
     case "HELICOPTER":
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(245, 158, 11, 0.15)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.3)" }}>HELICOPTER</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "rgba(245, 158, 11, 0.15)", color: "var(--ac-status-review)", border: "1px solid rgba(245, 158, 11, 0.3)" }}>HELICOPTER</span>;
     case "EVTOL":
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(168, 85, 247, 0.15)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.3)" }}>EVTOL</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "rgba(168, 85, 247, 0.15)", color: "var(--ac-status-insufficient)", border: "1px solid rgba(168, 85, 247, 0.3)" }}>EVTOL</span>;
     default:
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(148, 163, 184, 0.15)", color: "#cbd5e1", border: "1px solid rgba(148, 163, 184, 0.3)" }}>UNIVERSAL</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "rgba(148, 163, 184, 0.15)", color: "var(--ac-text-secondary)", border: "1px solid rgba(148, 163, 184, 0.3)" }}>UNIVERSAL</span>;
   }
 }
 
@@ -450,7 +450,7 @@ export default function PlatformPlansPage() {
         const suite = suites.find((s) => s.id === p.suite_id);
         const name = suite?.name ?? (p.asset_scope ? `${p.asset_scope} Suite` : "Commercial Suite");
         return (
-          <span className="ac-badge" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>
+          <span className="ac-badge" style={{ backgroundColor: "var(--ac-accent-muted)", color: "var(--ac-accent)" }}>
             {name}
           </span>
         );
@@ -967,7 +967,7 @@ export default function PlatformPlansPage() {
 
                   {createError && (
                     <div style={{ padding: "8px 12px", marginBottom: 16, backgroundColor: "rgba(239, 68, 68, 0.15)", borderRadius: 4, border: "1px solid rgba(239, 68, 68, 0.3)" }}>
-                      <p style={{ margin: 0, fontSize: 13, color: "#f87171" }}>{createError.message}</p>
+                      <p style={{ margin: 0, fontSize: 13, color: "var(--ac-status-non-compliant)" }}>{createError.message}</p>
                     </div>
                   )}
 

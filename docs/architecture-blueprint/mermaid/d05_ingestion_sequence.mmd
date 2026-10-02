@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    participant G as Drone + gateway
+    participant L as Listener / ingest API
+    participant J as background_jobs (PostgreSQL)
+    participant W as Worker
+    participant T as telemetry_service
+    participant H as HUMS
+    participant M as M7
+    G->>L: MAVLink frames (signed) / HTTP batch
+    L->>J: enqueue acquisition.ingest (idempotency key)
+    W->>J: claim (FOR UPDATE SKIP LOCKED)
+    W->>T: process_normalized_event (SAVEPOINT per event)
+    T->>T: dedupe · quality gate · asset/tenant map (unknown → QUARANTINED)
+    T->>H: readings
+    H->>H: features · baseline · limits → exceedance (advisory lock)
+    H-->>M: finding + evidence; signal synced on next M7 sync
+    alt handler error
+        W->>J: retry with backoff → DEAD after max attempts
+    end

@@ -36,6 +36,8 @@ export interface EntitlementResolutionResponse {
   plan_name: string | null;
   modules?: string[];
   pages?: string[];
+  /** Every suite the org holds an active subscription to (suite_code is the aggregated MULTI_SUITE for >1). */
+  active_suites?: { suite_code?: string | null; suite_name?: string | null; plan_code?: string | null }[];
   effective_features: Record<string, boolean>;
   usage_limits: UsageLimitConfiguration[];
   reason: string;

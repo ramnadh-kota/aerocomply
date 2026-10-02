@@ -37,7 +37,7 @@ from app.models.maintenance_requirement import MaintenanceAccomplishment
 from app.models.mission import Mission, MissionStatus
 from app.models.task import Task
 from app.models.work_order import WorkOrder
-from app.services import facility_service
+from app.services import facility_service, pilot_lookup
 from app.services.limit_enforcement_service import check_asset_creation_limit
 from app.schemas.asset import (
     AssetComponentResponse,
@@ -665,7 +665,9 @@ def record_asset_flight(
     )
     db.commit()
     db.refresh(flight)
-    return AssetFlightResponse.model_validate(flight)
+    return pilot_lookup.with_pilot_names(
+        db, organization_id=organization_id, records=[flight], response_cls=AssetFlightResponse
+    )[0]
 
 
 def get_asset_operations(
@@ -706,7 +708,9 @@ def get_asset_operations(
     return AssetOperationsResponse(
         asset_id=asset_id,
         utilization=utilization,
-        recent_flights=[AssetFlightResponse.model_validate(f) for f in flights],
+        recent_flights=pilot_lookup.with_pilot_names(
+            db, organization_id=organization_id, records=list(flights), response_cls=AssetFlightResponse
+        ),
         active_missions=active_missions,
     )
 

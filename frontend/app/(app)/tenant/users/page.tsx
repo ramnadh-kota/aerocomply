@@ -356,7 +356,7 @@ export default function TenantUsersPage() {
                                 r === "ORG_ADMIN"
                                   ? "rgba(139, 92, 246, 0.15)"
                                   : "var(--bg-subtle, rgba(255, 255, 255, 0.06))",
-                              color: r === "ORG_ADMIN" ? "#a78bfa" : "inherit",
+                              color: r === "ORG_ADMIN" ? "var(--ac-status-insufficient)" : "inherit",
                               border: "1px solid var(--border-color, #27272a)",
                             }}
                           >

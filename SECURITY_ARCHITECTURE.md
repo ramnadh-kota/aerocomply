@@ -84,3 +84,31 @@ Telemetry batches write one summary audit row per batch; per-event provenance is
 * The API metrics endpoint is protected by platform permission, not network policy; restrict at the proxy too. The worker/listener
   metrics endpoint (`METRICS_PORT`) has no authentication of its own and binds 127.0.0.1 by default.
 * No external penetration test or dependency-CVE gate: EXTERNAL VALIDATION REQUIRED.
+
+## Addendum: RBAC surfaced to the UI (Oct 2026)
+
+- `GET /auth/me` returns `permissions`, a computed field derived from `permissions_for_roles` (the same function `require_permission` uses). It is a display aid only.
+- `frontend/lib/rbac/routePermissions.ts` maps routes to required permissions (any-of); the sidebar hides, and `RouteEntitlementGuard` shows "Access restricted" for, routes the user cannot use. `frontend/tests/route-permissions.test.ts` verifies every permission string exists in `backend/app/core/permissions.py`.
+- `GET /tenant/users`, `/tenant/users/{id}` and `/tenant/teams` now require `user:manage` (previously any authenticated member).
+- Platform Admin user edit: `PATCH /platform/organizations/{org}/users/{id}` (name, email, tenant roles, active). Tenant roles only, last ORG_ADMIN protected, self-deactivation refused, audited (`platform.organization.user_updated`). Tests: `backend/tests/integration/test_platform_user_edit.py`.
+
+## Tenant dashboard / usage / profile visibility tiers
+
+Every authenticated tenant user (including `VIEWER`) keeps operational and fleet counts (`fleet_count`, `aircraft_count`,
+`drone_count`, `facility_count`, `team_count`) and the organization's name/status/industry. Commercial and people-management
+details require `org:manage` and are enforced in the API, not only the UI:
+
+- `GET /tenant/dashboard`: for callers without `org:manage`, `users_count`, `active_users_count`, `pending_invitations_count`,
+  `current_plan`, `subscription_status`, `effective_features_count` are `null`, `restricted=true`, the primary contact is
+  withheld and people-related attention items are omitted.
+- `GET /tenant/profile`: primary contact name/email are `null` without `org:manage`.
+- `GET /tenant/usage`: `403` without `org:manage` (usage limits are commercial terms).
+- All three are scoped to `current_user.organization_id` only. Tests: `backend/tests/integration/test_tenant_tiered_visibility.py`.
+- Frontend mirrors this (hidden cards, `/tenant/usage` route permission `org:manage`) but is not the enforcement point.
+
+Pilot display names (missions, flights) are resolved by `app/services/pilot_lookup.py`: `users.full_name` only, same organization
+only; unresolved references return `pilot_name = null` and the UI shows a generic fallback, never the raw id.
+
+## Test environment note
+
+Backend integration tests need Postgres 13+ with `pgcrypto` and a test database (`TEST_DATABASE_URL` or `TEST_DB_*`, see README; the conftest fails fast if it is unreachable). Running the whole suite in one process against a small Postgres can exhaust connections and surface mass "ERROR" results unrelated to code; run in chunks or raise `max_connections`.

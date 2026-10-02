@@ -53,15 +53,15 @@ function assetScopeBadge(scope?: string | null) {
   const normalized = (scope ?? "ALL").toUpperCase();
   switch (normalized) {
     case "DRONE":
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(34, 197, 94, 0.15)", color: "#4ade80", border: "1px solid rgba(34, 197, 94, 0.3)" }}>DRONE</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "rgba(34, 197, 94, 0.15)", color: "var(--ac-status-compliant)", border: "1px solid rgba(34, 197, 94, 0.3)" }}>DRONE</span>;
     case "AIRCRAFT":
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)", color: "#60a5fa", border: "1px solid rgba(59, 130, 246, 0.3)" }}>AIRCRAFT</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "var(--ac-accent-muted)", color: "var(--ac-accent)", border: "1px solid rgba(59, 130, 246, 0.3)" }}>AIRCRAFT</span>;
     case "HELICOPTER":
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(245, 158, 11, 0.15)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.3)" }}>HELICOPTER</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "rgba(245, 158, 11, 0.15)", color: "var(--ac-status-review)", border: "1px solid rgba(245, 158, 11, 0.3)" }}>HELICOPTER</span>;
     case "EVTOL":
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(168, 85, 247, 0.15)", color: "#c084fc", border: "1px solid rgba(168, 85, 247, 0.3)" }}>EVTOL</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "rgba(168, 85, 247, 0.15)", color: "var(--ac-status-insufficient)", border: "1px solid rgba(168, 85, 247, 0.3)" }}>EVTOL</span>;
     default:
-      return <span className="ac-badge" style={{ backgroundColor: "rgba(148, 163, 184, 0.15)", color: "#cbd5e1", border: "1px solid rgba(148, 163, 184, 0.3)" }}>UNIVERSAL</span>;
+      return <span className="ac-badge" style={{ backgroundColor: "rgba(148, 163, 184, 0.15)", color: "var(--ac-text-secondary)", border: "1px solid rgba(148, 163, 184, 0.3)" }}>UNIVERSAL</span>;
   }
 }
 
@@ -678,7 +678,7 @@ export default function PlanDetailPage({ params }: { params: Promise<{ planId: s
               <div>
                 <div className="ac-flex ac-gap-2" style={{ alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
                   <h1 className="ac-h1" style={{ margin: 0 }}>{plan.name}</h1>
-                  <span className="ac-badge" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>
+                  <span className="ac-badge" style={{ backgroundColor: "var(--ac-accent-muted)", color: "var(--ac-accent)" }}>
                     Suite: {plan.asset_scope ? `${plan.asset_scope} Suite` : "Commercial Suite"}
                   </span>
                   {assetScopeBadge(plan.asset_scope)}
@@ -992,7 +992,7 @@ export default function PlanDetailPage({ params }: { params: Promise<{ planId: s
               <div>
                 <div className="ac-flex ac-gap-2" style={{ alignItems: "center" }}>
                   <h2 className="ac-h2" style={{ margin: 0 }}>Plan Usage Limits</h2>
-                  <span className="ac-badge" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)", color: "#60a5fa", border: "1px solid rgba(59, 130, 246, 0.3)", fontSize: 11 }}>
+                  <span className="ac-badge" style={{ backgroundColor: "var(--ac-accent-muted)", color: "var(--ac-accent)", border: "1px solid rgba(59, 130, 246, 0.3)", fontSize: 11 }}>
                     PLAN DEFAULT
                   </span>
                 </div>
@@ -1199,7 +1199,7 @@ export default function PlanDetailPage({ params }: { params: Promise<{ planId: s
                   >
                     <div>
                       <div className="ac-flex ac-gap-2" style={{ alignItems: "center" }}>
-                        <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#60a5fa" }}>
+                        <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--ac-accent)" }}>
                           {evt.action}
                         </span>
                         <span className="ac-badge" style={{ fontSize: 10 }}>

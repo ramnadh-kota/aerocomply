@@ -5,6 +5,7 @@ export interface BackendMission {
   organization_id: string;
   asset_id: string;
   pilot_user_id: string | null;
+  pilot_name?: string | null;
   status: "PLANNED" | "AUTHORIZED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
   purpose: string;
   operating_area: string | null;
@@ -85,3 +86,11 @@ export const missionsApi = {
       accessToken,
     }),
 };
+
+/** Human-readable pilot label for a mission or flight row. Never exposes the raw user id:
+ * no pilot -> null (nothing to show); pilot assigned but not resolvable in this
+ * tenant (deleted/unavailable) -> a generic fallback. */
+export function missionPilotLabel(m: { pilot_user_id: string | null; pilot_name?: string | null }): string | null {
+  if (!m.pilot_user_id) return null;
+  return m.pilot_name?.trim() ? m.pilot_name : "Pilot (name unavailable)";
+}

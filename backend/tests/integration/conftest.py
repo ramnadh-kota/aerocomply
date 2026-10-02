@@ -1,7 +1,7 @@
 """Integration test fixtures.
 
-Requires a running Postgres instance (see infra/docker-compose.yml) and
-TEST_DATABASE_URL set, e.g.:
+Requires a running Postgres instance (see infra/docker-compose.yml). Configure with
+TEST_DATABASE_URL, or TEST_DB_HOST/PORT/USER/PASSWORD/NAME (default port 5432), e.g.:
     postgresql+psycopg://aerocomply:aerocomply@localhost:5432/aerocomply_test
 
 Schema is built by running the real Alembic migrations (not
@@ -34,10 +34,50 @@ from app.models.plan import Plan
 from app.models.product_catalog import ProductSuite
 from app.models.user import User, UserRole
 
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql+psycopg://aerocomply:aerocomply@localhost:5432/aerocomply_test",
-)
+def _resolve_test_database_url() -> str:
+    """TEST_DATABASE_URL wins; otherwise build it from TEST_DB_HOST/PORT/USER/
+    PASSWORD/NAME (defaults match infra/docker-compose.yml: localhost:5432). A
+    native Postgres on another port (e.g. 55432) only needs TEST_DB_PORT."""
+    explicit = os.environ.get("TEST_DATABASE_URL")
+    if explicit:
+        return explicit
+    user = os.environ.get("TEST_DB_USER", "aerocomply")
+    password = os.environ.get("TEST_DB_PASSWORD", "aerocomply")
+    host = os.environ.get("TEST_DB_HOST", "localhost")
+    port = os.environ.get("TEST_DB_PORT", "5432")
+    name = os.environ.get("TEST_DB_NAME", "aerocomply_test")
+    return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{name}"
+
+
+TEST_DATABASE_URL = _resolve_test_database_url()
+
+
+def _preflight_test_database(url: str) -> None:
+    """Fail fast (seconds, not ~18 minutes of per-test fixture errors) when the
+    test database is unreachable, and refuse to run the session's final
+    `alembic downgrade base` against a database that is not clearly a test DB."""
+    from sqlalchemy.engine import make_url
+
+    parsed = make_url(url)
+    if "test" not in (parsed.database or "") and os.environ.get("ALLOW_NON_TEST_DATABASE") != "1":
+        pytest.exit(
+            f"Refusing to run integration tests against database {parsed.database!r}: the session "
+            "downgrades the schema to base afterwards. Use a database whose name contains 'test'.",
+            returncode=2,
+        )
+    try:
+        probe = create_engine(url, future=True, connect_args={"connect_timeout": 5})
+        with probe.connect():
+            pass
+        probe.dispose()
+    except Exception as exc:  # noqa: BLE001 - any connection failure is fatal here
+        pytest.exit(
+            f"Integration test database unreachable at {parsed.host}:{parsed.port}/{parsed.database} "
+            f"({type(exc).__name__}). Start Postgres (infra/docker-compose.yml) or set TEST_DATABASE_URL "
+            "(or TEST_DB_HOST/TEST_DB_PORT/TEST_DB_USER/TEST_DB_PASSWORD/TEST_DB_NAME).",
+            returncode=2,
+        )
+
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -82,6 +122,7 @@ def _default_plan_suite(mapper, connection, target):
 
 @pytest.fixture(scope="session")
 def engine():
+    _preflight_test_database(TEST_DATABASE_URL)
     _run_migrations(TEST_DATABASE_URL, "head")
     engine = create_engine(TEST_DATABASE_URL, future=True)
     yield engine

@@ -791,10 +791,13 @@ def _investigate_telemetry_hums(
             f"Telemetry state: {tel_state} (Source: {src or 'UNKNOWN'}, Last received: {last_rx or 'N/A'})."
         )
         overall_status = (hums_health or {}).get("overall_status", "INSUFFICIENT_DATA")
-        active_exceedances = (hums_health or {}).get("active_exceedance_count", 0)
+        # NOTE: the API field is historically named active_exceedance_count, but the
+        # exceedance model has no status/resolved field: this is a count of RECORDED
+        # exceedances. Never infer open/resolved state from it.
+        recorded_exceedances = (hums_health or {}).get("active_exceedance_count", 0)
 
         what_i_found.append(
-            f"HUMS health verdict: {overall_status} ({active_exceedances} active exceedance(s))."
+            f"HUMS health verdict: {overall_status} ({recorded_exceedances} recorded exceedance(s); resolution status not tracked)."
         )
 
         signals = (proactive_data or {}).get("signals", [])
@@ -805,8 +808,8 @@ def _investigate_telemetry_hums(
         for hs in hums_signals[:3]:
             what_i_found.append(f"[{hs.get('severity')}] {hs.get('headline')}")
 
-        if active_exceedances > 0 or overall_status in ("CRITICAL", "DEGRADED"):
-            headline = f"Telemetry alert for {reg}: {overall_status} condition ({active_exceedances} active exceedance(s))."
+        if recorded_exceedances > 0 or overall_status in ("CRITICAL", "DEGRADED"):
+            headline = f"Telemetry alert for {reg}: {overall_status} condition ({recorded_exceedances} recorded exceedance(s))."
             why_it_matters = "Abnormal sensor telemetry indicates potential mechanical wear or parameter breach."
             next_step = "Perform physical sensor inspection and review maintenance work orders."
         else:

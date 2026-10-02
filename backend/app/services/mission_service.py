@@ -8,7 +8,7 @@ from app.core.errors import AeroComplyError, NotFoundError
 from app.models.mission import Mission, MissionStatus
 from app.models.user import User
 from app.schemas.mission import MissionAuthorizeRequest, MissionCreateRequest, MissionUpdateRequest
-from app.services import asset_service
+from app.services import asset_service, pilot_lookup
 from app.services.audit_service import record_audit_event
 
 MISSION_LIST_DEFAULT_LIMIT = 50
@@ -62,6 +62,19 @@ def create_mission(
     db.commit()
     db.refresh(mission)
     return mission
+
+
+def resolve_pilot_names(
+    db: Session, *, organization_id: uuid.UUID, missions: list[Mission]
+) -> dict[uuid.UUID, str]:
+    """Map pilot_user_id -> full_name, strictly within the caller's organization.
+
+    Only full_name is returned (no email/phone). Users outside the tenant simply
+    do not resolve, so callers fall back to a generic label.
+    """
+    return pilot_lookup.resolve_pilot_names(
+        db, organization_id=organization_id, pilot_ids=(m.pilot_user_id for m in missions)
+    )
 
 
 def get_mission(db: Session, *, organization_id: uuid.UUID, mission_id: uuid.UUID) -> Mission:

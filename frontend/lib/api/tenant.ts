@@ -117,9 +117,10 @@ export interface TenantDashboardAttentionItem {
 
 export interface TenantDashboardStats {
   organization: TenantProfile;
-  users_count: number;
-  active_users_count: number;
-  pending_invitations_count: number;
+  /** Restricted block: null when the caller lacks org:manage (see `restricted`). */
+  users_count: number | null;
+  active_users_count: number | null;
+  pending_invitations_count: number | null;
   fleet_count: number;
   aircraft_count: number;
   drone_count: number;
@@ -127,7 +128,9 @@ export interface TenantDashboardStats {
   team_count: number;
   current_plan: string | null;
   subscription_status: string | null;
-  effective_features_count: number;
+  effective_features_count: number | null;
+  /** True when the backend withheld plan/contact/seat details for this role. */
+  restricted?: boolean;
   attention_items: TenantDashboardAttentionItem[];
 }
 

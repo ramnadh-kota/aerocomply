@@ -367,13 +367,21 @@ export function RealProvisionOrganization() {
               const isActive = step === s.num;
               const isPast = step > s.num;
               return (
-                <div
+                <button
                   key={s.num}
+                  type="button"
+                  disabled={!isPast}
+                  aria-current={isActive ? "step" : undefined}
                   style={{
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
                     cursor: isPast ? "pointer" : "default",
+                    background: "none",
+                    border: 0,
+                    padding: 0,
+                    font: "inherit",
+                    color: "inherit",
                     opacity: isActive ? 1 : isPast ? 0.9 : 0.45,
                   }}
                   onClick={() => {
@@ -397,7 +405,7 @@ export function RealProvisionOrganization() {
                     {isPast ? "✓" : s.num}
                   </span>
                   <span style={{ fontSize: 13, fontWeight: isActive ? 600 : 400 }}>{s.label}</span>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -422,6 +430,8 @@ export function RealProvisionOrganization() {
                 </p>
               ) : (
                 <div
+                  role="radiogroup"
+                  aria-label="Product suite"
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
@@ -435,8 +445,11 @@ export function RealProvisionOrganization() {
                     ).length;
 
                     return (
-                      <div
+                      <button
                         key={s.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
                         onClick={() => handleSelectSuite(s.id)}
                         style={{
                           padding: 16,
@@ -446,6 +459,10 @@ export function RealProvisionOrganization() {
                             : "1px solid var(--ac-border, #333)",
                           backgroundColor: isSelected ? "rgba(59, 130, 246, 0.08)" : "var(--ac-surface-1)",
                           cursor: "pointer",
+                          width: "100%",
+                          textAlign: "left",
+                          font: "inherit",
+                          color: "inherit",
                           transition: "all 0.15s ease",
                           display: "flex",
                           flexDirection: "column",
@@ -493,7 +510,7 @@ export function RealProvisionOrganization() {
                             </span>
                           )}
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -523,7 +540,7 @@ export function RealProvisionOrganization() {
                     className="ac-badge"
                     style={{
                       backgroundColor: "rgba(59, 130, 246, 0.15)",
-                      color: "#60a5fa",
+                      color: "var(--ac-accent)",
                       fontSize: 11,
                     }}
                   >
@@ -546,6 +563,8 @@ export function RealProvisionOrganization() {
                 </div>
               ) : (
                 <div
+                  role="radiogroup"
+                  aria-label="Commercial plan"
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
@@ -555,8 +574,11 @@ export function RealProvisionOrganization() {
                   {availablePlansForSuite.map((p) => {
                     const isSelected = planId === p.id;
                     return (
-                      <div
+                      <button
                         key={p.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
                         onClick={() => setPlanId(p.id)}
                         style={{
                           padding: 16,
@@ -566,6 +588,10 @@ export function RealProvisionOrganization() {
                             : "1px solid var(--ac-border, #333)",
                           backgroundColor: isSelected ? "rgba(59, 130, 246, 0.08)" : "var(--ac-surface-1)",
                           cursor: "pointer",
+                          width: "100%",
+                          textAlign: "left",
+                          font: "inherit",
+                          color: "inherit",
                           transition: "all 0.15s ease",
                           display: "flex",
                           flexDirection: "column",
@@ -625,7 +651,7 @@ export function RealProvisionOrganization() {
                             </span>
                           )}
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

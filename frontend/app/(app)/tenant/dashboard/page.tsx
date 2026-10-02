@@ -173,22 +173,24 @@ export default function TenantDashboardPage() {
               </div>
             </div>
 
-            <div className="ac-card">
-              <div className="ac-eyebrow" style={{ marginBottom: 6 }}>
-                WORKFORCE
+            {!stats.restricted && (
+              <div className="ac-card">
+                <div className="ac-eyebrow" style={{ marginBottom: 6 }}>
+                  WORKFORCE
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>
+                  {stats.active_users_count ?? 0} <span style={{ fontSize: 14, fontWeight: 400, opacity: 0.7 }}>/ {stats.users_count ?? 0} total</span>
+                </div>
+                <div style={{ fontSize: 13, opacity: 0.8 }}>
+                  {stats.pending_invitations_count} pending invitation{stats.pending_invitations_count === 1 ? "" : "s"}
+                </div>
+                <div style={{ marginTop: 12, fontSize: 12, borderTop: "1px solid var(--border-color, #27272a)", paddingTop: 8 }}>
+                  <Link href="/tenant/users" style={{ color: "var(--primary, #3b82f6)" }}>
+                    Manage Personnel &amp; Roles →
+                  </Link>
+                </div>
               </div>
-              <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>
-                {stats.active_users_count} <span style={{ fontSize: 14, fontWeight: 400, opacity: 0.7 }}>/ {stats.users_count} total</span>
-              </div>
-              <div style={{ fontSize: 13, opacity: 0.8 }}>
-                {stats.pending_invitations_count} pending invitation{stats.pending_invitations_count === 1 ? "" : "s"}
-              </div>
-              <div style={{ marginTop: 12, fontSize: 12, borderTop: "1px solid var(--border-color, #27272a)", paddingTop: 8 }}>
-                <Link href="/tenant/users" style={{ color: "var(--primary, #3b82f6)" }}>
-                  Manage Personnel &amp; Roles →
-                </Link>
-              </div>
-            </div>
+            )}
 
             <div className="ac-card">
               <div className="ac-eyebrow" style={{ marginBottom: 6 }}>
@@ -222,26 +224,28 @@ export default function TenantDashboardPage() {
               </div>
             </div>
 
-            <div className="ac-card">
-              <div className="ac-eyebrow" style={{ marginBottom: 6 }}>
-                COMMERCIAL PLAN
+            {!stats.restricted && (
+              <div className="ac-card">
+                <div className="ac-eyebrow" style={{ marginBottom: 6 }}>
+                  COMMERCIAL PLAN
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>
+                  {stats.current_plan ?? "STANDARD"}
+                </div>
+                <div className="ac-flex ac-gap-2 ac-items-center" style={{ fontSize: 12 }}>
+                  <StatusBadge
+                    status={stats.subscription_status === "ACTIVE" ? "ACTIVE" : "STORED"}
+                    label={stats.subscription_status ?? "ACTIVE"}
+                  />
+                  <span style={{ opacity: 0.7 }}>{stats.effective_features_count ?? 0} Features Enabled</span>
+                </div>
+                <div style={{ marginTop: 12, fontSize: 12, borderTop: "1px solid var(--border-color, #27272a)", paddingTop: 8 }}>
+                  <Link href="/tenant/subscription" style={{ color: "var(--primary, #3b82f6)" }}>
+                    View Plan &amp; Entitlements →
+                  </Link>
+                </div>
               </div>
-              <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>
-                {stats.current_plan ?? "STANDARD"}
-              </div>
-              <div className="ac-flex ac-gap-2 ac-items-center" style={{ fontSize: 12 }}>
-                <StatusBadge
-                  status={stats.subscription_status === "ACTIVE" ? "ACTIVE" : "STORED"}
-                  label={stats.subscription_status ?? "ACTIVE"}
-                />
-                <span style={{ opacity: 0.7 }}>{stats.effective_features_count} Features Enabled</span>
-              </div>
-              <div style={{ marginTop: 12, fontSize: 12, borderTop: "1px solid var(--border-color, #27272a)", paddingTop: 8 }}>
-                <Link href="/tenant/subscription" style={{ color: "var(--primary, #3b82f6)" }}>
-                  View Plan &amp; Entitlements →
-                </Link>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Operational Administration Navigation Cards */}
@@ -274,26 +278,28 @@ export default function TenantDashboardPage() {
               </div>
             </div>
 
-            <div className="ac-card">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <div style={{ fontWeight: 600, fontSize: 16 }}>Personnel, Roles &amp; Invitations</div>
-                <span className="ac-mono" style={{ fontSize: 12, opacity: 0.7 }}>RBAC</span>
+            {!stats.restricted && (
+              <div className="ac-card">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 16 }}>Personnel, Roles &amp; Invitations</div>
+                  <span className="ac-mono" style={{ fontSize: 12, opacity: 0.7 }}>RBAC</span>
+                </div>
+                <p className="ac-text-sm" style={{ opacity: 0.8, marginBottom: 12 }}>
+                  Administer user accounts, assign tenant-scoped operational roles, manage onboarding invitations, and configure workforce teams.
+                </p>
+                <div className="ac-flex ac-gap-2">
+                  <Link href="/tenant/users" className="ac-btn" style={{ fontSize: 12 }}>
+                    User Directory
+                  </Link>
+                  <Link href="/tenant/roles" className="ac-btn" style={{ fontSize: 12 }}>
+                    Role Grants
+                  </Link>
+                  <Link href="/tenant/invitations" className="ac-btn" style={{ fontSize: 12 }}>
+                    Invitations ({stats.pending_invitations_count})
+                  </Link>
+                </div>
               </div>
-              <p className="ac-text-sm" style={{ opacity: 0.8, marginBottom: 12 }}>
-                Administer user accounts, assign tenant-scoped operational roles, manage onboarding invitations, and configure workforce teams.
-              </p>
-              <div className="ac-flex ac-gap-2">
-                <Link href="/tenant/users" className="ac-btn" style={{ fontSize: 12 }}>
-                  User Directory
-                </Link>
-                <Link href="/tenant/roles" className="ac-btn" style={{ fontSize: 12 }}>
-                  Role Grants
-                </Link>
-                <Link href="/tenant/invitations" className="ac-btn" style={{ fontSize: 12 }}>
-                  Invitations ({stats.pending_invitations_count})
-                </Link>
-              </div>
-            </div>
+            )}
 
             <div className="ac-card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
@@ -340,9 +346,11 @@ export default function TenantDashboardPage() {
                 <Link href="/tenant/entitlements" className="ac-btn" style={{ fontSize: 12 }}>
                   Effective Features
                 </Link>
-                <Link href="/tenant/usage" className="ac-btn" style={{ fontSize: 12 }}>
-                  Usage Limits
-                </Link>
+                {!stats.restricted && (
+                  <Link href="/tenant/usage" className="ac-btn" style={{ fontSize: 12 }}>
+                    Usage Limits
+                  </Link>
+                )}
               </div>
             </div>
 

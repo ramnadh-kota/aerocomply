@@ -1,21 +1,38 @@
-import { DroneOpsStubPage } from "@/components/drone-ops/DroneOpsStubPage";
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { useSession } from "@/lib/auth/SessionContext";
+import { HUMSHealthPanel } from "@/components/intelligence/HUMSHealthPanel";
+import { Suspense, useEffect, useState } from "react";
+import { humsApi, type HUMSAssetHealthSummary } from "@/lib/api/hums";
+
+function HealthContent() {
+  const searchParams = useSearchParams();
+  const assetId = searchParams.get("assetId");
+  const { accessToken } = useSession();
+  const [health, setHealth] = useState<HUMSAssetHealthSummary | null>(null);
+
+  useEffect(() => {
+    if (!assetId || !accessToken) return;
+    humsApi.getAssetHealth(accessToken, assetId).then(setHealth).catch(console.error);
+  }, [assetId, accessToken]);
+
+  if (!assetId) {
+    return <div style={{ padding: 24, color: "var(--ac-text-muted)" }}>Select a drone to view HUMS health.</div>;
+  }
+
+  return (
+    <div style={{ padding: "24px" }}>
+      <h2 style={{ color: "var(--ac-text-primary)", marginTop: 0 }}>HUMS Health: {assetId}</h2>
+      <HUMSHealthPanel health={health} accessToken={accessToken} />
+    </div>
+  );
+}
+
 export default function FleetHealthPage() {
   return (
-    <DroneOpsStubPage
-      icon="♥"
-      title="Fleet Health & HUMS"
-      subtitle="Health and Usage Monitoring System — predictive diagnostics for your drone fleet"
-      milestone="Milestone A2 — Live Fleet Overview & Drone Details"
-      description="HUMS continuously monitors motor health, vibration signatures, battery cycle degradation, and component wear. Predictive models surface anomalies before they become failures, enabling condition-based maintenance scheduling."
-      capabilities={[
-        "Real-time motor health and vibration monitoring",
-        "Battery cycle count and capacity degradation tracking",
-        "Component wear and remaining useful life estimates",
-        "Anomaly detection with LISA-powered diagnostics",
-        "Predictive maintenance scheduling",
-        "Health trend charts per drone and component",
-        "Integration with existing HUMS panel components",
-      ]}
-    />
+    <Suspense fallback={<div style={{ padding: 24, color: "var(--ac-text-muted)" }}>Loading...</div>}>
+      <HealthContent />
+    </Suspense>
   );
 }

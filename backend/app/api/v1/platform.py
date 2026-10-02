@@ -41,6 +41,7 @@ from app.schemas.platform import (
     OrganizationCreateRequest,
     OrganizationIndustrySetRequest,
     OrganizationUserCreateRequest,
+    OrganizationUserUpdateRequest,
     OrganizationUserPasswordResetRequest,
     PlatformHealthResponse,
     PlatformOrganizationResponse,
@@ -372,6 +373,30 @@ def create_organization_user(
         role=payload.role,
     )
     return {"id": str(user.id), "email": user.email, "full_name": user.full_name}
+
+
+@router.patch(
+    "/organizations/{organization_id}/users/{user_id}", response_model=PlatformUserResponse
+)
+def update_organization_user(
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: OrganizationUserUpdateRequest,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.PLATFORM_MANAGE)),
+) -> PlatformUserResponse:
+    """Edit a tenant user's name, email, roles and active flag (audited)."""
+    row = platform_service.update_organization_user(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        user_id=user_id,
+        full_name=payload.full_name,
+        email=payload.email,
+        roles=payload.roles,
+        is_active=payload.is_active,
+    )
+    return PlatformUserResponse.model_validate(row)
 
 
 @router.post("/organizations/{organization_id}/users/{user_id}/reset-password", response_model=MessageResponse)

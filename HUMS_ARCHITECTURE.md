@@ -113,3 +113,11 @@ Every detected anomaly, exceedance, or degradation warning creates an immutable 
 - **Calculated Metric Values** (RMS, Kurtosis, Spectral Energy)
 - **Applicable Threshold & Delta**
 - **Operator Maintenance Link** (automatically opens draft maintenance work order or inspection item).
+
+## Exceedance terminology
+
+`HUMSExceedance` has no status/resolved field. Every surface (UI, LISA, proactive signals) must therefore say
+**"recorded exceedance(s)"** and must never infer "active", "open" or "resolved" from the existence of a record.
+The API fields `active_exceedance_count` (`/hums/health`) are historical names kept for contract compatibility; they
+count all recorded exceedances for the sensor/asset. Introducing a lifecycle (acknowledge/resolve) would be a separate,
+migrated feature. Guard: `backend/tests/unit/test_lisa_exceedance_wording.py`.

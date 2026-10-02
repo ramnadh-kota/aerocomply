@@ -19,6 +19,7 @@ from app.api.v1 import (
     deferred_items,
     digital_twin,
     drones,
+    device_gateway,
     edge_hardware,
     entitlements,
     evidence,
@@ -110,6 +111,7 @@ api_router.include_router(sso.router)
 api_router.include_router(hypercare.router)
 api_router.include_router(digital_twin.router)
 api_router.include_router(edge_hardware.router)
+api_router.include_router(device_gateway.router)
 api_router.include_router(commercial_platform.router)
 api_router.include_router(mro_intelligence.router)
 api_router.include_router(data_sources.router)

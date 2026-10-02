@@ -26,23 +26,23 @@ function SnapshotOverview({ snapshot }: { snapshot: DigitalTwinAssetSnapshot }) 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, marginBottom: 14 }}>
       <div>
-        <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Configuration</div>
+        <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Configuration</div>
         <div style={{ fontSize: 13 }}>{snapshot.identity.model || snapshot.identity.asset_type}</div>
       </div>
       <div>
-        <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Operational State</div>
+        <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Operational State</div>
         <div style={{ fontSize: 13 }}>{snapshot.identity.status}</div>
       </div>
       <div>
-        <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Health</div>
-        {snapshot.health ? <StatusBadge {...humsHealthIntelligenceStateBadge(snapshot.health.state)} /> : <span style={{ fontSize: 12, color: "#6b7280" }}>N/A</span>}
+        <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Health</div>
+        {snapshot.health ? <StatusBadge {...humsHealthIntelligenceStateBadge(snapshot.health.state)} /> : <span style={{ fontSize: 12, color: "var(--ac-text-muted)" }}>N/A</span>}
       </div>
       <div>
-        <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Diagnostics</div>
+        <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Diagnostics</div>
         <div style={{ fontSize: 13 }}>{snapshot.diagnostics.length} candidate(s)</div>
       </div>
       <div>
-        <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>RUL</div>
+        <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>RUL</div>
         <div style={{ fontSize: 13 }}>
           {(() => {
             const withRul = snapshot.prognostics.find((p) => p.rul_estimate !== null);
@@ -51,15 +51,15 @@ function SnapshotOverview({ snapshot }: { snapshot: DigitalTwinAssetSnapshot }) 
         </div>
       </div>
       <div>
-        <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Readiness</div>
+        <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Readiness</div>
         <div style={{ fontSize: 13 }}>{snapshot.readiness.readiness_state ?? "UNKNOWN"}</div>
       </div>
       <div>
-        <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Usage</div>
+        <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Usage</div>
         <div style={{ fontSize: 13 }}>{snapshot.usage.total_flight_hours} FH / {snapshot.usage.total_cycles} cyc</div>
       </div>
       <div>
-        <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Open Findings/WOs</div>
+        <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Open Findings/WOs</div>
         <div style={{ fontSize: 13 }}>{snapshot.maintenance.open_finding_count} / {snapshot.maintenance.open_work_order_count}</div>
       </div>
     </div>
@@ -67,15 +67,15 @@ function SnapshotOverview({ snapshot }: { snapshot: DigitalTwinAssetSnapshot }) 
 }
 
 function ComponentTree({ nodes }: { nodes: DigitalTwinComponentNode[] }) {
-  if (nodes.length === 0) return <p style={{ fontSize: 12, color: "#9ca3af", fontStyle: "italic" }}>No components on this asset.</p>;
+  if (nodes.length === 0) return <p style={{ fontSize: 12, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No components on this asset.</p>;
   return (
     <div>
       {nodes.map((n) => (
-        <div key={n.component.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #27272a", fontSize: 12.5 }}>
-          <span>{n.component.name} <span style={{ color: "#6b7280" }}>({n.component.component_type})</span></span>
+        <div key={n.component.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--ac-border)", fontSize: 12.5 }}>
+          <span>{n.component.name} <span style={{ color: "var(--ac-text-muted)" }}>({n.component.component_type})</span></span>
           <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {n.health_state && <StatusBadge {...humsHealthIntelligenceStateBadge(n.health_state)} />}
-            {n.diagnostic_count > 0 && <span style={{ color: "#f87171" }}>{n.diagnostic_count} diag</span>}
+            {n.diagnostic_count > 0 && <span style={{ color: "var(--ac-status-non-compliant)" }}>{n.diagnostic_count} diag</span>}
           </span>
         </div>
       ))}
@@ -84,13 +84,13 @@ function ComponentTree({ nodes }: { nodes: DigitalTwinComponentNode[] }) {
 }
 
 function Timeline({ events }: { events: DigitalTwinTimelineEvent[] }) {
-  if (events.length === 0) return <p style={{ fontSize: 12, color: "#9ca3af", fontStyle: "italic" }}>No timeline events yet.</p>;
+  if (events.length === 0) return <p style={{ fontSize: 12, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No timeline events yet.</p>;
   return (
     <div>
       {events.slice(0, 15).map((e, i) => (
-        <div key={i} style={{ display: "flex", gap: 10, padding: "5px 0", borderBottom: "1px solid #27272a", fontSize: 12 }}>
-          <span style={{ color: "#6b7280", minWidth: 130 }}>{new Date(e.occurred_at).toLocaleString()}</span>
-          <span style={{ color: "#9ca3af", minWidth: 160 }}>{e.event_type.replace(/_/g, " ")}</span>
+        <div key={i} style={{ display: "flex", gap: 10, padding: "5px 0", borderBottom: "1px solid var(--ac-border)", fontSize: 12 }}>
+          <span style={{ color: "var(--ac-text-muted)", minWidth: 130 }}>{new Date(e.occurred_at).toLocaleString()}</span>
+          <span style={{ color: "var(--ac-text-secondary)", minWidth: 160 }}>{e.event_type.replace(/_/g, " ")}</span>
           <span>{e.summary}</span>
         </div>
       ))}
@@ -102,9 +102,9 @@ function ConsistencyWarnings({ warnings }: { warnings: DigitalTwinConsistencyWar
   if (warnings.length === 0) return null;
   return (
     <div style={{ marginBottom: 14, padding: 10, borderRadius: 6, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)" }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: "#f87171", marginBottom: 4 }}>⚠ Data consistency warnings</div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ac-status-non-compliant)", marginBottom: 4 }}>⚠ Data consistency warnings</div>
       {warnings.map((w, i) => (
-        <div key={i} style={{ fontSize: 12, color: "#fca5a5" }}>
+        <div key={i} style={{ fontSize: 12, color: "var(--ac-status-non-compliant)" }}>
           [{w.severity}] {w.message}
         </div>
       ))}
@@ -143,22 +143,22 @@ export function DigitalTwinPanel({ assetId, accessToken }: DigitalTwinPanelProps
       .finally(() => setLoading(false));
   }, [accessToken, assetId]);
 
-  if (loading) return <p style={{ fontSize: 13, color: "#9ca3af" }}>Loading digital twin…</p>;
-  if (error) return <p style={{ fontSize: 13, color: "#f87171" }}>{error}</p>;
-  if (!snapshot) return <p style={{ fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>Digital twin unavailable.</p>;
+  if (loading) return <p style={{ fontSize: 13, color: "var(--ac-text-secondary)" }}>Loading digital twin…</p>;
+  if (error) return <p style={{ fontSize: 13, color: "var(--ac-status-non-compliant)" }}>{error}</p>;
+  if (!snapshot) return <p style={{ fontSize: 13, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>Digital twin unavailable.</p>;
 
   return (
     <div>
       <ConsistencyWarnings warnings={warnings} />
       <SnapshotOverview snapshot={snapshot} />
 
-      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Components</div>
+      <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Components</div>
       <ComponentTree nodes={components} />
 
-      <div style={{ fontSize: 12, color: "#9ca3af", margin: "14px 0 6px", textTransform: "uppercase", letterSpacing: 0.5 }}>Timeline</div>
+      <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", margin: "14px 0 6px", textTransform: "uppercase", letterSpacing: 0.5 }}>Timeline</div>
       <Timeline events={timeline} />
 
-      <p style={{ fontSize: 11, color: "#6b7280", marginTop: 10 }}>
+      <p style={{ fontSize: 11, color: "var(--ac-text-muted)", marginTop: 10 }}>
         Digital twin: a read-only, evidence-linked view of authoritative Kota Aerospace data. PostgreSQL remains the system
         of record — nothing here is a second source of truth.
       </p>

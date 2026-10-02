@@ -139,14 +139,14 @@ export function ProactiveSignalsSection({
             className="ac-card"
             style={{
               padding: "12px 16px",
-              background: summary.critical_signals > 0 ? "rgba(239, 68, 68, 0.1)" : "rgba(31, 41, 55, 0.6)",
+              background: summary.critical_signals > 0 ? "rgba(239, 68, 68, 0.1)" : "var(--ac-bg-surface-hover)",
               border: summary.critical_signals > 0 ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid var(--ac-border)",
             }}
           >
-            <div style={{ fontSize: "0.7rem", color: "#ef4444", textTransform: "uppercase", fontWeight: 700 }}>
+            <div style={{ fontSize: "0.7rem", color: "var(--ac-status-non-compliant)", textTransform: "uppercase", fontWeight: 700 }}>
               Critical Signals
             </div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#ef4444" }}>
+            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--ac-status-non-compliant)" }}>
               {summary.critical_signals}
             </div>
           </div>
@@ -155,14 +155,14 @@ export function ProactiveSignalsSection({
             className="ac-card"
             style={{
               padding: "12px 16px",
-              background: summary.high_signals > 0 ? "rgba(245, 158, 11, 0.1)" : "rgba(31, 41, 55, 0.6)",
+              background: summary.high_signals > 0 ? "rgba(245, 158, 11, 0.1)" : "var(--ac-bg-surface-hover)",
               border: summary.high_signals > 0 ? "1px solid rgba(245, 158, 11, 0.4)" : "1px solid var(--ac-border)",
             }}
           >
-            <div style={{ fontSize: "0.7rem", color: "#f59e0b", textTransform: "uppercase", fontWeight: 700 }}>
+            <div style={{ fontSize: "0.7rem", color: "var(--ac-status-review)", textTransform: "uppercase", fontWeight: 700 }}>
               High Priority
             </div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#f59e0b" }}>
+            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--ac-status-review)" }}>
               {summary.high_signals}
             </div>
           </div>
@@ -171,14 +171,14 @@ export function ProactiveSignalsSection({
             className="ac-card"
             style={{
               padding: "12px 16px",
-              background: "rgba(31, 41, 55, 0.6)",
+              background: "var(--ac-bg-surface-hover)",
               border: "1px solid var(--ac-border)",
             }}
           >
-            <div style={{ fontSize: "0.7rem", color: "#38bdf8", textTransform: "uppercase", fontWeight: 700 }}>
+            <div style={{ fontSize: "0.7rem", color: "var(--ac-accent)", textTransform: "uppercase", fontWeight: 700 }}>
               Immediate Action
             </div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#38bdf8" }}>
+            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--ac-accent)" }}>
               {summary.signals_by_priority?.IMMEDIATE ?? 0}
             </div>
           </div>
@@ -187,14 +187,14 @@ export function ProactiveSignalsSection({
             className="ac-card"
             style={{
               padding: "12px 16px",
-              background: "rgba(31, 41, 55, 0.6)",
+              background: "var(--ac-bg-surface-hover)",
               border: "1px solid var(--ac-border)",
             }}
           >
-            <div style={{ fontSize: "0.7rem", color: "#10b981", textTransform: "uppercase", fontWeight: 700 }}>
+            <div style={{ fontSize: "0.7rem", color: "var(--ac-status-compliant)", textTransform: "uppercase", fontWeight: 700 }}>
               Watchlist / Medium
             </div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#10b981" }}>
+            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--ac-status-compliant)" }}>
               {(summary.medium_signals || 0) + (summary.low_signals || 0)}
             </div>
           </div>
@@ -208,14 +208,14 @@ export function ProactiveSignalsSection({
           style={{
             padding: "14px 18px",
             marginBottom: 16,
-            background: "linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%)",
+            background: "linear-gradient(135deg, var(--ac-bg-elevated) 0%, var(--ac-bg-surface-hover) 100%)",
             border: "1px solid rgba(56, 189, 248, 0.3)",
             borderRadius: 8,
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
             <span style={{ fontSize: "0.9rem" }}>💡</span>
-            <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#38bdf8", textTransform: "uppercase" }}>
+            <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--ac-accent)", textTransform: "uppercase" }}>
               {AI_NAME} Proactive Fleet Insights & Systematic Explanations
             </span>
           </div>
@@ -243,8 +243,8 @@ export function ProactiveSignalsSection({
                 padding: "3px 8px",
                 borderRadius: 12,
                 border: "1px solid var(--ac-border)",
-                background: filterStatus === s ? "var(--ac-primary, #38bdf8)" : "#1f2937",
-                color: filterStatus === s ? "#000" : "#9ca3af",
+                background: filterStatus === s ? "var(--ac-primary, #38bdf8)" : "var(--ac-bg-surface-hover)",
+                color: filterStatus === s ? "var(--ac-on-primary)" : "var(--ac-text-secondary)",
                 fontWeight: filterStatus === s ? 700 : 500,
                 cursor: "pointer",
               }}
@@ -266,8 +266,8 @@ export function ProactiveSignalsSection({
                 padding: "3px 8px",
                 borderRadius: 12,
                 border: "1px solid var(--ac-border)",
-                background: filterSeverity === sev ? "#f59e0b" : "#1f2937",
-                color: filterSeverity === sev ? "#000" : "#9ca3af",
+                background: filterSeverity === sev ? "#f59e0b" : "var(--ac-bg-surface-hover)",
+                color: filterSeverity === sev ? "var(--ac-on-primary)" : "var(--ac-text-secondary)",
                 fontWeight: filterSeverity === sev ? 700 : 500,
                 cursor: "pointer",
               }}
@@ -281,7 +281,7 @@ export function ProactiveSignalsSection({
       {/* Signals List */}
       {filteredSignals.length === 0 ? (
         <div className="ac-card" style={{ padding: "24px", textAlign: "center" }}>
-          <p style={{ color: "#10b981", fontWeight: 600, margin: 0 }}>
+          <p style={{ color: "var(--ac-status-compliant)", fontWeight: 600, margin: 0 }}>
             ✓ No proactive intelligence risks or early-warning signals match active filters.
           </p>
         </div>
@@ -328,7 +328,7 @@ export function ProactiveSignalsSection({
                       <span
                         style={{
                           fontSize: "0.7rem",
-                          background: "#1f2937",
+                          background: "var(--ac-bg-surface-hover)",
                           color: "var(--ac-text-secondary)",
                           padding: "2px 6px",
                           borderRadius: 4,
@@ -355,7 +355,7 @@ export function ProactiveSignalsSection({
 
                     {/* Projected Impact & Horizon */}
                     {(signal.projected_impact || signal.estimated_horizon_days !== null) && (
-                      <div style={{ fontSize: "0.8rem", color: "#b45309", marginBottom: 8 }}>
+                      <div style={{ fontSize: "0.8rem", color: "var(--ac-status-review)", marginBottom: 8 }}>
                         {signal.projected_impact && <span><strong>Projected Impact:</strong> {signal.projected_impact} </span>}
                         {signal.estimated_horizon_days !== null && (
                           <span style={{ marginLeft: 6 }}>
@@ -438,12 +438,12 @@ export function ProactiveSignalsSection({
                     style={{
                       marginTop: 10,
                       padding: "10px 14px",
-                      background: "rgba(17, 24, 39, 0.6)",
+                      background: "var(--ac-bg-surface-hover)",
                       border: "1px solid var(--ac-border)",
                       borderRadius: 6,
                     }}
                   >
-                    <div style={{ fontSize: "0.75rem", color: "#38bdf8", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>
+                    <div style={{ fontSize: "0.75rem", color: "var(--ac-accent)", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>
                       Recommended Action Support:
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -452,7 +452,7 @@ export function ProactiveSignalsSection({
                           <div>
                             <span style={{ color: "var(--ac-text-primary)" }}>{act.description}</span>
                             {act.requires_authorization && (
-                              <span style={{ marginLeft: 6, fontSize: "0.7rem", color: "#f59e0b", background: "rgba(245, 158, 11, 0.15)", padding: "1px 5px", borderRadius: 4 }}>
+                              <span style={{ marginLeft: 6, fontSize: "0.7rem", color: "var(--ac-status-review)", background: "rgba(245, 158, 11, 0.15)", padding: "1px 5px", borderRadius: 4 }}>
                                 🔒 Authorization Required
                               </span>
                             )}
@@ -474,7 +474,7 @@ export function ProactiveSignalsSection({
                     style={{
                       marginTop: 12,
                       padding: "12px 16px",
-                      background: "#111827",
+                      background: "var(--ac-bg-elevated)",
                       border: "1px solid var(--ac-border)",
                       borderRadius: 8,
                     }}
@@ -493,7 +493,7 @@ export function ProactiveSignalsSection({
                             key={idx}
                             style={{
                               padding: "8px 12px",
-                              background: "#1f2937",
+                              background: "var(--ac-bg-surface-hover)",
                               borderRadius: 6,
                               fontSize: "0.8rem",
                               display: "flex",
@@ -504,7 +504,7 @@ export function ProactiveSignalsSection({
                           >
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <strong style={{ color: "#38bdf8" }}>[{ev.entity_type}]</strong>
+                                <strong style={{ color: "var(--ac-accent)" }}>[{ev.entity_type}]</strong>
                                 <span style={{ color: "var(--ac-text-primary)" }}>{ev.summary}</span>
                               </div>
                               <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", marginTop: 2 }}>
@@ -550,7 +550,7 @@ export function ProactiveSignalsSection({
             style={{
               width: "100%",
               maxWidth: 440,
-              background: "#111827",
+              background: "var(--ac-bg-elevated)",
               padding: "24px",
               borderRadius: "12px",
               border: "1px solid var(--ac-border)",
@@ -578,10 +578,10 @@ export function ProactiveSignalsSection({
                   style={{
                     width: "100%",
                     padding: "8px",
-                    background: "#1f2937",
+                    background: "var(--ac-bg-surface-hover)",
                     color: "var(--ac-text-primary)",
                     borderRadius: 6,
-                    border: "1px solid #4b5563",
+                    border: "1px solid var(--ac-border)",
                     fontSize: "0.85rem",
                   }}
                 />

@@ -142,3 +142,21 @@ export function hasFeatureKey(
   if (candidates.some((v) => v === false)) return false;
   return DEFAULT_ON_FEATURES.has(canonical);
 }
+
+/**
+ * The backend publishes every effective feature under its canonical key AND its lookup aliases (upper-case, legacy
+ * names) so `hasFeatureKey` can resolve any spelling. That map is for lookups only: anything that LISTS or COUNTS
+ * features must go through this so each feature appears once. Entries are keyed by canonical key; if aliases ever
+ * disagree the feature is reported disabled (fail closed).
+ */
+export function dedupeEffectiveFeatures(
+  effective: Record<string, boolean> | null | undefined
+): Array<[string, boolean]> {
+  const byCanonical = new Map<string, boolean>();
+  for (const [key, enabled] of Object.entries(effective ?? {})) {
+    const canonical = canonicalizeFeatureKey(key);
+    const prev = byCanonical.get(canonical);
+    byCanonical.set(canonical, prev === undefined ? enabled : prev && enabled);
+  }
+  return Array.from(byCanonical.entries());
+}

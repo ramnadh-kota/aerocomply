@@ -5,6 +5,7 @@
 // Organized into 7 structured tabs:
 // Overview | Users | Subscription | Entitlements | Usage | Audit | Provisioning
 
+import { canonicalizeFeatureKey, dedupeEffectiveFeatures } from "@/lib/entitlements/featureKeys";
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -133,6 +134,58 @@ export default function PlatformOrganizationDetailPage({
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
+
+  // Usage-limit editing (per-organization TenantUsageLimit rows; plan defaults are never touched)
+  const [limitEditId, setLimitEditId] = useState<string | null>(null);
+  const [limitValue, setLimitValue] = useState("");
+  const [limitUnlimited, setLimitUnlimited] = useState(false);
+  const [limitBusy, setLimitBusy] = useState(false);
+  const [limitMsg, setLimitMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  const beginLimitEdit = (l: TenantUsageLimitResponse) => {
+    setLimitEditId(l.id);
+    setLimitValue(l.limit_value == null ? "" : String(l.limit_value));
+    setLimitUnlimited(l.is_unlimited);
+    setLimitMsg(null);
+  };
+
+  const saveLimit = async (l: TenantUsageLimitResponse) => {
+    if (!accessToken || mode === "DEMO") return;
+    const parsed = Number(limitValue);
+    if (!limitUnlimited && (limitValue.trim() === "" || !Number.isInteger(parsed) || parsed < 0)) {
+      setLimitMsg({ kind: "error", text: "Enter a whole number of 0 or more, or mark the limit unlimited." });
+      return;
+    }
+    setLimitBusy(true);
+    try {
+      const updated = await entitlementApi.updateUsageLimit(accessToken, organizationId, l.feature_key, l.limit_key, {
+        limit_value: limitUnlimited ? null : parsed,
+        is_unlimited: limitUnlimited,
+      });
+      setLimits((prev) => prev.map((x) => (x.id === l.id ? updated : x)));
+      setLimitEditId(null);
+      setLimitMsg({ kind: "ok", text: `Updated ${l.limit_key} for this organization (recorded in the audit trail).` });
+    } catch (err) {
+      setLimitMsg({ kind: "error", text: normalizeApiError(err).message });
+    } finally {
+      setLimitBusy(false);
+    }
+  };
+
+  const removeLimit = async (l: TenantUsageLimitResponse) => {
+    if (!accessToken || mode === "DEMO") return;
+    if (!window.confirm(`Remove the ${l.limit_key} override for this organization? The plan default will apply again.`)) return;
+    setLimitBusy(true);
+    try {
+      await entitlementApi.removeUsageLimit(accessToken, organizationId, l.feature_key, l.limit_key);
+      setLimits((prev) => prev.filter((x) => x.id !== l.id));
+      setLimitMsg({ kind: "ok", text: `Removed the ${l.limit_key} override.` });
+    } catch (err) {
+      setLimitMsg({ kind: "error", text: normalizeApiError(err).message });
+    } finally {
+      setLimitBusy(false);
+    }
+  };
 
   // Invite Admin State
   const [showInviteAdmin, setShowInviteAdmin] = useState(false);
@@ -595,20 +648,20 @@ export default function PlatformOrganizationDetailPage({
 
   // 1. From catalog features (backend canonical registry)
   catalogFeatures.forEach((cf) => {
-    featureMap.set(cf.code, { key: cf.code, name: cf.name });
+    featureMap.set(canonicalizeFeatureKey(cf.code), { key: cf.code, name: cf.name });
   });
 
   // 2. From demo platform features (standard aerospace feature catalog)
   DEMO_PLATFORM_FEATURES.forEach((df) => {
-    if (!featureMap.has(df.feature_key)) {
-      featureMap.set(df.feature_key, { key: df.feature_key, name: df.name });
+    if (!featureMap.has(canonicalizeFeatureKey(df.feature_key))) {
+      featureMap.set(canonicalizeFeatureKey(df.feature_key), { key: df.feature_key, name: df.name });
     }
   });
 
   // 3. From plan features
   planFeatures.forEach((pf) => {
-    if (!featureMap.has(pf.feature_key)) {
-      featureMap.set(pf.feature_key, {
+    if (!featureMap.has(canonicalizeFeatureKey(pf.feature_key))) {
+      featureMap.set(canonicalizeFeatureKey(pf.feature_key), {
         key: pf.feature_key,
         name: formatFeatureKey(pf.feature_key),
       });
@@ -617,7 +670,7 @@ export default function PlatformOrganizationDetailPage({
 
   // 4. From effective_features in resolved entitlements
   if (entitlements?.effective_features) {
-    Object.keys(entitlements.effective_features).forEach((key) => {
+    dedupeEffectiveFeatures(entitlements.effective_features).forEach(([key]) => {
       if (!featureMap.has(key)) {
         featureMap.set(key, { key, name: formatFeatureKey(key) });
       }
@@ -626,8 +679,8 @@ export default function PlatformOrganizationDetailPage({
 
   // 5. From overrides
   overrides.forEach((ov) => {
-    if (!featureMap.has(ov.feature_key)) {
-      featureMap.set(ov.feature_key, {
+    if (!featureMap.has(canonicalizeFeatureKey(ov.feature_key))) {
+      featureMap.set(canonicalizeFeatureKey(ov.feature_key), {
         key: ov.feature_key,
         name: formatFeatureKey(ov.feature_key),
       });
@@ -635,11 +688,11 @@ export default function PlatformOrganizationDetailPage({
   });
 
   const featureRows: FeatureRow[] = Array.from(featureMap.values()).map(({ key, name }) => {
-    const override = overrides.find((o) => o.feature_key === key);
+    const override = overrides.find((o) => canonicalizeFeatureKey(o.feature_key) === canonicalizeFeatureKey(key));
 
     let planEnabled = false;
     if (mode === "DEMO") {
-      const demoFeat = DEMO_PLATFORM_FEATURES.find((f) => f.feature_key === key);
+      const demoFeat = DEMO_PLATFORM_FEATURES.find((f) => canonicalizeFeatureKey(f.feature_key) === canonicalizeFeatureKey(key));
       planEnabled =
         entitlements?.plan_code === "enterprise"
           ? true
@@ -647,7 +700,7 @@ export default function PlatformOrganizationDetailPage({
           ? Boolean(demoFeat?.plans.includes("professional") || demoFeat?.plans.includes("starter"))
           : Boolean(demoFeat?.plans.includes("starter"));
     } else {
-      const pf = planFeatures.find((p) => p.feature_key === key);
+      const pf = planFeatures.find((p) => canonicalizeFeatureKey(p.feature_key) === canonicalizeFeatureKey(key));
       if (pf !== undefined) {
         planEnabled = pf.enabled;
       } else if (override === undefined && entitlements?.effective_features?.[key] !== undefined) {
@@ -839,7 +892,7 @@ export default function PlatformOrganizationDetailPage({
                           <span className="ac-text-muted">Enabled Features</span>
                           <strong>
                             {entitlements
-                              ? Object.values(entitlements.effective_features).filter(Boolean).length
+                              ? dedupeEffectiveFeatures(entitlements.effective_features).filter(([, on]) => on).length
                               : 0}{" "}
                             features
                           </strong>
@@ -1370,6 +1423,11 @@ export default function PlatformOrganizationDetailPage({
                   </div>
 
                   <h3 className="ac-h3" style={{ margin: "8px 0 0" }}>Configured Usage Ceilings (TenantUsageLimit)</h3>
+                  {limitMsg && (
+                    <div className="ac-card" role={limitMsg.kind === "error" ? "alert" : "status"} style={{ padding: "8px 14px", fontSize: 13 }}>
+                      {limitMsg.text}
+                    </div>
+                  )}
                   <div className="ac-card" style={{ padding: 0 }}>
                     <table className="ac-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead>
@@ -1378,12 +1436,13 @@ export default function PlatformOrganizationDetailPage({
                           <th>Dimension (Limit Key)</th>
                           <th>Configured Ceiling</th>
                           <th>Tracking Status</th>
+                          {mode !== "DEMO" && <th>Actions</th>}
                         </tr>
                       </thead>
                       <tbody>
                         {limits.length === 0 ? (
                           <tr>
-                            <td colSpan={4} style={{ textAlign: "center", padding: 20 }} className="ac-text-muted">
+                            <td colSpan={mode !== "DEMO" ? 5 : 4} style={{ textAlign: "center", padding: 20 }} className="ac-text-muted">
                               No explicit limit ceilings configured. Operating under standard plan allowances.
                             </td>
                           </tr>
@@ -1392,12 +1451,54 @@ export default function PlatformOrganizationDetailPage({
                             <tr key={l.id}>
                               <td><code>{l.feature_key}</code></td>
                               <td>{l.limit_key}</td>
-                              <td>{l.is_unlimited ? "Unlimited" : l.limit_value}</td>
+                              <td>
+                                {limitEditId === l.id ? (
+                                  <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                    <input
+                                      className="ac-input"
+                                      type="number"
+                                      min={0}
+                                      step={1}
+                                      style={{ width: 110 }}
+                                      aria-label={`Ceiling for ${l.limit_key}`}
+                                      value={limitValue}
+                                      disabled={limitUnlimited}
+                                      onChange={(e) => setLimitValue(e.target.value)}
+                                    />
+                                    <label className="ac-text-sm">
+                                      <input type="checkbox" checked={limitUnlimited} onChange={(e) => setLimitUnlimited(e.target.checked)} /> Unlimited
+                                    </label>
+                                  </span>
+                                ) : l.is_unlimited ? "Unlimited" : l.limit_value}
+                              </td>
                               <td>
                                 <span className="ac-badge" style={{ fontSize: 11 }}>
                                   CONFIGURED
                                 </span>
                               </td>
+                              {mode !== "DEMO" && (
+                                <td>
+                                  {limitEditId === l.id ? (
+                                    <span style={{ display: "inline-flex", gap: 6 }}>
+                                      <button className="ac-btn ac-btn-primary" style={{ fontSize: 11, padding: "2px 8px" }} disabled={limitBusy} onClick={() => saveLimit(l)}>
+                                        {limitBusy ? "Saving…" : "Save"}
+                                      </button>
+                                      <button className="ac-btn" style={{ fontSize: 11, padding: "2px 8px" }} disabled={limitBusy} onClick={() => setLimitEditId(null)}>
+                                        Cancel
+                                      </button>
+                                    </span>
+                                  ) : (
+                                    <span style={{ display: "inline-flex", gap: 6 }}>
+                                      <button className="ac-btn" style={{ fontSize: 11, padding: "2px 8px" }} disabled={limitBusy} onClick={() => beginLimitEdit(l)}>
+                                        Edit
+                                      </button>
+                                      <button className="ac-btn" style={{ fontSize: 11, padding: "2px 8px" }} disabled={limitBusy} onClick={() => removeLimit(l)}>
+                                        Remove
+                                      </button>
+                                    </span>
+                                  )}
+                                </td>
+                              )}
                             </tr>
                           ))
                         )}

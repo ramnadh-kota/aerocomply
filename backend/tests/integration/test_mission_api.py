@@ -231,3 +231,104 @@ def test_mission_endpoints_require_authentication(client):
 
     resp = client.post("/api/v1/missions", json={"purpose": "x"})
     assert resp.status_code == 401
+
+
+def _me(client, token):
+    return client.get("/api/v1/auth/me", headers=_auth(token)).json()
+
+
+def test_mission_pilot_name_valid_missing_and_inaccessible(client, db_session):
+    from sqlalchemy import select
+
+    from app.models.mission import Mission
+
+    tokens_a = _register(client, "Airline Pilot7A", "admin@airline-pilot7a.com")
+    tokens_b = _register(client, "Airline Pilot7B", "admin@airline-pilot7b.com")
+    headers_a = _auth(tokens_a["access_token"])
+    _entitle_drone_fleet(db_session, _get_org_id(client, tokens_a["access_token"]))
+    asset_id = _drone(client, headers_a, "DRN-PILOT-7")
+
+    # Valid: pilot in the same organization resolves to a display name only.
+    me_a = _me(client, tokens_a["access_token"])
+    resp = client.post(
+        "/api/v1/missions",
+        headers=headers_a,
+        json={"asset_id": asset_id, "purpose": "Pilot valid", "pilot_user_id": me_a["id"]},
+    )
+    assert resp.status_code == 201
+    valid = resp.json()
+    assert valid["pilot_name"] == "Admin"
+    assert "email" not in str(valid).lower().replace("pilot_user_id", "")
+    listed = client.get("/api/v1/missions", headers=headers_a).json()["items"]
+    assert [m["pilot_name"] for m in listed if m["id"] == valid["id"]] == ["Admin"]
+
+    # Missing: no pilot assigned -> pilot_name is None.
+    unassigned = _mission(client, headers_a, asset_id, purpose="No pilot")
+    assert unassigned["pilot_user_id"] is None
+    assert unassigned["pilot_name"] is None
+
+    # Inaccessible at write time: another tenant's user is rejected.
+    me_b = _me(client, tokens_b["access_token"])
+    resp = client.post(
+        "/api/v1/missions",
+        headers=headers_a,
+        json={"asset_id": asset_id, "purpose": "Cross", "pilot_user_id": me_b["id"]},
+    )
+    assert resp.status_code >= 400
+
+    # Inaccessible at read time: a stored pilot id that is not in the caller's
+    # tenant must not resolve (no cross-tenant lookup, no name leak).
+    mission = db_session.execute(select(Mission).where(Mission.id == unassigned["id"])).scalar_one()
+    mission.pilot_user_id = uuid.UUID(me_b["id"])
+    db_session.commit()
+    got = client.get(f"/api/v1/missions/{unassigned['id']}", headers=headers_a).json()
+    assert got["pilot_name"] is None
+    assert got["pilot_user_id"] == me_b["id"]
+
+
+def test_flight_pilot_name_valid_missing_and_cross_tenant(client, db_session):
+    from sqlalchemy import select
+
+    from app.models.flight import Flight
+
+    tokens_a = _register(client, "Airline Flight8A", "admin@airline-flight8a.com")
+    tokens_b = _register(client, "Airline Flight8B", "admin@airline-flight8b.com")
+    headers_a = _auth(tokens_a["access_token"])
+    _entitle_drone_fleet(db_session, _get_org_id(client, tokens_a["access_token"]))
+    asset_id = _drone(client, headers_a, "DRN-FLIGHT-8")
+    me_a = _me(client, tokens_a["access_token"])
+    me_b = _me(client, tokens_b["access_token"])
+    flown = datetime.now(UTC).isoformat()
+
+    def post(extra):
+        return client.post(
+            f"/api/v1/drones/{asset_id}/flights",
+            headers=headers_a,
+            json={"flown_at": flown, "duration_minutes": 30, "cycles": 1, **extra},
+        )
+
+    # Valid pilot -> name resolved (name only, no contact data).
+    valid = post({"pilot_user_id": me_a["id"]})
+    assert valid.status_code == 201
+    assert valid.json()["pilot_name"] == "Admin"
+    assert "admin@airline-flight8a.com" not in valid.text
+
+    # Missing pilot -> null name.
+    missing = post({})
+    assert missing.status_code == 201
+    assert missing.json()["pilot_user_id"] is None and missing.json()["pilot_name"] is None
+
+    # Cross-tenant pilot is refused at write time.
+    assert post({"pilot_user_id": me_b["id"]}).status_code >= 400
+
+    # A stored reference to another tenant's user never resolves (read time).
+    flight = db_session.execute(select(Flight).where(Flight.id == missing.json()["id"])).scalar_one()
+    flight.pilot_user_id = uuid.UUID(me_b["id"])
+    db_session.commit()
+    listed = client.get(f"/api/v1/drones/{asset_id}/flights", headers=headers_a).json()["items"]
+    by_id = {f["id"]: f for f in listed}
+    assert by_id[valid.json()["id"]]["pilot_name"] == "Admin"
+    assert by_id[missing.json()["id"]]["pilot_name"] is None
+    assert "Admin" not in str(by_id[missing.json()["id"]]["pilot_name"])
+    single = client.get(f"/api/v1/flights/{missing.json()['id']}", headers=headers_a).json()
+    assert single["pilot_name"] is None

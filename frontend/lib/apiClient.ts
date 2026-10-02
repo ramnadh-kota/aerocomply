@@ -43,6 +43,21 @@ const DEFAULT_MESSAGES: Record<ApiErrorKind, string> = {
   unknown: "Something went wrong. Please try again.",
 };
 
+/**
+ * FastAPI validation failures arrive as the Python repr of a list of error dicts (code "validation_error"). Turn that
+ * into "email: <reason>" text instead of showing the raw dump; anything unparseable falls back to a generic message.
+ */
+export function friendlyValidationMessage(raw: string): string {
+  if (!/'msg':/.test(raw)) return raw;
+  const parts: string[] = [];
+  for (const m of raw.matchAll(/'loc': \(([^)]*)\), 'msg': '((?:[^'\\]|\\.)*)'/g)) {
+    const field = m[1].split(",").map((x) => x.trim().replace(/^'|'$/g, "")).filter((x) => x && x !== "body" && x !== "query").pop();
+    const msg = m[2].replace(/^(Value error|value is not a valid email address): ?/i, "").trim();
+    parts.push(field ? `${field.replace(/_/g, " ")}: ${msg}` : msg);
+  }
+  return parts.length ? parts.join("; ") : DEFAULT_MESSAGES.validation;
+}
+
 /** Map any thrown error (ApiError or network failure) to a stable, safe shape for the UI. */
 export function normalizeApiError(err: unknown): NormalizedApiError {
   if (err instanceof ApiError) {
@@ -68,7 +83,12 @@ export function normalizeApiError(err: unknown): NormalizedApiError {
     }
     // Backend messages for 4xx are already user-safe (validation/business
     // errors); 5xx bodies may leak internals, so use the generic message.
-    const message = kind === "server" ? DEFAULT_MESSAGES.server : err.message || DEFAULT_MESSAGES[kind];
+    const message =
+      kind === "server"
+        ? DEFAULT_MESSAGES.server
+        : kind === "validation"
+          ? friendlyValidationMessage(err.message || DEFAULT_MESSAGES.validation)
+          : err.message || DEFAULT_MESSAGES[kind];
     return { kind, message, status: err.status };
   }
   // fetch() throws TypeError on network failure (server down, no connection, CORS).
@@ -371,6 +391,8 @@ export interface CurrentUser {
   email: string;
   full_name: string;
   roles: string[];
+  /** Effective RBAC permissions (same table the API enforces). Used for navigation/route display only. */
+  permissions?: string[];
   email_verified: boolean;
   phone_number?: string | null;
   profile_photo_url?: string | null;

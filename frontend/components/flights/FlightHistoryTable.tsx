@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { DataTable, type Column } from "@/components/tables/DataTable";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { dronesApi, type FlightResponse } from "@/lib/api/drones";
+import { missionPilotLabel } from "@/lib/api/missions";
 
 function formatTimestamp(iso: string): string {
   return new Date(iso).toLocaleString();
@@ -67,6 +68,8 @@ function FlightDetailPanel({
           <dd style={{ margin: 0 }}>{flight.duration_minutes} minutes</dd>
           <dt className="ac-text-muted">Cycles</dt>
           <dd style={{ margin: 0 }}>{flight.cycles}</dd>
+          <dt className="ac-text-muted">Pilot</dt>
+          <dd style={{ margin: 0 }}>{missionPilotLabel(flight) ?? "Not recorded."}</dd>
           <dt className="ac-text-muted">Notes</dt>
           <dd style={{ margin: 0 }}>{flight.notes ?? "Not recorded."}</dd>
         </dl>
@@ -99,6 +102,7 @@ export function FlightHistoryTable({
     { key: "duration_minutes", header: "Duration", render: (f) => `${f.duration_minutes} min` },
     { key: "hours", header: "Hours", render: (f) => (f.duration_minutes / 60).toFixed(2) },
     { key: "cycles", header: "Cycles", render: (f) => String(f.cycles) },
+    { key: "pilot", header: "Pilot", render: (f) => missionPilotLabel(f) ?? "—" },
   ];
 
   if (flights.length === 0 && !loading) {

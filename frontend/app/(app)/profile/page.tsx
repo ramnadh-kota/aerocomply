@@ -515,12 +515,13 @@ function ProfileContent() {
 
       {saveSuccess && (
         <div
+          role="status"
           style={{
             padding: "10px 16px",
-            background: "rgba(16, 185, 129, 0.15)",
-            border: "1px solid #10b981",
+            background: "var(--ac-status-compliant-bg)",
+            border: "1px solid var(--ac-status-compliant)",
             borderRadius: 6,
-            color: "#6ee7b7",
+            color: "var(--ac-status-compliant)",
             marginBottom: 20,
             fontSize: 14,
           }}
@@ -531,12 +532,13 @@ function ProfileContent() {
 
       {saveError && (
         <div
+          role="alert"
           style={{
             padding: "10px 16px",
             background: "rgba(239, 68, 68, 0.15)",
             border: "1px solid #ef4444",
             borderRadius: 6,
-            color: "#fca5a5",
+            color: "var(--ac-status-non-compliant)",
             marginBottom: 20,
             fontSize: 14,
           }}
@@ -572,7 +574,7 @@ function ProfileContent() {
                     borderRadius: "50%",
                     background: "rgba(56, 189, 248, 0.15)",
                     border: "2px solid #38bdf8",
-                    color: "#38bdf8",
+                    color: "var(--ac-accent)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -650,7 +652,7 @@ function ProfileContent() {
                   className="ac-btn"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingPhoto}
-                  style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+                  style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
                 >
                   {uploadingPhoto ? "Uploading..." : user?.profile_photo_url ? "Change Photo" : "Upload Photo"}
                 </button>
@@ -794,7 +796,7 @@ function ProfileContent() {
                         type="submit"
                         className="ac-btn"
                         disabled={saving}
-                        style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+                        style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
                       >
                         {saving ? "Saving Changes..." : "Save Changes"}
                       </button>
@@ -866,7 +868,7 @@ function ProfileContent() {
                           type="submit"
                           className="ac-btn"
                           disabled={emailWorkflowBusy || !newEmail.trim()}
-                          style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+                          style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
                         >
                           {emailWorkflowBusy ? "Requesting..." : "Send Verification Code"}
                         </button>
@@ -906,7 +908,7 @@ function ProfileContent() {
                           type="submit"
                           className="ac-btn"
                           disabled={emailWorkflowBusy || emailOtp.length !== 6}
-                          style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+                          style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
                         >
                           {emailWorkflowBusy ? "Confirming..." : "Confirm & Update Email"}
                         </button>
@@ -1030,7 +1032,7 @@ function ProfileContent() {
                 type="button"
                 className="ac-btn"
                 onClick={handleSavePreferences}
-                style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+                style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
               >
                 {prefSaved ? "✓ Preferences Saved" : "Save Preferences"}
               </button>

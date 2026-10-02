@@ -17,7 +17,7 @@ import { MaintenanceSection } from "@/components/maintenance/MaintenanceSection"
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
 import { findingsApi, type BackendFinding } from "@/lib/api/findings";
-import { missionsApi, type BackendMission } from "@/lib/api/missions";
+import { missionsApi, missionPilotLabel, type BackendMission } from "@/lib/api/missions";
 import { complianceAssessmentsApi, type BackendComplianceAssessment } from "@/lib/api/compliance";
 import {
   canRecordFlight,
@@ -527,7 +527,7 @@ function RealDroneDetail({ assetId }: { assetId: string }) {
                             <strong className="ac-text-sm">{m.purpose}</strong>
                             <div className="ac-text-xs ac-text-muted" style={{ marginTop: 2 }}>
                               Area: <strong>{m.operating_area || "Standard Corridor"}</strong>
-                              {m.pilot_user_id && <> • Pilot: <span className="ac-mono">{m.pilot_user_id}</span></>}
+                              {missionPilotLabel(m) && <> • Pilot: <span>{missionPilotLabel(m)}</span></>}
                               {m.planned_start && <> • Planned: {new Date(m.planned_start).toLocaleString()}</>}
                             </div>
                           </div>
@@ -1344,7 +1344,7 @@ function DemoDroneDetail({ assetId }: { assetId: string }) {
                         <td style={{ padding: "8px" }}>{new Date(f.flown_at).toLocaleDateString()}</td>
                         <td style={{ padding: "8px" }}>{f.duration_minutes} mins</td>
                         <td style={{ padding: "8px" }}>{f.cycles}</td>
-                        <td style={{ padding: "8px" }}>{f.pilot_user_id ?? "Chief Pilot"}</td>
+                        <td style={{ padding: "8px" }}>{missionPilotLabel(f) ?? "—"}</td>
                         <td style={{ padding: "8px" }}>{f.notes ?? "—"}</td>
                       </tr>
                     ))}

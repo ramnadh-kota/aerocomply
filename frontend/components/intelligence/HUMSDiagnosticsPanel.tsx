@@ -64,12 +64,12 @@ export function HUMSDiagnosticsPanel({ assetId, accessToken, canWrite = false }:
     load();
   }
 
-  if (loading) return <p style={{ fontSize: 13, color: "#9ca3af" }}>Loading diagnostics…</p>;
-  if (error) return <p style={{ fontSize: 13, color: "#f87171" }}>{error}</p>;
+  if (loading) return <p style={{ fontSize: 13, color: "var(--ac-text-secondary)" }}>Loading diagnostics…</p>;
+  if (error) return <p style={{ fontSize: 13, color: "var(--ac-status-non-compliant)" }}>{error}</p>;
 
   if (!candidates || candidates.length === 0) {
     return (
-      <p style={{ fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>
+      <p style={{ fontSize: 13, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>
         No diagnostic candidates. Either the asset is healthy, or current evidence is insufficient to support a diagnostic
         hypothesis — no fault is fabricated in either case.
       </p>
@@ -92,7 +92,7 @@ export function HUMSDiagnosticsPanel({ assetId, accessToken, canWrite = false }:
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <strong style={{ fontSize: 14 }}>{c.fault_name}</strong>
-              <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginTop: 2 }}>
                 confidence {c.confidence.toLowerCase()} · score {c.score.toFixed(2)} · severity {SEVERITY_LABEL[c.severity]}
               </div>
             </div>
@@ -103,36 +103,36 @@ export function HUMSDiagnosticsPanel({ assetId, accessToken, canWrite = false }:
           </div>
 
           {c.status !== "CONFIRMED" && c.status !== "REJECTED" && (
-            <div style={{ fontSize: 11, color: "#fbbf24", marginTop: 6, fontStyle: "italic" }}>
+            <div style={{ fontSize: 11, color: "var(--ac-status-review)", marginTop: 6, fontStyle: "italic" }}>
               Diagnostic candidate — requires engineering confirmation. Not a confirmed fault.
             </div>
           )}
 
-          <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12.5, color: "#d1d5db" }}>
+          <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12.5, color: "var(--ac-text-secondary)" }}>
             {c.explanation.map((line, i) => (
               <li key={i}>{line}</li>
             ))}
           </ul>
 
           {c.contradicting_evidence.length > 0 && (
-            <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 6 }}>
+            <div style={{ fontSize: 11.5, color: "var(--ac-text-secondary)", marginTop: 6 }}>
               Contradicting evidence present ({c.contradicting_evidence.length}) — confidence reduced accordingly.
             </div>
           )}
 
-          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: "var(--ac-text-muted)", marginTop: 6 }}>
             {c.fault_code} · rule v{c.rule_version} · detected {new Date(c.detected_at).toLocaleString()}
           </div>
 
           {c.status === "REJECTED" && c.rejection_reason && (
-            <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 6 }}>Rejected: {c.rejection_reason}</div>
+            <div style={{ fontSize: 11.5, color: "var(--ac-text-secondary)", marginTop: 6 }}>Rejected: {c.rejection_reason}</div>
           )}
 
           {canWrite && c.status !== "CONFIRMED" && c.status !== "REJECTED" && (
             <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button
                 onClick={() => handleConfirm(c.id)}
-                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #27272a", background: "none", color: "#93c5fd", cursor: "pointer" }}
+                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--ac-border)", background: "none", color: "var(--ac-accent)", cursor: "pointer" }}
               >
                 Confirm
               </button>
@@ -140,12 +140,12 @@ export function HUMSDiagnosticsPanel({ assetId, accessToken, canWrite = false }:
                 value={rejectDrafts[c.id] ?? ""}
                 onChange={(e) => setRejectDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))}
                 placeholder="Rejection reason"
-                style={{ fontSize: 12, padding: "4px 8px", borderRadius: 6, border: "1px solid #27272a", background: "transparent", color: "#d1d5db" }}
+                style={{ fontSize: 12, padding: "4px 8px", borderRadius: 6, border: "1px solid var(--ac-border)", background: "transparent", color: "var(--ac-text-secondary)" }}
               />
               <button
                 disabled={!(rejectDrafts[c.id] ?? "").trim()}
                 onClick={() => handleReject(c.id)}
-                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #27272a", background: "none", color: "#f87171", cursor: "pointer" }}
+                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--ac-border)", background: "none", color: "var(--ac-status-non-compliant)", cursor: "pointer" }}
               >
                 Reject
               </button>
@@ -153,7 +153,7 @@ export function HUMSDiagnosticsPanel({ assetId, accessToken, canWrite = false }:
           )}
         </div>
       ))}
-      <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+      <p style={{ fontSize: 11, color: "var(--ac-text-muted)", marginTop: 4 }}>
         Diagnostic candidates are rule-based hypotheses, not confirmed faults, RUL predictions, or autonomous decisions. All
         alternative hypotheses are shown — Kota never collapses competing evidence into a single conclusion.
       </p>

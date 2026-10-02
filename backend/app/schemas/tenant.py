@@ -139,15 +139,19 @@ class TenantDashboardAttentionItem(BaseModel):
 
 class TenantDashboardResponse(BaseModel):
     organization: TenantProfileResponse
-    users_count: int
-    active_users_count: int
-    pending_invitations_count: int
+    # Restricted block (None for callers without org:manage): seat / invitation figures.
+    users_count: int | None = None
+    active_users_count: int | None = None
+    pending_invitations_count: int | None = None
     fleet_count: int
     aircraft_count: int
     drone_count: int
     facility_count: int
     team_count: int
+    # Restricted block (None for callers without org:manage): commercial details.
     current_plan: str | None = None
     subscription_status: str | None = None
-    effective_features_count: int
+    effective_features_count: int | None = None
+    # True when restricted sections were withheld for this caller.
+    restricted: bool = False
     attention_items: list[TenantDashboardAttentionItem] = Field(default_factory=list)

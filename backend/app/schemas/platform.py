@@ -70,6 +70,18 @@ class OrganizationUserCreateRequest(BaseModel):
     password: str = Field(min_length=8, max_length=255)
 
 
+class OrganizationUserUpdateRequest(BaseModel):
+    """Platform-admin edit of a tenant user. Every field is optional (PATCH
+    semantics); at least one must be supplied. Roles are restricted to the
+    customer tenant roles server-side, so this can never grant a platform role.
+    Organization reassignment is deliberately not supported."""
+
+    full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    email: EmailStr | None = None
+    roles: list[str] | None = Field(default=None, min_length=1)
+    is_active: bool | None = None
+
+
 class OrganizationUserPasswordResetRequest(BaseModel):
     password: str = Field(min_length=8, max_length=255)
 

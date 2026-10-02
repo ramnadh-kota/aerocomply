@@ -43,6 +43,7 @@ from app.services import (
     component_service,
     drone_service,
     flight_service,
+    pilot_lookup,
     installation_service,
     maintenance_service,
     readiness_service,
@@ -222,7 +223,9 @@ def list_flights(
     )
     effective_limit = max(1, min(limit, flight_service.FLIGHT_HISTORY_MAX_LIMIT))
     return FlightListResponse(
-        items=[FlightResponse.model_validate(f) for f in flights],
+        items=pilot_lookup.with_pilot_names(
+            db, organization_id=current_user.organization_id, records=flights, response_cls=FlightResponse
+        ),
         total=total,
         limit=effective_limit,
         offset=max(0, offset),
@@ -238,7 +241,9 @@ def get_flight(
     flight = flight_service.get_flight(
         db, organization_id=current_user.organization_id, flight_id=flight_id
     )
-    return FlightResponse.model_validate(flight)
+    return pilot_lookup.with_pilot_names(
+        db, organization_id=current_user.organization_id, records=[flight], response_cls=FlightResponse
+    )[0]
 
 
 @router.post("/drones/{asset_id}/flights", response_model=FlightResponse, status_code=201)
@@ -260,7 +265,9 @@ def record_flight(
         notes=payload.notes,
         mission_id=payload.mission_id,
     )
-    return FlightResponse.model_validate(flight)
+    return pilot_lookup.with_pilot_names(
+        db, organization_id=current_user.organization_id, records=[flight], response_cls=FlightResponse
+    )[0]
 
 
 @router.get("/drones/{asset_id}/utilization", response_model=UtilizationResponse)

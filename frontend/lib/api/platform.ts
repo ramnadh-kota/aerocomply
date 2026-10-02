@@ -27,6 +27,16 @@ export interface PlatformUser {
   created_at: string;
 }
 
+/** Customer tenant roles a platform admin may assign (mirrors backend SUPPORTED_TENANT_ROLES). */
+export const ASSIGNABLE_TENANT_ROLES = [
+  "ORG_ADMIN",
+  "CAMO_MANAGER",
+  "COMPLIANCE_MANAGER",
+  "QUALITY_MANAGER",
+  "MAINTENANCE_ENGINEER",
+  "VIEWER",
+] as const;
+
 export interface BackendDashboardStats {
   total_organizations: number;
   active_organizations: number;
@@ -98,6 +108,18 @@ export const platformApi = {
       `/platform/organizations/${organizationId}/users`,
       { method: "POST", body: payload, accessToken }
     ),
+
+  updateOrganizationUser: (
+    accessToken: string,
+    organizationId: string,
+    userId: string,
+    changes: { full_name?: string; email?: string; roles?: string[]; is_active?: boolean }
+  ) =>
+    apiRequest<PlatformUser>(`/platform/organizations/${organizationId}/users/${userId}`, {
+      method: "PATCH",
+      body: changes,
+      accessToken,
+    }),
 
   resetOrganizationUserPassword: (
     accessToken: string,

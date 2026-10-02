@@ -175,7 +175,7 @@ export default function TenantFleetPage() {
             <button
               type="button"
               className="ac-btn"
-              style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+              style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
               onClick={() => setIsModalOpen(true)}
             >
               + Add Asset
@@ -331,12 +331,12 @@ export default function TenantFleetPage() {
                               : "rgba(59, 130, 246, 0.15)",
                           color:
                             a.asset_type === "DRONE"
-                              ? "#a78bfa"
+                              ? "var(--ac-status-insufficient)"
                               : a.asset_type === "HELICOPTER"
-                              ? "#34d399"
+                              ? "var(--ac-status-compliant)"
                               : a.asset_type === "EVTOL"
-                              ? "#fbbf24"
-                              : "#60a5fa",
+                              ? "var(--ac-status-review)"
+                              : "var(--ac-accent)",
                           border: "1px solid var(--border-color, #27272a)",
                         }}
                       >

@@ -159,10 +159,10 @@ function InstallComponentModal({
         style={{
           width: "100%",
           maxWidth: 480,
-          background: "#111827",
+          background: "var(--ac-bg-elevated)",
           padding: "24px",
           borderRadius: "12px",
-          border: "1px solid #374151",
+          border: "1px solid var(--ac-border)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -171,7 +171,7 @@ function InstallComponentModal({
           <button type="button" onClick={onClose} className="ac-button-secondary">✕</button>
         </div>
 
-        {error && <div style={{ color: "#ef4444", marginBottom: 12, fontSize: "0.85rem" }}>{error}</div>}
+        {error && <div style={{ color: "var(--ac-status-non-compliant)", marginBottom: 12, fontSize: "0.85rem" }}>{error}</div>}
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div>
@@ -179,7 +179,7 @@ function InstallComponentModal({
             <select
               value={componentType}
               onChange={(e) => setComponentType(e.target.value)}
-              style={{ width: "100%", padding: "8px", background: "#1f2937", color: "#fff", borderRadius: 6, border: "1px solid #4b5563" }}
+              style={{ width: "100%", padding: "8px", background: "var(--ac-bg-surface-hover)", color: "var(--ac-text-primary)", borderRadius: 6, border: "1px solid var(--ac-border)" }}
             >
               <option value="ENGINE">Engine / Turboshaft / Turbofan</option>
               <option value="MOTOR">Electric Propulsion Motor</option>
@@ -203,7 +203,7 @@ function InstallComponentModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              style={{ width: "100%", padding: "8px", background: "#1f2937", color: "#fff", borderRadius: 6, border: "1px solid #4b5563" }}
+              style={{ width: "100%", padding: "8px", background: "var(--ac-bg-surface-hover)", color: "var(--ac-text-primary)", borderRadius: 6, border: "1px solid var(--ac-border)" }}
             />
           </div>
 
@@ -215,7 +215,7 @@ function InstallComponentModal({
                 placeholder="e.g. SN-89104"
                 value={serialNumber}
                 onChange={(e) => setSerialNumber(e.target.value)}
-                style={{ width: "100%", padding: "8px", background: "#1f2937", color: "#fff", borderRadius: 6, border: "1px solid #4b5563" }}
+                style={{ width: "100%", padding: "8px", background: "var(--ac-bg-surface-hover)", color: "var(--ac-text-primary)", borderRadius: 6, border: "1px solid var(--ac-border)" }}
               />
             </div>
             <div>
@@ -225,7 +225,7 @@ function InstallComponentModal({
                 placeholder="e.g. CFM, Pratt & Whitney"
                 value={manufacturer}
                 onChange={(e) => setManufacturer(e.target.value)}
-                style={{ width: "100%", padding: "8px", background: "#1f2937", color: "#fff", borderRadius: 6, border: "1px solid #4b5563" }}
+                style={{ width: "100%", padding: "8px", background: "var(--ac-bg-surface-hover)", color: "var(--ac-text-primary)", borderRadius: 6, border: "1px solid var(--ac-border)" }}
               />
             </div>
           </div>
@@ -237,7 +237,7 @@ function InstallComponentModal({
               placeholder="e.g. PW207D1"
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              style={{ width: "100%", padding: "8px", background: "#1f2937", color: "#fff", borderRadius: 6, border: "1px solid #4b5563" }}
+              style={{ width: "100%", padding: "8px", background: "var(--ac-bg-surface-hover)", color: "var(--ac-text-primary)", borderRadius: 6, border: "1px solid var(--ac-border)" }}
             />
           </div>
 
@@ -248,7 +248,7 @@ function InstallComponentModal({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              style={{ width: "100%", padding: "8px", background: "#1f2937", color: "#fff", borderRadius: 6, border: "1px solid #4b5563" }}
+              style={{ width: "100%", padding: "8px", background: "var(--ac-bg-surface-hover)", color: "var(--ac-text-primary)", borderRadius: 6, border: "1px solid var(--ac-border)" }}
             />
           </div>
 
@@ -319,10 +319,10 @@ function LogFlightModal({
         style={{
           width: "100%",
           maxWidth: 440,
-          background: "#111827",
+          background: "var(--ac-bg-elevated)",
           padding: "24px",
           borderRadius: "12px",
-          border: "1px solid #374151",
+          border: "1px solid var(--ac-border)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -331,7 +331,7 @@ function LogFlightModal({
           <button type="button" onClick={onClose} className="ac-button-secondary">✕</button>
         </div>
 
-        {error && <div style={{ color: "#ef4444", marginBottom: 12, fontSize: "0.85rem" }}>{error}</div>}
+        {error && <div style={{ color: "var(--ac-status-non-compliant)", marginBottom: 12, fontSize: "0.85rem" }}>{error}</div>}
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -343,7 +343,7 @@ function LogFlightModal({
                 value={durationMinutes}
                 onChange={(e) => setDurationMinutes(Number(e.target.value))}
                 required
-                style={{ width: "100%", padding: "8px", background: "#1f2937", color: "#fff", borderRadius: 6, border: "1px solid #4b5563" }}
+                style={{ width: "100%", padding: "8px", background: "var(--ac-bg-surface-hover)", color: "var(--ac-text-primary)", borderRadius: 6, border: "1px solid var(--ac-border)" }}
               />
             </div>
             <div>
@@ -354,7 +354,7 @@ function LogFlightModal({
                 value={cycles}
                 onChange={(e) => setCycles(Number(e.target.value))}
                 required
-                style={{ width: "100%", padding: "8px", background: "#1f2937", color: "#fff", borderRadius: 6, border: "1px solid #4b5563" }}
+                style={{ width: "100%", padding: "8px", background: "var(--ac-bg-surface-hover)", color: "var(--ac-text-primary)", borderRadius: 6, border: "1px solid var(--ac-border)" }}
               />
             </div>
           </div>
@@ -366,7 +366,7 @@ function LogFlightModal({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              style={{ width: "100%", padding: "8px", background: "#1f2937", color: "#fff", borderRadius: 6, border: "1px solid #4b5563" }}
+              style={{ width: "100%", padding: "8px", background: "var(--ac-bg-surface-hover)", color: "var(--ac-text-primary)", borderRadius: 6, border: "1px solid var(--ac-border)" }}
             />
           </div>
 
@@ -610,7 +610,7 @@ export default function AssetDetailPage() {
   if (loading) {
     return (
       <div className="ac-page" style={{ padding: "40px", textAlign: "center" }}>
-        <p style={{ color: "#9ca3af" }}>Loading unified asset context...</p>
+        <p style={{ color: "var(--ac-text-secondary)" }}>Loading unified asset context...</p>
       </div>
     );
   }
@@ -655,8 +655,8 @@ export default function AssetDetailPage() {
         style={{
           padding: "20px 24px",
           marginBottom: 16,
-          background: "linear-gradient(180deg, rgba(31, 41, 55, 0.7) 0%, rgba(17, 24, 39, 0.95) 100%)",
-          border: "1px solid #374151",
+          background: "linear-gradient(135deg, var(--ac-bg-elevated) 0%, var(--ac-bg-surface-hover) 100%)",
+          border: "1px solid var(--ac-border)",
           borderRadius: 12,
         }}
       >
@@ -666,7 +666,7 @@ export default function AssetDetailPage() {
               <span
                 style={{
                   background: "rgba(56, 189, 248, 0.15)",
-                  color: "#38bdf8",
+                  color: "var(--ac-accent)",
                   padding: "3px 10px",
                   borderRadius: 12,
                   fontSize: "0.8rem",
@@ -676,11 +676,11 @@ export default function AssetDetailPage() {
               >
                 {asset.asset_type}
               </span>
-              <h1 style={{ margin: 0, fontSize: "1.75rem", fontWeight: 800, color: "#fff" }}>
+              <h1 style={{ margin: 0, fontSize: "1.75rem", fontWeight: 800, color: "var(--ac-text-primary)" }}>
                 {asset.registration}
               </h1>
             </div>
-            <p style={{ margin: 0, color: "#9ca3af", fontSize: "0.95rem" }}>
+            <p style={{ margin: 0, color: "var(--ac-text-secondary)", fontSize: "0.95rem" }}>
               {asset.manufacturer || "Manufacturer Unspecified"} {asset.model ? `· ${asset.model}` : ""}{" "}
               {asset.serial_number ? `(S/N: ${asset.serial_number})` : ""}
             </p>
@@ -688,22 +688,22 @@ export default function AssetDetailPage() {
 
           {/* 4 Status Dimensions */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ background: "#1f2937", padding: "8px 12px", borderRadius: 8, border: "1px solid #374151" }}>
-              <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "#9ca3af", marginBottom: 2 }}>
+            <div style={{ background: "var(--ac-bg-surface-hover)", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--ac-border)" }}>
+              <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "var(--ac-text-secondary)", marginBottom: 2 }}>
                 Lifecycle
               </div>
               <StatusBadge {...statusBadge(asset.status)} />
             </div>
 
-            <div style={{ background: "#1f2937", padding: "8px 12px", borderRadius: 8, border: "1px solid #374151" }}>
-              <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "#9ca3af", marginBottom: 2 }}>
+            <div style={{ background: "var(--ac-bg-surface-hover)", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--ac-border)" }}>
+              <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "var(--ac-text-secondary)", marginBottom: 2 }}>
                 Operational
               </div>
               <StatusBadge {...operationalStateBadge(operationalStatus)} />
             </div>
 
-            <div style={{ background: "#1f2937", padding: "8px 12px", borderRadius: 8, border: "1px solid #374151" }}>
-              <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "#9ca3af", marginBottom: 2 }}>
+            <div style={{ background: "var(--ac-bg-surface-hover)", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--ac-border)" }}>
+              <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "var(--ac-text-secondary)", marginBottom: 2 }}>
                 Readiness
               </div>
               <StatusBadge
@@ -712,8 +712,8 @@ export default function AssetDetailPage() {
               />
             </div>
 
-            <div style={{ background: "#1f2937", padding: "8px 12px", borderRadius: 8, border: "1px solid #374151" }}>
-              <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "#9ca3af", marginBottom: 2 }}>
+            <div style={{ background: "var(--ac-bg-surface-hover)", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--ac-border)" }}>
+              <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "var(--ac-text-secondary)", marginBottom: 2 }}>
                 Compliance
               </div>
               <StatusBadge
@@ -758,7 +758,7 @@ export default function AssetDetailPage() {
         style={{
           display: "flex",
           gap: 4,
-          borderBottom: "1px solid #374151",
+          borderBottom: "1px solid var(--ac-border)",
           marginBottom: 20,
           overflowX: "auto",
           paddingBottom: 4,
@@ -779,7 +779,7 @@ export default function AssetDetailPage() {
                 borderRadius: "8px 8px 0 0",
                 fontSize: "0.85rem",
                 fontWeight: isActive ? 700 : 500,
-                color: isActive ? "#38bdf8" : "#9ca3af",
+                color: isActive ? "var(--ac-accent)" : "var(--ac-text-secondary)",
                 background: isActive ? "rgba(56, 189, 248, 0.08)" : "transparent",
                 border: "none",
                 borderBottom: isActive ? "2px solid #38bdf8" : "2px solid transparent",
@@ -800,34 +800,34 @@ export default function AssetDetailPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
             <div className="ac-card" style={{ padding: 16 }}>
-              <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
                 Total Flight Hours (TTAF)
               </div>
-              <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#fff", marginTop: 4 }}>
+              <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-text-primary)", marginTop: 4 }}>
                 {operations?.utilization.total_flight_hours ?? 0} hrs
               </div>
             </div>
             <div className="ac-card" style={{ padding: 16 }}>
-              <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
                 Airframe Cycles
               </div>
-              <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#fff", marginTop: 4 }}>
+              <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-text-primary)", marginTop: 4 }}>
                 {operations?.utilization.total_cycles ?? 0}
               </div>
             </div>
             <div className="ac-card" style={{ padding: 16 }}>
-              <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
                 Open Work Orders
               </div>
-              <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#f59e0b", marginTop: 4 }}>
+              <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--ac-status-review)", marginTop: 4 }}>
                 {maintenance?.open_work_orders.length ?? 0}
               </div>
             </div>
             <div className="ac-card" style={{ padding: 16 }}>
-              <div style={{ fontSize: "0.75rem", color: "#9ca3af", textTransform: "uppercase" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>
                 Active Findings
               </div>
-              <div style={{ fontSize: "1.75rem", fontWeight: 700, color: findings?.open_count ? "#ef4444" : "#10b981", marginTop: 4 }}>
+              <div style={{ fontSize: "1.75rem", fontWeight: 700, color: findings?.open_count ? "var(--ac-status-non-compliant)" : "var(--ac-status-compliant)", marginTop: 4 }}>
                 {findings?.open_count ?? 0}
               </div>
             </div>
@@ -837,27 +837,27 @@ export default function AssetDetailPage() {
             <h3 style={{ margin: "0 0 12px 0", fontSize: "1rem", fontWeight: 700 }}>Airframe Specifications</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: "0.875rem" }}>
               <div>
-                <span style={{ color: "#9ca3af" }}>Registration: </span>
+                <span style={{ color: "var(--ac-text-secondary)" }}>Registration: </span>
                 <strong>{asset.registration}</strong>
               </div>
               <div>
-                <span style={{ color: "#9ca3af" }}>Asset Class: </span>
+                <span style={{ color: "var(--ac-text-secondary)" }}>Asset Class: </span>
                 <strong>{asset.asset_type}</strong>
               </div>
               <div>
-                <span style={{ color: "#9ca3af" }}>Manufacturer: </span>
+                <span style={{ color: "var(--ac-text-secondary)" }}>Manufacturer: </span>
                 <strong>{asset.manufacturer || "—"}</strong>
               </div>
               <div>
-                <span style={{ color: "#9ca3af" }}>Model: </span>
+                <span style={{ color: "var(--ac-text-secondary)" }}>Model: </span>
                 <strong>{asset.model || "—"}</strong>
               </div>
               <div>
-                <span style={{ color: "#9ca3af" }}>Serial / MSN: </span>
+                <span style={{ color: "var(--ac-text-secondary)" }}>Serial / MSN: </span>
                 <strong>{asset.serial_number || "—"}</strong>
               </div>
               <div>
-                <span style={{ color: "#9ca3af" }}>Registered Date: </span>
+                <span style={{ color: "var(--ac-text-secondary)" }}>Registered Date: </span>
                 <strong>{new Date(asset.created_at).toLocaleDateString()}</strong>
               </div>
             </div>
@@ -871,7 +871,7 @@ export default function AssetDetailPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div>
               <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Airframe Configuration Architecture</h3>
-              <p style={{ margin: "4px 0 0 0", color: "#9ca3af", fontSize: "0.85rem" }}>
+              <p style={{ margin: "4px 0 0 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                 Standardized slot positions and installed modules across the {asset.asset_type} domain.
               </p>
             </div>
@@ -892,8 +892,8 @@ export default function AssetDetailPage() {
                   style={{
                     padding: "14px 18px",
                     borderRadius: 8,
-                    background: slot.is_occupied ? "#1f2937" : "rgba(31, 41, 55, 0.4)",
-                    border: slot.is_occupied ? "1px solid #374151" : "1px dashed #4b5563",
+                    background: slot.is_occupied ? "var(--ac-bg-surface-hover)" : "var(--ac-bg-surface-hover)",
+                    border: slot.is_occupied ? "1px solid var(--ac-border)" : "1px dashed #4b5563",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -910,14 +910,14 @@ export default function AssetDetailPage() {
                         }}
                       />
                       <strong style={{ fontSize: "0.95rem" }}>{slot.slot_name}</strong>
-                      <span style={{ fontSize: "0.75rem", color: "#9ca3af" }}>[{slot.component_type}]</span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)" }}>[{slot.component_type}]</span>
                     </div>
                     {slot.component ? (
-                      <div style={{ marginTop: 6, fontSize: "0.85rem", color: "#d1d5db" }}>
+                      <div style={{ marginTop: 6, fontSize: "0.85rem", color: "var(--ac-text-secondary)" }}>
                         Installed: <strong>{slot.component.name}</strong> · S/N: {slot.component.serial_number || "—"} · Mfr: {slot.component.manufacturer || "—"}
                       </div>
                     ) : (
-                      <div style={{ marginTop: 4, fontSize: "0.8rem", color: "#9ca3af", fontStyle: "italic" }}>
+                      <div style={{ marginTop: 4, fontSize: "0.8rem", color: "var(--ac-text-secondary)", fontStyle: "italic" }}>
                         Slot unoccupied
                       </div>
                     )}
@@ -928,7 +928,7 @@ export default function AssetDetailPage() {
                         type="button"
                         onClick={() => handleRemoveComponent(slot.component!.id)}
                         className="ac-button-secondary"
-                        style={{ fontSize: "0.75rem", color: "#f87171" }}
+                        style={{ fontSize: "0.75rem", color: "var(--ac-status-non-compliant)" }}
                       >
                         Remove
                       </button>
@@ -937,7 +937,7 @@ export default function AssetDetailPage() {
                 </div>
               ))
             ) : (
-              <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No configuration slots mapped for this airframe.</p>
+              <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No configuration slots mapped for this airframe.</p>
             )}
           </div>
         </div>
@@ -950,7 +950,7 @@ export default function AssetDetailPage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Operational Utilization & Logging</h3>
-                <p style={{ margin: "4px 0 0 0", color: "#9ca3af", fontSize: "0.85rem" }}>
+                <p style={{ margin: "4px 0 0 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                   Flight legs, total time in service, and mission cycle metrics.
                 </p>
               </div>
@@ -965,9 +965,9 @@ export default function AssetDetailPage() {
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
               {operations?.utilization.metrics.map((m, idx) => (
-                <div key={idx} style={{ background: "#1f2937", padding: "12px 16px", borderRadius: 8, border: "1px solid #374151" }}>
-                  <div style={{ fontSize: "0.7rem", color: "#9ca3af", textTransform: "uppercase" }}>{m.metric_label}</div>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#38bdf8", marginTop: 4 }}>
+                <div key={idx} style={{ background: "var(--ac-bg-surface-hover)", padding: "12px 16px", borderRadius: 8, border: "1px solid var(--ac-border)" }}>
+                  <div style={{ fontSize: "0.7rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>{m.metric_label}</div>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--ac-accent)", marginTop: 4 }}>
                     {m.value} <span style={{ fontSize: "0.85rem", fontWeight: 400 }}>{m.unit}</span>
                   </div>
                 </div>
@@ -982,7 +982,7 @@ export default function AssetDetailPage() {
                     key={idx}
                     style={{
                       padding: "10px 14px",
-                      background: "#1f2937",
+                      background: "var(--ac-bg-surface-hover)",
                       borderRadius: 6,
                       display: "flex",
                       justifyContent: "space-between",
@@ -991,14 +991,14 @@ export default function AssetDetailPage() {
                   >
                     <div>
                       <strong>{new Date(f.flown_at).toLocaleDateString()}</strong> · {f.duration_minutes} minutes ({f.cycles} cycle{f.cycles > 1 ? "s" : ""})
-                      {f.notes && <div style={{ color: "#9ca3af", marginTop: 2 }}>{f.notes}</div>}
+                      {f.notes && <div style={{ color: "var(--ac-text-secondary)", marginTop: 2 }}>{f.notes}</div>}
                     </div>
-                    <div style={{ color: "#38bdf8" }}>Completed</div>
+                    <div style={{ color: "var(--ac-accent)" }}>Completed</div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No flight legs logged yet.</p>
+              <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No flight legs logged yet.</p>
             )}
           </div>
         </div>
@@ -1010,7 +1010,7 @@ export default function AssetDetailPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div>
               <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Installed Aerospace Components</h3>
-              <p style={{ margin: "4px 0 0 0", color: "#9ca3af", fontSize: "0.85rem" }}>
+              <p style={{ margin: "4px 0 0 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                 Active component genealogy and serial tracking.
               </p>
             </div>
@@ -1030,9 +1030,9 @@ export default function AssetDetailPage() {
                   key={c.id}
                   style={{
                     padding: "12px 16px",
-                    background: "#1f2937",
+                    background: "var(--ac-bg-surface-hover)",
                     borderRadius: 8,
-                    border: "1px solid #374151",
+                    border: "1px solid var(--ac-border)",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -1041,11 +1041,11 @@ export default function AssetDetailPage() {
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <strong style={{ fontSize: "0.95rem" }}>{c.name}</strong>
-                      <span style={{ fontSize: "0.75rem", background: "#374151", padding: "2px 6px", borderRadius: 4 }}>
+                      <span style={{ fontSize: "0.75rem", background: "var(--ac-border)", padding: "2px 6px", borderRadius: 4 }}>
                         {c.component_type}
                       </span>
                     </div>
-                    <div style={{ fontSize: "0.8rem", color: "#9ca3af", marginTop: 4 }}>
+                    <div style={{ fontSize: "0.8rem", color: "var(--ac-text-secondary)", marginTop: 4 }}>
                       S/N: {c.serial_number || "—"} · Mfr: {c.manufacturer || "—"} · Model: {c.model || "—"}
                     </div>
                   </div>
@@ -1053,7 +1053,7 @@ export default function AssetDetailPage() {
                     type="button"
                     onClick={() => handleRemoveComponent(c.id)}
                     className="ac-button-secondary"
-                    style={{ fontSize: "0.75rem", color: "#f87171" }}
+                    style={{ fontSize: "0.75rem", color: "var(--ac-status-non-compliant)" }}
                   >
                     Remove
                   </button>
@@ -1061,7 +1061,7 @@ export default function AssetDetailPage() {
               ))}
             </div>
           ) : (
-            <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No components currently registered as installed.</p>
+            <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No components currently registered as installed.</p>
           )}
         </div>
       )}
@@ -1078,7 +1078,7 @@ export default function AssetDetailPage() {
                     key={idx}
                     style={{
                       padding: "10px 14px",
-                      background: "#1f2937",
+                      background: "var(--ac-bg-surface-hover)",
                       borderRadius: 6,
                       display: "flex",
                       justifyContent: "space-between",
@@ -1087,16 +1087,16 @@ export default function AssetDetailPage() {
                   >
                     <div>
                       <strong>{item.title}</strong>
-                      <div style={{ color: "#9ca3af", marginTop: 2 }}>
+                      <div style={{ color: "var(--ac-text-secondary)", marginTop: 2 }}>
                         Interval: {item.interval_hours ? `${item.interval_hours} hrs` : "Calendar"} · Next Due: {item.next_due_hours ? `${item.next_due_hours} hrs` : "Scheduled"}
                       </div>
                     </div>
-                    <span style={{ color: "#38bdf8", fontWeight: 600 }}>{item.status || "UPCOMING"}</span>
+                    <span style={{ color: "var(--ac-accent)", fontWeight: 600 }}>{item.status || "UPCOMING"}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No maintenance items currently scheduled or due.</p>
+              <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No maintenance items currently scheduled or due.</p>
             )}
           </div>
 
@@ -1109,7 +1109,7 @@ export default function AssetDetailPage() {
                     key={idx}
                     style={{
                       padding: "10px 14px",
-                      background: "#1f2937",
+                      background: "var(--ac-bg-surface-hover)",
                       borderRadius: 6,
                       display: "flex",
                       justifyContent: "space-between",
@@ -1118,7 +1118,7 @@ export default function AssetDetailPage() {
                   >
                     <div>
                       <strong>{wo.title}</strong>
-                      <div style={{ color: "#9ca3af", marginTop: 2 }}>
+                      <div style={{ color: "var(--ac-text-secondary)", marginTop: 2 }}>
                         Priority: {wo.priority || "NORMAL"} · Status: {wo.status}
                       </div>
                     </div>
@@ -1129,7 +1129,7 @@ export default function AssetDetailPage() {
                 ))}
               </div>
             ) : (
-              <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No active work orders open for this airframe.</p>
+              <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No active work orders open for this airframe.</p>
             )}
           </div>
         </div>
@@ -1146,9 +1146,9 @@ export default function AssetDetailPage() {
                   key={idx}
                   style={{
                     padding: "12px 16px",
-                    background: "#1f2937",
+                    background: "var(--ac-bg-surface-hover)",
                     borderRadius: 8,
-                    border: "1px solid #374151",
+                    border: "1px solid var(--ac-border)",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -1156,7 +1156,7 @@ export default function AssetDetailPage() {
                 >
                   <div>
                     <strong style={{ fontSize: "0.95rem" }}>{insp.title}</strong>
-                    <div style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: 2 }}>
+                    <div style={{ color: "var(--ac-text-secondary)", fontSize: "0.8rem", marginTop: 2 }}>
                       Inspector: {insp.inspector || "Unassigned"} · Signed: {insp.signed_at ? new Date(insp.signed_at).toLocaleDateString() : "Pending"}
                     </div>
                   </div>
@@ -1167,7 +1167,7 @@ export default function AssetDetailPage() {
                       padding: "4px 8px",
                       borderRadius: 4,
                       background: insp.status === "COMPLETED" ? "rgba(16, 185, 129, 0.2)" : "rgba(245, 158, 11, 0.2)",
-                      color: insp.status === "COMPLETED" ? "#10b981" : "#f59e0b",
+                      color: insp.status === "COMPLETED" ? "var(--ac-status-compliant)" : "var(--ac-status-review)",
                     }}
                   >
                     {insp.status}
@@ -1176,7 +1176,7 @@ export default function AssetDetailPage() {
               ))}
             </div>
           ) : (
-            <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No inspection records recorded.</p>
+            <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No inspection records recorded.</p>
           )}
         </div>
       )}
@@ -1185,7 +1185,7 @@ export default function AssetDetailPage() {
       {activeTab === "EVIDENCE" && (
         <div className="ac-card" style={{ padding: 20 }}>
           <h3 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 700 }}>Authoritative Airframe Evidence Files</h3>
-          <p style={{ color: "#9ca3af", fontSize: "0.85rem", marginBottom: 16 }}>
+          <p style={{ color: "var(--ac-text-secondary)", fontSize: "0.85rem", marginBottom: 16 }}>
             Tenant-scoped regulatory certificates, weight and balance schedules, and non-destructive testing (NDT) logs.
           </p>
           {evidence?.evidence_items && evidence.evidence_items.length > 0 ? (
@@ -1195,9 +1195,9 @@ export default function AssetDetailPage() {
                   key={idx}
                   style={{
                     padding: "12px 16px",
-                    background: "#1f2937",
+                    background: "var(--ac-bg-surface-hover)",
                     borderRadius: 8,
-                    border: "1px solid #374151",
+                    border: "1px solid var(--ac-border)",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -1205,7 +1205,7 @@ export default function AssetDetailPage() {
                 >
                   <div>
                     <strong style={{ fontSize: "0.95rem" }}>{ev.title}</strong>
-                    <div style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: 2 }}>
+                    <div style={{ color: "var(--ac-text-secondary)", fontSize: "0.8rem", marginTop: 2 }}>
                       File: {ev.file_name} · Reviewed by: {ev.reviewed_by || "Pending Review"}
                     </div>
                   </div>
@@ -1216,7 +1216,7 @@ export default function AssetDetailPage() {
                       padding: "4px 8px",
                       borderRadius: 4,
                       background: ev.status === "ACCEPTED" ? "rgba(16, 185, 129, 0.2)" : "rgba(245, 158, 11, 0.2)",
-                      color: ev.status === "ACCEPTED" ? "#10b981" : "#f59e0b",
+                      color: ev.status === "ACCEPTED" ? "var(--ac-status-compliant)" : "var(--ac-status-review)",
                     }}
                   >
                     {ev.status}
@@ -1225,7 +1225,7 @@ export default function AssetDetailPage() {
               ))}
             </div>
           ) : (
-            <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No evidence files attached.</p>
+            <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No evidence files attached.</p>
           )}
         </div>
       )}
@@ -1241,9 +1241,9 @@ export default function AssetDetailPage() {
                   key={idx}
                   style={{
                     padding: "12px 16px",
-                    background: "#1f2937",
+                    background: "var(--ac-bg-surface-hover)",
                     borderRadius: 8,
-                    border: "1px solid #374151",
+                    border: "1px solid var(--ac-border)",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -1252,11 +1252,11 @@ export default function AssetDetailPage() {
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <strong style={{ fontSize: "0.95rem" }}>{f.title}</strong>
-                      <span style={{ fontSize: "0.75rem", background: "#374151", padding: "2px 6px", borderRadius: 4 }}>
+                      <span style={{ fontSize: "0.75rem", background: "var(--ac-border)", padding: "2px 6px", borderRadius: 4 }}>
                         Severity: {f.severity}
                       </span>
                     </div>
-                    <div style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: 2 }}>
+                    <div style={{ color: "var(--ac-text-secondary)", fontSize: "0.8rem", marginTop: 2 }}>
                       Discovered: {f.discovered_at ? new Date(f.discovered_at).toLocaleDateString() : "—"}
                     </div>
                   </div>
@@ -1267,7 +1267,7 @@ export default function AssetDetailPage() {
                       padding: "4px 8px",
                       borderRadius: 4,
                       background: f.status === "OPEN" ? "rgba(239, 68, 68, 0.2)" : "rgba(16, 185, 129, 0.2)",
-                      color: f.status === "OPEN" ? "#ef4444" : "#10b981",
+                      color: f.status === "OPEN" ? "var(--ac-status-non-compliant)" : "var(--ac-status-compliant)",
                     }}
                   >
                     {f.status}
@@ -1276,7 +1276,7 @@ export default function AssetDetailPage() {
               ))}
             </div>
           ) : (
-            <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No discrepancies or findings recorded.</p>
+            <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No discrepancies or findings recorded.</p>
           )}
         </div>
       )}
@@ -1291,7 +1291,7 @@ export default function AssetDetailPage() {
               border: "1px solid rgba(56, 189, 248, 0.3)",
               borderRadius: 8,
               fontSize: "0.85rem",
-              color: "#93c5fd",
+              color: "var(--ac-accent)",
             }}
           >
             <strong>AeroComply Authority Disclosure:</strong> Regulatory determinations require human authority. AI intelligence engines provide advisory context and do NOT have write authority over authoritative compliance rules.
@@ -1306,9 +1306,9 @@ export default function AssetDetailPage() {
                     key={idx}
                     style={{
                       padding: "12px 16px",
-                      background: "#1f2937",
+                      background: "var(--ac-bg-surface-hover)",
                       borderRadius: 8,
-                      border: "1px solid #374151",
+                      border: "1px solid var(--ac-border)",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
@@ -1316,12 +1316,12 @@ export default function AssetDetailPage() {
                   >
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: "0.75rem", background: "#374151", padding: "2px 6px", borderRadius: 4 }}>
+                        <span style={{ fontSize: "0.75rem", background: "var(--ac-border)", padding: "2px 6px", borderRadius: 4 }}>
                           {c.regulatory_code}
                         </span>
                         <strong style={{ fontSize: "0.95rem" }}>{c.title}</strong>
                       </div>
-                      <div style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: 2 }}>
+                      <div style={{ color: "var(--ac-text-secondary)", fontSize: "0.8rem", marginTop: 2 }}>
                         Assessed by: {c.assessed_by || "Qualified Inspector"} · Date: {c.assessed_at ? new Date(c.assessed_at).toLocaleDateString() : "—"}
                       </div>
                     </div>
@@ -1332,7 +1332,7 @@ export default function AssetDetailPage() {
                         padding: "4px 8px",
                         borderRadius: 4,
                         background: c.determination === "COMPLIANT" ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)",
-                        color: c.determination === "COMPLIANT" ? "#10b981" : "#ef4444",
+                        color: c.determination === "COMPLIANT" ? "var(--ac-status-compliant)" : "var(--ac-status-non-compliant)",
                       }}
                     >
                       {c.determination}
@@ -1341,7 +1341,7 @@ export default function AssetDetailPage() {
                 ))}
               </div>
             ) : (
-              <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No regulatory assessments recorded for this airframe.</p>
+              <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No regulatory assessments recorded for this airframe.</p>
             )}
           </div>
         </div>
@@ -1357,7 +1357,7 @@ export default function AssetDetailPage() {
               border: "1px solid rgba(245, 158, 11, 0.3)",
               borderRadius: 8,
               fontSize: "0.85rem",
-              color: "#fcd34d",
+              color: "var(--ac-status-review)",
             }}
           >
             <strong>Limitation of Scope:</strong> {readiness?.disclaimer || "Operational readiness evaluation only. Does not constitute an electronic Release to Service (RTS) signature."}
@@ -1372,9 +1372,9 @@ export default function AssetDetailPage() {
                     key={idx}
                     style={{
                       padding: "14px 18px",
-                      background: "#1f2937",
+                      background: "var(--ac-bg-surface-hover)",
                       borderRadius: 8,
-                      border: "1px solid #374151",
+                      border: "1px solid var(--ac-border)",
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1386,19 +1386,19 @@ export default function AssetDetailPage() {
                           padding: "4px 8px",
                           borderRadius: 4,
                           background: dim.status === "READY" ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)",
-                          color: dim.status === "READY" ? "#10b981" : "#ef4444",
+                          color: dim.status === "READY" ? "var(--ac-status-compliant)" : "var(--ac-status-non-compliant)",
                         }}
                       >
                         {dim.status}
                       </span>
                     </div>
-                    <p style={{ margin: "6px 0 0 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                    <p style={{ margin: "6px 0 0 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                       {dim.summary}
                     </p>
                     {dim.blockers && dim.blockers.length > 0 && (
                       <div style={{ marginTop: 8 }}>
-                        <span style={{ fontSize: "0.75rem", color: "#f87171", fontWeight: 600 }}>Active Blockers:</span>
-                        <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: "0.8rem", color: "#fca5a5" }}>
+                        <span style={{ fontSize: "0.75rem", color: "var(--ac-status-non-compliant)", fontWeight: 600 }}>Active Blockers:</span>
+                        <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: "0.8rem", color: "var(--ac-status-non-compliant)" }}>
                           {dim.blockers.map((b, bIdx) => (
                             <li key={bIdx}>{b}</li>
                           ))}
@@ -1408,7 +1408,7 @@ export default function AssetDetailPage() {
                   </div>
                 ))
               ) : (
-                <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No readiness evaluation available.</p>
+                <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No readiness evaluation available.</p>
               )}
             </div>
           </div>
@@ -1419,7 +1419,7 @@ export default function AssetDetailPage() {
       {activeTab === "HISTORY" && (
         <div className="ac-card" style={{ padding: 20 }}>
           <h3 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 700 }}>Unified Airframe History & Audit Trail</h3>
-          <p style={{ color: "#9ca3af", fontSize: "0.85rem", marginBottom: 16 }}>
+          <p style={{ color: "var(--ac-text-secondary)", fontSize: "0.85rem", marginBottom: 16 }}>
             Chronological log of airframe registration, component lifecycle events, flights, and maintenance records.
           </p>
           {history?.events && history.events.length > 0 ? (
@@ -1429,9 +1429,9 @@ export default function AssetDetailPage() {
                   key={ev.event_id}
                   style={{
                     padding: "12px 16px",
-                    background: "#1f2937",
+                    background: "var(--ac-bg-surface-hover)",
                     borderRadius: 8,
-                    border: "1px solid #374151",
+                    border: "1px solid var(--ac-border)",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "flex-start",
@@ -1440,25 +1440,25 @@ export default function AssetDetailPage() {
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <strong style={{ fontSize: "0.95rem" }}>{ev.title}</strong>
-                      <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>[{ev.event_type}]</span>
+                      <span style={{ fontSize: "0.7rem", color: "var(--ac-text-secondary)" }}>[{ev.event_type}]</span>
                     </div>
-                    <div style={{ color: "#d1d5db", fontSize: "0.85rem", marginTop: 2 }}>
+                    <div style={{ color: "var(--ac-text-secondary)", fontSize: "0.85rem", marginTop: 2 }}>
                       {ev.description}
                     </div>
                     {ev.actor && (
-                      <div style={{ color: "#9ca3af", fontSize: "0.75rem", marginTop: 4 }}>
+                      <div style={{ color: "var(--ac-text-secondary)", fontSize: "0.75rem", marginTop: 4 }}>
                         By: {ev.actor}
                       </div>
                     )}
                   </div>
-                  <div style={{ fontSize: "0.75rem", color: "#9ca3af", whiteSpace: "nowrap" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", whiteSpace: "nowrap" }}>
                     {new Date(ev.occurred_at).toLocaleString()}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No historical events recorded for this airframe.</p>
+            <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No historical events recorded for this airframe.</p>
           )}
         </div>
       )}
@@ -1474,7 +1474,7 @@ export default function AssetDetailPage() {
                 border: "1px solid rgba(245, 158, 11, 0.3)",
                 borderRadius: 8,
                 fontSize: "0.85rem",
-                color: "#fcd34d",
+                color: "var(--ac-status-review)",
               }}
             >
               The D2.2 Intelligence layer (readiness, risk, priority, decision,
@@ -1490,7 +1490,7 @@ export default function AssetDetailPage() {
                   border: "1px solid rgba(56, 189, 248, 0.3)",
                   borderRadius: 8,
                   fontSize: "0.85rem",
-                  color: "#93c5fd",
+                  color: "var(--ac-accent)",
                 }}
               >
                 <strong>Deterministic Intelligence:</strong> Every value below is computed by
@@ -1521,11 +1521,11 @@ export default function AssetDetailPage() {
                 <div className="ac-card" style={{ padding: 20 }}>
                   <h3 style={{ margin: "0 0 12px", fontSize: "1.1rem", fontWeight: 700 }}>HUMS Health</h3>
                   <HUMSHealthPanel health={humsHealth} accessToken={accessToken} />
-                  <div style={{ marginTop: 16, borderTop: "1px solid #27272a", paddingTop: 16 }}>
+                  <div style={{ marginTop: 16, borderTop: "1px solid var(--ac-border)", paddingTop: 16 }}>
                     <HUMSHealthIntelligencePanel assetId={assetId} accessToken={accessToken} />
                   </div>
-                  <div style={{ marginTop: 16, borderTop: "1px solid #27272a", paddingTop: 16 }}>
-                    <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  <div style={{ marginTop: 16, borderTop: "1px solid var(--ac-border)", paddingTop: 16 }}>
+                    <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
                       HUMS Diagnostics
                     </div>
                     <HUMSDiagnosticsPanel assetId={assetId} accessToken={accessToken} canWrite />
@@ -1533,8 +1533,8 @@ export default function AssetDetailPage() {
                   {/* Backend gates prognostics (RUL) behind predictive_maintenance as well as hums;
                       showing the panel without it would only render a 403. */}
                   {hasFeature("predictive_maintenance") && (
-                    <div style={{ marginTop: 16, borderTop: "1px solid #27272a", paddingTop: 16 }}>
-                      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    <div style={{ marginTop: 16, borderTop: "1px solid var(--ac-border)", paddingTop: 16 }}>
+                      <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
                         HUMS Prognostics (Remaining Useful Life)
                       </div>
                       <HUMSPrognosticsPanel assetId={assetId} accessToken={accessToken} />
@@ -1570,20 +1570,20 @@ export default function AssetDetailPage() {
 
                 {intelReadiness ? (
                   <>
-                    <p style={{ margin: "0 0 10px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                    <p style={{ margin: "0 0 10px 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                       {intelReadiness.explanation.join(" ")}
                     </p>
                     {intelReadiness.blockers.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        <span style={{ fontSize: "0.75rem", color: "#f87171", fontWeight: 600 }}>
+                        <span style={{ fontSize: "0.75rem", color: "var(--ac-status-non-compliant)", fontWeight: 600 }}>
                           Blockers ({intelReadiness.blockers.length}):
                         </span>
                         {intelReadiness.blockers.map((b, idx) => (
                           <div
                             key={idx}
-                            style={{ padding: "8px 12px", background: "#1f2937", borderRadius: 6, fontSize: "0.8rem" }}
+                            style={{ padding: "8px 12px", background: "var(--ac-bg-surface-hover)", borderRadius: 6, fontSize: "0.8rem" }}
                           >
-                            <span style={{ color: "#9ca3af" }}>[{b.source_domain}] </span>
+                            <span style={{ color: "var(--ac-text-secondary)" }}>[{b.source_domain}] </span>
                             {b.description}
                           </div>
                         ))}
@@ -1591,7 +1591,7 @@ export default function AssetDetailPage() {
                     )}
                   </>
                 ) : (
-                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>Readiness intelligence unavailable.</p>
+                  <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>Readiness intelligence unavailable.</p>
                 )}
               </div>
 
@@ -1603,21 +1603,21 @@ export default function AssetDetailPage() {
                 </div>
                 {intelRisk ? (
                   <>
-                    <p style={{ margin: "0 0 10px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                    <p style={{ margin: "0 0 10px 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                       {intelRisk.explanation.join(" ")}
                     </p>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
                       {intelRisk.factors.map((f) => (
-                        <div key={f.name} style={{ padding: "8px 12px", background: "#1f2937", borderRadius: 6 }}>
-                          <div style={{ fontSize: "0.7rem", color: "#9ca3af", textTransform: "uppercase" }}>{f.name}</div>
+                        <div key={f.name} style={{ padding: "8px 12px", background: "var(--ac-bg-surface-hover)", borderRadius: 6 }}>
+                          <div style={{ fontSize: "0.7rem", color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>{f.name}</div>
                           <div style={{ fontSize: "0.85rem", fontWeight: 700, marginTop: 2 }}>{f.value}</div>
-                          <div style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: 2 }}>{f.explanation}</div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)", marginTop: 2 }}>{f.explanation}</div>
                         </div>
                       ))}
                     </div>
                   </>
                 ) : (
-                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>Risk intelligence unavailable.</p>
+                  <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>Risk intelligence unavailable.</p>
                 )}
               </div>
 
@@ -1629,17 +1629,17 @@ export default function AssetDetailPage() {
                 </div>
                 {intelPriority ? (
                   <>
-                    <p style={{ margin: "0 0 6px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                    <p style={{ margin: "0 0 6px 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                       {intelPriority.explanation.join(" ")}
                     </p>
                     {intelPriority.escalated && (
-                      <p style={{ margin: 0, color: "#f59e0b", fontSize: "0.8rem" }}>
+                      <p style={{ margin: 0, color: "var(--ac-status-review)", fontSize: "0.8rem" }}>
                         ⚠ Escalated from base risk level ({intelPriority.blocker_count} concurrent blocker(s)).
                       </p>
                     )}
                   </>
                 ) : (
-                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>Priority intelligence unavailable.</p>
+                  <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>Priority intelligence unavailable.</p>
                 )}
               </div>
 
@@ -1651,15 +1651,15 @@ export default function AssetDetailPage() {
                 </div>
                 {intelDecision ? (
                   <>
-                    <p style={{ margin: "0 0 10px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                    <p style={{ margin: "0 0 10px 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                       {intelDecision.decision_reason}
                     </p>
                     {intelDecision.required_information.length > 0 && (
                       <div>
-                        <span style={{ fontSize: "0.75rem", color: "#fcd34d", fontWeight: 600 }}>
+                        <span style={{ fontSize: "0.75rem", color: "var(--ac-status-review)", fontWeight: 600 }}>
                           Required Information:
                         </span>
-                        <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: "0.8rem", color: "#fde68a" }}>
+                        <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: "0.8rem", color: "var(--ac-status-review)" }}>
                           {intelDecision.required_information.map((info, idx) => (
                             <li key={idx}>{info}</li>
                           ))}
@@ -1668,7 +1668,7 @@ export default function AssetDetailPage() {
                     )}
                   </>
                 ) : (
-                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>Decision intelligence unavailable.</p>
+                  <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>Decision intelligence unavailable.</p>
                 )}
               </div>
 
@@ -1685,13 +1685,13 @@ export default function AssetDetailPage() {
                     {intelRecommendation.items.map((item, idx) => (
                       <div
                         key={idx}
-                        style={{ padding: "12px 16px", background: "#1f2937", borderRadius: 8, border: "1px solid #374151" }}
+                        style={{ padding: "12px 16px", background: "var(--ac-bg-surface-hover)", borderRadius: 8, border: "1px solid var(--ac-border)" }}
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                           <span
                             style={{
                               fontSize: "0.7rem",
-                              background: "#374151",
+                              background: "var(--ac-border)",
                               padding: "2px 6px",
                               borderRadius: 4,
                               textTransform: "uppercase",
@@ -1700,14 +1700,14 @@ export default function AssetDetailPage() {
                             {item.action_category.replace(/_/g, " ")}
                           </span>
                         </div>
-                        <div style={{ fontSize: "0.9rem", color: "#fff" }}>{item.action}</div>
+                        <div style={{ fontSize: "0.9rem", color: "var(--ac-text-primary)" }}>{item.action}</div>
                         {item.resolution_condition && (
-                          <div style={{ fontSize: "0.8rem", color: "#9ca3af", marginTop: 4 }}>
+                          <div style={{ fontSize: "0.8rem", color: "var(--ac-text-secondary)", marginTop: 4 }}>
                             Resolution: {item.resolution_condition}
                           </div>
                         )}
                         {item.source_blocker && (
-                          <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: 6 }}>
+                          <div style={{ fontSize: "0.75rem", color: "var(--ac-text-muted)", marginTop: 6 }}>
                             Source: {item.source_blocker.related_record_type ?? item.source_blocker.source_domain}
                             {item.source_blocker.related_record_id ? ` #${item.source_blocker.related_record_id.slice(0, 8)}` : ""}
                             {item.source_blocker.regulatory_reference ? ` · ${item.source_blocker.regulatory_reference}` : ""}
@@ -1717,7 +1717,7 @@ export default function AssetDetailPage() {
                     ))}
                   </div>
                 ) : (
-                  <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No recommendation available.</p>
+                  <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No recommendation available.</p>
                 )}
               </div>
 
@@ -1725,7 +1725,7 @@ export default function AssetDetailPage() {
               {intelRecommendation && intelRecommendation.blockers.length > 0 && (
                 <div className="ac-card" style={{ padding: 20 }}>
                   <h3 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 700 }}>Source Traceability</h3>
-                  <p style={{ margin: "0 0 12px 0", color: "#9ca3af", fontSize: "0.85rem" }}>
+                  <p style={{ margin: "0 0 12px 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                     Every blocker below traces back to a real backend record — never an
                     unsupported or invented explanation.
                   </p>
@@ -1735,7 +1735,7 @@ export default function AssetDetailPage() {
                         key={idx}
                         style={{
                           padding: "10px 14px",
-                          background: "#1f2937",
+                          background: "var(--ac-bg-surface-hover)",
                           borderRadius: 6,
                           fontSize: "0.8rem",
                           display: "flex",
@@ -1745,9 +1745,9 @@ export default function AssetDetailPage() {
                       >
                         <div>
                           <strong>{b.category}</strong>
-                          <span style={{ color: "#9ca3af" }}> — {b.description}</span>
+                          <span style={{ color: "var(--ac-text-secondary)" }}> — {b.description}</span>
                         </div>
-                        <div style={{ color: "#6b7280" }}>
+                        <div style={{ color: "var(--ac-text-muted)" }}>
                           {b.related_record_type ?? b.source_domain}
                           {b.related_record_id ? ` #${b.related_record_id.slice(0, 8)}` : ""}
                           {b.regulatory_reference ? ` · ${b.regulatory_reference}` : ""}

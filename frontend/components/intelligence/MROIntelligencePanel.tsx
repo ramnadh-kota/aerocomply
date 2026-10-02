@@ -147,7 +147,7 @@ function freshnessBadge(freshness: string | null): { status: BadgeKind; label: s
 
 function SourceLineageTrail({ refs }: { refs: { source_type: string; source_id: string | null; label: string }[] }) {
   if (!refs || refs.length === 0) {
-    return <span style={{ fontSize: 11.5, color: "#6b7280", fontStyle: "italic" }}>No source lineage recorded.</span>;
+    return <span style={{ fontSize: 11.5, color: "var(--ac-text-muted)", fontStyle: "italic" }}>No source lineage recorded.</span>;
   }
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
@@ -160,8 +160,8 @@ function SourceLineageTrail({ refs }: { refs: { source_type: string; source_id: 
             padding: "3px 8px",
             borderRadius: 5,
             background: "rgba(255,255,255,0.04)",
-            border: "1px solid #27272a",
-            color: "#9ca3af",
+            border: "1px solid var(--ac-border)",
+            color: "var(--ac-text-secondary)",
           }}
         >
           [{r.source_type}] {r.label}
@@ -211,7 +211,7 @@ function CandidateCard({
     <div
       style={{
         padding: 12,
-        borderLeft: `4px solid ${candidate.status === "OPEN" || candidate.status === "UNDER_REVIEW" ? "#fbbf24" : "#374151"}`,
+        borderLeft: `4px solid ${candidate.status === "OPEN" || candidate.status === "UNDER_REVIEW" ? "#fbbf24" : "var(--ac-border)"}`,
         background: "rgba(255,255,255,0.02)",
         borderRadius: 6,
         marginBottom: 10,
@@ -220,7 +220,7 @@ function CandidateCard({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
         <div>
           <strong style={{ fontSize: 14 }}>{candidate.candidate_type.replace(/_/g, " ")}</strong>
-          <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginTop: 2 }}>
             confidence {(candidate.confidence * 100).toFixed(0)}% · component {candidate.component_id ?? "asset-level"}
           </div>
         </div>
@@ -232,35 +232,35 @@ function CandidateCard({
       </div>
 
       {(candidate.status === "OPEN" || candidate.status === "UNDER_REVIEW") && (
-        <div style={{ fontSize: 11, color: "#fbbf24", marginTop: 6, fontStyle: "italic" }}>
+        <div style={{ fontSize: 11, color: "var(--ac-status-review)", marginTop: 6, fontStyle: "italic" }}>
           {candidate.status === "OPEN" ? "Candidate Detected — Review Recommended." : "Under human review."}
         </div>
       )}
 
-      <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "#d1d5db" }}>{candidate.reason}</p>
+      <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ac-text-secondary)" }}>{candidate.reason}</p>
 
       {candidate.operational_impact && (
-        <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 6 }}>
+        <div style={{ fontSize: 11.5, color: "var(--ac-text-secondary)", marginTop: 6 }}>
           Estimated operational impact: {candidate.operational_impact}
         </div>
       )}
 
       <div style={{ marginTop: 6 }}>
-        <span style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Source lineage</span>
+        <span style={{ fontSize: 11, color: "var(--ac-text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Source lineage</span>
         <SourceLineageTrail refs={lineageRefs} />
       </div>
 
       {candidate.review_notes && (
-        <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 6 }}>Review notes: {candidate.review_notes}</div>
+        <div style={{ fontSize: 11.5, color: "var(--ac-text-secondary)", marginTop: 6 }}>Review notes: {candidate.review_notes}</div>
       )}
 
-      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
+      <div style={{ fontSize: 11, color: "var(--ac-text-muted)", marginTop: 6 }}>
         dedup {candidate.dedup_key} · created {new Date(candidate.created_at).toLocaleString()} · updated{" "}
         {new Date(candidate.updated_at).toLocaleString()}
       </div>
 
       {actionError && (
-        <div style={{ fontSize: 12, color: "#f87171", marginTop: 8, fontWeight: 600 }}>{actionError}</div>
+        <div style={{ fontSize: 12, color: "var(--ac-status-non-compliant)", marginTop: 8, fontWeight: 600 }}>{actionError}</div>
       )}
 
       {canWrite && (
@@ -268,28 +268,28 @@ function CandidateCard({
           <button
             disabled={!canTransition(candidate.status, "UNDER_REVIEW") || busy !== null}
             onClick={() => runAction("review")}
-            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #27272a", background: "none", color: "#93c5fd", cursor: canTransition(candidate.status, "UNDER_REVIEW") ? "pointer" : "not-allowed", opacity: canTransition(candidate.status, "UNDER_REVIEW") ? 1 : 0.4 }}
+            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--ac-border)", background: "none", color: "var(--ac-accent)", cursor: canTransition(candidate.status, "UNDER_REVIEW") ? "pointer" : "not-allowed", opacity: canTransition(candidate.status, "UNDER_REVIEW") ? 1 : 0.4 }}
           >
             {busy === "review" ? "Marking…" : "Mark Under Review"}
           </button>
           <button
             disabled={!canTransition(candidate.status, "ACCEPTED") || busy !== null}
             onClick={() => runAction("accept")}
-            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #27272a", background: "none", color: "#4ade80", cursor: canTransition(candidate.status, "ACCEPTED") ? "pointer" : "not-allowed", opacity: canTransition(candidate.status, "ACCEPTED") ? 1 : 0.4 }}
+            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--ac-border)", background: "none", color: "var(--ac-status-compliant)", cursor: canTransition(candidate.status, "ACCEPTED") ? "pointer" : "not-allowed", opacity: canTransition(candidate.status, "ACCEPTED") ? 1 : 0.4 }}
           >
             {busy === "accept" ? "Accepting…" : "Accept Candidate (Review Only)"}
           </button>
           <button
             disabled={!canTransition(candidate.status, "DEFERRED") || busy !== null}
             onClick={() => runAction("defer")}
-            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #27272a", background: "none", color: "#fbbf24", cursor: canTransition(candidate.status, "DEFERRED") ? "pointer" : "not-allowed", opacity: canTransition(candidate.status, "DEFERRED") ? 1 : 0.4 }}
+            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--ac-border)", background: "none", color: "var(--ac-status-review)", cursor: canTransition(candidate.status, "DEFERRED") ? "pointer" : "not-allowed", opacity: canTransition(candidate.status, "DEFERRED") ? 1 : 0.4 }}
           >
             {busy === "defer" ? "Deferring…" : "Defer Candidate"}
           </button>
           <button
             disabled={!canTransition(candidate.status, "REJECTED") || busy !== null}
             onClick={() => runAction("reject")}
-            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid #27272a", background: "none", color: "#f87171", cursor: canTransition(candidate.status, "REJECTED") ? "pointer" : "not-allowed", opacity: canTransition(candidate.status, "REJECTED") ? 1 : 0.4 }}
+            style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--ac-border)", background: "none", color: "var(--ac-status-non-compliant)", cursor: canTransition(candidate.status, "REJECTED") ? "pointer" : "not-allowed", opacity: canTransition(candidate.status, "REJECTED") ? 1 : 0.4 }}
           >
             {busy === "reject" ? "Rejecting…" : "Reject Candidate (Review Only)"}
           </button>
@@ -301,13 +301,13 @@ function CandidateCard({
 
 function ComplianceImpactSection({ compliance }: { compliance: ComplianceImpactResult | null }) {
   if (!compliance) {
-    return <p style={{ fontSize: 13, color: "#f87171", fontStyle: "italic" }}>EVIDENCE MISSING — compliance impact could not be loaded.</p>;
+    return <p style={{ fontSize: 13, color: "var(--ac-status-non-compliant)", fontStyle: "italic" }}>EVIDENCE MISSING — compliance impact could not be loaded.</p>;
   }
   if (compliance.availability === "DATA_UNAVAILABLE") {
     return (
       <div>
         <StatusBadge status="INSUFFICIENT_DATA" label="EVIDENCE MISSING" />
-        <p style={{ fontSize: 12.5, color: "#9ca3af", marginTop: 8 }}>
+        <p style={{ fontSize: 12.5, color: "var(--ac-text-secondary)", marginTop: 8 }}>
           {compliance.explanation.length > 0 ? compliance.explanation.join(" ") : "Underlying compliance data is unavailable for this asset."}
         </p>
       </div>
@@ -316,17 +316,17 @@ function ComplianceImpactSection({ compliance }: { compliance: ComplianceImpactR
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <span style={{ fontSize: 12, color: "#9ca3af", textTransform: "uppercase" }}>Overall Impact</span>
+        <span style={{ fontSize: 12, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Overall Impact</span>
         <StatusBadge {...complianceImpactBadge(compliance.overall_impact)} />
       </div>
       {compliance.explanation.length > 0 && (
-        <p style={{ fontSize: 12.5, color: "#d1d5db", marginBottom: 10 }}>{compliance.explanation.join(" ")}</p>
+        <p style={{ fontSize: 12.5, color: "var(--ac-text-secondary)", marginBottom: 10 }}>{compliance.explanation.join(" ")}</p>
       )}
       {compliance.obligations.length === 0 ? (
-        <p style={{ fontSize: 12.5, color: "#9ca3af", fontStyle: "italic" }}>No correlated compliance obligations for this asset.</p>
+        <p style={{ fontSize: 12.5, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No correlated compliance obligations for this asset.</p>
       ) : (
         compliance.obligations.map((o) => (
-          <div key={o.obligation_id} style={{ padding: 10, background: "rgba(255,255,255,0.02)", borderRadius: 6, marginBottom: 8, border: "1px solid #27272a" }}>
+          <div key={o.obligation_id} style={{ padding: 10, background: "rgba(255,255,255,0.02)", borderRadius: 6, marginBottom: 8, border: "1px solid var(--ac-border)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
               <span style={{ fontSize: 12.5 }}>Requirement {o.requirement_id}</span>
               <div style={{ display: "flex", gap: 6 }}>
@@ -334,18 +334,18 @@ function ComplianceImpactSection({ compliance }: { compliance: ComplianceImpactR
                 <StatusBadge {...complianceImpactBadge(o.impact)} />
               </div>
             </div>
-            <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 4 }}>
+            <div style={{ fontSize: 11.5, color: "var(--ac-text-secondary)", marginTop: 4 }}>
               Due: {o.due_date ?? "—"}
             </div>
             {o.explanation.length > 0 && (
-              <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 12, color: "#d1d5db" }}>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 12, color: "var(--ac-text-secondary)" }}>
                 {o.explanation.map((line, i) => (
                   <li key={i}>{line}</li>
                 ))}
               </ul>
             )}
             <div style={{ marginTop: 6 }}>
-              <span style={{ fontSize: 10.5, color: "#6b7280", textTransform: "uppercase" }}>Evidence / correlated signals</span>
+              <span style={{ fontSize: 10.5, color: "var(--ac-text-muted)", textTransform: "uppercase" }}>Evidence / correlated signals</span>
               <SourceLineageTrail refs={o.correlated_signals} />
             </div>
           </div>
@@ -389,9 +389,9 @@ export function MROIntelligencePanel({ assetId, accessToken, canWrite = false }:
 
   useEffect(load, [accessToken, assetId]);
 
-  if (loading) return <p style={{ fontSize: 13, color: "#9ca3af" }}>Loading MRO intelligence…</p>;
-  if (error) return <p style={{ fontSize: 13, color: "#f87171", fontWeight: 600 }}>{error}</p>;
-  if (!intel) return <p style={{ fontSize: 13, color: "#f87171" }}>MRO intelligence unavailable.</p>;
+  if (loading) return <p style={{ fontSize: 13, color: "var(--ac-text-secondary)" }}>Loading MRO intelligence…</p>;
+  if (error) return <p style={{ fontSize: 13, color: "var(--ac-status-non-compliant)", fontWeight: 600 }}>{error}</p>;
+  if (!intel) return <p style={{ fontSize: 13, color: "var(--ac-status-non-compliant)" }}>MRO intelligence unavailable.</p>;
 
   return (
     <div>
@@ -402,7 +402,7 @@ export function MROIntelligencePanel({ assetId, accessToken, canWrite = false }:
           border: "1px solid rgba(56, 189, 248, 0.3)",
           borderRadius: 8,
           fontSize: 12.5,
-          color: "#93c5fd",
+          color: "var(--ac-accent)",
           marginBottom: 14,
         }}
       >
@@ -419,48 +419,48 @@ export function MROIntelligencePanel({ assetId, accessToken, canWrite = false }:
       {/* H7 Overview */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: 16 }}>
         <div>
-          <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Health</div>
+          <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Health</div>
           <div style={{ fontSize: 13 }}>{intel.health_state ?? "UNKNOWN"} {intel.health_confidence ? `(${intel.health_confidence.toLowerCase()})` : ""}</div>
         </div>
         <div>
-          <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Open Diagnostics / Prognostic Alerts</div>
+          <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Open Diagnostics / Prognostic Alerts</div>
           <div style={{ fontSize: 13 }}>{intel.open_diagnostic_count} / {intel.open_prognostic_alert_count}</div>
         </div>
         <div>
-          <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Authoritative Readiness</div>
+          <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Authoritative Readiness</div>
           <StatusBadge {...authoritativeReadinessBadge(intel.authoritative_readiness_state)} />
         </div>
         <div>
-          <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>H7 Readiness Impact (Advisory)</div>
+          <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>H7 Readiness Impact (Advisory)</div>
           <StatusBadge {...readinessImpactBadge(intel.readiness_impact)} />
         </div>
         <div>
-          <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Compliance Impact</div>
+          <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Compliance Impact</div>
           <StatusBadge {...complianceImpactBadge(intel.compliance_impact)} />
         </div>
         <div>
-          <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Operational Impact</div>
+          <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Operational Impact</div>
           <StatusBadge {...operationalImpactBadge(intel.operational_impact)} />
         </div>
         <div>
-          <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Open Maintenance Candidates</div>
+          <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Open Maintenance Candidates</div>
           <div style={{ fontSize: 13 }}>{intel.open_candidate_count}</div>
         </div>
         <div>
-          <div style={{ fontSize: 11, color: "#9ca3af", textTransform: "uppercase" }}>Integration Conflicts</div>
-          <div style={{ fontSize: 13, color: intel.conflicts.length > 0 ? "#f87171" : undefined }}>{intel.conflicts.length}</div>
+          <div style={{ fontSize: 11, color: "var(--ac-text-secondary)", textTransform: "uppercase" }}>Integration Conflicts</div>
+          <div style={{ fontSize: 13, color: intel.conflicts.length > 0 ? "var(--ac-status-non-compliant)" : undefined }}>{intel.conflicts.length}</div>
         </div>
       </div>
 
       {intel.explanation.length > 0 && (
-        <p style={{ fontSize: 12.5, color: "#d1d5db", marginBottom: 16 }}>{intel.explanation.join(" ")}</p>
+        <p style={{ fontSize: 12.5, color: "var(--ac-text-secondary)", marginBottom: 16 }}>{intel.explanation.join(" ")}</p>
       )}
 
       {/* Maintenance Intelligence */}
       <div style={{ marginBottom: 18 }}>
         <h4 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700 }}>Maintenance Intelligence Candidates</h4>
         {!candidates || candidates.length === 0 ? (
-          <p style={{ fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>
+          <p style={{ fontSize: 13, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>
             No maintenance intelligence candidates currently identified.
           </p>
         ) : (
@@ -468,7 +468,7 @@ export function MROIntelligencePanel({ assetId, accessToken, canWrite = false }:
             <CandidateCard key={c.id} candidate={c} accessToken={accessToken} canWrite={canWrite} onChanged={load} />
           ))
         )}
-        <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+        <p style={{ fontSize: 11, color: "var(--ac-text-muted)", marginTop: 4 }}>
           These are advisory candidates only — never confirmed maintenance actions, work orders, or grounding directives.
         </p>
       </div>
@@ -491,7 +491,7 @@ export function MROIntelligencePanel({ assetId, accessToken, canWrite = false }:
       <div>
         <h4 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700 }}>Integration Conflicts</h4>
         {intel.conflicts.length === 0 ? (
-          <p style={{ fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>No integration conflicts detected.</p>
+          <p style={{ fontSize: 13, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No integration conflicts detected.</p>
         ) : (
           intel.conflicts.map((conflict, i) => (
             <div
@@ -505,19 +505,19 @@ export function MROIntelligencePanel({ assetId, accessToken, canWrite = false }:
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
-                <strong style={{ fontSize: 12.5, color: "#f87171" }}>CONFLICT: {conflict.check}</strong>
+                <strong style={{ fontSize: 12.5, color: "var(--ac-status-non-compliant)" }}>CONFLICT: {conflict.check}</strong>
                 <StatusBadge
                   status={conflict.severity === "HIGH" ? "NON_COMPLIANT" : conflict.severity === "MEDIUM" ? "REVIEW_REQUIRED" : "PENDING"}
                   label={conflict.severity}
                 />
               </div>
-              <p style={{ fontSize: 12, color: "#d1d5db", margin: "6px 0" }}>{conflict.description}</p>
+              <p style={{ fontSize: 12, color: "var(--ac-text-secondary)", margin: "6px 0" }}>{conflict.description}</p>
               <SourceLineageTrail refs={[conflict.source_a, conflict.source_b]} />
             </div>
           ))
         )}
         {intel.conflicts.length > 0 && (
-          <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+          <p style={{ fontSize: 11, color: "var(--ac-text-muted)", marginTop: 4 }}>
             Conflicts are flagged for human review only — this panel provides no action to auto-resolve or dismiss them.
           </p>
         )}

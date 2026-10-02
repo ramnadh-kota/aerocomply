@@ -1,0 +1,18 @@
+flowchart LR
+    subgraph Source
+      RA[Regulatory authority] --> RD[Regulatory document · revision]
+    end
+    subgraph Interpretation
+      RR[Regulatory requirement · type]
+      RV[Rule versioning — PROPOSED]
+    end
+    subgraph Logic
+      AR[Applicability rule · condition tree] --> KE[Kleene evaluator] 
+      IN[As-of configuration] --> KE
+    end
+    subgraph Output
+      AE[Evaluation · snapshot · trace] --> CO[Obligation] --> CS[Compliance state]
+    end
+    RD --> RR --> AR
+    KE --> AE
+    CO --> EV[Evidence] --> HR[Human review] --> AU[Audit]

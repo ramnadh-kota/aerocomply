@@ -41,6 +41,7 @@ from app.services import (
     component_service,
     drone_service,
     flight_service,
+    pilot_lookup,
     hums_templates,
     installation_service,
     maintenance_service,
@@ -154,7 +155,7 @@ def build_router(*, prefix: str, asset_type: str, feature: str, tag: str, with_b
         _airframe(db, user, asset_id)
         flights, total = flight_service.list_flights_for_asset(
             db, organization_id=user.organization_id, asset_id=asset_id, limit=limit, offset=offset)
-        return FlightListResponse(items=[FlightResponse.model_validate(f) for f in flights], total=total,
+        return FlightListResponse(items=pilot_lookup.with_pilot_names(db, organization_id=user.organization_id, records=flights, response_cls=FlightResponse), total=total,
                                   limit=max(1, min(limit, flight_service.FLIGHT_HISTORY_MAX_LIMIT)),
                                   offset=max(0, offset))
 
@@ -169,7 +170,7 @@ def build_router(*, prefix: str, asset_type: str, feature: str, tag: str, with_b
             flight_number=payload.flight_number, origin=payload.origin, destination=payload.destination,
             departure_time=payload.departure_time, arrival_time=payload.arrival_time,
             mission_type=payload.mission_type, status=payload.status)
-        return FlightResponse.model_validate(f)
+        return pilot_lookup.with_pilot_names(db, organization_id=user.organization_id, records=[f], response_cls=FlightResponse)[0]
 
     @router.get("/{asset_id}/utilization", response_model=UtilizationResponse)
     def utilization(asset_id: uuid.UUID, db: Session = Depends(get_db_session),

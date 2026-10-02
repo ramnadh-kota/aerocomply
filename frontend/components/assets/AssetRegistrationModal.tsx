@@ -232,7 +232,7 @@ export function AssetRegistrationModal({
               background: "rgba(239, 68, 68, 0.15)",
               border: "1px solid #ef4444",
               borderRadius: 6,
-              color: "#fca5a5",
+              color: "var(--ac-status-non-compliant)",
               marginBottom: 16,
               fontSize: "0.875rem",
             }}
@@ -361,7 +361,7 @@ export function AssetRegistrationModal({
                 type="submit"
                 className="ac-btn"
                 disabled={submitting}
-                style={{ background: "var(--ac-primary, #38bdf8)", color: "#000", fontWeight: 600 }}
+                style={{ background: "var(--ac-primary, #38bdf8)", color: "var(--ac-on-primary)", fontWeight: 600 }}
               >
                 {submitting ? "Registering..." : `Save ${assetType === "DRONE" ? "Drone" : "Asset"}`}
               </button>

@@ -22,6 +22,16 @@ router = APIRouter(
 )
 
 
+def _to_responses(db: Session, organization_id: uuid.UUID, missions: list) -> list[MissionResponse]:
+    names = mission_service.resolve_pilot_names(db, organization_id=organization_id, missions=missions)
+    out = []
+    for m in missions:
+        r = MissionResponse.model_validate(m)
+        r.pilot_name = names.get(m.pilot_user_id) if m.pilot_user_id else None
+        out.append(r)
+    return out
+
+
 @router.get("", response_model=MissionListResponse)
 def list_missions(
     asset_id: uuid.UUID | None = Query(default=None),
@@ -40,7 +50,7 @@ def list_missions(
         offset=offset,
     )
     return MissionListResponse(
-        items=[MissionResponse.model_validate(m) for m in items],
+        items=_to_responses(db, current_user.organization_id, items),
         total=total,
         limit=limit,
         offset=offset,
@@ -59,7 +69,7 @@ def create_mission(
         actor_user_id=current_user.id,
         payload=payload,
     )
-    return MissionResponse.model_validate(mission)
+    return _to_responses(db, current_user.organization_id, [mission])[0]
 
 
 @router.get("/{mission_id}", response_model=MissionResponse)
@@ -71,7 +81,7 @@ def get_mission(
     mission = mission_service.get_mission(
         db, organization_id=current_user.organization_id, mission_id=mission_id
     )
-    return MissionResponse.model_validate(mission)
+    return _to_responses(db, current_user.organization_id, [mission])[0]
 
 
 @router.patch("/{mission_id}", response_model=MissionResponse)
@@ -88,7 +98,7 @@ def update_mission(
         mission_id=mission_id,
         payload=payload,
     )
-    return MissionResponse.model_validate(mission)
+    return _to_responses(db, current_user.organization_id, [mission])[0]
 
 
 @router.post("/{mission_id}/authorize", response_model=MissionResponse)
@@ -109,4 +119,4 @@ def authorize_mission(
         mission_id=mission_id,
         payload=payload,
     )
-    return MissionResponse.model_validate(mission)
+    return _to_responses(db, current_user.organization_id, [mission])[0]

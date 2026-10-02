@@ -33,6 +33,9 @@ class MissionResponse(BaseModel):
     organization_id: uuid.UUID
     asset_id: uuid.UUID
     pilot_user_id: uuid.UUID | None
+    # Display name only (users.full_name), resolved within the caller's organization.
+    # None when no pilot is assigned or the user is not visible in this tenant.
+    pilot_name: str | None = None
     status: str
     purpose: str
     operating_area: str | None

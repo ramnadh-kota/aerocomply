@@ -18,7 +18,9 @@ const INDUSTRIES = [
 ];
 
 export default function TenantProfilePage() {
-  const { accessToken, isAuthenticated, isDemo } = useSession();
+  const { accessToken, isAuthenticated, isDemo, user } = useSession();
+  // Backend withholds contact details unless the caller holds org:manage; mirror that in the UI.
+  const canSeeContact = isDemo || !!user?.permissions?.includes("org:manage");
   const [profile, setProfile] = useState<TenantProfile | null>(
     isDemo ? DEMO_TENANT_PROFILE : null
   );
@@ -241,12 +243,18 @@ export default function TenantProfilePage() {
 
               <div>
                 <div className="ac-eyebrow">PRIMARY CONTACT</div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>
-                  {profile.primary_contact_name ?? "Not configured"}
-                </div>
-                <div className="ac-mono" style={{ fontSize: 12, opacity: 0.7 }}>
-                  {profile.primary_contact_email ?? "No email"}
-                </div>
+                {canSeeContact ? (
+                  <>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>
+                      {profile.primary_contact_name ?? "Not configured"}
+                    </div>
+                    <div className="ac-mono" style={{ fontSize: 12, opacity: 0.7 }}>
+                      {profile.primary_contact_email ?? "No email"}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 13, opacity: 0.7 }}>Visible to organization administrators only.</div>
+                )}
               </div>
 
               <div>

@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> OPEN: M7 sync creates signal (signal_key dedupe)
+    OPEN --> ACKNOWLEDGED: human (audited)
+    ACKNOWLEDGED --> IN_REVIEW: human (audited)
+    IN_REVIEW --> RESOLVED: human + notes (audited)
+    OPEN --> DISMISSED: human + reason
+    ACKNOWLEDGED --> DISMISSED: human + reason
+    RESOLVED --> [*]
+    DISMISSED --> [*]

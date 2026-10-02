@@ -376,6 +376,84 @@ def create_organization_user(
     return user
 
 
+def update_organization_user(
+    db: Session,
+    *,
+    actor_user_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID,
+    full_name: str | None = None,
+    email: str | None = None,
+    roles: list[str] | None = None,
+    is_active: bool | None = None,
+) -> dict:
+    """Platform-admin edit of a tenant user's name, email, roles and active flag.
+
+    Role and status changes delegate to tenant_service so the same guards apply
+    (customer tenant roles only -- no platform-role escalation; the last active
+    ORG_ADMIN cannot be removed; an actor cannot deactivate themselves) and the
+    same audit events are written. A changed email is marked unverified and
+    must stay unique. Passwords and tokens are never touched or audited.
+    """
+    from app.services import tenant_service
+
+    if full_name is None and email is None and roles is None and is_active is None:
+        raise ConflictError("No changes supplied.")
+
+    get_organization(db, organization_id=organization_id)
+    user = db.get(User, user_id)
+    if user is None or user.organization_id != organization_id:
+        raise NotFoundError("User not found in this organization")
+
+    allowed_role_names = {r.value for r in tenant_service.SUPPORTED_TENANT_ROLES}
+    if roles is not None:
+        bad = [r for r in roles if r not in allowed_role_names]
+        if bad:
+            raise ConflictError(f"Role '{bad[0]}' is not a valid customer tenant role.")
+    if is_active is False and user_id == actor_user_id:
+        raise ConflictError("You cannot deactivate your own account.")
+
+    changes: dict[str, dict] = {}
+    if full_name is not None and full_name != user.full_name:
+        changes["full_name"] = {"from": user.full_name, "to": full_name}
+        user.full_name = full_name
+    if email is not None and email.lower() != user.email.lower():
+        clash = db.execute(
+            select(User.id).where(func.lower(User.email) == email.lower(), User.id != user.id)
+        ).first()
+        if clash is not None:
+            raise ConflictError("A user with this email already exists")
+        changes["email"] = {"from": user.email, "to": email}
+        user.email = email
+        user.email_verified = False
+        user.pending_email = None
+    if changes:
+        db.add(user)
+        record_audit_event(
+            db,
+            organization_id=organization_id,
+            user_id=actor_user_id,
+            action="platform.organization.user_updated",
+            entity_type="User",
+            entity_id=user.id,
+            metadata={"changes": changes},
+        )
+        db.flush()
+
+    # tenant_service commits (including the profile changes above).
+    if roles is not None:
+        tenant_service.update_tenant_user_roles(
+            db, organization_id=organization_id, actor_user_id=actor_user_id, user_id=user_id, roles=roles
+        )
+    if is_active is not None and is_active != user.is_active:
+        tenant_service.update_tenant_user_status(
+            db, organization_id=organization_id, actor_user_id=actor_user_id, user_id=user_id, is_active=is_active
+        )
+    db.commit()
+
+    return next(u for u in list_organization_users(db, organization_id=organization_id) if u["id"] == user_id)
+
+
 def admin_reset_organization_user_password(
     db: Session,
     *,

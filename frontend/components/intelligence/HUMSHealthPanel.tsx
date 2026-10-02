@@ -75,9 +75,9 @@ function SensorFeatureHistory({ sensorId, accessToken }: { sensorId: string; acc
         onClick={load}
         style={{
           fontSize: 12,
-          color: "#93c5fd",
+          color: "var(--ac-accent)",
           background: "none",
-          border: "1px solid #27272a",
+          border: "1px solid var(--ac-border)",
           borderRadius: 6,
           padding: "4px 10px",
           cursor: "pointer",
@@ -88,9 +88,9 @@ function SensorFeatureHistory({ sensorId, accessToken }: { sensorId: string; acc
     );
   }
 
-  if (loading) return <p style={{ fontSize: 12, color: "#9ca3af" }}>Loading feature history…</p>;
-  if (error) return <p style={{ fontSize: 12, color: "#f87171" }}>{error}</p>;
-  if (!features || features.length === 0) return <p style={{ fontSize: 12, color: "#9ca3af" }}>No feature history yet.</p>;
+  if (loading) return <p style={{ fontSize: 12, color: "var(--ac-text-secondary)" }}>Loading feature history…</p>;
+  if (error) return <p style={{ fontSize: 12, color: "var(--ac-status-non-compliant)" }}>{error}</p>;
+  if (!features || features.length === 0) return <p style={{ fontSize: 12, color: "var(--ac-text-secondary)" }}>No feature history yet.</p>;
 
   // Latest value per feature_type, ordered by FEATURE_ORDER then anything else alphabetically.
   const latestByType = new Map<string, HUMSFeature>();
@@ -111,7 +111,7 @@ function SensorFeatureHistory({ sensorId, accessToken }: { sensorId: string; acc
     <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 10 }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
         <thead>
-          <tr style={{ textAlign: "left", color: "#9ca3af" }}>
+          <tr style={{ textAlign: "left", color: "var(--ac-text-secondary)" }}>
             <th style={{ padding: "4px 6px" }}>Feature</th>
             <th style={{ padding: "4px 6px" }}>Current</th>
             <th style={{ padding: "4px 6px" }}>Quality</th>
@@ -122,11 +122,11 @@ function SensorFeatureHistory({ sensorId, accessToken }: { sensorId: string; acc
           {orderedTypes.map((type) => {
             const f = latestByType.get(type)!;
             return (
-              <tr key={type} style={{ borderTop: "1px solid #27272a" }}>
+              <tr key={type} style={{ borderTop: "1px solid var(--ac-border)" }}>
                 <td style={{ padding: "4px 6px" }}>{type.replace(/_/g, " ")}</td>
                 <td style={{ padding: "4px 6px" }}>{f.value} {f.unit !== "unitless" ? f.unit : ""}</td>
                 <td style={{ padding: "4px 6px", color: qualityColor(f.quality) }}>{f.quality.replace(/_/g, " ")}</td>
-                <td style={{ padding: "4px 6px", color: "#6b7280" }}>{new Date(f.window_end).toLocaleString()}</td>
+                <td style={{ padding: "4px 6px", color: "var(--ac-text-muted)" }}>{new Date(f.window_end).toLocaleString()}</td>
               </tr>
             );
           })}
@@ -135,7 +135,7 @@ function SensorFeatureHistory({ sensorId, accessToken }: { sensorId: string; acc
 
       {spectrum && spectrum.quality === "GOOD" && spectrum.magnitudes.length > 0 ? (
         <div>
-          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 4 }}>
+          <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginBottom: 4 }}>
             Frequency spectrum — dominant {spectrum.dominant_frequency_hz} Hz
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 60 }}>
@@ -156,7 +156,7 @@ function SensorFeatureHistory({ sensorId, accessToken }: { sensorId: string; acc
           </div>
         </div>
       ) : (
-        <p style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic" }}>
+        <p style={{ fontSize: 11, color: "var(--ac-text-muted)", fontStyle: "italic" }}>
           Frequency spectrum unavailable (insufficient samples or no sampling-rate estimate for this window).
         </p>
       )}
@@ -205,21 +205,21 @@ function SensorLimitsEditor({ assetId, sensorId, accessToken }: { assetId: strin
   if (!open) {
     return (
       <>
-        <button onClick={openEditor} style={{ fontSize: 12, color: "#93c5fd", background: "none", border: "1px solid #27272a", borderRadius: 6, padding: "4px 10px", cursor: "pointer", marginLeft: 8 }}>
+        <button onClick={openEditor} style={{ fontSize: 12, color: "var(--ac-accent)", background: "none", border: "1px solid var(--ac-border)", borderRadius: 6, padding: "4px 10px", cursor: "pointer", marginLeft: 8 }}>
           Vibration limits
         </button>
-        {msg && !msg.ok && <span role="alert" style={{ fontSize: 12, color: "#f87171", marginLeft: 8 }}>{msg.text}</span>}
+        {msg && !msg.ok && <span role="alert" style={{ fontSize: 12, color: "var(--ac-status-non-compliant)", marginLeft: 8 }}>{msg.text}</span>}
       </>
     );
   }
   return (
     <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
-      <span style={{ color: "#9ca3af" }}>Current: {limitsLabel(sensor?.warning_threshold, sensor?.critical_threshold)}</span>
+      <span style={{ color: "var(--ac-text-secondary)" }}>Current: {limitsLabel(sensor?.warning_threshold, sensor?.critical_threshold)}</span>
       <input aria-label="Warning limit" placeholder="Warning" inputMode="decimal" value={form.warning} onChange={(e) => setForm({ ...form, warning: e.target.value })} style={{ width: 90 }} />
       <input aria-label="Critical limit" placeholder="Critical" inputMode="decimal" value={form.critical} onChange={(e) => setForm({ ...form, critical: e.target.value })} style={{ width: 90 }} />
       <button onClick={save} disabled={busy}>{busy ? "Saving…" : "Save limits"}</button>
-      <span style={{ color: "#6b7280" }}>Leave both empty for the platform defaults (not OEM limits).</span>
-      {msg && <span role={msg.ok ? "status" : "alert"} style={{ color: msg.ok ? "#4ade80" : "#f87171" }}>{msg.text}</span>}
+      <span style={{ color: "var(--ac-text-muted)" }}>Leave both empty for the platform defaults (not OEM limits).</span>
+      {msg && <span role={msg.ok ? "status" : "alert"} style={{ color: msg.ok ? "#4ade80" : "var(--ac-status-non-compliant)" }}>{msg.text}</span>}
     </div>
   );
 }
@@ -227,7 +227,7 @@ function SensorLimitsEditor({ assetId, sensorId, accessToken }: { assetId: strin
 export function HUMSHealthPanel({ health, accessToken }: HUMSHealthPanelProps) {
   if (!health) {
     return (
-      <div style={{ padding: 16, color: "#9ca3af", fontStyle: "italic" }}>
+      <div style={{ padding: 16, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>
         HUMS telemetry unavailable for this asset.
       </div>
     );
@@ -238,10 +238,10 @@ export function HUMSHealthPanel({ health, accessToken }: HUMSHealthPanelProps) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <strong>Overall HUMS Health</strong>
-          <div style={{ fontSize: 13, color: "#9ca3af" }}>
+          <div style={{ fontSize: 13, color: "var(--ac-text-secondary)" }}>
             {health.sensor_count} sensor{health.sensor_count === 1 ? "" : "s"} monitored
             {health.active_exceedance_count > 0
-              ? ` — ${health.active_exceedance_count} active exceedance${health.active_exceedance_count === 1 ? "" : "s"}`
+              ? ` — ${health.active_exceedance_count} recorded exceedance${health.active_exceedance_count === 1 ? "" : "s"}`
               : ""}
           </div>
         </div>
@@ -249,21 +249,21 @@ export function HUMSHealthPanel({ health, accessToken }: HUMSHealthPanelProps) {
       </div>
 
       {health.components.length === 0 ? (
-        <p style={{ color: "#9ca3af", fontStyle: "italic" }}>No HUMS sensors installed on this asset.</p>
+        <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic" }}>No HUMS sensors installed on this asset.</p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {health.components.map((c) => (
-            <div key={c.sensor_id} style={{ borderTop: "1px solid #27272a", paddingTop: 10 }}>
+            <div key={c.sensor_id} style={{ borderTop: "1px solid var(--ac-border)", paddingTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 13 }}>
                   <span>{c.parameter.replace(/_/g, " ")}</span>
                   <StatusBadge {...humsHealthStatusBadge(c.status)} />
-                  <span style={{ color: "#9ca3af" }}>
+                  <span style={{ color: "var(--ac-text-secondary)" }}>
                     {c.latest_feature ? `${c.latest_feature.value} ${c.latest_feature.unit}` : "no data"}
                   </span>
-                  {c.health_score !== null && <span style={{ color: "#9ca3af" }}>score {c.health_score}</span>}
+                  {c.health_score !== null && <span style={{ color: "var(--ac-text-secondary)" }}>score {c.health_score}</span>}
                   {c.active_exceedance_count > 0 && (
-                    <span style={{ color: "#f87171" }}>{c.active_exceedance_count} exceedance(s)</span>
+                    <span style={{ color: "var(--ac-status-non-compliant)" }}>{c.active_exceedance_count} exceedance(s)</span>
                   )}
                 </div>
               </div>
@@ -274,7 +274,7 @@ export function HUMSHealthPanel({ health, accessToken }: HUMSHealthPanelProps) {
         </div>
       )}
 
-      <p style={{ fontSize: 12, color: "#6b7280" }}>
+      <p style={{ fontSize: 12, color: "var(--ac-text-muted)" }}>
         HUMS health is one input into overall asset readiness, not a substitute for it. Limits without a configured
         value use generic platform defaults; set OEM or maintenance-manual limits per sensor.
       </p>

@@ -40,7 +40,7 @@ from app.schemas.edge_hardware import (
     EdgeDeviceResponse,
     EdgeDeviceRevokeResponse,
 )
-from app.services import telemetry_service
+from app.services import device_auth_service, telemetry_service
 from app.services.audit_service import record_audit_event
 
 
@@ -114,8 +114,8 @@ def provision_edge_device(
     ).scalar_one_or_none()
 
     now = datetime.now(UTC)
-    raw_token = payload.auth_secret or f"kota_edge_sec_{secrets.token_hex(16)}"
-    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    # C2: the credential is always server-generated (payload.auth_secret is ignored: a caller-chosen secret is
+    # typically weak) and verified by device_auth_service on every device-facing call.
 
     initial_config = payload.initial_config or {
         "sampling_hz": 1000,
@@ -139,7 +139,6 @@ def provision_edge_device(
 
     meta = {
         "lifecycle_stage": EdgeDeviceLifecycleStatus.CONFIGURED,
-        "auth_token_hash": token_hash,
         "active_config_version": 1,
         "active_config": initial_config,
         "config_history": [config_history_entry],
@@ -161,6 +160,9 @@ def provision_edge_device(
                 f"Device '{payload.device_id}' is revoked and cannot be re-provisioned.",
                 code="device_revoked",
             )
+        for kept in ("credential", "data_source_id"):  # re-provisioning must not silently drop the binding
+            if (existing.metadata_json or {}).get(kept) is not None:
+                meta[kept] = existing.metadata_json[kept]
         existing.device_type = payload.device_type
         existing.gateway_id = payload.gateway_id
         existing.asset_id = payload.asset_id
@@ -183,6 +185,8 @@ def provision_edge_device(
         )
         db.add(device)
 
+    db.flush()
+    raw_token = device_auth_service.issue_credential(device)
     db.flush()
 
     record_audit_event(

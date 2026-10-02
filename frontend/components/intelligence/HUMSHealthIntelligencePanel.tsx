@@ -38,7 +38,7 @@ function FeatureRow({ f }: { f: HUMSFeatureHealth }) {
         <StatusBadge {...humsHealthIntelligenceStateBadge(f.state)} />
       </div>
       {f.deviation && f.deviation.state !== "INSUFFICIENT_DATA" && (
-        <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
+        <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginTop: 2 }}>
           current {f.deviation.current_value} vs. baseline {f.deviation.baseline_value} (range [{f.deviation.lower_bound}, {f.deviation.upper_bound}])
           {f.deviation.percentage_deviation !== null ? ` — ${(f.deviation.percentage_deviation * 100).toFixed(1)}% from baseline` : ""}
           {" · "}
@@ -46,7 +46,7 @@ function FeatureRow({ f }: { f: HUMSFeatureHealth }) {
           {f.consecutive_deviation_count > 0 ? ` · ${f.consecutive_deviation_count} consecutive` : ""}
         </div>
       )}
-      <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12, color: "#d1d5db" }}>
+      <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12, color: "var(--ac-text-secondary)" }}>
         {f.explanation.map((line, i) => (
           <li key={i}>{line}</li>
         ))}
@@ -74,22 +74,22 @@ export function HUMSHealthIntelligencePanel({ assetId, accessToken }: HUMSHealth
       .finally(() => setLoading(false));
   }, [accessToken, assetId]);
 
-  if (loading) return <p style={{ fontSize: 13, color: "#9ca3af" }}>Loading health intelligence…</p>;
-  if (error) return <p style={{ fontSize: 13, color: "#f87171" }}>{error}</p>;
-  if (!data) return <p style={{ fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>Health intelligence unavailable.</p>;
+  if (loading) return <p style={{ fontSize: 13, color: "var(--ac-text-secondary)" }}>Loading health intelligence…</p>;
+  if (error) return <p style={{ fontSize: 13, color: "var(--ac-status-non-compliant)" }}>{error}</p>;
+  if (!data) return <p style={{ fontSize: 13, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>Health intelligence unavailable.</p>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <strong>Baseline-Driven Health Intelligence</strong>
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>Confidence: {data.confidence.toLowerCase()}</div>
+          <div style={{ fontSize: 12, color: "var(--ac-text-secondary)" }}>Confidence: {data.confidence.toLowerCase()}</div>
         </div>
         <StatusBadge {...humsHealthIntelligenceStateBadge(data.state)} />
       </div>
 
       {data.state === "INSUFFICIENT_DATA" ? (
-        <p style={{ fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>
+        <p style={{ fontSize: 13, color: "var(--ac-text-secondary)", fontStyle: "italic" }}>
           Not enough historical feature data to establish a trustworthy baseline yet. No health state is reported rather than
           guessing one.
         </p>
@@ -97,7 +97,7 @@ export function HUMSHealthIntelligencePanel({ assetId, accessToken }: HUMSHealth
         <>
           {data.primary_contributors.length > 0 && (
             <div>
-              <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
                 Why: primary contributors
               </div>
               {data.primary_contributors.map((f, i) => (
@@ -107,7 +107,7 @@ export function HUMSHealthIntelligencePanel({ assetId, accessToken }: HUMSHealth
           )}
 
           <div>
-            <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <div style={{ fontSize: 12, color: "var(--ac-text-secondary)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
               Components
             </div>
             {data.components.map((comp) => (
@@ -122,7 +122,7 @@ export function HUMSHealthIntelligencePanel({ assetId, accessToken }: HUMSHealth
         </>
       )}
 
-      <p style={{ fontSize: 11, color: "#6b7280" }}>
+      <p style={{ fontSize: 11, color: "var(--ac-text-muted)" }}>
         Deterministic, explainable health intelligence derived from historical HUMS feature baselines. This is NOT fault
         diagnosis, prognostics, remaining-useful-life prediction, or an autonomous safety decision — it is one input into
         overall asset readiness, reviewed by a human.

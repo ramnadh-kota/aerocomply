@@ -1,6 +1,8 @@
 import uuid
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, computed_field
+
+from app.core.permissions import permissions_for_roles
 
 
 class RegisterOrganizationRequest(BaseModel):
@@ -37,6 +39,13 @@ class CurrentUser(BaseModel):
     pending_email: str | None = None
     # Display name of the caller's own organization (filled by /auth/me; None when built from a token).
     organization_name: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def permissions(self) -> list[str]:
+        """Effective RBAC permissions, derived from `roles` by the SAME function require_permission() uses, so the
+        frontend (navigation / route guards) and the API can never disagree. Display aid only: the API enforces."""
+        return sorted(permissions_for_roles(self.roles))
 
 
 class UpdateProfileRequest(BaseModel):

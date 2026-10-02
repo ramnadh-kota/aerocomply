@@ -89,3 +89,11 @@ any one entitles it.
 ## 8. Payment state and entitlement
 TRIALING, ACTIVE and PAST_DUE (payment grace, default 14 days, clock = `subscriptions.past_due_since`) grant access; CANCELED, expired and
 absent subscriptions do not. Grace expiry can cancel automatically (opt-in `BILLING_ENFORCE_GRACE`); see BILLING_ARCHITECTURE.md.
+
+## Addendum: effective feature map is lookup-only (Oct 2026)
+
+`effective_features` in the entitlement resolution intentionally carries every feature under its canonical key **and** its aliases (e.g. `drone_fleet_management` and `DRONE_FLEET_MANAGEMENT`), so any spelling resolves. It must never be listed or counted directly: use `dedupeEffectiveFeatures` (`frontend/lib/entitlements/featureKeys.ts`) in UI, and `canonicalize_feature_key` for counts on the backend (`tenant_service` dashboard `effective_features_count`). Covered by `frontend/tests/effective-features-dedupe.test.ts`.
+
+### Suite guard for multi-suite organizations
+
+`resolution.suite_code` is the aggregated `MULTI_SUITE` for an organization with more than one active suite subscription. Suite-restricted pages (`SuiteGuard`) must therefore test membership in `resolution.active_suites` (exposed as `activeSuiteCodes` by `EntitlementContext`), not equality with `suite_code`. See `isSuiteAllowed` and `frontend/tests/suite-guard.test.ts`.

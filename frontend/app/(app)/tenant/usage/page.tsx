@@ -201,7 +201,7 @@ export default function TenantUsagePage() {
                               padding: "2px 6px",
                               borderRadius: 4,
                               background: "rgba(100, 116, 139, 0.15)",
-                              color: "#94a3b8",
+                              color: "var(--ac-text-muted)",
                               border: "1px solid rgba(100, 116, 139, 0.3)",
                             }}
                           >

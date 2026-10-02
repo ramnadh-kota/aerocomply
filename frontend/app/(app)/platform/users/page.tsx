@@ -12,7 +12,12 @@ import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
-import { platformApi, type PlatformUser, type BackendPlatformOrganization } from "@/lib/api/platform";
+import {
+  ASSIGNABLE_TENANT_ROLES,
+  platformApi,
+  type PlatformUser,
+  type BackendPlatformOrganization,
+} from "@/lib/api/platform";
 import { DEMO_PLATFORM_USERS, DEMO_PLATFORM_ORGANIZATIONS } from "@/lib/demo/demoPlatform";
 
 export default function PlatformUsersPage() {
@@ -27,6 +32,55 @@ export default function PlatformUsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrgId, setSelectedOrgId] = useState<string>("ALL");
   const [selectedRole, setSelectedRole] = useState<string>("ALL");
+
+  const [editing, setEditing] = useState<PlatformUser | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editRole, setEditRole] = useState("");
+  const [editActive, setEditActive] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const startEdit = (u: PlatformUser) => {
+    setEditing(u);
+    setEditName(u.full_name);
+    setEditEmail(u.email);
+    setEditRole(u.roles[0] ?? "");
+    setEditActive(u.is_active);
+    setEditError(null);
+    setNotice(null);
+  };
+
+  const canEdit = (u: PlatformUser) =>
+    mode === "REAL" && !u.roles.some((r) => r.startsWith("PLATFORM")) && u.id !== user?.id;
+
+  const saveEdit = async () => {
+    if (!editing || !accessToken) return;
+    const changes: { full_name?: string; email?: string; roles?: string[]; is_active?: boolean } = {};
+    if (editName.trim() && editName.trim() !== editing.full_name) changes.full_name = editName.trim();
+    if (editEmail.trim() && editEmail.trim().toLowerCase() !== editing.email.toLowerCase()) changes.email = editEmail.trim();
+    if (editRole && !(editing.roles.length === 1 && editing.roles[0] === editRole)) changes.roles = [editRole];
+    if (editActive !== editing.is_active) changes.is_active = editActive;
+    if (Object.keys(changes).length === 0) {
+      setEditError("No changes to save.");
+      return;
+    }
+    setSaving(true);
+    setEditError(null);
+    try {
+      const updated = await platformApi.updateOrganizationUser(accessToken, editing.organization_id, editing.id, changes);
+      setUsers((prev) =>
+        prev.map((x) => (x.id === updated.id ? { ...x, ...updated, organization_name: x.organization_name } : x))
+      );
+      setNotice(`Saved changes to ${updated.full_name}. The change is recorded in the audit trail.`);
+      setEditing(null);
+    } catch (err) {
+      setEditError(normalizeApiError(err).message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const isPlatformUser =
     user?.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
@@ -192,6 +246,62 @@ export default function PlatformUsersPage() {
             </div>
           </div>
 
+          {notice && (
+            <div className="ac-card" role="status" style={{ padding: "10px 16px", fontSize: 13 }}>
+              {notice}
+            </div>
+          )}
+
+          {editing && (
+            <div className="ac-card" role="form" aria-label={`Edit ${editing.full_name}`} style={{ padding: "var(--ac-space-4)" }}>
+              <h3 className="ac-h3" style={{ margin: "0 0 12px" }}>
+                Edit user — {editing.organization_name ?? editing.organization_id}
+              </h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                <label className="ac-text-sm">
+                  Full name
+                  <input className="ac-input" aria-label="Full name" value={editName} maxLength={255} onChange={(e) => setEditName(e.target.value)} />
+                </label>
+                <label className="ac-text-sm">
+                  Email
+                  <input className="ac-input" type="email" aria-label="Email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
+                </label>
+                <label className="ac-text-sm">
+                  Role
+                  <select className="ac-select" aria-label="Role" value={editRole} onChange={(e) => setEditRole(e.target.value)}>
+                    {!ASSIGNABLE_TENANT_ROLES.includes(editRole as (typeof ASSIGNABLE_TENANT_ROLES)[number]) && editRole && (
+                      <option value={editRole}>{editRole} (current)</option>
+                    )}
+                    {ASSIGNABLE_TENANT_ROLES.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="ac-text-sm" style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 18 }}>
+                  <input type="checkbox" aria-label="Account active" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
+                  Account active
+                </label>
+              </div>
+              <p className="ac-text-sm ac-text-muted" style={{ margin: "10px 0 0" }}>
+                Changing the email marks it unverified. Only customer roles can be assigned; the last Organization
+                Administrator cannot be demoted or deactivated.
+              </p>
+              {editError && (
+                <p role="alert" className="ac-text-sm" style={{ margin: "10px 0 0", color: "var(--ac-status-non-compliant, #b91c1c)" }}>
+                  {editError}
+                </p>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <button className="ac-btn ac-btn-primary" onClick={saveEdit} disabled={saving}>
+                  {saving ? "Saving…" : "Save changes"}
+                </button>
+                <button className="ac-btn" onClick={() => setEditing(null)} disabled={saving}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <RealDataPanel
             loading={loading}
             error={error}
@@ -250,7 +360,12 @@ export default function PlatformUsersPage() {
                       <td className="ac-text-muted" style={{ fontSize: 12 }}>
                         {new Date(u.created_at).toLocaleDateString()}
                       </td>
-                      <td>
+                      <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {canEdit(u) && (
+                          <button className="ac-btn" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => startEdit(u)}>
+                            Edit
+                          </button>
+                        )}
                         <Link
                           className="ac-btn"
                           style={{ fontSize: 11, padding: "2px 8px" }}

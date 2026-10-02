@@ -5,6 +5,13 @@ import Link from "next/link";
 import { useEntitlements } from "@/lib/entitlements/EntitlementContext";
 import { useSession } from "@/lib/auth/SessionContext";
 
+/** Allowed when no suite info is known, or any held suite (aggregated code or an active subscription) is required. */
+export function isSuiteAllowed(allowed: string[], suiteCode: string | null, activeSuiteCodes: string[]): boolean {
+  const held = new Set([suiteCode, ...activeSuiteCodes].filter((c): c is string => !!c).map((c) => c.toUpperCase()));
+  if (held.size === 0) return true;
+  return allowed.some((a) => held.has(a.toUpperCase()));
+}
+
 interface SuiteGuardProps {
   requiredSuite: string | string[];
   children: ReactNode;
@@ -12,7 +19,7 @@ interface SuiteGuardProps {
 }
 
 export function SuiteGuard({ requiredSuite, children, fallback }: SuiteGuardProps) {
-  const { suiteCode, loading } = useEntitlements();
+  const { suiteCode, activeSuiteCodes, loading } = useEntitlements();
   const { user } = useSession();
 
   const isPlatformUser =
@@ -34,9 +41,7 @@ export function SuiteGuard({ requiredSuite, children, fallback }: SuiteGuardProp
     ? requiredSuite.map((s) => s.toUpperCase())
     : [requiredSuite.toUpperCase()];
 
-  const currentSuite = suiteCode ? suiteCode.toUpperCase() : "";
-
-  const isAllowed = !currentSuite || allowedSuites.includes(currentSuite);
+  const isAllowed = isSuiteAllowed(allowedSuites, suiteCode, activeSuiteCodes);
 
   if (!isAllowed) {
     if (fallback) return <>{fallback}</>;
@@ -47,7 +52,7 @@ export function SuiteGuard({ requiredSuite, children, fallback }: SuiteGuardProp
         <p className="ac-text-sm ac-text-muted" style={{ maxWidth: 500, margin: "0 auto 16px" }}>
           This domain capability is restricted to organizations with an active subscription to the{" "}
           <strong>{allowedSuites.join(" / ")}</strong> suite. Your organization is currently on the{" "}
-          <strong>{suiteCode || "unassigned"}</strong> suite.
+          <strong>{activeSuiteCodes.length > 0 ? activeSuiteCodes.join(" + ") : suiteCode || "unassigned"}</strong> suite.
         </p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
           <Link href="/dashboard" className="ac-btn ac-btn-outline">

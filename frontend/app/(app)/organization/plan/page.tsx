@@ -12,6 +12,7 @@
 // subscription/entitlement state is a platform-admin-only operation
 // (app/(app)/platform/organizations/[organizationId]/subscriptions).
 
+import { dedupeEffectiveFeatures } from "@/lib/entitlements/featureKeys";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -50,12 +51,9 @@ export default function OrganizationPlanPage() {
       .finally(() => setLoading(false));
   }, [accessToken, isAuthenticated]);
 
-  const enabledFeatures = entitlements
-    ? Object.entries(entitlements.effective_features).filter(([, enabled]) => enabled)
-    : [];
-  const disabledFeatures = entitlements
-    ? Object.entries(entitlements.effective_features).filter(([, enabled]) => !enabled)
-    : [];
+  const uniqueFeatures = entitlements ? dedupeEffectiveFeatures(entitlements.effective_features) : [];
+  const enabledFeatures = uniqueFeatures.filter(([, enabled]) => enabled);
+  const disabledFeatures = uniqueFeatures.filter(([, enabled]) => !enabled);
 
   return (
     <div>

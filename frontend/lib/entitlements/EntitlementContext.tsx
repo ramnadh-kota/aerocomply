@@ -23,6 +23,8 @@ export interface EntitlementContextValue {
   refetchEntitlements: () => Promise<void>;
   suiteId: string | null;
   suiteCode: string | null;
+  /** Codes of all actively subscribed suites (suiteCode alone is "MULTI_SUITE" for orgs on more than one). */
+  activeSuiteCodes: string[];
   suiteName: string | null;
   planId: string | null;
   planCode: string | null;
@@ -117,6 +119,7 @@ export function EntitlementProvider({ children }: { children: ReactNode }) {
       refetchEntitlements: fetchEntitlements,
       suiteId: resolution?.suite_id ?? null,
       suiteCode: resolution?.suite_code ?? null,
+      activeSuiteCodes: (resolution?.active_suites ?? []).map((x) => x.suite_code).filter((c): c is string => !!c),
       suiteName: resolution?.suite_name ?? null,
       planId: resolution?.plan_id ?? null,
       planCode: resolution?.plan_code ?? null,
@@ -143,6 +146,7 @@ export function useEntitlements(): EntitlementContextValue {
       refetchEntitlements: async () => {},
       suiteId: null,
       suiteCode: null,
+      activeSuiteCodes: [],
       suiteName: null,
       planId: null,
       planCode: null,

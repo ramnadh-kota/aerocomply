@@ -253,7 +253,7 @@ export default function DashboardPage() {
               marginBottom: 20,
               padding: "20px 24px",
               borderColor: "var(--ac-accent)",
-              background: "linear-gradient(135deg, rgba(17, 24, 39, 0.85) 0%, rgba(31, 41, 55, 0.6) 100%)",
+              background: "linear-gradient(135deg, var(--ac-bg-elevated) 0%, var(--ac-bg-surface-hover) 100%)",
             }}
           >
             <div className="ac-flex ac-justify-between ac-items-center" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
@@ -267,7 +267,7 @@ export default function DashboardPage() {
                 {asOf ? `Updated ${asOf}` : "Grounded Live Tenant Truth"}
               </span>
             </div>
-            <h3 style={{ margin: "4px 0 10px 0", fontSize: "1.15rem", fontWeight: 700, color: "#fff" }}>
+            <h3 style={{ margin: "4px 0 10px 0", fontSize: "1.15rem", fontWeight: 700, color: "var(--ac-text-primary)" }}>
               {brief.summary_headline}
             </h3>
             <div
@@ -279,24 +279,24 @@ export default function DashboardPage() {
               }}
             >
               <div style={{ background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.3)", padding: "8px 12px", borderRadius: 8 }}>
-                <div style={{ fontSize: "0.7rem", color: "#10b981", textTransform: "uppercase", fontWeight: 600 }}>Ready Assets</div>
-                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#10b981" }}>{brief.ready_assets} <span style={{ fontSize: "0.8rem", color: "#9ca3af" }}>/ {brief.total_assets}</span></div>
+                <div style={{ fontSize: "0.7rem", color: "var(--ac-status-compliant)", textTransform: "uppercase", fontWeight: 600 }}>Ready Assets</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--ac-status-compliant)" }}>{brief.ready_assets} <span style={{ fontSize: "0.8rem", color: "var(--ac-text-secondary)" }}>/ {brief.total_assets}</span></div>
               </div>
               <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", padding: "8px 12px", borderRadius: 8 }}>
-                <div style={{ fontSize: "0.7rem", color: "#ef4444", textTransform: "uppercase", fontWeight: 600 }}>Restricted / Blocked</div>
-                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#ef4444" }}>{brief.restricted_assets}</div>
+                <div style={{ fontSize: "0.7rem", color: "var(--ac-status-non-compliant)", textTransform: "uppercase", fontWeight: 600 }}>Restricted / Blocked</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--ac-status-non-compliant)" }}>{brief.restricted_assets}</div>
               </div>
               <div style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.3)", padding: "8px 12px", borderRadius: 8 }}>
-                <div style={{ fontSize: "0.7rem", color: "#f59e0b", textTransform: "uppercase", fontWeight: 600 }}>Maintenance Due</div>
-                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#f59e0b" }}>{brief.maintenance_due_count}</div>
+                <div style={{ fontSize: "0.7rem", color: "var(--ac-status-review)", textTransform: "uppercase", fontWeight: 600 }}>Maintenance Due</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--ac-status-review)" }}>{brief.maintenance_due_count}</div>
               </div>
               <div style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px solid rgba(56, 189, 248, 0.3)", padding: "8px 12px", borderRadius: 8 }}>
-                <div style={{ fontSize: "0.7rem", color: "#38bdf8", textTransform: "uppercase", fontWeight: 600 }}>Open Findings</div>
-                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "#38bdf8" }}>{brief.open_findings_count}</div>
+                <div style={{ fontSize: "0.7rem", color: "var(--ac-accent)", textTransform: "uppercase", fontWeight: 600 }}>Open Findings</div>
+                <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--ac-accent)" }}>{brief.open_findings_count}</div>
               </div>
             </div>
 
-            <ul style={{ margin: "0 0 12px 18px", padding: 0, fontSize: "0.875rem", color: "#d1d5db" }}>
+            <ul style={{ margin: "0 0 12px 18px", padding: 0, fontSize: "0.875rem", color: "var(--ac-text-secondary)" }}>
               {brief.key_bullet_points.map((pt, i) => (
                 <li key={i} style={{ marginBottom: 4 }}>{pt}</li>
               ))}
@@ -343,14 +343,14 @@ export default function DashboardPage() {
           </div>
           <div className="ac-kpi-card-real">
             <p className="ac-kpi-label">Active Missions</p>
-            <p className="ac-kpi-value" style={{ color: "#10b981" }}>{activity?.active_missions ?? 0}</p>
+            <p className="ac-kpi-value" style={{ color: "var(--ac-status-compliant)" }}>{activity?.active_missions ?? 0}</p>
             <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
               currently airborne / in progress
             </p>
           </div>
           <div className="ac-kpi-card-real">
             <p className="ac-kpi-label">Open Maintenance WOs</p>
-            <p className="ac-kpi-value" style={{ color: (summary?.open_work_orders_total ?? 0) > 0 ? "#f59e0b" : "#10b981" }}>
+            <p className="ac-kpi-value" style={{ color: (summary?.open_work_orders_total ?? 0) > 0 ? "var(--ac-status-review)" : "var(--ac-status-compliant)" }}>
               {summary?.open_work_orders_total ?? 0}
             </p>
             <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
@@ -382,7 +382,7 @@ export default function DashboardPage() {
 
           {attentionItems.length === 0 ? (
             <div className="ac-card" style={{ padding: "20px", textAlign: "center" }}>
-              <p style={{ color: "#10b981", fontWeight: 600, margin: 0 }}>
+              <p style={{ color: "var(--ac-status-compliant)", fontWeight: 600, margin: 0 }}>
                 ✓ Zero active blockers. All aircraft and drone assets nominal.
               </p>
             </div>
@@ -396,24 +396,24 @@ export default function DashboardPage() {
                     className="ac-card"
                     style={{
                       padding: "16px 20px",
-                      background: item.priority === "CRITICAL" ? "rgba(239, 68, 68, 0.06)" : "rgba(31, 41, 55, 0.7)",
-                      border: item.priority === "CRITICAL" ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid #374151",
+                      background: item.priority === "CRITICAL" ? "rgba(239, 68, 68, 0.06)" : "var(--ac-bg-surface-hover)",
+                      border: item.priority === "CRITICAL" ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid var(--ac-border)",
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
                       <div style={{ flex: 1, minWidth: 260 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                           <StatusBadge {...pBadge} />
-                          <span style={{ fontSize: "0.75rem", background: "#374151", padding: "2px 8px", borderRadius: 4, textTransform: "uppercase" }}>
+                          <span style={{ fontSize: "0.75rem", background: "var(--ac-border)", padding: "2px 8px", borderRadius: 4, textTransform: "uppercase" }}>
                             {item.category}
                           </span>
                           {item.registration && (
-                            <strong style={{ fontSize: "0.95rem", color: "#38bdf8" }}>
+                            <strong style={{ fontSize: "0.95rem", color: "var(--ac-accent)" }}>
                               {item.registration}
                             </strong>
                           )}
                           {item.asset_type && (
-                            <span style={{ fontSize: "0.75rem", color: "#9ca3af" }}>
+                            <span style={{ fontSize: "0.75rem", color: "var(--ac-text-secondary)" }}>
                               [{item.asset_type}]
                             </span>
                           )}
@@ -421,16 +421,16 @@ export default function DashboardPage() {
                         <h4 style={{ margin: "0 0 4px 0", fontSize: "1rem", fontWeight: 700 }}>
                           {item.title}
                         </h4>
-                        <p style={{ margin: "0 0 6px 0", color: "#d1d5db", fontSize: "0.85rem" }}>
+                        <p style={{ margin: "0 0 6px 0", color: "var(--ac-text-secondary)", fontSize: "0.85rem" }}>
                           {item.reason}
                         </p>
                         {item.blocking_condition && (
-                          <div style={{ fontSize: "0.8rem", color: "#f87171", marginBottom: 4 }}>
+                          <div style={{ fontSize: "0.8rem", color: "var(--ac-status-non-compliant)", marginBottom: 4 }}>
                             <strong>Blocking Condition:</strong> {item.blocking_condition}
                           </div>
                         )}
                         {item.recommended_action && (
-                          <div style={{ fontSize: "0.8rem", color: "#93c5fd" }}>
+                          <div style={{ fontSize: "0.8rem", color: "var(--ac-accent)" }}>
                             <strong>Recommended Action:</strong> {item.recommended_action}
                           </div>
                         )}
@@ -491,7 +491,7 @@ export default function DashboardPage() {
                         </Link>
                       </td>
                       <td>
-                        <span style={{ fontSize: "0.8rem", color: "#38bdf8" }}>
+                        <span style={{ fontSize: "0.8rem", color: "var(--ac-accent)" }}>
                           {ASSET_TYPE_ICONS[row.asset_type] || "✈"} {row.asset_type}
                         </span>
                       </td>
@@ -506,7 +506,7 @@ export default function DashboardPage() {
                             padding: "3px 8px",
                             borderRadius: 4,
                             background: row.readiness_state === "READY" ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.2)",
-                            color: row.readiness_state === "READY" ? "#10b981" : "#ef4444",
+                            color: row.readiness_state === "READY" ? "var(--ac-status-compliant)" : "var(--ac-status-non-compliant)",
                           }}
                         >
                           {row.readiness_state}
@@ -517,7 +517,7 @@ export default function DashboardPage() {
                       <td className="ac-text-sm">
                         {row.last_flight_at ? new Date(row.last_flight_at).toLocaleDateString() : "—"}
                       </td>
-                      <td className="ac-text-sm" style={{ color: "#d1d5db" }}>
+                      <td className="ac-text-sm" style={{ color: "var(--ac-text-secondary)" }}>
                         {row.next_action || "Ready"}
                       </td>
                     </tr>
@@ -548,9 +548,9 @@ export default function DashboardPage() {
                     fontSize: "0.75rem",
                     padding: "4px 10px",
                     borderRadius: 14,
-                    border: "1px solid #374151",
-                    background: timelineFilter === f ? "var(--ac-primary, #38bdf8)" : "#1f2937",
-                    color: timelineFilter === f ? "#000" : "#9ca3af",
+                    border: "1px solid var(--ac-border)",
+                    background: timelineFilter === f ? "var(--ac-primary, #38bdf8)" : "var(--ac-bg-surface-hover)",
+                    color: timelineFilter === f ? "var(--ac-on-primary)" : "var(--ac-text-secondary)",
                     fontWeight: timelineFilter === f ? 700 : 500,
                     cursor: "pointer",
                   }}
@@ -563,7 +563,7 @@ export default function DashboardPage() {
 
           {filteredTimeline.length === 0 ? (
             <div className="ac-card" style={{ padding: 20, textAlign: "center" }}>
-              <p style={{ color: "#9ca3af", fontStyle: "italic", margin: 0 }}>
+              <p style={{ color: "var(--ac-text-secondary)", fontStyle: "italic", margin: 0 }}>
                 No recent timeline events recorded.
               </p>
             </div>
@@ -575,7 +575,7 @@ export default function DashboardPage() {
                     key={ev.event_id}
                     style={{
                       padding: "12px 18px",
-                      borderBottom: i < filteredTimeline.length - 1 ? "1px solid #374151" : "none",
+                      borderBottom: i < filteredTimeline.length - 1 ? "1px solid var(--ac-border)" : "none",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "flex-start",
@@ -584,7 +584,7 @@ export default function DashboardPage() {
                   >
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                        <span style={{ fontSize: "0.7rem", background: "#374151", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>
+                        <span style={{ fontSize: "0.7rem", background: "var(--ac-border)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase" }}>
                           {ev.event_type.replace(/_/g, " ")}
                         </span>
                         {ev.asset_registration && (
@@ -594,11 +594,11 @@ export default function DashboardPage() {
                         )}
                         <strong style={{ fontSize: "0.9rem" }}>{ev.title}</strong>
                       </div>
-                      <p style={{ margin: 0, fontSize: "0.85rem", color: "#9ca3af" }}>
+                      <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--ac-text-secondary)" }}>
                         {ev.description}
                       </p>
                     </div>
-                    <div style={{ fontSize: "0.75rem", color: "#6b7280", whiteSpace: "nowrap" }}>
+                    <div style={{ fontSize: "0.75rem", color: "var(--ac-text-muted)", whiteSpace: "nowrap" }}>
                       {new Date(ev.occurred_at).toLocaleDateString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                     </div>
                   </li>
