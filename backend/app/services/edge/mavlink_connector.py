@@ -215,6 +215,7 @@ class MAVLinkConnector(TelemetryConnector):
         self.asset_mapping = asset_mapping_override or {}
         self.vehicles: dict[int, MAVLinkVehicleState] = {}
         self._rx_buffer = bytearray()
+        self._frame_trigger: dict[str, Any] | None = None  # frame metadata of the message being decoded
         # Only the autopilot component is authoritative for vehicle state; GCS
         # (sysid 255), gimbals, cameras and companion computers share a sysid but not its state.
         self.accepted_component_ids: frozenset[int] = frozenset({MAVLINK_AUTOPILOT_COMPONENT_ID})
@@ -420,7 +421,8 @@ class MAVLinkConnector(TelemetryConnector):
         if name == "HEARTBEAT":
             vehicle.custom_mode = int(payload_dict.get("custom_mode", 0))
         # Build and return canonical NormalizedTelemetryEvent
-        return self._build_canonical_event(vehicle, now, trigger=payload_dict.get("_trigger"), message_name=name)
+        trigger = payload_dict.get("_trigger") or self._frame_trigger
+        return self._build_canonical_event(vehicle, now, trigger=trigger, message_name=name)
 
     def _record_statustext(self, vehicle: MAVLinkVehicleState, payload: dict[str, Any], now: datetime) -> None:
         """Stores one STATUSTEXT. Chunked messages (id != 0) are reassembled in chunk order; an incomplete set is
@@ -757,6 +759,7 @@ class MAVLinkConnector(TelemetryConnector):
         self, msgid: int, sysid: int, payload: bytes, trigger: dict[str, Any] | None = None,
     ) -> NormalizedTelemetryEvent | None:
         """Unpacks binary payload based on standard MAVLink struct formats."""
+        self._frame_trigger = trigger
         try:
             # HEARTBEAT (0): custom_mode (I), type (B), autopilot (B), base_mode (B), system_status (B), mavlink_version (B)
             if msgid == MSG_ID_HEARTBEAT and len(payload) >= 9:

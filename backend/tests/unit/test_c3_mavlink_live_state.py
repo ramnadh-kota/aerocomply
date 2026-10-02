@@ -36,7 +36,7 @@ def test_mission_current_and_reached():
 
 def test_total_zero_is_unknown_and_unreported_groups_are_null():
     c = MAVLinkConnector()
-    (e,) = c.feed_bytes(mission_current(item=0, total=0, state=0, seq=1))
+    (e,) = c.feed_bytes(mission_current(total=0, state=0, seq=1))
     s = ls(e)
     assert s["mission"]["total_items"] is None
     assert s["position"]["lat"] is None and s["battery"]["voltage_v"] is None
@@ -72,5 +72,5 @@ def test_cumulative_snapshot_and_trigger_metadata():
 
 
 def test_sanitize():
-    assert sanitize_statustext("a\x00b") == "a\x00b".replace("\x00", "")
+    assert sanitize_statustext("a\x00b") == "ab"
     assert len(sanitize_statustext("x" * 500)) == 200

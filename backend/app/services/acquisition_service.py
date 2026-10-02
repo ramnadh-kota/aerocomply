@@ -41,7 +41,7 @@ from app.models.asset import Asset
 from app.models.data_source import DataSource, DataSourceConnectorType, DataSourceStatus
 from app.models.telemetry import TelemetryProcessingStatus
 from app.schemas.telemetry import NormalizedTelemetryEvent
-from app.services import audit_service, telemetry_service
+from app.services import audit_service, live_state_service, telemetry_service
 from app.services.edge.batch_connectors import CSVBatchConnector, JSONBatchConnector
 from app.services.edge.mavlink_connector import MAVLinkConnector
 from app.services.edge.mqtt_connector import MQTTConnector
@@ -377,6 +377,15 @@ def _ingest_core(
         status = res.status
         if status == TelemetryProcessingStatus.PROCESSED:
             report.accepted += 1
+            if res.asset_id is not None and (event.raw_metadata or {}).get("live_state"):
+                try:
+                    with db.begin_nested():  # latest-state is derived data: it must never fail the ingest
+                        live_state_service.apply_event(
+                            db, organization_id=source.organization_id, asset_id=res.asset_id, event=event,
+                            data_source_id=source.id, received_at=received_at,
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("acquisition.live_state_failed", data_source_id=str(source.id), error=type(exc).__name__)
             latencies.append(max(0.0, (received_at - event.event_timestamp).total_seconds() * 1000.0))
         elif status == TelemetryProcessingStatus.DUPLICATE:
             report.duplicates += 1

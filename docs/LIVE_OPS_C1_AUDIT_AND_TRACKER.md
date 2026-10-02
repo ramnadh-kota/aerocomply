@@ -32,8 +32,8 @@ autonomous commands.
 | G-C3-1 | C3 | MISSION_CURRENT, MISSION_ITEM_REACHED, STATUSTEXT not parsed. | Med — **FIXED** |
 | G-C3-2 | C3 | No canonical *versioned* drone live-state event; MAVLink event time = arrival time (boot-relative `time_boot_ms`), no GPS-epoch. | Med — **FIXED** (versioned `live_state` in event metadata; time remains arrival time, documented) |
 | G-C3-3 | C3 | Connector state (`_CONNECTORS`) is process-local (documented). | Low — documented |
-| G-C4-1 | C4 | **No latest-state store, no snapshot API, no SSE/WebSocket anywhere in the backend.** | High — OPEN |
-| G-C4-2 | C4 | No state-freshness/offline detection independent of last value (only data-source health). | High — OPEN |
+| G-C4-1 | C4 | **No latest-state store, no snapshot API, no SSE/WebSocket anywhere in the backend.** | High — FIXED |
+| G-C4-2 | C4 | No state-freshness/offline detection independent of last value (only data-source health). | High — FIXED |
 | G-C5-1 | C5 | **No geofence / restricted / caution zone model or evaluation.** | High — OPEN |
 | G-C5-2 | C5 | No live-event lifecycle (ack/resolve), hysteresis or dedup for low-battery/telemetry-loss. M7 signals exist for HUMS only. | High — OPEN |
 | G-C6-1 | C6 | LISA has no live-fleet/geofence/mission tools; no trajectory/battery-reserve analytics. | High — OPEN |
@@ -88,7 +88,7 @@ Files: `services/device_auth_service.py` (new), `api/v1/device_gateway.py` (new)
 | C1 audit + contracts | DONE (this document); backlog below |
 | C2 enrollment/connectivity | Implemented; tests: 5 new + 7 existing M16 pass. Exit met locally (no real hardware) |
 | C3 MAVLink ingestion extensions | Implemented; `tests/unit/test_c3_mavlink_live_state.py` + full unit suite (574) pass |
-| C4 live state + SSE | NOT STARTED |
+| C4 live state + SSE | Implemented: migration 0071, `live_state_service` (single writer from acquisition), `/live/fleet`, `/live/drones/{id}`, `/live/stream` (snapshot/resume/resync); tests `test_c4_live_state.py`, `test_c4_broker_freshness.py`. Broker is process-local (clients resync across workers) |
 | C5 geofence + alerts | NOT STARTED |
 | C6 LISA live tools + analytics | NOT STARTED |
 
