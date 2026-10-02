@@ -10,6 +10,8 @@ import { BatteryOverviewBar } from "./BatteryOverviewBar";
 import { FlightEventLog } from "./FlightEventLog";
 import { DroneDetailPanel } from "./DroneDetailPanel";
 import { dronesApi, type DroneResponse } from "@/lib/api/drones";
+import { missionsApi, type BackendMission } from "@/lib/api/missions";
+import { proactiveApi, type BackendProactiveAlert } from "@/lib/api/proactive";
 import { useSession } from "@/lib/auth/SessionContext";
 
 import {
@@ -40,6 +42,8 @@ export function OperationsOverview() {
   const [tick, setTick] = useState(0);
   const [isSimulated, setIsSimulated] = useState(false);
   const [realDrones, setRealDrones] = useState<DroneResponse[]>([]);
+  const [realMissions, setRealMissions] = useState<BackendMission[]>([]);
+  const [realAlerts, setRealAlerts] = useState<BackendProactiveAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,23 +51,29 @@ export function OperationsOverview() {
   const [events, setEvents] = useState<OperationalEvent[]>(SIM_EVENTS);
   const [operationalTime, setOperationalTime] = useState(nowUTC());
 
-  const loadDrones = useCallback(async () => {
+  const loadData = useCallback(async () => {
     if (!accessToken) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await dronesApi.listDrones(accessToken);
-      setRealDrones(data);
+      const [dronesData, missionsData, alertsData] = await Promise.all([
+        dronesApi.listDrones(accessToken),
+        missionsApi.listMissions(accessToken, { status: "IN_PROGRESS" }),
+        proactiveApi.getAlerts(accessToken)
+      ]);
+      setRealDrones(dronesData);
+      setRealMissions(missionsData.items);
+      setRealAlerts(alertsData);
     } catch (err: any) {
-      setError(err.message || "Failed to load fleet inventory.");
+      setError(err.message || "Failed to load operational data.");
     } finally {
       setLoading(false);
     }
   }, [accessToken]);
 
   useEffect(() => {
-    loadDrones();
-  }, [loadDrones]);
+    loadData();
+  }, [loadData]);
 
 
   // Advance simulation tick
@@ -189,8 +199,8 @@ export function OperationsOverview() {
           </div>
         ) : (
           <div className="ac-drone-overview-right">
-            <AlertsPanel events={isSimulated ? events : []} onAcknowledge={handleAcknowledge} />
-            <MissionStatusPanel missions={isSimulated ? SIM_MISSIONS : []} />
+            <AlertsPanel events={isSimulated ? [] : realAlerts} />
+            <MissionStatusPanel missions={isSimulated ? [] : realMissions} />
           </div>
         )}
       </div>

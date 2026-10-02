@@ -1,65 +1,55 @@
 "use client";
 
-import type { OperationalEvent } from "@/lib/drone-ops/types";
+import type { BackendProactiveAlert } from "@/lib/api/proactive";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Alerts & Events panel — right-side strip showing unacknowledged alerts.
+// Alerts & Events panel — right-side strip showing proactive alerts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AlertsPanelProps {
-  events: OperationalEvent[];
-  onAcknowledge: (eventId: string) => void;
+  events: BackendProactiveAlert[];
 }
 
-function severityIcon(severity: OperationalEvent["severity"]): { icon: string; color: string } {
+function severityIcon(severity: BackendProactiveAlert["severity"]): { icon: string; color: string } {
   switch (severity) {
     case "CRITICAL": return { icon: "🔴", color: "var(--ac-status-non-compliant)" };
-    case "WARNING":  return { icon: "🟡", color: "var(--ac-status-review)" };
-    case "INFO":     return { icon: "🔵", color: "var(--ac-accent)" };
+    case "HIGH":  return { icon: "🟠", color: "var(--ac-status-review)" };
+    case "MEDIUM":     return { icon: "🟡", color: "var(--ac-status-review)" };
     default:         return { icon: "⚪", color: "var(--ac-text-muted)" };
   }
 }
 
-function relativeTime(isoTimestamp: string): string {
-  const diff = Date.now() - new Date(isoTimestamp).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h ago`;
-}
-
-export function AlertsPanel({ events, onAcknowledge }: AlertsPanelProps) {
-  const active = events.filter((e) => e.acknowledgment_status === "UNACKNOWLEDGED");
-  const cleared = events.filter((e) => e.acknowledgment_status !== "UNACKNOWLEDGED");
+export function AlertsPanel({ events }: AlertsPanelProps) {
+  // Proactive alerts don't have an explicit 'acknowledged' state returned via the proactiveApi yet,
+  // and no resolution actions exist. We treat all returned alerts as active.
 
   return (
     <aside className="ac-drone-alerts-panel" aria-label="Operational alerts">
       <div className="ac-drone-panel-header-row">
         <span className="ac-drone-panel-title">Alerts & Events</span>
-        {active.length > 0 && (
+        {events.length > 0 && (
           <span
             className="ac-drone-alerts-badge"
-            aria-label={`${active.length} unacknowledged alerts`}
+            aria-label={`${events.length} alerts`}
           >
-            {active.length}
+            {events.length}
           </span>
         )}
       </div>
 
       <div className="ac-drone-alerts-scroll">
-        {active.length === 0 && (
+        {events.length === 0 && (
           <div className="ac-drone-alerts-empty">
             <span aria-hidden="true" style={{ fontSize: 20, display: "block", marginBottom: 6 }}>✓</span>
             No active alerts
           </div>
         )}
 
-        {active.map((evt) => {
+        {events.map((evt) => {
           const { icon, color } = severityIcon(evt.severity);
           return (
             <div
-              key={evt.event_id}
+              key={evt.id}
               className={`ac-drone-alert-item severity-${evt.severity.toLowerCase()}`}
               role="alert"
               aria-atomic="true"
@@ -73,55 +63,26 @@ export function AlertsPanel({ events, onAcknowledge }: AlertsPanelProps) {
                   {icon}
                 </span>
                 <span className="ac-drone-alert-reg" style={{ color }}>
-                  {evt.registration ?? "Fleet"}
-                </span>
-                <span className="ac-drone-alert-time">
-                  {relativeTime(evt.event_timestamp)}
+                  {evt.aircraft_id ?? evt.work_order_id ?? "Fleet"}
                 </span>
               </div>
-
-              <p className="ac-drone-alert-desc">{evt.description}</p>
-
-              <button
-                className="ac-drone-alert-ack-btn"
-                onClick={() => onAcknowledge(evt.event_id)}
-                aria-label={`Acknowledge alert: ${evt.description}`}
-              >
-                Acknowledge
-              </button>
+              <div style={{ fontSize: 11, fontWeight: 600, marginTop: 4, color: "var(--ac-text-primary)" }}>
+                {evt.title}
+              </div>
+              <p className="ac-drone-alert-desc" style={{ marginTop: 2 }}>{evt.message}</p>
             </div>
           );
         })}
 
-        {/* Cleared / auto-cleared section */}
-        {cleared.length > 0 && (
-          <>
-            <div className="ac-drone-alerts-divider">
-              <span>Recent — Cleared</span>
-            </div>
-            {cleared.slice(0, 3).map((evt) => {
-              const { icon } = severityIcon(evt.severity);
-              return (
-                <div
-                  key={evt.event_id}
-                  className="ac-drone-alert-item cleared"
-                  aria-label={`Cleared: ${evt.description}`}
-                >
-                  <div className="ac-drone-alert-header">
-                    <span className="ac-drone-alert-icon" aria-hidden="true">{icon}</span>
-                    <span className="ac-drone-alert-reg cleared-text">
-                      {evt.registration ?? "Fleet"}
-                    </span>
-                    <span className="ac-drone-alert-time">
-                      {relativeTime(evt.event_timestamp)}
-                    </span>
-                  </div>
-                  <p className="ac-drone-alert-desc cleared-text">{evt.description}</p>
-                </div>
-              );
-            })}
-          </>
-        )}
+        {/* Placeholder for LISA Context Integration */}
+        <div style={{ marginTop: "16px", padding: "12px", border: "1px dashed var(--ac-border)", borderRadius: "8px", background: "rgba(0,0,0,0.2)" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ac-accent)", marginBottom: 4 }}>
+            ✧ LISA Context
+          </div>
+          <p style={{ fontSize: 11, color: "var(--ac-text-muted)", margin: 0 }}>
+            LISA integration for alert root-cause analysis is pending verified backend response schemas.
+          </p>
+        </div>
       </div>
     </aside>
   );
