@@ -166,6 +166,13 @@ HUMS_EVALUATIONS = REGISTRY.register(Counter("kota_hums_evaluations_total", "HUM
 HUMS_EVAL_LATENCY = REGISTRY.register(Histogram("kota_hums_evaluation_duration_seconds", "Duration of one HUMS sensor evaluation"))
 HUMS_EXCEEDANCES = REGISTRY.register(Counter("kota_hums_exceedances_total", "HUMS exceedances recorded, by severity"))
 M7_SIGNALS = REGISTRY.register(Counter("kota_m7_signals_total", "M7 proactive signals by event (created, or the status transitioned to) and type"))
+LIVE_EVAL_LATENCY = REGISTRY.register(Histogram(
+    "kota_live_evaluation_duration_seconds", "C5 live-rule evaluation time per live-state update",
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5)))
+LIVE_EVAL_FAILURES = REGISTRY.register(Counter("kota_live_evaluation_failures_total", "C5 live-rule evaluations that raised (live state is still stored)"))
+LIVE_EVAL_SKIPPED = REGISTRY.register(Counter("kota_live_evaluation_skipped_total", "C5 evaluations skipped by reason (duplicate, stale_position, poor_fix, ...)"))
+LIVE_ALERT_EVENTS = REGISTRY.register(Counter("kota_live_alert_events_total", "C5 operational alert changes by type and change (raised, cleared, ...)"))
+LIVE_ALERTS_SUPPRESSED = REGISTRY.register(Counter("kota_live_alerts_suppressed_total", "C5 transitions suppressed by debounce/hysteresis, by rule"))
 WORKER_LOOP_ERRORS = REGISTRY.register(Counter("kota_worker_loop_errors_total", "Unexpected errors in the worker loop (the loop continues)"))
 WORKER_LAST_POLL = REGISTRY.register(Gauge("kota_worker_last_poll_timestamp_seconds", "Unix time of the worker's last queue poll"))
 

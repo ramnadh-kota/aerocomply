@@ -38,6 +38,12 @@ SignalType = Literal[
     "HUMS_EXCEEDANCE",
     # M13: Telemetry freshness & data quality early-warning signals
     "TELEMETRY_FRESHNESS",
+    # C5: live operational alerts raised by app/services/live_alert_service.py. They reuse this M7 record/lifecycle;
+    # LIVE_TELEMETRY_LOSS is seconds-scale (armed drone went silent) and distinct from the days-scale TELEMETRY_FRESHNESS.
+    "GEOFENCE_BREACH",
+    "GEOFENCE_PROXIMITY",
+    "LIVE_LOW_BATTERY",
+    "LIVE_TELEMETRY_LOSS",
 ]
 
 SignalSeverity = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]

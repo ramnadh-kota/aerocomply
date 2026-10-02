@@ -92,6 +92,7 @@ export function DroneDetailPanel({ droneState, onClose }: { droneState: DroneSta
             <Link href={`/drone-ops/health?assetId=${droneState.asset_id}`} className="ac-btn-secondary" style={{ textAlign: "center", textDecoration: "none", padding: "6px", fontSize: 11 }}>View HUMS Health</Link>
             <Link href={`/drone-ops/missions?assetId=${droneState.asset_id}`} className="ac-btn-secondary" style={{ textAlign: "center", textDecoration: "none", padding: "6px", fontSize: 11 }}>Mission Planner</Link>
             <Link href={`/drones/${droneState.asset_id}`} className="ac-btn-secondary" style={{ textAlign: "center", textDecoration: "none", padding: "6px", fontSize: 11 }}>Asset Profile</Link>
+            <Link href={`/drone-ops/copilot?assetId=${droneState.asset_id}&q=${encodeURIComponent(`Tell me about the current state of asset ${droneState.registration}`)}`} className="ac-btn-primary" style={{ textAlign: "center", textDecoration: "none", padding: "6px", fontSize: 11 }}>Ask LISA about this asset</Link>
           </div>
         </div>
 

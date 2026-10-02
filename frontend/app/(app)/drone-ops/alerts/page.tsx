@@ -75,9 +75,14 @@ export default function AlertsPage() {
                 <p style={{ margin: "0 0 12px 0", color: "var(--ac-text-secondary)", fontSize: 13, lineHeight: 1.5 }}>
                   {alert.message}
                 </p>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", alignItems: "center" }}>
+                  {alert.aircraft_id && (
+                    <Link href={`/drone-ops/copilot?assetId=${alert.aircraft_id}&q=${encodeURIComponent(`Tell me about alert: ${alert.title}`)}`} style={{ color: "var(--ac-accent)", textDecoration: "none", fontSize: 12, fontWeight: 500 }}>
+                      Ask LISA
+                    </Link>
+                  )}
                   {alert.aircraft_id ? (
-                    <Link href={`/drones/${alert.aircraft_id}`} style={{ color: "var(--ac-accent)", textDecoration: "none", fontSize: 12, fontWeight: 500 }}>
+                    <Link href={`/drones/${alert.aircraft_id}`} style={{ color: "var(--ac-text-secondary)", textDecoration: "none", fontSize: 12, fontWeight: 500 }}>
                       Inspect Asset
                     </Link>
                   ) : null}
@@ -87,15 +92,15 @@ export default function AlertsPage() {
           )}
         </div>
 
-        {/* Right Panel: LISA Context (A5 Placeholder) */}
+        {/* Right Panel: LISA Context */}
         <div style={{ background: "var(--ac-bg-elevated)", border: "1px dashed var(--ac-border)", borderRadius: "8px", padding: "16px" }}>
           <h3 style={{ margin: "0 0 8px 0", fontSize: 14, color: "var(--ac-accent)", display: "flex", alignItems: "center", gap: "8px" }}>
             <span>✧</span> LISA Context
           </h3>
           <p style={{ margin: 0, fontSize: 13, color: "var(--ac-text-muted)", lineHeight: 1.5 }}>
-            Select an alert to view contextual root-cause analysis.
+            LISA can be queried for asset-level context.
             <br /><br />
-            <em>Note: AI explanations require the upcoming A5 event analysis contract.</em>
+            <em>Note: Dedicated root-cause analysis for specific alert IDs is pending backend integration. Use "Ask LISA" on an alert to open the Copilot with the associated asset's context.</em>
           </p>
         </div>
       </div>

@@ -82,6 +82,7 @@ from app.models.organization import (
 from app.models.part import Part
 from app.models.plan import Plan, PlanFeature, PlanLimit
 from app.models.drone_live_state import DroneLiveState
+from app.models.geofence import Geofence, GeofenceVersion, LiveRuleState
 from app.models.proactive_signal import ProactiveSignalRecord
 from app.models.product_catalog import ProductFeature, ProductModule, ProductPage, ProductSuite
 from app.models.sso import (
@@ -215,6 +216,9 @@ __all__ = [
     "AssetHistoricalBaseline",
     "TenantImportMapping",
     "DroneLiveState",
+    "Geofence",
+    "GeofenceVersion",
+    "LiveRuleState",
     "ProactiveSignalRecord",
     "HUMSSensor",
     "HUMSSensorReading",

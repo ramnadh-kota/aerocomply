@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { BackendProactiveAlert } from "@/lib/api/proactive";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -70,6 +71,13 @@ export function AlertsPanel({ events }: AlertsPanelProps) {
                 {evt.title}
               </div>
               <p className="ac-drone-alert-desc" style={{ marginTop: 2 }}>{evt.message}</p>
+              {evt.aircraft_id && (
+                <div style={{ marginTop: 8 }}>
+                  <Link href={`/drone-ops/copilot?assetId=${evt.aircraft_id}&q=${encodeURIComponent(`Tell me about alert: ${evt.title}`)}`} className="ac-btn-secondary" style={{ display: "inline-block", padding: "4px 8px", fontSize: 10, textDecoration: "none" }}>
+                    Ask LISA about this
+                  </Link>
+                </div>
+              )}
             </div>
           );
         })}
@@ -80,7 +88,7 @@ export function AlertsPanel({ events }: AlertsPanelProps) {
             ✧ LISA Context
           </div>
           <p style={{ fontSize: 11, color: "var(--ac-text-muted)", margin: 0 }}>
-            LISA integration for alert root-cause analysis is pending verified backend response schemas.
+            LISA can be queried for asset-level context. Dedicated root-cause analysis for specific alert IDs is pending backend integration.
           </p>
         </div>
       </div>

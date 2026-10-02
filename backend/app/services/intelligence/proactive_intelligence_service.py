@@ -1339,3 +1339,61 @@ def dismiss_signal(
         if s.id == signal_id:
             return s
     raise NotFoundError("Signal not found", code="signal_not_found")
+
+
+# C5: validated lifecycle transitions without a full re-evaluation (used by the live alert API; the per-action
+# functions above keep their behaviour). One state machine for every M7 signal, including REOPEN.
+SIGNAL_TRANSITIONS: dict[str, dict[str, str]] = {
+    "OPEN": {"acknowledge": "ACKNOWLEDGED", "in_review": "IN_REVIEW", "resolve": "RESOLVED", "dismiss": "DISMISSED"},
+    "ACKNOWLEDGED": {"in_review": "IN_REVIEW", "resolve": "RESOLVED", "dismiss": "DISMISSED"},
+    "IN_REVIEW": {"acknowledge": "ACKNOWLEDGED", "resolve": "RESOLVED", "dismiss": "DISMISSED"},
+    "RESOLVED": {"reopen": "OPEN"},
+    "DISMISSED": {"reopen": "OPEN"},
+}
+
+
+def transition_signal(
+    db: Session, *, organization_id: uuid.UUID, signal_id: uuid.UUID, user_id: uuid.UUID, action: str,
+    notes: str | None = None,
+) -> ProactiveSignalRecord:
+    """Apply one lifecycle action. `resolve` and `dismiss` require notes; `reopen` returns a RESOLVED/DISMISSED signal
+    to OPEN (history stays in the audit trail and `contributing_factors_json.reopen_count`). Illegal transitions raise
+    ConflictError. Returns the updated record (flushed, not committed)."""
+    from app.core.errors import ConflictError
+
+    signal = db.execute(
+        select(ProactiveSignalRecord).where(
+            ProactiveSignalRecord.id == signal_id, ProactiveSignalRecord.organization_id == organization_id
+        ).with_for_update()
+    ).scalar_one_or_none()
+    if signal is None:
+        raise NotFoundError("Signal not found", code="signal_not_found")
+    target = SIGNAL_TRANSITIONS.get(signal.status, {}).get(action)
+    if target is None:
+        raise ConflictError(f"Cannot {action} a signal that is {signal.status}", code="invalid_signal_transition")
+    if action in ("resolve", "dismiss") and not (notes and notes.strip()):
+        raise ConflictError(f"A note is required to {action} a signal", code="signal_note_required")
+    now = datetime.datetime.now(datetime.UTC)
+    previous = signal.status
+    signal.status = target
+    if action == "acknowledge":
+        signal.acknowledged_by_user_id, signal.acknowledged_at = user_id, now
+    elif action == "in_review":
+        if notes:
+            signal.resolution_notes = notes
+    elif action == "resolve":
+        signal.resolved_by_user_id, signal.resolved_at, signal.resolution_notes = user_id, now, notes
+    elif action == "dismiss":
+        signal.dismissed_by_user_id, signal.dismissed_at, signal.dismissal_reason = user_id, now, notes
+    elif action == "reopen":
+        factors = dict(signal.contributing_factors_json or {})
+        factors["reopen_count"] = int(factors.get("reopen_count", 0)) + 1
+        factors["last_reopened_at"] = now.isoformat()
+        factors["last_reopened_by"] = str(user_id)
+        signal.contributing_factors_json = factors
+        signal.acknowledged_by_user_id = signal.acknowledged_at = None
+        signal.resolved_by_user_id = signal.resolved_at = signal.resolution_notes = None
+        signal.dismissed_by_user_id = signal.dismissed_at = signal.dismissal_reason = None
+    db.flush()
+    _audit_transition(db, organization_id, user_id, signal, f"proactive_signal.{action}", previous)
+    return signal

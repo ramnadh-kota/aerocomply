@@ -92,8 +92,11 @@ export default function MissionsPage() {
                   <td style={{ padding: "12px 16px", color: "var(--ac-text-secondary)" }}>
                     {mission.operating_area || "—"}
                   </td>
-                  <td style={{ padding: "12px 16px", textAlign: "right" }}>
-                    <Link href={`/drone-ops/overview?assetId=${mission.asset_id}`} style={{ color: "var(--ac-accent)", textDecoration: "none", fontSize: 12, fontWeight: 500 }}>
+                  <td style={{ padding: "12px 16px", textAlign: "right", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+                    <Link href={`/drone-ops/copilot?assetId=${mission.asset_id}&q=${encodeURIComponent(`Tell me about mission ${mission.purpose || mission.id}`)}`} style={{ color: "var(--ac-accent)", textDecoration: "none", fontSize: 12, fontWeight: 500 }}>
+                      Ask LISA
+                    </Link>
+                    <Link href={`/drone-ops/overview?assetId=${mission.asset_id}`} style={{ color: "var(--ac-text-secondary)", textDecoration: "none", fontSize: 12, fontWeight: 500 }}>
                       View in Fleet
                     </Link>
                   </td>

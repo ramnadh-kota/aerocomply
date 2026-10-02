@@ -52,6 +52,18 @@ class Settings(BaseSettings):
     retention_destructive_enabled: bool = False
     # OEM pull polling (app/services/edge/oem_poller.py): hosts on private networks the OPERATOR explicitly allows.
     oem_allowed_private_hosts: list[str] = []
+    # C5 live operational rules (app/services/live_alert_service.py). Every threshold is a deployment default; none is an
+    # airworthiness or regulatory limit.
+    live_gps_min_fix_type: int = 3            # below this (e.g. 2D) a position is not trusted for geofence decisions
+    live_gps_max_hdop: float = 5.0            # worse than this the position is treated as unreliable
+    live_position_max_age_s: float = 15.0     # an older position never produces an entry/exit decision
+    live_battery_max_age_s: float = 30.0
+    live_low_battery_warning_pct: int = 25
+    live_low_battery_critical_pct: int = 15
+    live_low_battery_clear_margin_pct: int = 5
+    live_low_battery_confirm: int = 2         # consecutive low readings before an alert is raised
+    live_low_battery_only_when_armed: bool = True
+    live_telemetry_loss_seconds: float = 60.0  # armed drone silent this long => LIVE_TELEMETRY_LOSS
     retention_archive_dir: str | None = None
     rate_limit_enabled: bool = True
     rate_limit_overrides: dict[str, str] = {}
