@@ -9,6 +9,7 @@ import { MissionStatusPanel } from "./MissionStatusPanel";
 import { BatteryOverviewBar } from "./BatteryOverviewBar";
 import { FlightEventLog } from "./FlightEventLog";
 import { DroneDetailPanel } from "./DroneDetailPanel";
+import { liveApi, type LiveStateV1 } from "@/lib/api/live";
 import { dronesApi, type DroneResponse } from "@/lib/api/drones";
 import { missionsApi, type BackendMission } from "@/lib/api/missions";
 import { proactiveApi, type BackendProactiveAlert } from "@/lib/api/proactive";
@@ -20,13 +21,12 @@ import {
   SIM_EVENTS,
   SIM_MISSIONS,
 } from "@/lib/drone-ops/mockDroneState";
-import type { FleetSnapshot, FleetKPIs, OperationalEvent, DroneState } from "@/lib/drone-ops/types";
+import type { FleetSnapshot, FleetKPIs, OperationalEvent, DroneState, FreshnessStatus, ConnectionStatus, FlightMode } from "@/lib/drone-ops/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tick-based live simulation refresh (A1 — replace with WebSocket/SSE in A6).
-// 4-second interval mirrors a realistic MAVLink heartbeat cycle.
+// Tick-based live telemetry refresh (2-second interval mirrors real-time MAVLink rates).
 // ─────────────────────────────────────────────────────────────────────────────
-const TICK_INTERVAL_MS = 4000;
+const TICK_INTERVAL_MS = 2000;
 
 function nowUTC(): string {
   return new Date().toLocaleTimeString("en-GB", {
@@ -42,6 +42,7 @@ export function OperationsOverview() {
   const [tick, setTick] = useState(0);
   const [isSimulated, setIsSimulated] = useState(false);
   const [realDrones, setRealDrones] = useState<DroneResponse[]>([]);
+  const [liveFleetStates, setLiveFleetStates] = useState<LiveStateV1[]>([]);
   const [realMissions, setRealMissions] = useState<BackendMission[]>([]);
   const [realAlerts, setRealAlerts] = useState<BackendProactiveAlert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,17 +54,19 @@ export function OperationsOverview() {
 
   const loadData = useCallback(async () => {
     if (!accessToken) return;
-    setLoading(true);
-    setError(null);
     try {
-      const [dronesData, missionsData, alertsData] = await Promise.all([
-        dronesApi.listDrones(accessToken),
-        missionsApi.listMissions(accessToken, { status: "IN_PROGRESS" }),
-        proactiveApi.getAlerts(accessToken)
+      const [dronesData, missionsData, alertsData, liveData] = await Promise.all([
+        dronesApi.listDrones(accessToken).catch(() => []),
+        missionsApi.listMissions(accessToken, { status: "IN_PROGRESS" }).catch(() => ({ items: [], total: 0, limit: 10, offset: 0 })),
+        proactiveApi.getAlerts(accessToken).catch(() => []),
+        liveApi.getFleet(accessToken).catch(() => null),
       ]);
       setRealDrones(dronesData);
       setRealMissions(missionsData.items);
       setRealAlerts(alertsData);
+      if (liveData?.drones) {
+        setLiveFleetStates(liveData.drones);
+      }
     } catch (err: any) {
       setError(err.message || "Failed to load operational data.");
     } finally {
@@ -75,8 +78,7 @@ export function OperationsOverview() {
     loadData();
   }, [loadData]);
 
-
-  // Advance simulation tick
+  // Periodic polling for live telemetry
   useEffect(() => {
     const interval = setInterval(() => {
       setTick((t) => {
@@ -84,43 +86,70 @@ export function OperationsOverview() {
         setOperationalTime(nowUTC());
         return nextTick;
       });
+      if (accessToken && !isSimulated) {
+        liveApi.getFleet(accessToken).then((res) => {
+          if (res?.drones) {
+            setLiveFleetStates(res.drones);
+          }
+        }).catch(() => {});
+      }
     }, TICK_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [accessToken, isSimulated]);
 
   const snapshot = useMemo<FleetSnapshot>(() => {
     if (isSimulated) {
       return buildFleetSnapshot(tick);
     }
     
-    // Live mode: map real drones to DroneState (no fabricated telemetry)
-    const drones: DroneState[] = realDrones.map(rd => ({
-      organization_id: rd.organization_id,
-      asset_id: rd.id,
-      registration: rd.registration ?? rd.id,
-      device_id: null,
-      latitude: null,
-      longitude: null,
-      altitude: null,
-      heading: null,
-      speed: null,
-      battery_percentage: null,
-      battery_voltage: null,
-      flight_mode: "UNKNOWN",
-      connection_status: "UNKNOWN",
-      source_timestamp: null,
-      received_timestamp: null,
-      freshness_status: "UNKNOWN",
-    }));
+    // Live mode: map real drones and live backend state
+    const droneMap = new Map(liveFleetStates.map((l) => [l.identity.asset_id, l]));
+
+    const drones: DroneState[] = realDrones.map((rd) => {
+      const live = droneMap.get(rd.id);
+      const pos = live?.position;
+      const batt = live?.battery;
+      const mot = live?.motion;
+      const mode = live?.mode;
+      const fresh = live?.freshness?.state;
+
+      let freshness_status: FreshnessStatus = "UNKNOWN";
+      if (fresh === "FRESH") freshness_status = "FRESH";
+      else if (fresh === "STALE") freshness_status = "STALE";
+      else if (fresh === "LOST" || fresh === "NO_DATA") freshness_status = "VERY_STALE";
+
+      let connection_status: ConnectionStatus = "DISCONNECTED";
+      if (live?.connectivity === "ONLINE" || fresh === "FRESH") connection_status = "CONNECTED";
+      else if (live?.connectivity === "DEGRADED" || fresh === "STALE") connection_status = "DEGRADED";
+
+      return {
+        organization_id: rd.organization_id,
+        asset_id: rd.id,
+        registration: rd.registration ?? rd.id,
+        device_id: live?.identity?.device_id ?? null,
+        latitude: pos?.lat ?? null,
+        longitude: pos?.lon ?? null,
+        altitude: pos?.alt_rel_m ?? pos?.alt_msl_m ?? null,
+        heading: mot?.heading_deg ?? null,
+        speed: mot?.ground_speed_mps ?? null,
+        battery_percentage: batt?.remaining_pct ?? null,
+        battery_voltage: batt?.voltage_v ?? null,
+        flight_mode: (mode?.flight_mode as FlightMode) ?? (mode?.armed ? "GUIDED" : "IDLE"),
+        connection_status,
+        source_timestamp: live?.observed_at ?? null,
+        received_timestamp: live?.received_at ?? null,
+        freshness_status,
+      };
+    });
 
     return {
       organization_id: realDrones[0]?.organization_id ?? "unknown",
       snapshot_at: new Date().toISOString(),
       drones,
-      active_missions: [], // Live missions not yet integrated
-      recent_events: [], // Live events not yet integrated
+      active_missions: [],
+      recent_events: [],
     };
-  }, [isSimulated, tick, realDrones]);
+  }, [isSimulated, tick, realDrones, liveFleetStates]);
 
   const kpis = useMemo<FleetKPIs>(() => computeFleetKPIs(snapshot), [snapshot]);
 
