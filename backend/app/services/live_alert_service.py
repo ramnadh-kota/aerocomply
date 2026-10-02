@@ -81,6 +81,29 @@ def _rule_state(db: Session, organization_id: uuid.UUID, asset_id: uuid.UUID, ru
     return rs
 
 
+class _States:
+    """All rule state rows of one asset, loaded (and row-locked) once per evaluation instead of once per rule."""
+
+    def __init__(self, db: Session, organization_id: uuid.UUID, asset_id: uuid.UUID) -> None:
+        self.db, self.org, self.asset_id = db, organization_id, asset_id
+        self._rows = {rs.rule_key: rs for rs in db.execute(select(LiveRuleState).where(
+            LiveRuleState.organization_id == organization_id, LiveRuleState.asset_id == asset_id
+        ).with_for_update()).scalars()}
+
+    def get(self, rule_key: str, geofence_id: uuid.UUID | None = None) -> LiveRuleState:
+        rs = self._rows.get(rule_key)
+        if rs is None:
+            rs = LiveRuleState(organization_id=self.org, asset_id=self.asset_id, rule_key=rule_key,
+                               geofence_id=geofence_id, state="UNKNOWN", candidate_count=0, active=False, episode=0)
+            self.db.add(rs)
+            self.db.flush()
+            self._rows[rule_key] = rs
+        return rs
+
+    def values(self) -> list[LiveRuleState]:
+        return list(self._rows.values())
+
+
 def _evidence(label: str, source_type: str, source_id: str | None, metric: str | None, value: Any,
               threshold: Any, details: str) -> dict[str, Any]:
     return {"source_type": source_type, "source_id": source_id, "label": label, "metric": metric,
@@ -179,11 +202,17 @@ def _in_window(g: Geofence, at: datetime) -> bool:
 
 
 # ------------------------------------------------------------------------------------------- geofences
-def _evaluate_geofence(db: Session, g: Geofence, asset: Asset, payload: dict[str, Any], pos: dict[str, Any],
-                       quality: str, event_at: datetime, state_version: int) -> None:
-    org, aid = g.organization_id, asset.id
-    rs = _rule_state(db, org, aid, f"geofence:{g.id}", g.id)
-    prox = _rule_state(db, org, aid, f"geofence_prox:{g.id}", g.id)
+def _evaluate_geofence(db: Session, g: Geofence, asset: Asset, pos: dict[str, Any], quality: str,
+                       event_at: datetime, state_version: int, states: _States) -> None:
+    aid = asset.id
+    rs = states.get(f"geofence:{g.id}", g.id)
+    prox = states.get(f"geofence_prox:{g.id}", g.id)
+    # Ordering/dedup key is the observation time of the POSITION itself: heartbeats, attitude etc. re-evaluate the same
+    # cumulative state, and an unchanged position must not count as another debounce observation.
+    obs_at = _ts(pos.get("observed_at")) or event_at
+    if rs.last_event_at is not None and _ts(rs.last_event_at) >= obs_at:
+        metrics.LIVE_EVAL_SKIPPED.inc(reason="duplicate_or_older")
+        return
 
     # Vertical limits: unknown altitude => no decision (never assume inside or outside).
     vertical_inside = True
@@ -219,7 +248,7 @@ def _evaluate_geofence(db: Session, g: Geofence, asset: Asset, payload: dict[str
             rs.state, rs.candidate_state, rs.candidate_count = desired, None, 0
         else:
             metrics.LIVE_ALERTS_SUPPRESSED.inc(rule="geofence_debounce")
-    rs.last_event_at, rs.last_signed_distance_m = event_at, (None if d >= 1e9 else round(d, 2))
+    rs.last_event_at, rs.last_signed_distance_m = obs_at, (None if d >= 1e9 else round(d, 2))
 
     violation = (rs.state == "INSIDE") if g.kind != "OPERATING_AREA" else (rs.state == "OUTSIDE")
     pos_ev = {"lat": lat, "lon": lon, "alt_msl_m": pos.get("alt_msl_m"), "alt_rel_m": pos.get("alt_rel_m"),
@@ -258,18 +287,27 @@ def _evaluate_geofence(db: Session, g: Geofence, asset: Asset, payload: dict[str
         safe_margin = d if g.kind != "OPERATING_AREA" else -d
         on_safe_side = not violation and rs.state != "UNKNOWN"
         in_band = on_safe_side and 0 < safe_margin <= g.proximity_buffer_m
-        in_band_hyst = on_safe_side and 0 < safe_margin <= g.proximity_buffer_m + g.boundary_tolerance_m
+        # Hysteresis: an active proximity alert only closes once the drone is clearly beyond the buffer (or the state
+        # flipped to a confirmed violation), so one noisy fix cannot flap it.
+        still_near = on_safe_side and safe_margin <= g.proximity_buffer_m + g.boundary_tolerance_m
         if in_band and not prox.active:
-            _activate(
-                db, prox, asset=asset, signal_type="GEOFENCE_PROXIMITY", key_base=f"geofence_prox:{g.id}",
-                severity=_PROX_SEVERITY[g.severity], title=f"Approaching geofence — {g.name}",
-                headline=f"{reg} is {safe_margin:.0f} m from the boundary of \"{g.name}\".",
-                explanation=[f"Distance to the violation boundary {safe_margin:.1f} m is within the "
-                             f"{g.proximity_buffer_m:g} m proximity buffer.", ADVISORY],
-                evidence=ev, factors=base, actions=actions, rule_version=g.version, condition="PROXIMITY")
-        elif prox.active and not in_band_hyst:
+            prox.candidate_count += 1
+            if prox.candidate_count < g.confirm_count:
+                metrics.LIVE_ALERTS_SUPPRESSED.inc(rule="proximity_debounce")
+            else:
+                prox.candidate_count = 0
+                _activate(
+                    db, prox, asset=asset, signal_type="GEOFENCE_PROXIMITY", key_base=f"geofence_prox:{g.id}",
+                    severity=_PROX_SEVERITY[g.severity], title=f"Approaching geofence — {g.name}",
+                    headline=f"{reg} is {safe_margin:.0f} m from the boundary of \"{g.name}\".",
+                    explanation=[f"Distance to the violation boundary {safe_margin:.1f} m is within the "
+                                 f"{g.proximity_buffer_m:g} m proximity buffer.", ADVISORY],
+                    evidence=ev, factors=base, actions=actions, rule_version=g.version, condition="PROXIMITY")
+        elif not prox.active:
+            prox.candidate_count = 0
+        elif not still_near:
             _clear(db, prox, reason="drone moved away from the boundary" if on_safe_side else "boundary condition changed",
-                   auto_resolve=True, at=event_at)
+                   auto_resolve=True, at=obs_at)
     elif prox.active:
         _clear(db, prox, reason="proximity alerts disabled for this geofence", auto_resolve=True, at=event_at)
 
@@ -278,23 +316,24 @@ def _geofence_applies(g: Geofence, asset_id: uuid.UUID, at: datetime) -> bool:
     return g.is_active and (g.asset_ids is None or str(asset_id) in g.asset_ids) and _in_window(g, at)
 
 
-def _evaluate_geofences(db: Session, asset: Asset, payload: dict[str, Any], event_at: datetime, state_version: int) -> None:
-    org = asset.organization_id
+def _evaluate_geofences(db: Session, asset: Asset, payload: dict[str, Any], event_at: datetime, state_version: int,
+                        states: _States) -> None:
     fences = list(db.execute(
-        select(Geofence).where(Geofence.organization_id == org, Geofence.is_active.is_(True))
+        select(Geofence).where(Geofence.organization_id == asset.organization_id, Geofence.is_active.is_(True))
         .order_by(Geofence.id).limit(MAX_GEOFENCES_EVALUATED)
     ).scalars())
-    # Rule state of fences that stopped applying (deactivated, out of window, asset removed from scope) is closed.
     applicable = {g.id for g in fences if _geofence_applies(g, asset.id, event_at)}
-    for rs in db.execute(select(LiveRuleState).where(
-        LiveRuleState.organization_id == org, LiveRuleState.asset_id == asset.id,
-        LiveRuleState.geofence_id.is_not(None), LiveRuleState.active.is_(True),
-    ).with_for_update()).scalars():
-        if rs.geofence_id not in applicable:
+    # Rule state of fences that stopped applying (deactivated, out of window, asset rescoped) is closed AND reset, so a
+    # later reactivation starts from UNKNOWN instead of a stale INSIDE/OUTSIDE.
+    for rs in states.values():
+        if rs.geofence_id is None or rs.geofence_id in applicable:
+            continue
+        is_prox = rs.rule_key.startswith("geofence_prox:")
+        if rs.active:
             _clear(db, rs, reason="geofence no longer applies (deactivated, outside its activation window or rescoped)",
-                   auto_resolve=rs.rule_key.startswith("geofence_prox:"), at=event_at)
-            if not rs.rule_key.startswith("geofence_prox:"):
-                rs.state, rs.candidate_state, rs.candidate_count = "UNKNOWN", None, 0
+                   auto_resolve=is_prox, at=event_at)
+        if not is_prox and (rs.state != "UNKNOWN" or rs.candidate_count):
+            rs.state, rs.candidate_state, rs.candidate_count = "UNKNOWN", None, 0
     if not applicable:
         return
     pos, quality = position_quality(payload, event_at)
@@ -302,31 +341,25 @@ def _evaluate_geofences(db: Session, asset: Asset, payload: dict[str, Any], even
         metrics.LIVE_EVAL_SKIPPED.inc(reason=quality)  # state deliberately left unchanged
         return
     for g in fences:
-        if g.id not in applicable:
-            continue
-        existing = db.execute(select(LiveRuleState.last_event_at).where(
-            LiveRuleState.organization_id == org, LiveRuleState.asset_id == asset.id,
-            LiveRuleState.rule_key == f"geofence:{g.id}")).scalar_one_or_none()
-        if existing is not None and _ts(existing) >= event_at:
-            metrics.LIVE_EVAL_SKIPPED.inc(reason="duplicate_or_older")
-            continue
-        _evaluate_geofence(db, g, asset, payload, pos, quality, event_at, state_version)
+        if g.id in applicable:
+            _evaluate_geofence(db, g, asset, pos, quality, event_at, state_version, states)
 
 
 # --------------------------------------------------------------------------------------------- battery
-def _evaluate_battery(db: Session, asset: Asset, payload: dict[str, Any], event_at: datetime, state_version: int) -> None:
+def _evaluate_battery(db: Session, asset: Asset, payload: dict[str, Any], event_at: datetime, state_version: int,
+                      states: _States) -> None:
     s = get_settings()
     b, mode = payload.get("battery") or {}, payload.get("mode") or {}
     rem, observed = b.get("remaining_pct"), _ts(b.get("observed_at"))
     if rem is None or observed is None or (event_at - observed).total_seconds() > s.live_battery_max_age_s:
         metrics.LIVE_EVAL_SKIPPED.inc(reason="battery_unavailable")
         return
-    rs = _rule_state(db, asset.organization_id, asset.id, "low_battery")
-    if rs.last_event_at is not None and _ts(rs.last_event_at) >= event_at:
-        return
+    rs = states.get("low_battery")
+    if rs.last_event_at is not None and _ts(rs.last_event_at) >= observed:
+        return  # same battery observation already evaluated (other messages re-deliver the cumulative state)
     if s.live_low_battery_only_when_armed and mode.get("armed") is not True:
         return  # not flying: a low pack on the ground is not an in-flight alert (and an active alert is kept as is)
-    rs.last_event_at = event_at
+    rs.last_event_at = observed
     level = ("CRITICAL" if rem <= s.live_low_battery_critical_pct
              else "WARNING" if rem <= s.live_low_battery_warning_pct else None)
     reg = asset.registration or str(asset.id)[:8]
@@ -365,14 +398,6 @@ def _evaluate_battery(db: Session, asset: Asset, payload: dict[str, Any], event_
 
 
 # ------------------------------------------------------------------------------------ telemetry loss
-def _clear_telemetry_loss(db: Session, asset: Asset, event_at: datetime) -> None:
-    rs = db.execute(select(LiveRuleState).where(
-        LiveRuleState.organization_id == asset.organization_id, LiveRuleState.asset_id == asset.id,
-        LiveRuleState.rule_key == "telemetry_loss", LiveRuleState.active.is_(True)).with_for_update()).scalar_one_or_none()
-    if rs is not None:
-        _clear(db, rs, reason="telemetry resumed", auto_resolve=True, at=event_at)
-
-
 def sweep_telemetry_loss(db: Session, *, organization_id: uuid.UUID | None = None, now: datetime | None = None) -> dict[str, int]:
     """Raise LIVE_TELEMETRY_LOSS for drones that were ARMED at their last report and have been silent longer than
     `live_telemetry_loss_seconds`. A drone that was disarmed/unknown when it went quiet is simply offline, not an
@@ -430,9 +455,12 @@ def evaluate_live_state(
                            ).scalar_one_or_none()
         if asset is None:
             return
-        _clear_telemetry_loss(db, asset, event_at)
-        _evaluate_battery(db, asset, payload, event_at, state_version)
-        _evaluate_geofences(db, asset, payload, event_at, state_version)
+        states = _States(db, organization_id, asset_id)
+        loss = states._rows.get("telemetry_loss")
+        if loss is not None and loss.active:
+            _clear(db, loss, reason="telemetry resumed", auto_resolve=True, at=event_at)
+        _evaluate_battery(db, asset, payload, event_at, state_version, states)
+        _evaluate_geofences(db, asset, payload, event_at, state_version, states)
     finally:
         metrics.LIVE_EVAL_LATENCY.observe(time.perf_counter() - t0)
 

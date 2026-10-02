@@ -149,13 +149,13 @@ class MAVLinkVehicleState:
         # Position & Navigation
         self.latitude: float | None = None
         self.longitude: float | None = None
-        self.altitude_m: float = 0.0
-        self.relative_alt_m: float = 0.0
+        self.altitude_m: float | None = None  # None until the vehicle reports it (0.0 would be a real altitude)
+        self.relative_alt_m: float | None = None
         self.groundspeed_mps: float = 0.0
         self.airspeed_mps: float | None = None
         self.climb_rate_mps: float = 0.0
         self.heading_deg: float = 0.0
-        self.satellites_visible: int = 0
+        self.satellites_visible: int | None = 0
         self.gps_fix_type: int = 0
         self.gps_fix_reported: bool = False  # True once a GPS_RAW_INT arrived; before that the fix is UNKNOWN, not "no GPS"
         self.hdop: float | None = None
@@ -296,7 +296,8 @@ class MAVLinkConnector(TelemetryConnector):
         elif message_type in ("GPS_RAW_INT", "24"):
             vehicle.gps_fix_type = int(payload_dict.get("fix_type", 0))
             vehicle.gps_fix_reported = True
-            vehicle.satellites_visible = int(payload_dict.get("satellites_visible", 0))
+            sv = payload_dict.get("satellites_visible", 0)
+            vehicle.satellites_visible = None if sv is None else int(sv)
             eph = payload_dict.get("eph")
             vehicle.hdop = round(float(eph) / 100.0, 2) if eph is not None and int(eph) != 65535 else None
             lat = payload_dict.get("lat")
@@ -823,7 +824,7 @@ class MAVLinkConnector(TelemetryConnector):
                 return self.decode_message(
                     "GPS_RAW_INT",
                     {"sysid": sysid, "lat": lat, "lon": lon, "alt": alt, "eph": eph, "fix_type": fix,
-                     "satellites_visible": 0 if sats == 255 else sats, "_trigger": trigger},  # 255 = unknown
+                     "satellites_visible": None if sats == 255 else sats, "_trigger": trigger},  # 255 = unknown
                 )
 
             # MISSION_CURRENT (42): seq (H), then extensions total (H), mission_state (B), mission_mode (B), ...

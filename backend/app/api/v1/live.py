@@ -9,7 +9,7 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -18,8 +18,9 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_db_session, require_feature, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
+from app.schemas.live_alert import AlertActionRequest, LiveAlertList, LiveAlertV1
 from app.schemas.live_state import LiveStateV1
-from app.services import live_state_service as svc
+from app.services import live_alert_service, live_state_service as svc
 
 router = APIRouter(
     prefix="/live", tags=["live"],
@@ -32,6 +33,7 @@ HEARTBEAT_SECONDS = 15.0
 class LiveFleetResponse(BaseModel):
     cursor: str
     drones: list[LiveStateV1]
+    alerts: list[LiveAlertV1] = []  # active operational alerts (C5): the snapshot a reconnecting client recovers from
 
 
 @router.get("/fleet", response_model=LiveFleetResponse, response_model_by_alias=True)
@@ -41,7 +43,8 @@ def live_fleet(
 ) -> LiveFleetResponse:
     cursor = svc.broker.cursor(current_user.organization_id)  # read BEFORE the snapshot: replay can only over-deliver
     return LiveFleetResponse(
-        cursor=cursor, drones=svc.get_fleet_state(db, organization_id=current_user.organization_id)
+        cursor=cursor, drones=svc.get_fleet_state(db, organization_id=current_user.organization_id),
+        alerts=live_alert_service.list_alerts(db, organization_id=current_user.organization_id),
     )
 
 
@@ -54,16 +57,70 @@ def live_drone(
     return svc.get_drone_state(db, organization_id=current_user.organization_id, asset_id=asset_id)
 
 
+@router.get("/alerts", response_model=LiveAlertList, response_model_by_alias=True)
+def list_live_alerts(
+    status: str | None = Query(None, pattern="^(OPEN|ACKNOWLEDGED|IN_REVIEW|RESOLVED|DISMISSED)$"),
+    alert_type: str | None = Query(None, pattern="^(GEOFENCE_BREACH|GEOFENCE_PROXIMITY|LIVE_LOW_BATTERY|LIVE_TELEMETRY_LOSS)$"),
+    asset_id: uuid.UUID | None = None,
+    include_closed: bool = Query(False, description="Also return RESOLVED/DISMISSED alerts (ignored when status is set)"),
+    limit: int = Query(200, ge=1, le=500),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> LiveAlertList:
+    alerts = live_alert_service.list_alerts(
+        db, organization_id=current_user.organization_id, active_only=not include_closed, asset_id=asset_id,
+        alert_type=alert_type, status=status, limit=limit,
+    )
+    return LiveAlertList(alerts=alerts, total=len(alerts))
+
+
+@router.get("/alerts/{alert_id}", response_model=LiveAlertV1, response_model_by_alias=True)
+def get_live_alert(
+    alert_id: uuid.UUID,
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.DRONE_READ)),
+) -> LiveAlertV1:
+    return live_alert_service.get_alert(db, organization_id=current_user.organization_id, signal_id=alert_id)
+
+
+def _act(action: str):
+    def endpoint(
+        alert_id: uuid.UUID,
+        body: AlertActionRequest | None = None,
+        db: Session = Depends(get_db_session),
+        current_user: CurrentUser = Depends(require_permission(Permission.DRONE_WRITE)),
+    ) -> LiveAlertV1:
+        result = live_alert_service.act_on_alert(
+            db, organization_id=current_user.organization_id, signal_id=alert_id, user_id=current_user.id,
+            action=action, notes=body.notes if body else None,
+        )
+        db.commit()  # SSE `alert` events are published after this commit
+        return result
+
+    endpoint.__name__ = f"live_alert_{action}"
+    return endpoint
+
+
+for _action, _path in (("acknowledge", "acknowledge"), ("in_review", "in-review"), ("resolve", "resolve"),
+                       ("dismiss", "dismiss"), ("reopen", "reopen")):
+    router.add_api_route(
+        f"/alerts/{{alert_id}}/{_path}", _act(_action), methods=["POST"], response_model=LiveAlertV1,
+        response_model_by_alias=True, summary=f"{_action.replace('_', ' ').title()} a live alert (M7 lifecycle)",
+    )
+
+
 def _sse(type_: str, data: dict, event_id: str | None = None) -> str:
     head = f"id: {event_id}\n" if event_id else ""
     return f"{head}event: {type_}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
-def _snapshot_sync(db: Session, organization_id: uuid.UUID) -> tuple[str, list[dict]]:
+def _snapshot_sync(db: Session, organization_id: uuid.UUID) -> tuple[str, list[dict], list[dict]]:
     cursor = svc.broker.cursor(organization_id)  # before the read: a replay may over-deliver, never miss
     drones = svc.get_fleet_state(db, organization_id=organization_id)
+    alerts = live_alert_service.list_alerts(db, organization_id=organization_id)
     db.rollback()  # release the request connection; the long-lived stream holds no database resources
-    return cursor, [d.model_dump(mode="json", by_alias=True) for d in drones]
+    return (cursor, [d.model_dump(mode="json", by_alias=True) for d in drones],
+            [a.model_dump(mode="json", by_alias=True) for a in alerts])
 
 
 @router.get("/stream")
@@ -88,8 +145,8 @@ async def live_stream(
                     yield _sse("resync_required", {"reason": "cursor_unavailable"}, svc.broker.cursor(org))
                     backlog = []
             if snapshot is not None:
-                cursor, drones = snapshot
-                yield _sse("snapshot", {"cursor": cursor, "drones": drones}, cursor)
+                cursor, drones, alerts = snapshot
+                yield _sse("snapshot", {"cursor": cursor, "drones": drones, "alerts": alerts}, cursor)
             last_n = 0
             for item in backlog or []:
                 last_n = item["n"]

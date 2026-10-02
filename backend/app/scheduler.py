@@ -31,6 +31,7 @@ def _dunning_payload() -> dict:
 SCHEDULES = [
     Schedule("retention", job_handlers.RETENTION_SWEEP, 86_400, _retention_payload),
     Schedule("dunning", job_handlers.DUNNING, 86_400, _dunning_payload),
+    Schedule("live_telemetry_loss", job_handlers.LIVE_TELEMETRY_LOSS_SWEEP, 60, dict),
 ]
 
 

@@ -19,6 +19,7 @@ from app.api.v1 import (
     deferred_items,
     digital_twin,
     drones,
+    geofences,
     live,
     device_gateway,
     edge_hardware,
@@ -67,6 +68,7 @@ api_router.include_router(aircraft.router)
 api_router.include_router(assets.router)
 api_router.include_router(facilities.router)
 api_router.include_router(drones.router)
+api_router.include_router(geofences.router)
 api_router.include_router(live.router)
 api_router.include_router(airframes.helicopters_router)
 api_router.include_router(fleet_components.router)

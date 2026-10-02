@@ -128,3 +128,17 @@ def handle_dunning(db: Session, job: BackgroundJob) -> dict[str, Any]:
 
 
 job_service.register_handler(DUNNING, handle_dunning)
+
+
+LIVE_TELEMETRY_LOSS_SWEEP = "live.telemetry_loss_sweep"
+
+
+def handle_live_telemetry_loss_sweep(db: Session, job: BackgroundJob) -> dict[str, Any]:
+    """Platform job (C5): raise LIVE_TELEMETRY_LOSS for armed drones that went silent. Idempotent per silence episode."""
+    from app.services import live_alert_service
+
+    result = live_alert_service.sweep_telemetry_loss(db)
+    return result
+
+
+job_service.register_handler(LIVE_TELEMETRY_LOSS_SWEEP, handle_live_telemetry_loss_sweep)

@@ -31,8 +31,11 @@ from app.models.user import User, UserRole
 from app.services.entitlement_service import _SUITE_DISALLOWED_FEATURES  # noqa: F401
 from app.core.feature_keys import FeatureKey
 
+# /live/stream is an endless SSE response: the in-process TestClient buffers a whole response, so one request never
+# returns. It is exercised by tests/integration/test_c4_live_state.py and test_c5_geofences_alerts.py instead.
 _SKIP = re.compile(
     r"/auth/(logout|sso)|/telemetry/dji/webhook|/platform/|/health|/export|/storage|/evidence.*/(upload|download)"
+    r"|/live/stream"
 )
 
 

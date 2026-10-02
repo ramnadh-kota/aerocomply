@@ -151,33 +151,76 @@ def apply_event(
         row.source_system = event.source_system
         row.data_source_id = data_source_id or row.data_source_id
     db.flush()
+    _evaluate_live_rules(db, row, organization_id, asset_id, live)
     _publish_after_commit(db, organization_id, asset_id)
     return row
 
 
-def _publish_after_commit(db: Session, organization_id: uuid.UUID, asset_id: uuid.UUID) -> None:
-    """Subscribers must never see state that the database does not hold: publish only once the transaction commits.
-    Several events for one asset in one transaction collapse into a single publication of the latest state."""
-    pending = db.info.setdefault("_live_pending", set())
-    pending.add((organization_id, asset_id))
+def _evaluate_live_rules(db: Session, row: DroneLiveState, organization_id: uuid.UUID, asset_id: uuid.UUID,
+                         live: dict[str, Any]) -> None:
+    """C5 rules (geofence / battery / telemetry resumed) in their own savepoint: a rule failure is logged and counted,
+    but the live state that was just stored is kept."""
+    from app.core import metrics
+    from app.services import live_alert_service
+
+    queued_before = dict(db.info.get("_live_alert_events", {}))
+    try:
+        with db.begin_nested():
+            live_alert_service.evaluate_live_state(
+                db, organization_id=organization_id, asset_id=asset_id, payload=live,
+                event_at=row.last_event_at, state_version=row.state_version,
+            )
+    except Exception as exc:  # noqa: BLE001
+        metrics.LIVE_EVAL_FAILURES.inc()
+        log.warning("live.evaluation_failed", asset_id=str(asset_id), error=type(exc).__name__)
+        db.info["_live_alert_events"] = queued_before  # events queued by the rolled-back savepoint never happened
+
+
+def ensure_publish_listener(db: Session) -> None:
+    """Subscribers must never see state or alerts that the database does not hold: everything queued in `db.info` is
+    published only once the OUTERMOST transaction commits, and dropped if it rolls back. Several updates for one asset
+    in one transaction collapse into a single publication of the latest state."""
     if db.info.get("_live_listener"):
         return
     db.info["_live_listener"] = True
 
     def _after_commit(session: Session) -> None:
         todo = session.info.pop("_live_pending", set())
+        alerts = session.info.pop("_live_alert_events", {})
         session.info["_live_listener"] = False
+        if not todo and not alerts:
+            return
+        from app.db.session import SessionLocal
+        from app.services import live_alert_service
+
         for org, aid in todo:
             try:
-                from app.db.session import SessionLocal
-
                 with SessionLocal() as s:
                     state = get_drone_state(s, organization_id=org, asset_id=aid)
                 broker.publish(org, "state", state.model_dump(mode="json", by_alias=True))
             except Exception as exc:  # noqa: BLE001 -- streaming is best-effort; the database already has the data
                 log.warning("live.publish_failed", error=type(exc).__name__)
+        for (org, signal_id), change in alerts.items():
+            try:
+                with SessionLocal() as s:
+                    alert = live_alert_service.get_alert(s, organization_id=org, signal_id=signal_id)
+                broker.publish(org, "alert", {"change": change, "alert": alert.model_dump(mode="json", by_alias=True)})
+            except Exception as exc:  # noqa: BLE001
+                log.warning("live.alert_publish_failed", error=type(exc).__name__)
+
+    def _after_soft_rollback(session: Session, previous_transaction: Any) -> None:
+        if not getattr(previous_transaction, "nested", False):  # outermost rollback: nothing was committed
+            session.info.pop("_live_pending", None)
+            session.info.pop("_live_alert_events", None)
+            session.info["_live_listener"] = False
 
     sa_event.listen(db, "after_commit", _after_commit, once=True)
+    sa_event.listen(db, "after_soft_rollback", _after_soft_rollback, once=True)
+
+
+def _publish_after_commit(db: Session, organization_id: uuid.UUID, asset_id: uuid.UUID) -> None:
+    db.info.setdefault("_live_pending", set()).add((organization_id, asset_id))
+    ensure_publish_listener(db)
 
 
 # ------------------------------------------------------------------------------------------------- read path
