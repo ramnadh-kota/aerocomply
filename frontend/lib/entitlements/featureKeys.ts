@@ -67,6 +67,21 @@ const FEATURE_KEY_ALIASES: Record<string, FeatureKey> = {
   work_orders: FEATURE_KEYS.WORK_ORDER_MANAGEMENT,
   work_order: FEATURE_KEYS.WORK_ORDER_MANAGEMENT,
 
+  // Aircraft Fleets
+  aircraft_fleet_management: FEATURE_KEYS.AIRCRAFT_FLEET_MANAGEMENT,
+  aircraft_fleet: FEATURE_KEYS.AIRCRAFT_FLEET_MANAGEMENT,
+  aircraft: FEATURE_KEYS.AIRCRAFT_FLEET_MANAGEMENT,
+
+  // Helicopter Fleets
+  helicopter_fleet_management: FEATURE_KEYS.HELICOPTER_FLEET_MANAGEMENT,
+  helicopter_fleet: FEATURE_KEYS.HELICOPTER_FLEET_MANAGEMENT,
+  helicopters: FEATURE_KEYS.HELICOPTER_FLEET_MANAGEMENT,
+
+  // eVTOL Fleets
+  evtol_fleet_management: FEATURE_KEYS.EVTOL_FLEET_MANAGEMENT,
+  evtol_fleet: FEATURE_KEYS.EVTOL_FLEET_MANAGEMENT,
+  evtols: FEATURE_KEYS.EVTOL_FLEET_MANAGEMENT,
+
   // Drones
   drone_fleet_management: FEATURE_KEYS.DRONE_FLEET_MANAGEMENT,
   drone_operations: FEATURE_KEYS.DRONE_FLEET_MANAGEMENT,

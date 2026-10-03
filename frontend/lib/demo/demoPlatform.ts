@@ -551,16 +551,30 @@ export function getDemoOrganizationEntitlements(organizationId: string): Entitle
     };
   }
 
+  const isProOrEnt = plan?.code === "professional" || plan?.code === "enterprise";
+  const isEnt = plan?.code === "enterprise";
+
   const effectiveFeatures: Record<string, boolean> = {
+    aircraft_fleet_management: true,
     drone_fleet_management: true,
+    helicopter_fleet_management: isProOrEnt,
+    evtol_fleet_management: isEnt,
     work_order_management: true,
+    inspections_management: true,
+    compliance_management: true,
     compliance_reporting: true,
+    advanced_compliance_intelligence: isProOrEnt,
     audit_logging: true,
-    release_readiness: plan?.code === "professional" || plan?.code === "enterprise",
-    flight_telemetry: plan?.code === "professional" || plan?.code === "enterprise",
-    battery_analytics: plan?.code === "professional" || plan?.code === "enterprise",
-    lisa_ai_copilot: plan?.code === "enterprise",
-    procurement_management: plan?.code === "enterprise",
+    release_readiness: isProOrEnt,
+    flight_telemetry: isProOrEnt,
+    battery_analytics: isProOrEnt,
+    drone_missions: true,
+    procurement_management: isEnt,
+    predictive_maintenance: isProOrEnt,
+    mro_intelligence: isProOrEnt,
+    lisa_ai_copilot: isEnt,
+    digital_twin: isEnt,
+    hums: isProOrEnt,
   };
 
   return {
@@ -569,6 +583,13 @@ export function getDemoOrganizationEntitlements(organizationId: string): Entitle
     organization_status: org.status,
     subscription_id: sub?.id ?? null,
     subscription_status: sub?.status ?? null,
+    suite_id: null,
+    suite_code: "MULTI_SUITE",
+    suite_name: "Multi-Suite Aerospace Platform",
+    active_suites: [
+      { suite_code: "AIRCRAFT", suite_name: "Aircraft Suite", plan_code: plan?.code ?? null },
+      { suite_code: "DRONE_UAV", suite_name: "Drone / UAV Suite", plan_code: plan?.code ?? null },
+    ],
     plan_id: plan?.id ?? null,
     plan_code: plan?.code ?? null,
     plan_name: plan?.name ?? null,

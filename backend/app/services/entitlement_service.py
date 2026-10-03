@@ -161,6 +161,8 @@ def is_feature_allowed_for_suite(suite_code: str | None, feature_key: str) -> bo
     if not suite_code:
         return True
     code = suite_code.strip().upper()
+    if code == "MULTI_SUITE":
+        return True
     disallowed = _SUITE_DISALLOWED_FEATURES.get(code, set())
     canonical = canonicalize_feature_key(feature_key)
     if feature_key in disallowed or canonical in disallowed:

@@ -18,8 +18,16 @@ class FeatureKey(StrEnum):
     INSPECTIONS_MANAGEMENT = "inspections_management"
     RELEASE_READINESS = "release_readiness"
 
-    # Drone Operations
+    # Fleet & Operations
+    AIRCRAFT_FLEET_MANAGEMENT = "aircraft_fleet_management"
+    HELICOPTER_FLEET_MANAGEMENT = "helicopter_fleet_management"
+    EVTOL_FLEET_MANAGEMENT = "evtol_fleet_management"
+    AIRCRAFT_OPERATIONS = "aircraft_operations"
+    AIRCRAFT_MRO = "aircraft_mro"
     DRONE_FLEET_MANAGEMENT = "drone_fleet_management"
+    DRONE_MISSIONS = "drone_missions"
+    HELICOPTER_OPERATIONS = "helicopter_operations"
+    EVTOL_OPERATIONS = "evtol_operations"
     FLIGHT_TELEMETRY = "flight_telemetry"
     BATTERY_ANALYTICS = "battery_analytics"
 
@@ -75,10 +83,24 @@ _FEATURE_KEY_ALIASES: dict[str, str] = {
     "inspections_management": FeatureKey.INSPECTIONS_MANAGEMENT.value,
     "inspections": FeatureKey.INSPECTIONS_MANAGEMENT.value,
     "maintenance_inspections": FeatureKey.INSPECTIONS_MANAGEMENT.value,
-    # Drones
+    # Aircraft Fleets & Operations
+    "aircraft_fleet_management": FeatureKey.AIRCRAFT_FLEET_MANAGEMENT.value,
+    "aircraft_fleet": FeatureKey.AIRCRAFT_FLEET_MANAGEMENT.value,
+    "aircraft_operations": FeatureKey.AIRCRAFT_OPERATIONS.value,
+    "aircraft_mro": FeatureKey.AIRCRAFT_MRO.value,
+    # Helicopter Fleets & Operations
+    "helicopter_fleet_management": FeatureKey.HELICOPTER_FLEET_MANAGEMENT.value,
+    "helicopter_fleet": FeatureKey.HELICOPTER_FLEET_MANAGEMENT.value,
+    "helicopter_operations": FeatureKey.HELICOPTER_OPERATIONS.value,
+    # eVTOL Fleets & Operations
+    "evtol_fleet_management": FeatureKey.EVTOL_FLEET_MANAGEMENT.value,
+    "evtol_fleet": FeatureKey.EVTOL_FLEET_MANAGEMENT.value,
+    "evtol_operations": FeatureKey.EVTOL_OPERATIONS.value,
+    # Drones & Missions
     "drone_fleet_management": FeatureKey.DRONE_FLEET_MANAGEMENT.value,
     "drone_operations": FeatureKey.DRONE_FLEET_MANAGEMENT.value,
     "drones": FeatureKey.DRONE_FLEET_MANAGEMENT.value,
+    "drone_missions": FeatureKey.DRONE_MISSIONS.value,
     # Flight Telemetry
     "flight_telemetry": FeatureKey.FLIGHT_TELEMETRY.value,
     "telemetry": FeatureKey.FLIGHT_TELEMETRY.value,

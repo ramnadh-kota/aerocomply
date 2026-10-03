@@ -247,10 +247,10 @@ export function Sidebar() {
                 const denied = roleSimDenied || entitlementDenied || notConnected;
                 const title = roleSimDenied
                   ? "Not available for the simulated role (prototype only — not enforced)"
-                  : notConnected
-                    ? "Not connected to live data yet (demonstration data only)"
-                    : entitlementDenied
-                    ? "Not included in your organization's current plan"
+                  : entitlementDenied
+                    ? "Not included in your organization's current plan or suite subscription"
+                    : notConnected
+                    ? "Preview / demonstration data only — live connection in progress"
                     : undefined;
                 return (
                   <li key={item.href}>
@@ -260,7 +260,7 @@ export function Sidebar() {
                       aria-current={isActive(pathname, item.href) ? "page" : undefined}
                       aria-disabled={denied || undefined}
                       title={title}
-                      style={denied ? { opacity: 0.4 } : undefined}
+                      style={denied ? { opacity: 0.5 } : undefined}
                       onClick={(e) => {
                         if (denied) e.preventDefault();
                         else close();
@@ -270,9 +270,27 @@ export function Sidebar() {
                         {item.glyph}
                       </span>
                       {item.label}
-                      {denied && (
+                      {entitlementDenied && (
                         <span aria-hidden="true" style={{ marginLeft: "auto", fontSize: 11 }}>
                           🔒
+                        </span>
+                      )}
+                      {notConnected && !entitlementDenied && (
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            marginLeft: "auto",
+                            fontSize: 9,
+                            fontWeight: 600,
+                            letterSpacing: "0.05em",
+                            textTransform: "uppercase",
+                            padding: "1px 5px",
+                            borderRadius: "3px",
+                            background: "rgba(148, 163, 184, 0.15)",
+                            color: "var(--ac-text-muted, #94a3b8)",
+                          }}
+                        >
+                          Preview
                         </span>
                       )}
                     </Link>

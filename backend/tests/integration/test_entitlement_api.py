@@ -370,3 +370,27 @@ def test_unauthenticated_request_returns_401(client):
         "/api/v1/platform/organizations/00000000-0000-0000-0000-000000000000/entitlements"
     )
     assert resp2.status_code == 401
+
+
+# 14. canonical fleet feature key normalization and lookup aliases
+def test_canonical_fleet_features_entitlement_resolution(client, db_session):
+    tokens = _register(client, "Fleet Test Org", "admin@fleet-test-org.com")
+    org_id = _org_id(tokens["access_token"])
+    headers = _auth(tokens["access_token"])
+    
+    plan = _make_plan(db_session, "AIRCRAFT-COMMERCIAL-TEST")
+    for feat in ["aircraft_fleet_management", "compliance_management", "inspections_management"]:
+        db_session.add(PlanFeature(plan_id=plan.id, feature_key=feat, enabled=True))
+    db_session.commit()
+
+    _make_sub(db_session, org_id=org_id, plan=plan)
+
+    resp = client.get("/api/v1/entitlements", headers=headers)
+    assert resp.status_code == 200
+    eff = resp.json()["effective_features"]
+    assert eff.get("aircraft_fleet_management") is True
+    assert eff.get("AIRCRAFT_FLEET_MANAGEMENT") is True
+    assert eff.get("aircraft_fleet") is True
+    assert eff.get("compliance_management") is True
+    assert eff.get("inspections_management") is True
+

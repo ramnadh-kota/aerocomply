@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { authApi, normalizeApiError } from "@/lib/apiClient";
 import { useSession } from "@/lib/auth/SessionContext";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
+import { useEntitlements } from "@/lib/entitlements/EntitlementContext";
 import { Logo } from "@/components/branding/Logo";
 import { AerospaceShowcase } from "@/components/auth-showcase/AerospaceShowcase";
 import styles from "./login.module.css";
@@ -24,6 +25,7 @@ export default function LoginPage() {
   const router = useRouter();
   const { login } = useSession();
   const { setMode } = useDataMode();
+  const { refetchEntitlements } = useEntitlements();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -45,6 +47,13 @@ export default function LoginPage() {
       setMode("REAL");
       const isPlatformUser =
         me.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
+      if (!isPlatformUser) {
+        try {
+          await refetchEntitlements();
+        } catch {
+          // best-effort eager sync before navigation
+        }
+      }
       router.push(isPlatformUser ? "/platform/dashboard" : "/dashboard");
     } catch (err) {
       setError(normalizeApiError(err).message);
