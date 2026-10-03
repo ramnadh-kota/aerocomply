@@ -45,7 +45,7 @@ export default function LoginPage() {
       setMode("REAL");
       const isPlatformUser =
         me.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
-      router.push(isPlatformUser ? "/platform/organizations" : "/dashboard");
+      router.push(isPlatformUser ? "/platform/dashboard" : "/dashboard");
     } catch (err) {
       setError(normalizeApiError(err).message);
     } finally {

@@ -26,7 +26,23 @@ export function SuiteGuard({ requiredSuite, children, fallback }: SuiteGuardProp
     user?.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
 
   if (isPlatformUser) {
-    return <>{children}</>;
+    if (fallback) return <>{fallback}</>;
+    return (
+      <div className="ac-card" style={{ padding: 32, textAlign: "center", margin: "24px 0" }}>
+        <h2 className="ac-h2" style={{ marginBottom: 8 }}>Tenant Operational Suite</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ maxWidth: 500, margin: "0 auto 16px" }}>
+          Platform Administrators administer suite definitions and plan allocations from the Platform Control Plane. To access live operational drone fleet tools, please sign in with an authorized organization account.
+        </p>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          <Link href="/platform/dashboard" className="ac-btn ac-btn-primary">
+            Return to Platform Control Plane →
+          </Link>
+          <Link href="/platform/product-catalog" className="ac-btn ac-btn-outline">
+            Manage Platform Drone Suite
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   if (loading) {

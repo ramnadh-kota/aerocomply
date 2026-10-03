@@ -46,6 +46,27 @@ export function RouteEntitlementGuard({ children }: { children: ReactNode }) {
     }
   }
 
+  // Platform operators administer the platform and do not have operational tenant data access
+  if (isPlatformRole(user?.roles) && !isPlatformPath(pathname) && !isDemo) {
+    if (loading) return <div className="ac-card" style={{ padding: 24, textAlign: "center" }}>Checking access…</div>;
+    return (
+      <div className="ac-card" role="status" style={{ padding: 32, textAlign: "center", margin: "24px 0" }}>
+        <h2 className="ac-h2" style={{ marginBottom: 8 }}>Tenant Flight Operations</h2>
+        <p className="ac-text-sm ac-text-muted" style={{ maxWidth: 520, margin: "0 auto 16px" }}>
+          Platform Administrators manage suite entitlements, plans, and catalog assignments from the Platform Control Plane. To operate tenant drone fleets, missions, or flight telemetry, please sign in with an authorized organization account.
+        </p>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          <Link href="/platform/dashboard" className="ac-btn ac-btn-primary">
+            Return to Platform Control Plane →
+          </Link>
+          <Link href="/platform/product-catalog" className="ac-btn ac-btn-outline">
+            Manage Platform Drone Suite
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // Pages that only contain bundled sample data must not present it as this organization's own records.
   if (mockOnly && !isDemo) {
     if (loading || redirectTo) {

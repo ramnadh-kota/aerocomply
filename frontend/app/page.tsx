@@ -16,7 +16,7 @@ export default function HomePage() {
     } else {
       const isPlatformUser =
         user.roles?.some((r) => r === "PLATFORM_ADMIN" || r === "PLATFORM_STAFF") ?? false;
-      router.replace(isPlatformUser ? "/platform/organizations" : "/dashboard");
+      router.replace(isPlatformUser ? "/platform/dashboard" : "/dashboard");
     }
   }, [loading, isAuthenticated, user, router]);
 
