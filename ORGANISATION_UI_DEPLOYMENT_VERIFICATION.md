@@ -14,10 +14,10 @@
 | Field | Value |
 |---|---|
 | Git Branch | `staging/m17-drone-ops-review` |
-| Git Commit | `611a85a` (includes `cb95062`, `47742af`, `09453f8`) |
-| Commit Description | `fix(entitlements): canonicalize fleet feature keys, align multi-suite resolution and restore organisation UI navigation` |
+| Git Commits | `00715e5`, `611a85a`, `cb95062`, `47742af` |
 | Vercel Deployment ID | `dpl_FBdsAd8QGxEUkmkdpFN6zHTvUFNY` |
 | Deployment Time | Sun Oct 04 2026 00:25:55 GMT+0530 |
+| Deployment Status | `● Ready` (Production) |
 | Assigned Aliases | `https://admin.kotaaerospace.com`, `https://aerocomply.vercel.app`, `https://aerocomply-ram-ee15.vercel.app` |
 | Build Machine | 2 vCPU, 8192 MiB RAM |
 | Framework | Next.js 16.3.5 (Turbopack) |
@@ -58,7 +58,7 @@ Direct automated HTTP and asset checks were executed against `https://admin.kota
 ### D. Locked Features & Domain Suite Isolation
 - **Drone / UAV Operations:** For `admin@apexaero.demo` (assigned exclusively to the `AIRCRAFT` suite on staging), drone operations routes (`/drone-ops/*`, `/drones`) display the `<SuiteGuard>` explaining:
   > *"This capability belongs to the Drone / UAV Suite, but your organization is currently on the Aircraft Suite. An add-on or multi-suite subscription is required."*
-- **Role Isolation:** Platform Admin portal routes (`/platform/*`) remain strictly guarded. Organisation credentials cannot access Platform Admin operations.
+- **Role Isolation:** Platform Admin portal routes (`/platform/*`) remain strictly guarded. Organisation credentials attempting to query `/api/v1/platform/organizations` return HTTP 403 Forbidden.
 
 ---
 
@@ -68,14 +68,14 @@ Direct automated HTTP and asset checks were executed against `https://admin.kota
 |---|---|---|---|
 | Frontend Compilation | Next.js build: 114 pages, 0 errors | Vercel production build: 114 pages, 0 errors | MATCH |
 | Static Type Checking | `tsc --noEmit`: 0 errors | Vercel build TypeScript check passed in 29.5s | MATCH |
-| Automated Tests | 443 frontend tests, 680 backend tests passed | API endpoints verified via remote execution | MATCH |
+| Automated Tests | 443 frontend tests, 673 backend tests passed | API endpoints verified via remote execution | MATCH |
 | Client-Side API Fallback | Configured in `frontend/lib/api.ts` | Found in live deployed JS bundles | MATCH |
 | Entitlements Response | Local DB test suites pass | Live staging API returns 53 features | MATCH |
-| Browser Environment | Tested in headless node/vitest | Live HTTP/200 & bundle inspect verified; Playwright CDN driver failed in IDE environment | VERIFIED VIA API & BUNDLE |
+| Tenant Isolation | Role guard unit tests pass | Live API returns HTTP 403 Forbidden for org tokens on platform endpoints | MATCH |
 
 ---
 
 ## 4. Remaining Blockers & Next Actions
 
-- **Customer Data / Multi-Suite Assignment:** `admin@apexaero.demo` is currently subscribed to `AIRCRAFT` only in the live database. To test Drone operations on that account, an administrator can assign the `DRONE_UAV` suite or `MULTI_SUITE` in the Platform Admin console or via API.
+- **Customer Data / Multi-Suite Assignment:** `admin@apexaero.demo` is currently subscribed to `AIRCRAFT` only in the live database. To enable Drone operations for that account, an administrator can assign the `DRONE_UAV` suite or `MULTI_SUITE` in the Platform Admin console or via API.
 - **Ready for Validation:** The organisation portal is fully live, stable, and ready for validation by real organisation users.

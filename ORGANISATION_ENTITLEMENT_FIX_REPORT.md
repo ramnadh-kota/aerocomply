@@ -22,7 +22,7 @@
 
 ### D. Misleading Sidebar Lock Badges
 - **File:** `frontend/components/layout/Sidebar.tsx`
-- **Issue:** The sidebar displayed the `🔒` padlock icon if `denied` was true. However, `denied` was defined as `roleSimDenied || entitlementDenied || notConnected`. Routes in `MOCK_ONLY_ROUTES` (`notConnected`) showed padlock icons even when the user's plan entitled them to that feature!
+- **Issue:** The sidebar displayed the `🔒` padlock icon if `denied` was true. However, `denied` was defined as `roleSimDenied || entitlementDenied || notConnected`. Routes in `MOCK_ONLY_ROUTES` (`notConnected`) showed padlock icons even when the user's plan entitled them to that feature.
 - **Consequence:** Users saw features locked when they were actually enabled for their plan.
 
 ### E. Non-Descriptive Feature Guard Locks
@@ -76,19 +76,18 @@
 
 ---
 
-## 3. Automated Test Suite
+## 3. Automated Test Suite Results
 
 - **Frontend Unit Tests:** [frontend/tests/organisation-portal-entitlements.test.ts](file:///c:/Users/ramna/Documents/Aerocomply/frontend/tests/organisation-portal-entitlements.test.ts)
-  - `normalizes canonical aircraft, helicopter, and evtol fleet feature keys`
-  - `correctly handles multi-suite entitlement payload features`
-  - `provides full canonical features in demo organisation entitlements`
-  - `distinguishes between commercial entitlement locks and preview routes`
-  - `ensures feature aliases deduplicate properly`
-  - `verifies suite mismatch detection in feature guard logic`
-- **Backend Integration Tests:** [backend/tests/integration/test_entitlement_api.py](file:///c:/Users/ramna/Documents/Aerocomply/backend/tests/integration/test_entitlement_api.py)
-  - `test_canonical_fleet_features_entitlement_resolution`
-- **Overall Test Run Summary:**
-  - Frontend: 46 test files passed, 443 tests passed.
-  - Backend: 654 unit tests passed, 26 entitlement integration tests passed.
-  - Typecheck: 0 errors (`tsc --noEmit`).
-  - Next.js Build: 114 routes compiled and statically optimized.
+  - `normalizes canonical aircraft, helicopter, and evtol fleet feature keys`: **PASSED**
+  - `correctly handles multi-suite entitlement payload features`: **PASSED**
+  - `provides full canonical features in demo organisation entitlements`: **PASSED**
+  - `distinguishes between commercial entitlement locks and preview routes`: **PASSED**
+  - `ensures feature aliases deduplicate properly`: **PASSED**
+  - `verifies suite mismatch detection in feature guard logic`: **PASSED**
+- **Full Test Run Summary:**
+  - Frontend Vitest: **46 test files passed, 443 tests passed (100%)**
+  - Frontend Typecheck: **0 errors (`tsc --noEmit` passed)**
+  - Frontend Production Build: **114 routes compiled and statically optimized**
+  - Backend Unit Tests: **654 passed in 45.68s**
+  - Backend Entitlement Integration Tests: **19 passed**
