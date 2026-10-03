@@ -4,7 +4,12 @@ export function getApiBaseUrl(): string {
   }
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
-    if (host.endsWith(".vercel.app") || host === "aerocomply.vercel.app") {
+    if (
+      host.endsWith(".vercel.app") ||
+      host === "aerocomply.vercel.app" ||
+      host === "admin.kotaaerospace.com" ||
+      host.endsWith(".kotaaerospace.com")
+    ) {
       return "https://aerocomply-backend-staging.onrender.com/api/v1";
     }
   }

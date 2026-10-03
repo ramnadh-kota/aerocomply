@@ -206,4 +206,12 @@ describe("getApiBaseUrl resolution", () => {
     });
     expect(getApiBaseUrl()).toBe("https://aerocomply-backend-staging.onrender.com/api/v1");
   });
+
+  it("resolves to Render staging on admin.kotaaerospace.com when env is unset", () => {
+    delete process.env.NEXT_PUBLIC_API_BASE_URL;
+    vi.stubGlobal("window", {
+      location: { hostname: "admin.kotaaerospace.com" },
+    });
+    expect(getApiBaseUrl()).toBe("https://aerocomply-backend-staging.onrender.com/api/v1");
+  });
 });
