@@ -111,6 +111,15 @@ export function isMockOnlyRoute(pathname: string): boolean {
   return matchMockOnlyRoute(pathname) !== null;
 }
 
+/**
+ * True when a live session has nothing to open at this route: demo-data only AND no connected page to redirect to.
+ * Routes with a live redirect are NOT dead ends (the route guard sends the user to the live page), so the sidebar must
+ * keep them clickable instead of showing a permanent lock.
+ */
+export function isNavItemNotConnected(pathname: string): boolean {
+  return isMockOnlyRoute(pathname) && liveRedirectFor(pathname) === null;
+}
+
 /** Connected page a live session should be sent to for this pathname, or null when there is none. */
 export function liveRedirectFor(pathname: string): string | null {
   const pattern = matchMockOnlyRoute(pathname);

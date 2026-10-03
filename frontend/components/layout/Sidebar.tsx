@@ -9,7 +9,7 @@ import { useSession } from "@/lib/auth/SessionContext";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useEntitlements } from "@/lib/entitlements/EntitlementContext";
 import { isNavItemUnavailable } from "@/lib/entitlements/navFeatureMap";
-import { isMockOnlyRoute } from "@/lib/mock-only-routes";
+import { isNavItemNotConnected } from "@/lib/mock-only-routes";
 import { isRouteForbidden } from "@/lib/rbac/routePermissions";
 
 export interface NavItem {
@@ -243,7 +243,7 @@ export function Sidebar() {
                 const roleSimDenied = level === "NONE";
                 const entitlementDenied =
                   !isPlatformUser && isNavItemUnavailable(item.href, hasFeature);
-                const notConnected = !isPlatformUser && !isDemo && isMockOnlyRoute(item.href);
+                const notConnected = !isPlatformUser && !isDemo && isNavItemNotConnected(item.href);
                 const denied = roleSimDenied || entitlementDenied || notConnected;
                 const title = roleSimDenied
                   ? "Not available for the simulated role (prototype only — not enforced)"

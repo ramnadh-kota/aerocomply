@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { LIVE_REDIRECTS, MOCK_ONLY_ROUTES, SAMPLE_SECTION_ROUTES, isMockOnlyRoute, liveRedirectFor, matchMockOnlyRoute } from "../lib/mock-only-routes";
+import { LIVE_REDIRECTS, MOCK_ONLY_ROUTES, SAMPLE_SECTION_ROUTES, isMockOnlyRoute, isNavItemNotConnected, liveRedirectFor, matchMockOnlyRoute } from "../lib/mock-only-routes";
 
 const APP = join(__dirname, "..", "app", "(app)");
 
@@ -76,5 +76,26 @@ describe("mock-only route registry", () => {
     expect(liveRedirectFor("/maintenance/material-readiness")).toBe("/maintenance/parts");
     expect(liveRedirectFor("/finance")).toBeNull();          // mock-only with no live equivalent: notice card
     expect(liveRedirectFor("/dashboard")).toBeNull();        // not mock-only at all
+  });
+});
+
+describe("sidebar lock state for demo-data pages", () => {
+  it("keeps routes with a live equivalent clickable (the route guard redirects them)", () => {
+    for (const href of ["/audit", "/fleet/health", "/maintenance/tasks", "/maintenance/release-readiness", "/executive", "/documents"]) {
+      expect(isMockOnlyRoute(href), href).toBe(true);
+      expect(isNavItemNotConnected(href), href).toBe(false);
+    }
+  });
+
+  it("still locks demo-only pages that have no live equivalent", () => {
+    for (const href of ["/pilot", "/automation", "/finance", "/reports", "/workspace", "/organization/readiness"]) {
+      expect(isNavItemNotConnected(href), href).toBe(true);
+    }
+  });
+
+  it("never locks a connected page", () => {
+    for (const href of ["/dashboard", "/maintenance/work-orders", "/tenant/audit", "/drones"]) {
+      expect(isNavItemNotConnected(href), href).toBe(false);
+    }
   });
 });
