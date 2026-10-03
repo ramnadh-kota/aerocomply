@@ -34,3 +34,5 @@ Thumbs.db
 # stray dev server logs
 uvicorn.*.log
 *.txt
+.vercel
+.env*
