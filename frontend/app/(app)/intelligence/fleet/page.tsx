@@ -14,7 +14,12 @@ import {
 import { RealDataPanel } from "@/components/data-mode/RealDataPanel";
 import { useSession } from "@/lib/auth/SessionContext";
 import { normalizeApiError, type NormalizedApiError } from "@/lib/apiClient";
-import { intelligenceApi, type FleetAssetIntelligence, type FleetIntelligenceSummary } from "@/lib/api/intelligence";
+import {
+  intelligenceApi,
+  type FleetAssetIntelligence,
+  type FleetIntelligenceSummary,
+  type FleetCorrelationContext,
+} from "@/lib/api/intelligence";
 import { PLATFORM_NAME } from "@/lib/brand";
 
 type AttentionFilter = "ALL" | "CRITICAL" | "HIGH" | "ACTION_REQUIRED" | "MONITOR" | "INSUFFICIENT_DATA";
@@ -42,6 +47,7 @@ export function distinctValues(assets: FleetAssetIntelligence[], key: keyof Flee
 export default function FleetIntelligencePage() {
   const { accessToken, isAuthenticated, sessionType } = useSession();
   const [summary, setSummary] = useState<FleetIntelligenceSummary | null>(null);
+  const [correlation, setCorrelation] = useState<FleetCorrelationContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<NormalizedApiError | null>(null);
 
@@ -62,9 +68,14 @@ export default function FleetIntelligencePage() {
     }
     setLoading(true);
     setError(null);
-    intelligenceApi
-      .getFleet(accessToken)
-      .then(setSummary)
+    Promise.all([
+      intelligenceApi.getFleet(accessToken),
+      intelligenceApi.getFleetCorrelation(accessToken).catch(() => null),
+    ])
+      .then(([fleetSummary, corr]) => {
+        setSummary(fleetSummary);
+        setCorrelation(corr);
+      })
       .catch((err) => setError(normalizeApiError(err)))
       .finally(() => setLoading(false));
   }, [accessToken, isAuthenticated, sessionType]);
@@ -254,6 +265,110 @@ export default function FleetIntelligencePage() {
                   Clear filter
                 </button>
               </p>
+            )}
+          </section>
+
+          {/* H8.3 CROSS-ASSET CORRELATION & FLEET ANOMALY INTELLIGENCE */}
+          <section className="ac-section">
+            <div className="ac-section-header">
+              <div>
+                <h2 className="ac-h2" style={{ margin: 0 }}>
+                  Cross-Asset Fleet Correlation & Anomaly Intelligence
+                </h2>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: "4px 0 0" }}>
+                  Statistical correlation of HUMS signals, vibration anomalies, and operational conditions across assets.
+                  Similarity analysis identifies common patterns without asserting physical root cause.
+                </p>
+              </div>
+              {correlation && (
+                <span className="ac-badge" style={{ alignSelf: "center" }}>
+                  {correlation.anomaly_correlations.length} Correlated Pattern(s)
+                </span>
+              )}
+            </div>
+
+            {correlation && correlation.anomaly_correlations.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {correlation.anomaly_correlations.map((corr) => (
+                  <div key={corr.id} className="ac-card" style={{ padding: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <span className="ac-mono" style={{ fontWeight: 600, fontSize: 14 }}>
+                            {corr.feature_family.toUpperCase()}
+                          </span>
+                          <span className="ac-badge">{corr.pattern_type.replace(/_/g, " ")}</span>
+                          <span
+                            className="ac-badge"
+                            style={{
+                              backgroundColor:
+                                corr.confidence === "HIGH"
+                                  ? "rgba(16, 185, 129, 0.15)"
+                                  : corr.confidence === "MEDIUM"
+                                  ? "rgba(245, 158, 11, 0.15)"
+                                  : "rgba(156, 163, 175, 0.15)",
+                              color:
+                                corr.confidence === "HIGH"
+                                  ? "#10b981"
+                                  : corr.confidence === "MEDIUM"
+                                  ? "#f59e0b"
+                                  : "#9ca3af",
+                            }}
+                          >
+                            {corr.confidence} CONFIDENCE
+                          </span>
+                          {corr.is_simulation && (
+                            <span className="ac-badge" style={{ backgroundColor: "rgba(99, 102, 241, 0.15)", color: "#6366f1" }}>
+                              SIMULATED
+                            </span>
+                          )}
+                        </div>
+                        <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                          Participating assets: {corr.participating_asset_count} | Observations: {corr.observation_count} | Sensor: {corr.sensor_compatibility}
+                        </p>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <p className="ac-eyebrow" style={{ margin: 0 }}>Statistical Similarity</p>
+                        <p className="ac-mono" style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>
+                          {(corr.similarity_score * 100).toFixed(1)}%
+                        </p>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "10px 0 8px" }}>
+                      <span className="ac-text-sm" style={{ fontWeight: 500 }}>Assets:</span>
+                      {corr.participating_asset_ids.map((aid) => (
+                        <Link
+                          key={aid}
+                          href={`/assets/${aid}?tab=INTELLIGENCE`}
+                          className="ac-mono ac-badge"
+                          style={{ textDecoration: "none" }}
+                        >
+                          {aid.slice(0, 8)}
+                        </Link>
+                      ))}
+                    </div>
+
+                    {corr.uncertainty_notes.length > 0 && (
+                      <div style={{ backgroundColor: "rgba(0,0,0,0.03)", padding: "8px 12px", borderRadius: 4, margin: "8px 0" }}>
+                        <p className="ac-text-sm" style={{ margin: 0, color: "var(--ac-text-muted)" }}>
+                          <strong>Engineering Considerations:</strong> {corr.uncertainty_notes.join(" ")}
+                        </p>
+                      </div>
+                    )}
+
+                    <p className="ac-text-sm ac-text-muted" style={{ fontStyle: "italic", margin: "6px 0 0", fontSize: 12 }}>
+                      {corr.disclaimer}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="ac-card" style={{ padding: 16, textAlign: "center" }}>
+                <p className="ac-text-sm ac-text-muted" style={{ margin: 0 }}>
+                  No multi-asset vibration anomaly clusters detected. All assets operating within independent baseline parameters.
+                </p>
+              </div>
             )}
           </section>
 

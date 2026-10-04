@@ -311,5 +311,80 @@ export const intelligenceApi = {
 
   getAssetSignals: (accessToken: string, assetId: string) =>
     apiRequest<ProactiveSignal[]>(`/intelligence/assets/${assetId}/signals`, { accessToken }),
+
+  // H8.3 Cross-Asset Fleet Correlation
+  getFleetCorrelation: (
+    accessToken: string,
+    params?: { asset_id?: string; feature_family?: string; confidence?: string; days?: number }
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.asset_id) searchParams.set("asset_id", params.asset_id);
+    if (params?.feature_family) searchParams.set("feature_family", params.feature_family);
+    if (params?.confidence) searchParams.set("confidence", params.confidence);
+    if (params?.days) searchParams.set("days", params.days.toString());
+    const qs = searchParams.toString();
+    return apiRequest<FleetCorrelationContext>(`/intelligence/fleet/correlation${qs ? `?${qs}` : ""}`, { accessToken });
+  },
+
+  getFleetCorrelationDetail: (accessToken: string, correlationId: string) =>
+    apiRequest<FleetAnomalyPatternCorrelation>(`/intelligence/fleet/correlation/${correlationId}`, { accessToken }),
 };
+
+export interface FleetAnomalyPatternCorrelation {
+  id: string;
+  organization_id: string;
+  pattern_type: string;
+  feature_family: string;
+  participating_asset_ids: string[];
+  participating_asset_count: number;
+  participating_component_ids: string[];
+  observation_count: number;
+  similarity_score: number;
+  confidence: "HIGH" | "MEDIUM" | "LOW" | "INSUFFICIENT_EVIDENCE";
+  lifecycle_status: "CANDIDATE" | "EVALUATED" | "SUPPORTED" | "INSUFFICIENT_EVIDENCE";
+  sensor_compatibility: "COMPATIBLE" | "INCOMPATIBLE_UNITS" | "INCOMPATIBLE_SENSOR_TYPES" | "UNKNOWN";
+  operating_conditions_comparable: boolean;
+  is_simulation: boolean;
+  evidence_references: Array<Record<string, any>>;
+  supporting_signal_ids: string[];
+  time_window_start?: string | null;
+  time_window_end?: string | null;
+  uncertainty_notes: string[];
+  disclaimer: string;
+  evaluated_at: string;
+}
+
+export interface FleetCorrelationContext {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  total_fleet_assets: number;
+  affected_asset_count: number;
+  affected_asset_percentage: number | null;
+  total_active_signal_count: number;
+  asset_correlations: Array<{
+    asset_id: string;
+    asset_registration: string | null;
+    active_signal_count: number;
+    highest_signal_severity: string | null;
+    diagnostic_candidate_count: number;
+    prognostic_record_count: number;
+    has_rul_estimate: boolean;
+    component_context_available: boolean;
+    component_count: number | null;
+    evidence_completeness: "COMPLETE" | "PARTIAL" | "INSUFFICIENT_DATA";
+    evidence_note: string;
+  }>;
+  component_correlations: Array<{
+    component_type: string;
+    model: string | null;
+    correlated_component_count: number;
+    asset_ids: string[];
+    signal_count: number;
+    diagnostic_count: number;
+    prognostic_count: number;
+    basis: string;
+  }>;
+  anomaly_correlations: FleetAnomalyPatternCorrelation[];
+  explanation: string[];
+  evaluated_at: string;
+}
 

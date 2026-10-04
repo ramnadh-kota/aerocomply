@@ -42,6 +42,14 @@ from app.models.proactive_signal import ProactiveSignalRecord
 from app.services import digital_twin_service
 from app.services import mro_intelligence_service
 from app.services.telemetry_service import resolve_effective_freshness_policy
+from app.schemas.fleet_intelligence import (
+    AssetCorrelationEntry,
+    ComponentTypeCorrelationEntry,
+    FleetAnomalyPatternCorrelation as SchemaFleetAnomalyPatternCorrelation,
+    FleetCorrelationContext,
+    SignalDiagnosticAssociation as SchemaSignalDiagnosticAssociation,
+    SignalPrognosticAssociation as SchemaSignalPrognosticAssociation,
+)
 import structlog
 
 log = structlog.get_logger(__name__)
@@ -733,6 +741,31 @@ class AssetCorrelation:
 
 
 @dataclass
+class FleetAnomalyPatternCorrelation:
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    pattern_type: str
+    feature_family: str
+    participating_asset_ids: list[uuid.UUID]
+    participating_asset_count: int
+    participating_component_ids: list[uuid.UUID]
+    observation_count: int
+    similarity_score: float
+    confidence: str
+    lifecycle_status: str
+    sensor_compatibility: str
+    operating_conditions_comparable: bool
+    is_simulation: bool
+    evidence_references: list[dict[str, Any]]
+    supporting_signal_ids: list[uuid.UUID]
+    time_window_start: datetime | None
+    time_window_end: datetime | None
+    uncertainty_notes: list[str]
+    disclaimer: str
+    evaluated_at: datetime
+
+
+@dataclass
 class FleetCorrelationSummary:
     availability: str
     total_fleet_assets: int
@@ -744,6 +777,7 @@ class FleetCorrelationSummary:
     signal_diagnostic_associations: list[SignalDiagnosticAssociation]
     signal_prognostic_associations: list[SignalPrognosticAssociation]
     explanation: list[str]
+    anomaly_correlations: list[FleetAnomalyPatternCorrelation] = field(default_factory=list)
 
 
 def _fetch_active_diagnostic_candidates(db: Session, *, organization_id: uuid.UUID) -> list[HUMSDiagnosticCandidate]:
@@ -897,18 +931,325 @@ def _correlate_component_types(
     return entries
 
 
+def _correlate_fleet_anomaly_patterns(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    open_signals: list[ProactiveSignalRecord],
+    lookback_days: int = 30,
+) -> list[FleetAnomalyPatternCorrelation]:
+    """H8.3: Correlates HUMS exceedances and vibration anomalies across multiple assets.
+
+    Distinguishes statistical similarity from physical causation:
+    - Minimum sample requirements (>= 2 assets, >= 2 observations)
+    - Sensor compatibility check (rejects cross-sensor-type/unit confusion)
+    - Operational condition comparability
+    - Deterministic statistical similarity metric (1.0 - CV)
+    - Traceable evidence references
+    - Strict tenant isolation
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
+    exceedances = list(
+        db.execute(
+            select(HUMSExceedance).where(
+                HUMSExceedance.organization_id == organization_id,
+                HUMSExceedance.window_end >= cutoff,
+            ).order_by(HUMSExceedance.window_end.asc())
+        ).scalars().all()
+    )
+
+    sensors = {
+        s.id: s
+        for s in db.execute(
+            select(HUMSSensor).where(HUMSSensor.organization_id == organization_id)
+        ).scalars().all()
+    }
+
+    by_param: dict[str, list[HUMSExceedance]] = {}
+    for exc in exceedances:
+        by_param.setdefault(exc.parameter, []).append(exc)
+
+    correlations: list[FleetAnomalyPatternCorrelation] = []
+
+    for param, group in sorted(by_param.items()):
+        asset_ids = sorted({e.asset_id for e in group if e.asset_id is not None}, key=str)
+        # Isolated anomaly on single asset does not constitute a fleet correlation
+        if len(asset_ids) < 2:
+            continue
+
+        comp_ids = sorted({e.component_id for e in group if e.component_id is not None}, key=str)
+        part_sensors = [sensors[e.sensor_id] for e in group if e.sensor_id in sensors]
+        sensor_types = {s.sensor_type for s in part_sensors}
+        sensor_units = {s.unit for s in part_sensors}
+        sensor_sources = {s.source for s in part_sensors}
+
+        uncertainty_notes: list[str] = []
+
+        if len(sensor_types) > 1:
+            sensor_compat = "INCOMPATIBLE_SENSOR_TYPES"
+            uncertainty_notes.append(
+                "Sensors report incompatible measurement types across assets; fleet comparison is restricted without cross-modality calibration."
+            )
+        elif len(sensor_units) > 1:
+            sensor_compat = "INCOMPATIBLE_UNITS"
+            uncertainty_notes.append(
+                "Sensors report in mismatched units across assets; fleet comparison is restricted without normalization."
+            )
+        elif not part_sensors:
+            sensor_compat = "UNKNOWN"
+            uncertainty_notes.append("Sensor configuration data is missing for participating exceedances.")
+        else:
+            sensor_compat = "COMPATIBLE"
+
+        is_simulation = any(s == "SIMULATED" for s in sensor_sources)
+        if is_simulation:
+            uncertainty_notes.append("Synthetic or simulated telemetry detected in participating observations.")
+
+        has_divergent_conditions = any(
+            isinstance(e.contributing_reading_ids, list) and "DIFFERENT_OPERATING_CONDITIONS" in e.contributing_reading_ids
+            for e in group
+        )
+        operating_conditions_comparable = not has_divergent_conditions
+        if not operating_conditions_comparable:
+            uncertainty_notes.append(
+                "Observations occurred across divergent operational conditions; statistical association may be distorted."
+            )
+
+        obs_count = len(group)
+        is_sparse = obs_count < 4 or len(asset_ids) < 2
+        if is_sparse and sensor_compat == "COMPATIBLE":
+            uncertainty_notes.append("Sparse observation count limits statistical reliability across fleet assets.")
+
+        if sensor_compat == "COMPATIBLE" and obs_count >= 2:
+            vals = [e.observed_value for e in group]
+            mean_val = sum(vals) / len(vals)
+            if mean_val > 0 and len(vals) > 1:
+                variance = sum((x - mean_val) ** 2 for x in vals) / (len(vals) - 1)
+                std_dev = variance ** 0.5
+                cv = std_dev / mean_val
+                similarity_score = round(max(0.0, min(1.0, 1.0 - cv)), 3)
+            else:
+                similarity_score = 1.0 if len(vals) >= 2 and all(x == vals[0] for x in vals) else 0.5
+        else:
+            similarity_score = 0.0
+
+        matching_signals = [
+            s for s in open_signals
+            if s.asset_id in asset_ids and (
+                s.signal_type == "HUMS_EXCEEDANCE"
+                or s.signal_key.startswith("HUMS_EXCEEDANCE")
+                or param.lower() in (s.title or "").lower()
+            )
+        ]
+        supporting_signal_ids = [s.id for s in matching_signals]
+
+        if sensor_compat != "COMPATIBLE":
+            confidence = "INSUFFICIENT_EVIDENCE"
+            lifecycle_status = "INSUFFICIENT_EVIDENCE"
+        elif is_sparse:
+            confidence = "INSUFFICIENT_EVIDENCE"
+            lifecycle_status = "CANDIDATE"
+        elif not operating_conditions_comparable:
+            confidence = "LOW"
+            lifecycle_status = "CANDIDATE"
+        elif len(asset_ids) >= 3 and obs_count >= 6 and len(supporting_signal_ids) > 0 and similarity_score >= 0.7:
+            confidence = "HIGH"
+            lifecycle_status = "SUPPORTED"
+        elif len(asset_ids) >= 2 and obs_count >= 4 and similarity_score >= 0.5:
+            confidence = "MEDIUM"
+            lifecycle_status = "SUPPORTED"
+        else:
+            confidence = "LOW"
+            lifecycle_status = "CANDIDATE"
+
+        asset_key = ",".join(str(aid) for aid in asset_ids)
+        corr_id = uuid.uuid5(uuid.NAMESPACE_DNS, f"kota:h83:{organization_id}:{param}:{asset_key}")
+
+        t_start = min((e.window_start for e in group), default=None)
+        t_end = max((e.window_end for e in group), default=None)
+        ev_refs = [
+            {
+                "exceedance_id": str(e.id),
+                "asset_id": str(e.asset_id),
+                "component_id": str(e.component_id) if e.component_id else None,
+                "sensor_id": str(e.sensor_id),
+                "observed_value": e.observed_value,
+                "threshold_value": e.threshold_value,
+                "severity": e.severity,
+                "window_end": e.window_end.isoformat(),
+            }
+            for e in group[:15]
+        ]
+
+        disclaimer = (
+            "Statistical correlation detected across fleet observations. "
+            "Correlation does not imply shared physical origin, common initiating mechanism, or causality. "
+            "Operational conditions and airframe variations must be reviewed by qualified engineering personnel."
+        )
+
+        correlations.append(
+            FleetAnomalyPatternCorrelation(
+                id=corr_id,
+                organization_id=organization_id,
+                pattern_type="VIBRATION_EXCEEDANCE_PATTERN",
+                feature_family=param,
+                participating_asset_ids=asset_ids,
+                participating_asset_count=len(asset_ids),
+                participating_component_ids=comp_ids,
+                observation_count=obs_count,
+                similarity_score=similarity_score,
+                confidence=confidence,
+                lifecycle_status=lifecycle_status,
+                sensor_compatibility=sensor_compat,
+                operating_conditions_comparable=operating_conditions_comparable,
+                is_simulation=is_simulation,
+                evidence_references=ev_refs,
+                supporting_signal_ids=supporting_signal_ids,
+                time_window_start=t_start,
+                time_window_end=t_end,
+                uncertainty_notes=uncertainty_notes,
+                disclaimer=disclaimer,
+                evaluated_at=datetime.now(UTC),
+            )
+        )
+
+    # Also correlate high-quality anomalous features from HUMSFeature
+    features = list(
+        db.execute(
+            select(HUMSFeature).where(
+                HUMSFeature.organization_id == organization_id,
+                HUMSFeature.window_end >= cutoff,
+                HUMSFeature.quality.not_in(["INVALID", "INSUFFICIENT_DATA"]),
+            ).order_by(HUMSFeature.window_end.asc())
+        ).scalars().all()
+    )
+
+    by_feat_type: dict[str, list[HUMSFeature]] = {}
+    for feat in features:
+        is_anomalous = (
+            (feat.feature_type == "kurtosis" and feat.value > 4.0)
+            or (feat.feature_type == "crest_factor" and feat.value > 4.5)
+            or (feat.feature_type == "rms" and feat.value > 0.6)
+            or (feat.feature_metadata and feat.feature_metadata.get("is_anomaly"))
+        )
+        if is_anomalous:
+            by_feat_type.setdefault(feat.feature_type, []).append(feat)
+
+    for ftype, fgroup in sorted(by_feat_type.items()):
+        f_asset_ids = sorted({f.asset_id for f in fgroup if f.asset_id is not None}, key=str)
+        if len(f_asset_ids) < 2:
+            continue
+
+        if any(c.feature_family == ftype for c in correlations):
+            continue
+
+        f_part_sensors = [sensors[f.sensor_id] for f in fgroup if f.sensor_id in sensors]
+        f_sensor_units = {f.unit for f in fgroup}
+        f_sensor_types = {s.sensor_type for s in f_part_sensors}
+        f_sensor_sources = {s.source for s in f_part_sensors}
+
+        f_uncertainty: list[str] = []
+        if len(f_sensor_types) > 1:
+            f_compat = "INCOMPATIBLE_SENSOR_TYPES"
+            f_uncertainty.append("Sensors report incompatible measurement types across assets.")
+        elif len(f_sensor_units) > 1:
+            f_compat = "INCOMPATIBLE_UNITS"
+            f_uncertainty.append("Sensors report in mismatched units across assets.")
+        else:
+            f_compat = "COMPATIBLE"
+
+        f_is_sim = any(s == "SIMULATED" for s in f_sensor_sources)
+        if f_is_sim:
+            f_uncertainty.append("Synthetic or simulated telemetry detected in participating observations.")
+
+        f_obs_count = len(fgroup)
+        f_is_sparse = f_obs_count < 4 or len(f_asset_ids) < 2
+        if f_is_sparse and f_compat == "COMPATIBLE":
+            f_uncertainty.append("Sparse observation count limits statistical reliability across fleet assets.")
+
+        if f_compat == "COMPATIBLE" and f_obs_count >= 2:
+            f_vals = [f.value for f in fgroup]
+            f_mean = sum(f_vals) / len(f_vals)
+            if f_mean > 0 and len(f_vals) > 1:
+                f_var = sum((x - f_mean) ** 2 for x in f_vals) / (len(f_vals) - 1)
+                f_cv = (f_var ** 0.5) / f_mean
+                f_sim_score = round(max(0.0, min(1.0, 1.0 - f_cv)), 3)
+            else:
+                f_sim_score = 0.5
+        else:
+            f_sim_score = 0.0
+
+        if f_compat != "COMPATIBLE" or f_is_sparse:
+            f_conf = "INSUFFICIENT_EVIDENCE"
+            f_status = "CANDIDATE"
+        elif len(f_asset_ids) >= 2 and f_obs_count >= 4 and f_sim_score >= 0.5:
+            f_conf = "MEDIUM"
+            f_status = "SUPPORTED"
+        else:
+            f_conf = "LOW"
+            f_status = "CANDIDATE"
+
+        f_asset_key = ",".join(str(aid) for aid in f_asset_ids)
+        f_corr_id = uuid.uuid5(uuid.NAMESPACE_DNS, f"kota:h83:{organization_id}:feat:{ftype}:{f_asset_key}")
+
+        f_ev_refs = [
+            {
+                "feature_id": str(f.id),
+                "asset_id": str(f.asset_id),
+                "component_id": str(f.component_id) if f.component_id else None,
+                "sensor_id": str(f.sensor_id),
+                "feature_type": f.feature_type,
+                "value": f.value,
+                "unit": f.unit,
+                "window_end": f.window_end.isoformat(),
+            }
+            for f in fgroup[:15]
+        ]
+
+        correlations.append(
+            FleetAnomalyPatternCorrelation(
+                id=f_corr_id,
+                organization_id=organization_id,
+                pattern_type="VIBRATION_FEATURE_ANOMALY",
+                feature_family=ftype,
+                participating_asset_ids=f_asset_ids,
+                participating_asset_count=len(f_asset_ids),
+                participating_component_ids=sorted({f.component_id for f in fgroup if f.component_id is not None}, key=str),
+                observation_count=f_obs_count,
+                similarity_score=f_sim_score,
+                confidence=f_conf,
+                lifecycle_status=f_status,
+                sensor_compatibility=f_compat,
+                operating_conditions_comparable=True,
+                is_simulation=f_is_sim,
+                evidence_references=f_ev_refs,
+                supporting_signal_ids=[],
+                time_window_start=min((f.window_start for f in fgroup), default=None),
+                time_window_end=max((f.window_end for f in fgroup), default=None),
+                uncertainty_notes=f_uncertainty,
+                disclaimer=(
+                    "Statistical correlation detected across fleet observations. "
+                    "Correlation does not imply shared physical origin, common initiating mechanism, or causality. "
+                    "Operational conditions and airframe variations must be reviewed by qualified engineering personnel."
+                ),
+                evaluated_at=datetime.now(UTC),
+            )
+        )
+
+    return correlations
+
+
 def evaluate_fleet_hums_correlation(
-    db: Session, *, organization_id: uuid.UUID
+    db: Session, *, organization_id: uuid.UUID, lookback_days: int = 30
 ) -> FleetCorrelationSummary:
     """H8.3 entry point: correlates M7 signals + M14 population + H4
     diagnostic candidates + H5 prognostic/RUL records + H6 component
-    context into a single descriptive fleet correlation. Bulk-queries
-    each domain once (no per-asset loop calling any mutating service);
-    the only per-asset call is a BOUNDED (<= _MAX_TWIN_LOOKUPS) read-only
-    digital_twin_service.get_asset_component_tree lookup, scoped to the
-    affected-asset set only -- never the whole fleet -- to avoid N+1 at
-    fleet scale (see this module's H8.3 section docstring / the H8.3 spec
-    escalation note on H6 scoping).
+    context + cross-asset vibration anomaly patterns into a single descriptive
+    fleet correlation. Bulk-queries each domain once (no per-asset loop
+    calling any mutating service); the only per-asset call is a BOUNDED
+    (<= _MAX_TWIN_LOOKUPS) read-only digital_twin_service.get_asset_component_tree
+    lookup, scoped to the affected-asset set only -- never the whole fleet --
+    to avoid N+1 at fleet scale.
     """
     assets = list(
         db.execute(
@@ -932,6 +1273,7 @@ def evaluate_fleet_hums_correlation(
             signal_diagnostic_associations=[],
             signal_prognostic_associations=[],
             explanation=["No registered fleet assets found in tenant organization."],
+            anomaly_correlations=[],
         )
 
     reg_by_asset: dict[uuid.UUID, str | None] = {a.id: getattr(a, "registration", None) or a.serial_number for a in assets}
@@ -1044,6 +1386,10 @@ def evaluate_fleet_hums_correlation(
     signal_diagnostic_associations = _correlate_signals_to_diagnostics(open_signals, diagnostic_candidates)
     signal_prognostic_associations = _correlate_signals_to_prognostics(open_signals, prognostic_records)
 
+    anomaly_correlations = _correlate_fleet_anomaly_patterns(
+        db, organization_id=organization_id, open_signals=open_signals, lookback_days=lookback_days
+    )
+
     affected_pct = round((len(affected_asset_ids) / total_fleet_assets) * 100, 2) if total_fleet_assets else None
 
     explanation = [
@@ -1052,6 +1398,10 @@ def evaluate_fleet_hums_correlation(
         "Correlations are deterministic (same asset / same component / same component type-model) -- "
         "no new fleet health, risk, or attention score is computed by H8.3.",
     ]
+    if anomaly_correlations:
+        explanation.append(
+            f"{len(anomaly_correlations)} cross-asset anomaly pattern correlation(s) evaluated across fleet observations."
+        )
     if len(affected_asset_ids) > _MAX_TWIN_LOOKUPS:
         explanation.append(
             f"Digital-twin (H6) component context was retrieved for the first {_MAX_TWIN_LOOKUPS} affected "
@@ -1070,6 +1420,106 @@ def evaluate_fleet_hums_correlation(
         signal_diagnostic_associations=signal_diagnostic_associations,
         signal_prognostic_associations=signal_prognostic_associations,
         explanation=explanation,
+        anomaly_correlations=anomaly_correlations,
+    )
+
+
+def get_fleet_correlation_context(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    lookback_days: int = 30,
+) -> FleetCorrelationContext:
+    """Translates the internal dataclass FleetCorrelationSummary into the typed
+    FastAPI schema FleetCorrelationContext for the H8.3 API endpoint.
+    """
+    summary = evaluate_fleet_hums_correlation(db, organization_id=organization_id, lookback_days=lookback_days)
+    return FleetCorrelationContext(
+        availability=summary.availability,  # type: ignore[arg-type]
+        total_fleet_assets=summary.total_fleet_assets,
+        affected_asset_count=summary.affected_asset_count,
+        affected_asset_percentage=summary.affected_asset_percentage,
+        total_active_signal_count=summary.total_active_signal_count,
+        asset_correlations=[
+            AssetCorrelationEntry(
+                asset_id=a.asset_id,
+                asset_registration=a.asset_registration,
+                active_signal_count=a.active_signal_count,
+                highest_signal_severity=a.highest_signal_severity,
+                diagnostic_candidate_count=a.diagnostic_candidate_count,
+                prognostic_record_count=a.prognostic_record_count,
+                has_rul_estimate=a.has_rul_estimate,
+                assets_with_rul_estimate=a.has_rul_estimate,
+                component_context_available=a.component_context_available,
+                component_count=a.component_count,
+                evidence_completeness=a.evidence_completeness,  # type: ignore[arg-type]
+                evidence_note=a.evidence_note,
+            )
+            for a in summary.asset_correlations
+        ],
+        component_correlations=[
+            ComponentTypeCorrelationEntry(
+                component_type=c.component_type,
+                model=c.model,
+                correlated_component_count=c.correlated_component_count,
+                asset_ids=c.asset_ids,
+                signal_count=c.signal_count,
+                diagnostic_count=c.diagnostic_count,
+                prognostic_count=c.prognostic_count,
+                basis=c.basis,
+            )
+            for c in summary.component_correlations
+        ],
+        signal_diagnostic_associations=[
+            SchemaSignalDiagnosticAssociation(
+                signal_id=s.signal_id,
+                diagnostic_candidate_id=s.diagnostic_candidate_id,
+                asset_id=s.asset_id,
+                component_id=s.component_id,
+                relationship="SIGNAL_ASSOCIATED_WITH_DIAGNOSTIC_CANDIDATE",
+                basis=s.basis,
+            )
+            for s in summary.signal_diagnostic_associations
+        ],
+        signal_prognostic_associations=[
+            SchemaSignalPrognosticAssociation(
+                signal_id=s.signal_id,
+                prognostic_record_id=s.prognostic_record_id,
+                asset_id=s.asset_id,
+                component_id=s.component_id,
+                relationship="SIGNAL_ASSOCIATED_WITH_RUL_ESTIMATE",
+                basis=s.basis,
+            )
+            for s in summary.signal_prognostic_associations
+        ],
+        anomaly_correlations=[
+            SchemaFleetAnomalyPatternCorrelation(
+                id=ac.id,
+                organization_id=ac.organization_id,
+                pattern_type=ac.pattern_type,
+                feature_family=ac.feature_family,
+                participating_asset_ids=ac.participating_asset_ids,
+                participating_asset_count=ac.participating_asset_count,
+                participating_component_ids=ac.participating_component_ids,
+                observation_count=ac.observation_count,
+                similarity_score=ac.similarity_score,
+                confidence=ac.confidence,  # type: ignore[arg-type]
+                lifecycle_status=ac.lifecycle_status,  # type: ignore[arg-type]
+                sensor_compatibility=ac.sensor_compatibility,  # type: ignore[arg-type]
+                operating_conditions_comparable=ac.operating_conditions_comparable,
+                is_simulation=ac.is_simulation,
+                evidence_references=ac.evidence_references,
+                supporting_signal_ids=ac.supporting_signal_ids,
+                time_window_start=ac.time_window_start,
+                time_window_end=ac.time_window_end,
+                uncertainty_notes=ac.uncertainty_notes,
+                disclaimer=ac.disclaimer,
+                evaluated_at=ac.evaluated_at,
+            )
+            for ac in summary.anomaly_correlations
+        ],
+        explanation=summary.explanation,
+        evaluated_at=datetime.now(UTC),
     )
 
 
