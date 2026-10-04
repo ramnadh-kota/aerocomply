@@ -44,7 +44,7 @@ from app.models.mro_intelligence import (
     MROCandidateStatus,
     MROCandidateType,
 )
-from app.models.work_order import WorkOrder, WorkOrderStatus
+from app.models.work_order import WorkOrder, WorkOrderStatus, WorkOrderType
 from app.schemas.aerospace_state import AerospaceIntelligenceStatus
 from app.schemas.mro_intelligence import (
     AssetMROIntelligence,
@@ -680,3 +680,129 @@ def get_component_mro_intelligence(db: Session, *, organization_id: uuid.UUID, c
         "open_prognostic_count": len(prognostics),
         "evaluated_at": _now(),
     }
+
+
+def list_fleet_candidates(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    status: str | None = None,
+    candidate_type: str | None = None,
+    priority: str | None = None,
+) -> list[MaintenanceIntelligenceCandidate]:
+    stmt = select(MaintenanceIntelligenceCandidate).where(
+        MaintenanceIntelligenceCandidate.organization_id == organization_id
+    )
+    if status is not None:
+        stmt = stmt.where(MaintenanceIntelligenceCandidate.status == status)
+    if candidate_type is not None:
+        stmt = stmt.where(MaintenanceIntelligenceCandidate.candidate_type == candidate_type)
+    if priority is not None:
+        stmt = stmt.where(MaintenanceIntelligenceCandidate.priority == priority)
+    return list(db.execute(stmt.order_by(MaintenanceIntelligenceCandidate.created_at.desc())).scalars().all())
+
+
+def draft_work_order_from_candidate(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+    user_id: uuid.UUID,
+    title: str | None = None,
+    priority: str | None = None,
+    due_at: datetime.datetime | None = None,
+    notes: str | None = None,
+) -> tuple[MaintenanceIntelligenceCandidate, WorkOrder]:
+    """Human-authorized predictive maintenance drafting workflow (H8.7).
+    Converts a reviewed/accepted candidate into a drafted work order using
+    Developer 1's work_order_service contract, ensuring duplicate prevention,
+    proper audit lineage, and strict human authorization.
+    """
+    from app.schemas.work_order import WorkOrderCreateRequest
+    from app.services import work_order_service
+
+    candidate = _get_candidate(db, organization_id=organization_id, candidate_id=candidate_id)
+
+    if candidate.status == MROCandidateStatus.REJECTED:
+        raise ConflictError("Cannot draft a work order from a rejected recommendation candidate.")
+
+    # Deduplication check: verify no active work order exists for this candidate
+    existing_wo = db.execute(
+        select(WorkOrder).where(
+            WorkOrder.organization_id == organization_id,
+            WorkOrder.source_type == "PREDICTIVE_INTELLIGENCE",
+            WorkOrder.source_reference == str(candidate_id),
+            WorkOrder.status != WorkOrderStatus.CANCELLED,
+        )
+    ).scalar_one_or_none()
+
+    if existing_wo is not None:
+        raise ConflictError(
+            f"Work order {existing_wo.work_order_number} has already been drafted for this recommendation."
+        )
+
+    target_priority = priority or ("CRITICAL" if candidate.priority == MROCandidatePriority.HIGH else "NORMAL")
+    target_wo_type = (
+        WorkOrderType.CORRECTIVE if candidate.priority == MROCandidatePriority.HIGH else WorkOrderType.PREVENTIVE
+    )
+    target_title = title or f"Predictive Maintenance: {candidate.reason[:80]}"
+    calculated_due_at = due_at or (
+        _now() + datetime.timedelta(days=7 if candidate.priority == MROCandidatePriority.HIGH else 14)
+    )
+
+    wo_payload = WorkOrderCreateRequest(
+        asset_id=candidate.asset_id,
+        work_order_number=f"WO-PM-{candidate.id.hex[:8].upper()}",
+        title=target_title,
+        description=(
+            f"Human-authorized predictive maintenance recommendation (Candidate ID: {candidate.id}).\n\n"
+            f"Type: {candidate.candidate_type}\n"
+            f"Priority: {candidate.priority}\n"
+            f"Confidence: {candidate.confidence:.2f}\n"
+            f"Reason: {candidate.reason}\n"
+            f"Operational Impact: {candidate.operational_impact or 'N/A'}\n"
+            f"Data Freshness: {candidate.data_freshness or 'N/A'}\n"
+            f"Review Notes: {notes or 'Authorized via MRO Intelligence Review.'}"
+        ),
+        work_order_type=target_wo_type,
+        status=WorkOrderStatus.DRAFT,
+        priority=target_priority,
+        due_at=calculated_due_at,
+        source_type="PREDICTIVE_INTELLIGENCE",
+        source_reference=str(candidate.id),
+    )
+
+    work_order = work_order_service.create_work_order(
+        db,
+        organization_id=organization_id,
+        created_by_user_id=user_id,
+        payload=wo_payload,
+    )
+
+    # Transition candidate to RESOLVED upon conversion into formal maintenance lifecycle
+    candidate.status = MROCandidateStatus.RESOLVED
+    candidate.resolved_at = _now()
+    candidate.resolved_by = user_id
+    conversion_note = f"Converted to Work Order {work_order.work_order_number}."
+    candidate.review_notes = (
+        f"{candidate.review_notes} | {conversion_note}" if candidate.review_notes else conversion_note
+    )
+
+    audit_service.record_audit_event(
+        db,
+        organization_id=organization_id,
+        user_id=user_id,
+        action="mro_candidate.draft_work_order",
+        entity_type="MaintenanceIntelligenceCandidate",
+        entity_id=candidate.id,
+        metadata={
+            "work_order_id": str(work_order.id),
+            "work_order_number": work_order.work_order_number,
+            "work_order_status": work_order.status,
+            "priority": target_priority,
+        },
+    )
+
+    db.flush()
+    return candidate, work_order
+

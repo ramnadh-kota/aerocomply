@@ -152,3 +152,20 @@ class AssetMROIntelligence(BaseModel):
     conflicts: list[IntegrationConflict] = []
     explanation: list[str] = []
     evaluated_at: datetime
+
+
+class CandidateDraftWorkOrderRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=255)
+    priority: str | None = Field(default=None, max_length=32)
+    due_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class CandidateDraftWorkOrderResponse(BaseModel):
+    candidate: MaintenanceCandidateOut
+    work_order_id: uuid.UUID
+    work_order_number: str
+    work_order_status: str
+    work_order_priority: str
+    work_order_title: str
+

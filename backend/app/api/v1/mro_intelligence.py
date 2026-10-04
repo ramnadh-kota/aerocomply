@@ -9,7 +9,7 @@ table plus AuditEvent, never any authoritative domain table.
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db_session, require_feature, require_permission
@@ -18,6 +18,8 @@ from app.schemas.auth import CurrentUser
 from app.schemas.mro_intelligence import (
     AssetMROIntelligence,
     CandidateActionRequest,
+    CandidateDraftWorkOrderRequest,
+    CandidateDraftWorkOrderResponse,
     ComplianceImpactResult,
     IntegrationConflict,
     MaintenanceCandidateOut,
@@ -176,3 +178,54 @@ def defer_candidate(
     candidate = mro_intelligence_service.defer_candidate(db, organization_id=current_user.organization_id, candidate_id=candidate_id, user_id=current_user.id, notes=body.notes)
     db.commit()
     return MaintenanceCandidateOut.model_validate(candidate)
+
+
+@router.get("/candidates", response_model=list[MaintenanceCandidateOut])
+def list_candidates(
+    status: str | None = Query(None, description="Filter by candidate status"),
+    candidate_type: str | None = Query(None, description="Filter by candidate type"),
+    priority: str | None = Query(None, description="Filter by priority (HIGH, MEDIUM, LOW)"),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.MRO_INTELLIGENCE_READ)),
+) -> list[MaintenanceCandidateOut]:
+    """Lists predictive maintenance recommendation candidates across the fleet with optional filtering."""
+    candidates = mro_intelligence_service.list_fleet_candidates(
+        db,
+        organization_id=current_user.organization_id,
+        status=status,
+        candidate_type=candidate_type,
+        priority=priority,
+    )
+    return [MaintenanceCandidateOut.model_validate(c) for c in candidates]
+
+
+@router.post("/candidates/{candidate_id}/draft-work-order", response_model=CandidateDraftWorkOrderResponse)
+def draft_work_order_from_candidate(
+    candidate_id: uuid.UUID,
+    body: CandidateDraftWorkOrderRequest = CandidateDraftWorkOrderRequest(),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.MRO_INTELLIGENCE_REVIEW)),
+) -> CandidateDraftWorkOrderResponse:
+    """Human-authorized predictive maintenance drafting workflow (H8.7).
+    Converts a reviewed candidate into a formal drafted work order using Developer 1's work order contract.
+    """
+    candidate, work_order = mro_intelligence_service.draft_work_order_from_candidate(
+        db,
+        organization_id=current_user.organization_id,
+        candidate_id=candidate_id,
+        user_id=current_user.id,
+        title=body.title,
+        priority=body.priority,
+        due_at=body.due_at,
+        notes=body.notes,
+    )
+    db.commit()
+    return CandidateDraftWorkOrderResponse(
+        candidate=MaintenanceCandidateOut.model_validate(candidate),
+        work_order_id=work_order.id,
+        work_order_number=work_order.work_order_number,
+        work_order_status=work_order.status,
+        work_order_priority=work_order.priority,
+        work_order_title=work_order.title,
+    )
+

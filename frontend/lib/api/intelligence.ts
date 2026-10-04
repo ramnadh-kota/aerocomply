@@ -359,7 +359,88 @@ export const intelligenceApi = {
     const qs = searchParams.toString();
     return apiRequest<FleetMROContext>(`/intelligence/fleet/mro${qs ? `?${qs}` : ""}`, { accessToken });
   },
+
+  listMROCandidates: (
+    accessToken: string,
+    params?: { status?: string; candidate_type?: string; priority?: string }
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set("status", params.status);
+    if (params?.candidate_type) searchParams.set("candidate_type", params.candidate_type);
+    if (params?.priority) searchParams.set("priority", params.priority);
+    const qs = searchParams.toString();
+    return apiRequest<MaintenanceCandidate[]>(`/mro-intelligence/candidates${qs ? `?${qs}` : ""}`, { accessToken });
+  },
+
+  reviewCandidate: (accessToken: string, candidateId: string, notes?: string) =>
+    apiRequest<MaintenanceCandidate>(`/mro-intelligence/candidates/${candidateId}/review`, {
+      method: "POST",
+      accessToken,
+      body: JSON.stringify({ notes }),
+    }),
+
+  acceptCandidate: (accessToken: string, candidateId: string, notes?: string) =>
+    apiRequest<MaintenanceCandidate>(`/mro-intelligence/candidates/${candidateId}/accept`, {
+      method: "POST",
+      accessToken,
+      body: JSON.stringify({ notes }),
+    }),
+
+  rejectCandidate: (accessToken: string, candidateId: string, notes?: string) =>
+    apiRequest<MaintenanceCandidate>(`/mro-intelligence/candidates/${candidateId}/reject`, {
+      method: "POST",
+      accessToken,
+      body: JSON.stringify({ notes }),
+    }),
+
+  deferCandidate: (accessToken: string, candidateId: string, notes?: string) =>
+    apiRequest<MaintenanceCandidate>(`/mro-intelligence/candidates/${candidateId}/defer`, {
+      method: "POST",
+      accessToken,
+      body: JSON.stringify({ notes }),
+    }),
+
+  draftWorkOrderFromCandidate: (
+    accessToken: string,
+    candidateId: string,
+    payload?: { title?: string; priority?: string; due_at?: string; notes?: string }
+  ) =>
+    apiRequest<CandidateDraftWorkOrderResponse>(`/mro-intelligence/candidates/${candidateId}/draft-work-order`, {
+      method: "POST",
+      accessToken,
+      body: JSON.stringify(payload ?? {}),
+    }),
 };
+
+export interface MaintenanceCandidate {
+  id: string;
+  asset_id: string;
+  component_id?: string | null;
+  candidate_type: string;
+  status: string;
+  priority: string;
+  confidence: number;
+  reason: string;
+  dedup_key: string;
+  source_lineage: Array<Record<string, any>>;
+  operational_impact?: string | null;
+  data_freshness?: string | null;
+  resolved_at?: string | null;
+  resolved_by?: string | null;
+  review_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CandidateDraftWorkOrderResponse {
+  candidate: MaintenanceCandidate;
+  work_order_id: string;
+  work_order_number: string;
+  work_order_status: string;
+  work_order_priority: string;
+  work_order_title: string;
+}
+
 
 export interface FleetAnomalyPatternCorrelation {
   id: string;
