@@ -65,7 +65,7 @@ DEMO_ORG_NAME = "Kota Aerospace Demo Operations"
 DEMO_ADMIN_EMAIL = "demo.admin@kotaaerospace.com"
 DEMO_ENGINEER_EMAIL = "demo.engineer@kotaaerospace.com"
 DEMO_PILOT_EMAIL = "demo.pilot@kotaaerospace.com"
-DEMO_PASSWORD = "DemoPassword2026!Kota"
+DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "DemoPassword2026!Kota")
 
 
 def reset_demo_organization(db: Session, org_id: uuid.UUID) -> None:
@@ -134,16 +134,19 @@ def seed_m21_demo(db: Session, reset: bool = False) -> dict[str, any]:
     if sub is None:
         suite = db.execute(select(ProductSuite).where(ProductSuite.code == "AIRCRAFT")).scalar_one_or_none()
         suite_id = suite.id if suite else None
-        plan = Plan(
-            name="Kota Enterprise Demo Suite",
-            code=f"demo-plan-{org_id.hex[:6]}",
-            suite_id=suite_id,
-            is_active=True,
-        )
-        db.add(plan)
-        db.flush()
-        for feat in demo_features:
-            db.add(PlanFeature(plan_id=plan.id, feature_key=feat, enabled=True))
+        plan_code = f"demo-plan-{org_id.hex[:6]}"
+        plan = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
+        if plan is None:
+            plan = Plan(
+                name="Kota Enterprise Demo Suite",
+                code=plan_code,
+                suite_id=suite_id,
+                is_active=True,
+            )
+            db.add(plan)
+            db.flush()
+            for feat in demo_features:
+                db.add(PlanFeature(plan_id=plan.id, feature_key=feat, enabled=True))
         sub = Subscription(
             organization_id=org_id,
             plan_id=plan.id,
@@ -655,7 +658,7 @@ def seed_m21_demo(db: Session, reset: bool = False) -> dict[str, any]:
 
     print("[COMPLETE] Successfully seeded M21 Master Demo Environment!")
     print(f"  - Tenant: {DEMO_ORG_NAME} (ID: {org_id})")
-    print(f"  - Admin Login: {DEMO_ADMIN_EMAIL} / {DEMO_PASSWORD}")
+    print(f"  - Admin Login: {DEMO_ADMIN_EMAIL} (configured via DEMO_PASSWORD env var)")
     print("  - Assets: 5 Drones, 2 Fixed-Wing, 1 Helicopter, 1 eVTOL")
     print("  - Scenarios: A (Healthy), B (Degrading), C (Correlated), D (Conflict), E (Stale), F (Critical)")
 
