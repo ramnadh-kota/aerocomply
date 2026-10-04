@@ -96,8 +96,45 @@ describe("isNavItemUnavailable (strict sidebar semantics, mirrors the route guar
     expect(isNavItemUnavailable("/dashboard", () => false)).toBe(false);
   });
 
-  it("registers the helicopter and eVTOL routes", () => {
+  it("registers the helicopter, eVTOL, and engines routes", () => {
     expect(NAV_FEATURE_MAP["/helicopters"]).toBe("helicopter_fleet_management");
     expect(NAV_FEATURE_MAP["/evtols"]).toBe("evtol_fleet_management");
+    expect(NAV_FEATURE_MAP["/engines"]).toBe("aircraft_fleet_management");
   });
 });
+
+describe("isVerticalNavExcluded (M22 strict vertical separation)", () => {
+  const plan = (features: Record<string, boolean>) => (key: string) => features[key] === true;
+
+  it("excludes aircraft and engine routes for drone-only tenants", async () => {
+    const { isVerticalNavExcluded } = await import("../lib/entitlements/navFeatureMap");
+    const droneOnly = plan({ drone_fleet_management: true });
+    expect(isVerticalNavExcluded("/aircraft", droneOnly)).toBe(true);
+    expect(isVerticalNavExcluded("/engines", droneOnly)).toBe(true);
+    expect(isVerticalNavExcluded("/helicopters", droneOnly)).toBe(true);
+    expect(isVerticalNavExcluded("/evtols", droneOnly)).toBe(true);
+    expect(isVerticalNavExcluded("/drones", droneOnly)).toBe(false);
+    expect(isVerticalNavExcluded("/drone-ops/overview", droneOnly)).toBe(false);
+  });
+
+  it("excludes drone routes for aircraft-only tenants", async () => {
+    const { isVerticalNavExcluded } = await import("../lib/entitlements/navFeatureMap");
+    const aircraftOnly = plan({ aircraft_fleet_management: true });
+    expect(isVerticalNavExcluded("/drone-ops/overview", aircraftOnly)).toBe(true);
+    expect(isVerticalNavExcluded("/drones", aircraftOnly)).toBe(true);
+    expect(isVerticalNavExcluded("/helicopters", aircraftOnly)).toBe(true);
+    expect(isVerticalNavExcluded("/evtols", aircraftOnly)).toBe(true);
+    expect(isVerticalNavExcluded("/aircraft", aircraftOnly)).toBe(false);
+    expect(isVerticalNavExcluded("/engines", aircraftOnly)).toBe(false);
+  });
+
+  it("never excludes cross-vertical shared routes", async () => {
+    const { isVerticalNavExcluded } = await import("../lib/entitlements/navFeatureMap");
+    const none = () => false;
+    expect(isVerticalNavExcluded("/dashboard", none)).toBe(false);
+    expect(isVerticalNavExcluded("/maintenance/work-orders", none)).toBe(false);
+    expect(isVerticalNavExcluded("/compliance", none)).toBe(false);
+    expect(isVerticalNavExcluded("/intelligence/fleet", none)).toBe(false);
+  });
+});
+

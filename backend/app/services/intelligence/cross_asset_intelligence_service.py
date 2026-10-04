@@ -196,14 +196,43 @@ class FleetIntelligenceSummary:
     fleet_health_status: str  # HEALTHY | ATTENTION | DEGRADED | INSUFFICIENT_DATA
     confidence_note: str
     # H8.1 additions (all descriptive, all derived at read time):
-    health_distribution: FleetHealthDistribution | None = None
-    hums_coverage: FleetHUMSCoverage | None = None
-    telemetry_freshness: FleetTelemetryFreshness | None = None
-    population_statistics: FleetPopulationStatistics | None = None
+    health_distribution: FleetHealthDistribution = field(
+        default_factory=lambda: FleetHealthDistribution(
+            healthy_count=0, degraded_count=0, attention_count=0, unknown_count=0, availability="DATA_UNAVAILABLE"
+        )
+    )
+    hums_coverage: FleetHUMSCoverage = field(
+        default_factory=lambda: FleetHUMSCoverage(
+            assets_total=0, assets_with_hums=0, assets_without_hums=0, coverage_percentage=0.0
+        )
+    )
+    telemetry_freshness: FleetTelemetryFreshness = field(
+        default_factory=lambda: FleetTelemetryFreshness(
+            fresh_count=0, stale_count=0, missing_count=0, unknown_count=0, availability="DATA_UNAVAILABLE"
+        )
+    )
+    population_statistics: FleetPopulationStatistics = field(
+        default_factory=lambda: FleetPopulationStatistics(
+            asset_count=0, active_asset_count=0, component_count=0, assets_with_hums=0,
+            assets_with_recent_telemetry=0, assets_with_stale_telemetry=0, assets_with_missing_telemetry=0,
+        )
+    )
     component_distribution: list[ComponentTypeDistributionEntry] = field(default_factory=list)
-    exceedance_distribution: ExceedanceDistribution | None = None
-    diagnostic_distribution: DiagnosticDistribution | None = None
-    prognostic_distribution: PrognosticDistribution | None = None
+    exceedance_distribution: ExceedanceDistribution = field(
+        default_factory=lambda: ExceedanceDistribution(
+            total_exceedances=0, affected_assets=0, exceedances_by_type={}, exceedances_by_asset={}
+        )
+    )
+    diagnostic_distribution: DiagnosticDistribution = field(
+        default_factory=lambda: DiagnosticDistribution(
+            diagnostic_candidate_count=0, affected_assets=0, by_fault_domain={}, by_severity={}
+        )
+    )
+    prognostic_distribution: PrognosticDistribution = field(
+        default_factory=lambda: PrognosticDistribution(
+            assets_with_rul=0, rul_distribution={"<25": 0, "25-100": 0, "100-500": 0, ">=500": 0}, low_confidence_count=0
+        )
+    )
 
 
 @dataclass
@@ -642,7 +671,7 @@ def evaluate_cross_asset_intelligence(
                     component_or_sensor=title_key,
                     affected_asset_count=len(unique_assets),
                     total_occurrences=len(grouped),
-                    severity=str(max_sev),
+                    severity=max_sev,
                     sample_finding_titles=[f.title for f in grouped[:3]],
                 )
             )
@@ -2094,7 +2123,7 @@ def get_fleet_intelligence_overview_context(
     def _dump_val(val: Any) -> Any:
         if hasattr(val, "model_dump"):
             return val.model_dump()
-        if is_dataclass(val):
+        if is_dataclass(val) and not isinstance(val, type):
             return asdict(val)
         return val
 

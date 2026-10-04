@@ -8,7 +8,7 @@ import { Logo } from "@/components/branding/Logo";
 import { useSession } from "@/lib/auth/SessionContext";
 import { useDataMode } from "@/lib/data-mode/DataModeContext";
 import { useEntitlements } from "@/lib/entitlements/EntitlementContext";
-import { isNavItemUnavailable } from "@/lib/entitlements/navFeatureMap";
+import { isNavItemUnavailable, isVerticalNavExcluded } from "@/lib/entitlements/navFeatureMap";
 import { isNavItemNotConnected } from "@/lib/mock-only-routes";
 import { isRouteForbidden } from "@/lib/rbac/routePermissions";
 
@@ -211,9 +211,15 @@ export function Sidebar() {
   // require_feature() enforcement.
   const { hasFeature } = useEntitlements();
 
-  // RBAC: items the user's effective permissions (from /auth/me, same table the API enforces) do not allow are removed
-  // from the nav rather than shown disabled; a group with nothing left is dropped. Display only -- the API enforces.
-  const permitted = (href: string) => isPlatformUser || !isRouteForbidden(href, user?.permissions);
+  // RBAC & Vertical Product Suite: items the user's permissions forbid OR whose vertical product suite the tenant
+  // does not subscribe to (per M22 Drone vs Aircraft separation rules) are excluded from the nav entirely.
+  // Display only -- the API independently enforces RBAC and commercial feature gating.
+  const permitted = (href: string) => {
+    if (isPlatformUser) return true;
+    if (isRouteForbidden(href, user?.permissions)) return false;
+    if (isVerticalNavExcluded(href, hasFeature)) return false;
+    return true;
+  };
   const visibleGroups = groups
     .map((g) => ({ ...g, items: g.items.filter((i) => permitted(i.href)) }))
     .filter((g) => g.items.length > 0);

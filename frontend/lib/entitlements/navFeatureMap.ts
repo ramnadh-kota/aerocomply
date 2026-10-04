@@ -16,6 +16,7 @@ export const NAV_FEATURE_MAP: Record<string, NavFeatureKey> = {
 
   // Fleet Operations & Assets
   "/aircraft": FEATURE_KEYS.AIRCRAFT_FLEET_MANAGEMENT,
+  "/engines": FEATURE_KEYS.AIRCRAFT_FLEET_MANAGEMENT,
   "/drones": FEATURE_KEYS.DRONE_FLEET_MANAGEMENT,
   "/helicopters": FEATURE_KEYS.HELICOPTER_FLEET_MANAGEMENT,
   "/evtols": FEATURE_KEYS.EVTOL_FLEET_MANAGEMENT,
@@ -98,6 +99,27 @@ export function isNavItemUnavailable(href: string, hasFeature: (featureKey: stri
   const featureKey = NAV_FEATURE_MAP[href];
   if (!featureKey) return false;
   return !hasFeature(featureKey);
+}
+
+/**
+ * Vertical asset domain features that represent distinct aerospace operational suites.
+ * When a tenant does not hold the entitlement for a vertical suite, routes in that
+ * vertical are excluded from navigation entirely (per M22 Drone vs Aircraft separation rules)
+ * rather than displayed as disabled/locked.
+ */
+export const VERTICAL_SUITE_FEATURE_MAP: Record<string, FeatureKey> = {
+  "/drone-ops/overview": FEATURE_KEYS.DRONE_FLEET_MANAGEMENT,
+  "/drones": FEATURE_KEYS.DRONE_FLEET_MANAGEMENT,
+  "/aircraft": FEATURE_KEYS.AIRCRAFT_FLEET_MANAGEMENT,
+  "/engines": FEATURE_KEYS.AIRCRAFT_FLEET_MANAGEMENT,
+  "/helicopters": FEATURE_KEYS.HELICOPTER_FLEET_MANAGEMENT,
+  "/evtols": FEATURE_KEYS.EVTOL_FLEET_MANAGEMENT,
+};
+
+export function isVerticalNavExcluded(href: string, hasFeature: (featureKey: string) => boolean): boolean {
+  const reqFeature = VERTICAL_SUITE_FEATURE_MAP[href];
+  if (!reqFeature) return false;
+  return !hasFeature(reqFeature);
 }
 
 /**

@@ -15,22 +15,22 @@ import type { AuditEventResponse } from "@/lib/api/audit";
 export const DEMO_PLATFORM_ORGANIZATIONS: BackendPlatformOrganization[] = [
   {
     id: "00000000-0000-0000-0000-000000000001",
-    name: "KOTA Aerospace Demo Operations",
+    name: "Kota Drone Operations Demo",
     status: "ACTIVE",
     industry: "DRONE_UAV",
     created_at: "2026-01-15T08:00:00Z",
     user_count: 8,
-    aircraft_count: 4,
-    drone_count: 6,
+    aircraft_count: 0,
+    drone_count: 5,
   },
   {
     id: "00000000-0000-0000-0000-000000000010",
-    name: "AeroAir Charter Systems (Demo Org A)",
+    name: "Kota Aircraft Operations Demo",
     status: "ACTIVE",
     industry: "AIRCRAFT",
     created_at: "2026-02-01T09:30:00Z",
     user_count: 14,
-    aircraft_count: 8,
+    aircraft_count: 2,
     drone_count: 0,
   },
   {
@@ -551,14 +551,18 @@ export function getDemoOrganizationEntitlements(organizationId: string): Entitle
     };
   }
 
+  const isDroneOrg = org.industry === "DRONE_UAV";
+  const isAircraftOrg = org.industry === "AIRCRAFT";
+  const isHelicopterOrg = org.industry === "HELICOPTER";
+  const isEvtolOrg = org.industry === "EVTOL_AAM";
   const isProOrEnt = plan?.code === "professional" || plan?.code === "enterprise";
   const isEnt = plan?.code === "enterprise";
 
   const effectiveFeatures: Record<string, boolean> = {
-    aircraft_fleet_management: true,
-    drone_fleet_management: true,
-    helicopter_fleet_management: isProOrEnt,
-    evtol_fleet_management: isEnt,
+    aircraft_fleet_management: isAircraftOrg,
+    drone_fleet_management: isDroneOrg,
+    helicopter_fleet_management: isHelicopterOrg,
+    evtol_fleet_management: isEvtolOrg,
     work_order_management: true,
     inspections_management: true,
     compliance_management: true,
@@ -566,9 +570,9 @@ export function getDemoOrganizationEntitlements(organizationId: string): Entitle
     advanced_compliance_intelligence: isProOrEnt,
     audit_logging: true,
     release_readiness: isProOrEnt,
-    flight_telemetry: isProOrEnt,
-    battery_analytics: isProOrEnt,
-    drone_missions: true,
+    flight_telemetry: isDroneOrg || isProOrEnt,
+    battery_analytics: isDroneOrg || isEvtolOrg,
+    drone_missions: isDroneOrg,
     procurement_management: isEnt,
     predictive_maintenance: isProOrEnt,
     mro_intelligence: isProOrEnt,
@@ -577,6 +581,26 @@ export function getDemoOrganizationEntitlements(organizationId: string): Entitle
     hums: isProOrEnt,
   };
 
+  const suiteCode = isDroneOrg
+    ? "DRONE_UAV"
+    : isAircraftOrg
+    ? "AIRCRAFT"
+    : isHelicopterOrg
+    ? "HELICOPTER"
+    : isEvtolOrg
+    ? "EVTOL_AAM"
+    : "MULTI_SUITE";
+
+  const suiteName = isDroneOrg
+    ? "Drone / UAV Suite"
+    : isAircraftOrg
+    ? "Commercial Aircraft Suite"
+    : isHelicopterOrg
+    ? "Rotorcraft Suite"
+    : isEvtolOrg
+    ? "AAM / eVTOL Suite"
+    : "Multi-Suite Aerospace Platform";
+
   return {
     organization_id: organizationId,
     resolution_status: "ACTIVE",
@@ -584,11 +608,10 @@ export function getDemoOrganizationEntitlements(organizationId: string): Entitle
     subscription_id: sub?.id ?? null,
     subscription_status: sub?.status ?? null,
     suite_id: null,
-    suite_code: "MULTI_SUITE",
-    suite_name: "Multi-Suite Aerospace Platform",
+    suite_code: suiteCode,
+    suite_name: suiteName,
     active_suites: [
-      { suite_code: "AIRCRAFT", suite_name: "Aircraft Suite", plan_code: plan?.code ?? null },
-      { suite_code: "DRONE_UAV", suite_name: "Drone / UAV Suite", plan_code: plan?.code ?? null },
+      { suite_code: suiteCode, suite_name: suiteName, plan_code: plan?.code ?? null },
     ],
     plan_id: plan?.id ?? null,
     plan_code: plan?.code ?? null,

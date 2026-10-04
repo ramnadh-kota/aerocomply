@@ -37,19 +37,39 @@ describe("Organisation Portal Entitlement Resolution", () => {
     expect(isSuiteAllowed(["DRONE_UAV"], "AIRCRAFT", ["AIRCRAFT"])).toBe(false);
   });
 
-  it("demo organization provides full multi-suite capabilities and canonical features", () => {
-    const demo = getDemoOrganizationEntitlements("00000000-0000-0000-0000-000000000001");
-    expect(demo.resolution_status).toBe("ACTIVE");
-    expect(demo.suite_code).toBe("MULTI_SUITE");
-    expect(demo.active_suites?.map((s) => s.suite_code)).toContain("AIRCRAFT");
-    expect(demo.active_suites?.map((s) => s.suite_code)).toContain("DRONE_UAV");
+  it("drone demo organization provides drone suite capabilities and strictly isolates from aircraft", () => {
+    const droneDemo = getDemoOrganizationEntitlements("00000000-0000-0000-0000-000000000001");
+    expect(droneDemo.resolution_status).toBe("ACTIVE");
+    expect(droneDemo.suite_code).toBe("DRONE_UAV");
+    expect(droneDemo.active_suites?.map((s) => s.suite_code)).toContain("DRONE_UAV");
+    expect(droneDemo.active_suites?.map((s) => s.suite_code)).not.toContain("AIRCRAFT");
 
-    // Canonical features must be present
-    expect(hasFeatureKey(demo.effective_features, "aircraft_fleet_management")).toBe(true);
-    expect(hasFeatureKey(demo.effective_features, "drone_fleet_management")).toBe(true);
-    expect(hasFeatureKey(demo.effective_features, "work_order_management")).toBe(true);
-    expect(hasFeatureKey(demo.effective_features, "compliance_management")).toBe(true);
-    expect(hasFeatureKey(demo.effective_features, "inspections_management")).toBe(true);
+    // Drone capabilities must be active
+    expect(hasFeatureKey(droneDemo.effective_features, "drone_fleet_management")).toBe(true);
+    expect(hasFeatureKey(droneDemo.effective_features, "drone_missions")).toBe(true);
+    expect(hasFeatureKey(droneDemo.effective_features, "work_order_management")).toBe(true);
+    expect(hasFeatureKey(droneDemo.effective_features, "compliance_management")).toBe(true);
+    expect(hasFeatureKey(droneDemo.effective_features, "inspections_management")).toBe(true);
+
+    // Aircraft-only capabilities must be denied
+    expect(hasFeatureKey(droneDemo.effective_features, "aircraft_fleet_management")).toBe(false);
+  });
+
+  it("aircraft demo organization provides aircraft suite capabilities and strictly isolates from drone", () => {
+    const aircraftDemo = getDemoOrganizationEntitlements("00000000-0000-0000-0000-000000000010");
+    expect(aircraftDemo.resolution_status).toBe("ACTIVE");
+    expect(aircraftDemo.suite_code).toBe("AIRCRAFT");
+    expect(aircraftDemo.active_suites?.map((s) => s.suite_code)).toContain("AIRCRAFT");
+    expect(aircraftDemo.active_suites?.map((s) => s.suite_code)).not.toContain("DRONE_UAV");
+
+    // Aircraft capabilities must be active
+    expect(hasFeatureKey(aircraftDemo.effective_features, "aircraft_fleet_management")).toBe(true);
+    expect(hasFeatureKey(aircraftDemo.effective_features, "work_order_management")).toBe(true);
+    expect(hasFeatureKey(aircraftDemo.effective_features, "compliance_management")).toBe(true);
+
+    // Drone-only capabilities must be denied
+    expect(hasFeatureKey(aircraftDemo.effective_features, "drone_fleet_management")).toBe(false);
+    expect(hasFeatureKey(aircraftDemo.effective_features, "drone_missions")).toBe(false);
   });
 
   it("evaluates navigation availability against active entitlements", () => {

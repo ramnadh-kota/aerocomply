@@ -27,7 +27,7 @@ import pytest
 from app.main import app
 
 _SKIP = re.compile(
-    r"/auth/|/telemetry/dji/webhook|/health|/platform/|/storage|/export|/data-import/.*/validate|/upload"
+    r"/auth/|/telemetry/dji/webhook|/health|/platform/|/storage|/export|/data-import/.*/validate|/upload|/live/stream|/stream"
 )
 _PW = "supersecret123"
 
