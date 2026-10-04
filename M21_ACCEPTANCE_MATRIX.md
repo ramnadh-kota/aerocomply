@@ -34,7 +34,7 @@ Status Vocabulary:
 | **AC-17** | Phase 7: Staging Integration | Staging targets verified (`onrender.com` / `vercel.app`) | **PASS** | Deployment readiness checklist verified; no secrets exposed |
 | **AC-18** | Phase 8: Telemetry Integrity | Ingestion -> HUMS -> M7 -> MRO -> LISA end-to-end chain verified | **PASS** | Comprehensive regression suite (140/140 passed) |
 | **AC-19** | Phase 9: M20 Physical HW | Physical CM4/LTE/UART edge gateway bench validation | **BLOCKED** | Gated on physical hardware bench availability |
-| **AC-20** | Phase 10: Regression Suite | Cross-milestone regression suite (H8.0–H8.7, M19.3, M21) passes clean | **PASS** | 140 passed in 50.58s with 0 regressions |
+| **AC-20** | Phase 10: Regression Suite | Cross-milestone regression suite (H8.0–H8.7, M19.3, M21, M7, Tenancy) passes clean | **PASS** | 176 passed in 55.51s with 0 regressions |
 | **AC-21** | Phase 11: Handoff Materials | Comprehensive documentation and scenario walkthrough guides created | **PASS** | All 7 M21 documentation artifacts generated |
 
 ---
