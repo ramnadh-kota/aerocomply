@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kota-gateway"
+version = "1.0.0"
+description = "Kota Aerospace Remote Edge Telemetry Gateway Daemon"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Kota Aerospace Engineering", email = "engineering@kotaaerospace.com" }
+]
+dependencies = [
+    "urllib3>=1.26.0",
+]
+
+[project.scripts]
+kota-gateway = "gateway.kota_gateway:main"
+
+[tool.setuptools]
+packages = ["gateway"]
+
+[tool.setuptools.package-dir]
+gateway = "."

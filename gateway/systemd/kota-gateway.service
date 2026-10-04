@@ -1,0 +1,63 @@
+# Kota Aerospace — Remote Edge Telemetry Gateway Service
+# Systemd unit file for companion computers (Linux / Raspberry Pi CM4 / NVIDIA Jetson)
+# Location: /etc/systemd/system/kota-gateway.service
+
+[Unit]
+Description=Kota Aerospace Edge Telemetry Gateway Daemon
+Documentation=https://docs.kotaaerospace.com/m19/gateway
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=kota
+Group=kota
+
+# Configuration and State Directories
+ConfigurationDirectory=kota
+StateDirectory=kota
+LogsDirectory=kota
+
+# Pre-start validation: ensure configuration is valid before launching
+ExecStartPre=/usr/local/bin/kota-gateway --config /etc/kota/gateway.json --validate-only
+ExecStart=/usr/local/bin/kota-gateway --config /etc/kota/gateway.json
+
+# Process lifecycle and recovery
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Environment variables (optional override file)
+EnvironmentFile=-/etc/kota/gateway.env
+
+# Linux Security Hardening & Sandboxing
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+
+# Filesystem access constraints
+ReadOnlyPaths=/etc/kota
+ReadWritePaths=/var/lib/kota /var/log/kota
+
+# Capability bounding
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+# Standard Output / Error logging to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kota-gateway
+
+[Install]
+WantedBy=multi-user.target
