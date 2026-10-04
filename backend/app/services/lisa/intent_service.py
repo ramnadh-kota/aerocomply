@@ -10,6 +10,7 @@ from enum import StrEnum
 
 
 class Intent(StrEnum):
+    FLEET_CORRELATION = "FLEET_CORRELATION"
     AOG = "AOG"
     RELEASE_READINESS = "RELEASE_READINESS"
     TECHNICIAN_AUTHORIZATION = "TECHNICIAN_AUTHORIZATION"
@@ -23,7 +24,47 @@ class Intent(StrEnum):
 
 _KEYWORDS: tuple[tuple[Intent, tuple[str, ...]], ...] = (
     (
+        Intent.FLEET_CORRELATION,
+        (
+            "fleet correlation",
+            "fleet correlations",
+            "cross-asset correlation",
+            "cross asset correlation",
+            "cross-asset",
+            "cross asset",
+            "similar vibration",
+            "similar exceedance",
+            "similar exceedances",
+            "similar hums",
+            "similar anomaly",
+            "similar anomalies",
+            "vibration anomalies",
+            "vibration anomaly",
+            "vibration spikes",
+            "repeated vibration",
+            "multiple assets showing",
+            "across multiple assets",
+            "fleet anomaly",
+            "fleet anomalies",
+            "correlated anomalies",
+            "correlated anomaly",
+            "fleet signals",
+            "fleet signal",
+            "supports this correlation",
+            "supports this fleet correlation",
+            "evidence supports this",
+            "supporting evidence",
+            "require engineering review",
+            "requires engineering review",
+            "isolated or recurring",
+            "health patterns over",
+            "fleet's health patterns",
+            "fleet health patterns",
+        ),
+    ),
+    (
         Intent.TELEMETRY_HUMS,
+
         (
             "telemetry",
             "hums",

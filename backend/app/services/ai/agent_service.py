@@ -391,6 +391,8 @@ def _investigation_to_response(question: str, investigation: InvestigationResult
     _KNOWN_ROUTES = {
         "PurchaseOrder": "/procurement/purchase-orders/{id}",
         "Aircraft": "/aircraft/{id}",
+        "Asset": "/assets/{id}",
+        "Correlation": "/intelligence/fleet?correlation_id={id}",
     }
     related = [
         {

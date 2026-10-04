@@ -18,9 +18,11 @@ auditability), not reasoning.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AeroComplyError, ForbiddenError, NotFoundError
@@ -31,6 +33,16 @@ from app.services.lisa.intent_service import Intent, classify_intent
 from app.services.lisa.message_resolution_service import MessageResolution
 
 MAX_TOOL_CALLS = 6
+
+
+def _try_uuid(val: Any) -> uuid.UUID | None:
+    if isinstance(val, uuid.UUID):
+        return val
+    try:
+        return uuid.UUID(str(val))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
 
 
 @dataclass
@@ -829,7 +841,199 @@ def _investigate_telemetry_hums(
     )
 
 
+def _investigate_fleet_correlation(
+    db: Session, user: CurrentUser, resolution: MessageResolution, question: str = ""
+) -> InvestigationResult:
+    """H8.5: Deterministic investigation planner for fleet correlation & cross-asset intelligence.
+    Grounded strictly in tenant-authorized H8.3 correlation results and canonical M7 proactive signals.
+    """
+    context = resolution.context
+    q_str = question or (context.previous_question or "")
+    q_lower = q_str.lower()
+
+    budget = _CallBudget(db, user)
+
+    # 1. Parameter extraction from question cues
+    if "vibration" in q_lower:
+        feature_family = "vibration"
+    elif "temperature" in q_lower:
+        feature_family = "temperature"
+    elif "pressure" in q_lower:
+        feature_family = "pressure"
+    else:
+        feature_family = None
+
+    if any(k in q_lower for k in ("seven days", "7 days", "past week", "last week", "past 7 days")):
+        days = 7
+    elif "14 days" in q_lower or "two weeks" in q_lower:
+        days = 14
+    else:
+        days = 30
+
+    current_asset_id = context.current_aircraft_id
+    asset_id_str = str(current_asset_id) if current_asset_id else None
+
+    # 2. Call get_fleet_correlations
+    tool_args: dict[str, Any] = {"days": days}
+    if feature_family:
+        tool_args["feature_family"] = feature_family
+    if asset_id_str:
+        tool_args["asset_id"] = asset_id_str
+
+    try:
+        corr_data = budget.call("get_fleet_correlations", tool_args)
+    except AeroComplyError as exc:
+        return _error_result(Intent.FLEET_CORRELATION, exc, budget.tools_invoked)
+
+    if corr_data is None:
+        return InvestigationResult(
+            intent=Intent.FLEET_CORRELATION.value,
+            status="BACKEND_UNAVAILABLE",
+            headline="I couldn't complete the fleet correlation investigation within the tool-call budget.",
+            tools_invoked=budget.tools_invoked,
+        )
+
+    correlations = corr_data.get("correlations", [])
+
+    # 3. Handle zero correlations found
+    if not correlations:
+        what_i_found = [
+            f"Evaluated fleet telemetry and HUMS observations over a {days}-day lookback window.",
+            "No multi-asset anomaly patterns met the statistical correlation threshold.",
+            "Telemetry and sensor parameters currently show isolated behavior or normal baseline variation.",
+        ]
+        return InvestigationResult(
+            intent=Intent.FLEET_CORRELATION.value,
+            status="ANSWERED",
+            headline="No cross-asset anomaly correlations detected in the fleet for the requested criteria.",
+            tools_invoked=budget.tools_invoked,
+            what_i_found=what_i_found,
+            why_it_matters="No widespread systemic fleet patterns were identified across multiple assets in this observation window.",
+            next_step="Continue routine flight telemetry monitoring. Review individual asset health if specific anomalies are suspected.",
+            related_records=[RelatedRecord(label="Asset", id=asset_id_str)] if asset_id_str else [],
+        )
+
+    # 4. Handle correlations present
+    # Check simulation status
+    has_sim = any(c.get("is_simulation", False) for c in correlations)
+
+    # Resolve asset registrations
+    all_part_ids: set[uuid.UUID] = set()
+    for c in correlations:
+        for pid in c.get("participating_asset_ids", []):
+            parsed = _try_uuid(pid)
+            if parsed:
+                all_part_ids.add(parsed)
+
+    from app.models.asset import Asset
+    reg_map: dict[str, str] = {}
+    if all_part_ids:
+        rows = db.execute(
+            select(Asset).where(
+                Asset.organization_id == user.organization_id,
+                Asset.id.in_(all_part_ids),
+            )
+        ).scalars().all()
+        for r in rows:
+            reg_map[str(r.id)] = r.registration or r.serial_number or str(r.id)[:8]
+
+    # Fetch supporting M7 signals if present
+    supporting_signals_found: list[dict[str, Any]] = []
+    for c in correlations[:2]:
+        for sig_id in c.get("supporting_signal_ids", [])[:2]:
+            try:
+                sig_detail = budget.call("get_alert_details", {"alert_id": str(sig_id)})
+                if sig_detail:
+                    supporting_signals_found.append(sig_detail)
+            except Exception:
+                pass
+
+    what_i_found: list[str] = []
+    if has_sim:
+        what_i_found.append(
+            "[SIMULATION DATA] Telemetry supporting one or more correlations is classified as simulated test data, not live aircraft operations."
+        )
+
+    for c in correlations[:2]:
+        part_ids = c.get("participating_asset_ids", [])
+        part_regs = [reg_map.get(str(pid), str(pid)[:8]) for pid in part_ids]
+        part_desc = ", ".join(part_regs) if part_regs else f"{c.get('participating_asset_count', len(part_ids))} assets"
+        sim_pct = round(float(c.get("similarity_score", 0.0)) * 100, 1)
+        pattern = c.get("pattern_type", "CORRELATED_ANOMALY")
+        fam = c.get("feature_family", "telemetry")
+        conf = c.get("confidence", "UNKNOWN")
+        obs_cnt = c.get("observation_count", 0)
+
+        what_i_found.append(
+            f"Observed pattern: {pattern} across {part_desc} ({fam} family, {obs_cnt} observations, similarity: {sim_pct}%)."
+        )
+        what_i_found.append(
+            f"Statistical confidence: {conf} (sensor compatibility: {c.get('sensor_compatibility', 'UNKNOWN')}, operating conditions comparable: {c.get('operating_conditions_comparable', False)})."
+        )
+        for note in c.get("uncertainty_notes", [])[:2]:
+            what_i_found.append(f"Limitation / Uncertainty: {note}")
+        ev_refs = c.get("evidence_references", [])
+        if ev_refs:
+            what_i_found.append(f"Supporting evidence: {len(ev_refs)} trace reference(s) recorded.")
+
+    if supporting_signals_found:
+        for sig in supporting_signals_found[:2]:
+            what_i_found.append(
+                f"Related M7 proactive signal: [{sig.get('severity', 'SIGNAL')}] {sig.get('headline') or sig.get('title') or sig.get('signal_key')}."
+            )
+    else:
+        what_i_found.append("No canonical M7 proactive signals are currently linked to this correlation.")
+
+    # Formulate headline
+    total_corr = len(correlations)
+    total_affected = len(all_part_ids) if all_part_ids else corr_data.get("affected_asset_count", 0)
+    primary_fam = correlations[0].get("feature_family", "telemetry")
+    headline = f"Identified {total_corr} cross-asset {primary_fam} correlation(s) across {total_affected} fleet asset(s)."
+
+    # Causation safeguards
+    why_it_matters = (
+        "Observed assets exhibit statistically similar telemetry/HUMS signatures under observed flight regimes. "
+        "CAUSATION SAFEGUARD: Statistical correlation demonstrates mathematical association across sensor observations; "
+        "it does NOT establish a shared physical defect, common component failure, or causality. "
+        "No asset is deemed unairworthy based solely on correlation."
+    )
+
+    next_step = (
+        "Conduct qualified engineering review of sensor mounting, calibration, and spectral harmonics. "
+        "Inspect operational flight conditions during cruise. Do not perform unauthorized maintenance without approved engineering disposition."
+    )
+
+    who_should_act = "Fleet Maintenance Engineer / HUMS Specialist"
+
+    related_records: list[RelatedRecord] = []
+    for pid in sorted(all_part_ids, key=str)[:4]:
+        related_records.append(RelatedRecord(label="Asset", id=str(pid)))
+    for c in correlations[:2]:
+        if c.get("id"):
+            related_records.append(RelatedRecord(label="Correlation", id=str(c.get("id"))))
+
+    graph: dict[str, str] = {}
+    if correlations and correlations[0].get("id"):
+        graph["correlation_id"] = str(correlations[0]["id"])
+    if asset_id_str:
+        graph["asset_id"] = asset_id_str
+
+    return InvestigationResult(
+        intent=Intent.FLEET_CORRELATION.value,
+        status="ANSWERED",
+        headline=headline,
+        tools_invoked=budget.tools_invoked,
+        what_i_found=what_i_found,
+        why_it_matters=why_it_matters,
+        next_step=next_step,
+        who_should_act=who_should_act,
+        related_records=related_records,
+        result_graph=graph,
+    )
+
+
 _INVESTIGATORS = {
+    Intent.FLEET_CORRELATION: _investigate_fleet_correlation,
     Intent.AOG: _investigate_aog,
     Intent.RELEASE_READINESS: _investigate_release_readiness,
     Intent.TECHNICIAN_AUTHORIZATION: _investigate_technician_authorization,
@@ -845,6 +1049,7 @@ _INVESTIGATORS = {
 # reference in THIS message should block investigation (see investigate())
 # — deliberately not a general "required entities" schema beyond that.
 _INTENT_ENTITY_TYPES: dict[Intent, tuple[str, ...]] = {
+    Intent.FLEET_CORRELATION: (),
     Intent.AOG: ("aircraft",),
     Intent.RELEASE_READINESS: ("work_order",),
     Intent.TECHNICIAN_AUTHORIZATION: ("task", "technician"),
@@ -889,7 +1094,10 @@ def investigate(
     investigator = _INVESTIGATORS.get(resolved_intent)
     if investigator is None:
         return None
+    if resolved_intent == Intent.FLEET_CORRELATION:
+        return _investigate_fleet_correlation(db, user, resolution, question=question)
     return investigator(db, user, resolution)
+
 
 
 def _infer_continuation_intent(context: LisaConversationContext) -> Intent | None:

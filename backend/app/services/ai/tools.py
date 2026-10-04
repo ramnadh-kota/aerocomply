@@ -68,8 +68,10 @@ from app.services.entitlement_service import (
     resolve_entitlements,
 )
 from app.services.intelligence import context_service as intelligence_context_service
+from app.services.intelligence import cross_asset_intelligence_service
 from app.services.intelligence import fleet_intelligence_service
 from app.services.intelligence import proactive_intelligence_service
+
 
 ToolHandler = Callable[[Session, CurrentUser, dict[str, Any]], dict[str, Any]]
 
@@ -1373,6 +1375,28 @@ def _handle_list_fleet_assets(db: Session, user: CurrentUser, args: dict[str, An
         for a in rows if a.asset_type in entitled][:200]}
 
 
+def _signal_record_to_dict(r: Any) -> dict[str, Any]:
+    if isinstance(r, dict):
+        return r
+    return {
+        "id": str(r.id),
+        "organization_id": str(r.organization_id),
+        "signal_key": r.signal_key,
+        "signal_type": r.signal_type.value if hasattr(r.signal_type, "value") else str(r.signal_type),
+        "severity": r.severity.value if hasattr(r.severity, "value") else str(r.severity),
+        "priority": r.priority.value if hasattr(r.priority, "value") else str(r.priority),
+        "status": r.status.value if hasattr(r.status, "value") else str(r.status),
+        "title": r.title,
+        "headline": r.headline,
+        "explanation": r.explanation_json or [],
+        "asset_id": str(r.asset_id) if r.asset_id else None,
+        "detected_at": r.detected_at.isoformat() if r.detected_at else None,
+        "evidence": r.evidence_json or [],
+        "contributing_factors": r.contributing_factors_json or {},
+        "recommended_actions": r.recommended_actions_json or [],
+    }
+
+
 def _handle_get_alert_details(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
     alert_id = str(args.get("alert_id", "")).strip()
     if not alert_id:
@@ -1400,8 +1424,8 @@ def _handle_get_alert_details(db: Session, user: CurrentUser, args: dict[str, An
         ).scalar_one_or_none()
 
     if signal is not None:
-        from app.schemas.intelligence_signal import ProactiveSignalResponse
-        return ProactiveSignalResponse.model_validate(signal).model_dump(mode="json")
+        return _signal_record_to_dict(signal)
+
 
     # Check proactive service alerts
     alerts = proactive_service.get_proactive_alerts(db, organization_id=user.organization_id)
@@ -1442,6 +1466,141 @@ def _handle_get_mission_details(db: Session, user: CurrentUser, args: dict[str, 
         "notes": mission.notes,
         "created_at": mission.created_at.isoformat() if mission.created_at else None,
         "execution_state": "PLANNED_OR_AUTHORIZED (flight not automatically executed without verified telemetry)",
+    }
+
+
+def _handle_get_fleet_correlations(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    """H8.5: Retrieve H8.3 cross-asset HUMS and fleet anomaly pattern correlation results.
+    Strictly read-only, tenant-isolated by user.organization_id.
+    """
+    days = int(args.get("days", 30))
+    if days < 1 or days > 365:
+        days = 30
+    asset_id_raw = args.get("asset_id")
+    asset_id = _try_uuid(asset_id_raw) if asset_id_raw else None
+    feature_family = str(args.get("feature_family") or "").strip() or None
+    pattern_type = str(args.get("pattern_type") or "").strip() or None
+    confidence = str(args.get("confidence") or "").strip().upper() or None
+
+    context = cross_asset_intelligence_service.get_fleet_correlation_context(
+        db, organization_id=user.organization_id, lookback_days=days
+    )
+    correlations = context.anomaly_correlations
+    if asset_id:
+        correlations = [c for c in correlations if asset_id in c.participating_asset_ids]
+    if feature_family:
+        ff = feature_family.lower()
+        correlations = [
+            c for c in correlations
+            if ff in c.feature_family.lower() or c.feature_family.lower() in ff
+        ]
+    if pattern_type:
+        correlations = [c for c in correlations if c.pattern_type == pattern_type]
+    if confidence:
+        correlations = [c for c in correlations if c.confidence == confidence]
+
+    return {
+        "availability": context.availability.value if hasattr(context.availability, "value") else str(context.availability),
+        "total_fleet_assets": context.total_fleet_assets,
+        "affected_asset_count": context.affected_asset_count,
+        "correlation_count": len(correlations),
+        "correlations": [c.model_dump(mode="json") for c in correlations],
+        "explanation": context.explanation,
+        "lookback_days": days,
+    }
+
+
+def _handle_get_fleet_correlation_detail(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    """H8.5: Retrieve detailed evidence and provenance for a single cross-asset correlation record."""
+    corr_id_str = str(args.get("correlation_id", "")).strip()
+    corr_id = _uuid(corr_id_str, "correlation_id")
+    days = int(args.get("days", 30))
+    if days < 1 or days > 365:
+        days = 30
+
+    context = cross_asset_intelligence_service.get_fleet_correlation_context(
+        db, organization_id=user.organization_id, lookback_days=days
+    )
+    for c in context.anomaly_correlations:
+        if c.id == corr_id:
+            return c.model_dump(mode="json")
+
+    raise NotFoundError(f"Fleet correlation '{corr_id}' not found in organization")
+
+
+def _handle_get_fleet_signals(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    """H8.5: Retrieve canonical M7 proactive signals for the organization.
+    Read-only, tenant-isolated by user.organization_id.
+    """
+    from app.models.proactive_signal import ProactiveSignalRecord
+
+    stmt = select(ProactiveSignalRecord).where(
+        ProactiveSignalRecord.organization_id == user.organization_id
+    )
+    asset_id_raw = args.get("asset_id")
+    if asset_id_raw:
+        stmt = stmt.where(ProactiveSignalRecord.asset_id == _uuid(asset_id_raw, "asset_id"))
+    category = args.get("signal_category") or args.get("signal_type")
+    if category:
+        stmt = stmt.where(ProactiveSignalRecord.signal_type == str(category).strip())
+    severity = args.get("severity")
+    if severity:
+        stmt = stmt.where(ProactiveSignalRecord.severity == str(severity).strip().upper())
+    status = args.get("status")
+    if status:
+        stmt = stmt.where(ProactiveSignalRecord.status == str(status).strip().upper())
+
+    stmt = stmt.order_by(ProactiveSignalRecord.detected_at.desc()).limit(50)
+    rows = db.execute(stmt).scalars().all()
+    return {
+        "signals": [
+            _signal_record_to_dict(r)
+            for r in rows
+        ]
+    }
+
+
+def _handle_get_fleet_correlation_summary(db: Session, user: CurrentUser, args: dict[str, Any]) -> dict[str, Any]:
+    """H8.5: Combined bounded view of cross-asset correlations, related M7 signals, and evidence."""
+    from app.models.proactive_signal import ProactiveSignalRecord
+
+    days = int(args.get("days", 30))
+    if days < 1 or days > 365:
+        days = 30
+
+    context = cross_asset_intelligence_service.get_fleet_correlation_context(
+        db, organization_id=user.organization_id, lookback_days=days
+    )
+    correlations = context.anomaly_correlations
+
+    all_sig_ids: set[uuid.UUID] = set()
+    for c in correlations:
+        for sid in c.supporting_signal_ids:
+            all_sig_ids.add(sid)
+
+    related_signals: list[dict[str, Any]] = []
+    if all_sig_ids:
+        rows = db.execute(
+            select(ProactiveSignalRecord).where(
+                ProactiveSignalRecord.organization_id == user.organization_id,
+                ProactiveSignalRecord.id.in_(all_sig_ids),
+            )
+        ).scalars().all()
+        related_signals = [_signal_record_to_dict(r) for r in rows]
+
+
+    return {
+        "availability": context.availability.value if hasattr(context.availability, "value") else str(context.availability),
+        "total_fleet_assets": context.total_fleet_assets,
+        "affected_asset_count": context.affected_asset_count,
+        "correlation_count": len(correlations),
+        "correlations": [c.model_dump(mode="json") for c in correlations],
+        "related_signals": related_signals,
+        "lookback_days": days,
+        "disclaimer": (
+            "Statistical correlation across fleet observations does not imply shared physical origin or causality. "
+            "Engineering review is required."
+        ),
     }
 
 
@@ -2462,7 +2621,87 @@ TOOL_REGISTRY: list[ToolSpec] = [
         required_permission=Permission.DRONE_READ,
         required_feature="drone_fleet_management",
     ),
+    ToolSpec(
+        name="get_fleet_correlations",
+        description=(
+            "Retrieve H8.3 cross-asset HUMS and fleet anomaly pattern correlation results for the "
+            "authenticated organization. Returns correlated multi-asset patterns (e.g. harmonic vibration, "
+            "temperature exceedance clusters), similarity scores, confidence classification, participating "
+            "assets, and supporting evidence references. Filter by asset_id, feature_family (e.g. 'vibration', "
+            "'temperature'), pattern_type, confidence ('HIGH', 'MEDIUM', 'LOW', 'INSUFFICIENT_EVIDENCE'), "
+            "or lookback days. Read-only, tenant-isolated."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "asset_id": {"type": "string", "description": "Optional asset UUID to filter correlations involving this asset"},
+                "feature_family": {"type": "string", "description": "Optional feature family (e.g. 'vibration', 'temperature')"},
+                "pattern_type": {"type": "string", "description": "Optional pattern type (e.g. 'CROSS_ASSET_HARMONIC_VIBRATION')"},
+                "confidence": {"type": "string", "description": "Optional confidence: HIGH, MEDIUM, LOW, INSUFFICIENT_EVIDENCE"},
+                "days": {"type": "integer", "description": "Lookback window in days (default 30, range 1-365)"},
+            },
+        },
+        handler=_handle_get_fleet_correlations,
+        required_permission=Permission.AIRCRAFT_READ,
+        required_feature="predictive_maintenance",
+    ),
+    ToolSpec(
+        name="get_fleet_correlation_detail",
+        description=(
+            "Retrieve detailed record, participating assets, observation window, similarity metrics, "
+            "confidence classification, explicit limitations, and evidence provenance for a specific cross-asset "
+            "correlation result by correlation_id. Read-only, tenant-isolated."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "correlation_id": {"type": "string", "description": "Correlation UUID"},
+                "days": {"type": "integer", "description": "Lookback window in days (default 30)"},
+            },
+            "required": ["correlation_id"],
+        },
+        handler=_handle_get_fleet_correlation_detail,
+        required_permission=Permission.AIRCRAFT_READ,
+        required_feature="predictive_maintenance",
+    ),
+    ToolSpec(
+        name="get_fleet_signals",
+        description=(
+            "Retrieve canonical M7 proactive fleet signals for the authenticated organization with optional "
+            "asset_id, signal_category, severity (CRITICAL, HIGH, MEDIUM, LOW), or status (OPEN, ACKNOWLEDGED, RESOLVED) "
+            "filters. Read-only, tenant-isolated."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "asset_id": {"type": "string", "description": "Optional asset UUID"},
+                "signal_category": {"type": "string", "description": "Optional signal category/type"},
+                "severity": {"type": "string", "description": "Optional severity: CRITICAL, HIGH, MEDIUM, LOW"},
+                "status": {"type": "string", "description": "Optional status: OPEN, ACKNOWLEDGED, RESOLVED"},
+            },
+        },
+        handler=_handle_get_fleet_signals,
+        required_permission=Permission.AIRCRAFT_READ,
+        required_feature="predictive_maintenance",
+    ),
+    ToolSpec(
+        name="get_fleet_correlation_summary",
+        description=(
+            "Get a combined bounded view of cross-asset anomaly correlations, related M7 proactive signals, "
+            "and supporting evidence references across the fleet. Read-only, tenant-isolated."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Lookback window in days (default 30)"},
+            },
+        },
+        handler=_handle_get_fleet_correlation_summary,
+        required_permission=Permission.AIRCRAFT_READ,
+        required_feature="predictive_maintenance",
+    ),
 ]
+
 
 TOOL_REGISTRY_BY_NAME: dict[str, ToolSpec] = {t.name: t for t in TOOL_REGISTRY}
 

@@ -6,6 +6,10 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_db_session, require_permission
 from app.core.permissions import Permission
 from app.schemas.auth import CurrentUser
+from app.schemas.fleet_intelligence import (
+    FleetAnomalyPatternCorrelation,
+    FleetCorrelationContext,
+)
 from app.schemas.intelligence import (
     AssetDecision,
     AssetPriorityIntelligence,
@@ -182,6 +186,57 @@ def get_fleet_intelligence_summary(
     return fleet_intelligence_service.get_fleet_intelligence_summary(
         db, organization_id=current_user.organization_id
     )
+
+
+@router.get("/fleet/correlation", response_model=FleetCorrelationContext)
+def get_fleet_correlation(
+    asset_id: uuid.UUID | None = Query(None, description="Filter correlations containing this asset ID"),
+    pattern_type: str | None = Query(None, description="Filter by pattern type"),
+    feature_family: str | None = Query(None, description="Filter by feature family (e.g. vibration_rms)"),
+    confidence: str | None = Query(None, description="Filter by confidence level (HIGH, MEDIUM, LOW, INSUFFICIENT_EVIDENCE)"),
+    days: int = Query(30, ge=1, le=365, description="Lookback window in days"),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+) -> FleetCorrelationContext:
+    """Returns deterministic cross-asset HUMS and fleet anomaly pattern correlation (H8.3)."""
+    from app.services.intelligence.cross_asset_intelligence_service import get_fleet_correlation_context
+
+    context = get_fleet_correlation_context(
+        db, organization_id=current_user.organization_id, lookback_days=days
+    )
+    if any([asset_id, pattern_type, feature_family, confidence]):
+        filtered = context.anomaly_correlations
+        if asset_id:
+            filtered = [c for c in filtered if asset_id in c.participating_asset_ids]
+        if pattern_type:
+            filtered = [c for c in filtered if c.pattern_type == pattern_type]
+        if feature_family:
+            ff = feature_family.lower()
+            filtered = [c for c in filtered if ff in c.feature_family.lower() or c.feature_family.lower() in ff]
+        if confidence:
+            filtered = [c for c in filtered if c.confidence == confidence]
+        context.anomaly_correlations = filtered
+    return context
+
+
+@router.get("/fleet/correlation/{correlation_id}", response_model=FleetAnomalyPatternCorrelation)
+def get_fleet_correlation_detail(
+    correlation_id: uuid.UUID,
+    days: int = Query(30, ge=1, le=365, description="Lookback window in days"),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+) -> FleetAnomalyPatternCorrelation:
+    """Returns detail and evidence provenance for a single cross-asset correlation record."""
+    from app.core.errors import NotFoundError
+    from app.services.intelligence.cross_asset_intelligence_service import get_fleet_correlation_context
+
+    context = get_fleet_correlation_context(
+        db, organization_id=current_user.organization_id, lookback_days=days
+    )
+    for corr in context.anomaly_correlations:
+        if corr.id == correlation_id:
+            return corr
+    raise NotFoundError("Fleet correlation not found", code="correlation_not_found")
 
 
 @router.get("/assets/{asset_id}/readiness", response_model=AssetReadinessIntelligence)

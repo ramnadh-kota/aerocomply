@@ -73,7 +73,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -260,17 +260,61 @@ class AssetCorrelationEntry(BaseModel):
     fleet) to avoid N+1 digital-twin calls at fleet scale.
     """
 
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
     asset_id: uuid.UUID
     asset_registration: str | None = None
     active_signal_count: int = 0
     highest_signal_severity: str | None = None
     diagnostic_candidate_count: int = 0
     prognostic_record_count: int = 0
+    has_rul_estimate: bool = False
     assets_with_rul_estimate: bool = False
     component_context_available: bool = False
     component_count: int | None = None
     evidence_completeness: Literal["COMPLETE", "PARTIAL", "INSUFFICIENT_DATA"]
     evidence_note: str
+
+
+class FleetAnomalyPatternCorrelation(BaseModel):
+    """H8.3: A deterministic cross-asset anomaly pattern correlation.
+    Identifies similar vibration/exceedance anomaly signatures across multiple assets
+    under comparable operational observation windows.
+
+    CRITICAL SAFETY & GOVERNANCE INVARIANT:
+    Statistical similarity across fleet observations does NOT establish causality,
+    common initiating mechanism, or shared physical origin. Airframe variations,
+    duty cycles, and operating conditions must be reviewed by qualified engineering
+    personnel before taking any corrective maintenance disposition.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    pattern_type: str  # e.g., "VIBRATION_EXCEEDANCE_PATTERN", "VIBRATION_FEATURE_ANOMALY"
+    feature_family: str  # e.g., "vibration_rms", "vibration_peak", "kurtosis"
+    participating_asset_ids: list[uuid.UUID] = Field(default_factory=list)
+    participating_asset_count: int
+    participating_component_ids: list[uuid.UUID] = Field(default_factory=list)
+    observation_count: int
+    similarity_score: float  # [0.0, 1.0] deterministic statistical metric: 1.0 - CV
+    confidence: Literal["HIGH", "MEDIUM", "LOW", "INSUFFICIENT_EVIDENCE"]
+    lifecycle_status: Literal["CANDIDATE", "EVALUATED", "SUPPORTED", "INSUFFICIENT_EVIDENCE"]
+    sensor_compatibility: Literal["COMPATIBLE", "INCOMPATIBLE_UNITS", "INCOMPATIBLE_SENSOR_TYPES", "UNKNOWN"]
+    operating_conditions_comparable: bool
+    is_simulation: bool
+    evidence_references: list[dict[str, Any]] = Field(default_factory=list)
+    supporting_signal_ids: list[uuid.UUID] = Field(default_factory=list)
+    time_window_start: datetime | None = None
+    time_window_end: datetime | None = None
+    uncertainty_notes: list[str] = Field(default_factory=list)
+    disclaimer: str = (
+        "Statistical correlation detected across fleet observations. "
+        "Correlation does not imply shared physical origin, common initiating mechanism, or causality. "
+        "Operational conditions and airframe variations must be reviewed by qualified engineering personnel."
+    )
+    evaluated_at: datetime
 
 
 class FleetCorrelationContext(BaseModel):
@@ -282,6 +326,8 @@ class FleetCorrelationContext(BaseModel):
     documents every deterministic correlation rule.
     """
 
+    model_config = ConfigDict(from_attributes=True)
+
     availability: DataAvailability
     total_fleet_assets: int
     affected_asset_count: int
@@ -291,6 +337,7 @@ class FleetCorrelationContext(BaseModel):
     component_correlations: list[ComponentTypeCorrelationEntry] = Field(default_factory=list)
     signal_diagnostic_associations: list[SignalDiagnosticAssociation] = Field(default_factory=list)
     signal_prognostic_associations: list[SignalPrognosticAssociation] = Field(default_factory=list)
+    anomaly_correlations: list[FleetAnomalyPatternCorrelation] = Field(default_factory=list)
     explanation: list[str] = Field(default_factory=list)
     evaluated_at: datetime
 
@@ -433,3 +480,66 @@ class FleetIntelligenceContext(BaseModel):
     analytical_context: FleetAnalyticalContext
     source_lineage: list[SourceLineageEntry] = Field(default_factory=list)
     evaluated_at: datetime
+
+
+# --- H8.5: LISA AI Fleet Intelligence Grounding Contract -------------------
+
+class LisaFleetIntelligenceQuery(BaseModel):
+    """Input query context for LISA Fleet Intelligence requests (H8.5)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    organization_id: uuid.UUID
+    question: str
+    classified_intent: str
+    asset_id: uuid.UUID | None = None
+    feature_family: str | None = None
+    pattern_type: str | None = None
+    confidence: Literal["HIGH", "MEDIUM", "LOW", "INSUFFICIENT_EVIDENCE"] | None = None
+    time_window_days: int = 30
+    is_simulation: bool | None = None
+
+
+class LisaFleetIntelligenceClaimProvenance(BaseModel):
+    """Deterministic source lineage for individual claims made by LISA (H8.5)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    claim: str
+    source_type: Literal[
+        "H8_3_CORRELATION",
+        "M7_PROACTIVE_SIGNAL",
+        "HUMS_FEATURE",
+        "EVIDENCE_RECORD",
+        "AEROSPACE_INTELLIGENCE",
+    ]
+    source_id: str
+    organization_id: uuid.UUID
+    is_simulation: bool = False
+    observation_window: str | None = None
+
+
+class LisaFleetIntelligenceResponse(BaseModel):
+    """Tenant-scoped, grounded response model for fleet intelligence (H8.5)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    query: str
+    intent: str
+    headline: str
+    observed_facts: list[str] = Field(default_factory=list)
+    statistical_correlations: list[str] = Field(default_factory=list)
+    engineering_interpretation: str | None = None
+    uncertainty_and_limitations: list[str] = Field(default_factory=list)
+    recommended_next_steps: list[str] = Field(default_factory=list)
+    participating_asset_ids: list[uuid.UUID] = Field(default_factory=list)
+    participating_registrations: list[str] = Field(default_factory=list)
+    correlation_references: list[uuid.UUID] = Field(default_factory=list)
+    signal_references: list[uuid.UUID] = Field(default_factory=list)
+    evidence_references: list[dict[str, Any]] = Field(default_factory=list)
+    is_simulation: bool = False
+    data_freshness_status: str = "CURRENT"
+    provenance: list[LisaFleetIntelligenceClaimProvenance] = Field(default_factory=list)
+    disclaimer: str = (
+        "Statistical correlation detected across fleet observations. "
+        "Correlation does not imply shared physical origin, common initiating mechanism, or causality. "
+        "Operational conditions and airframe variations must be reviewed by qualified engineering personnel."
+    )
+
