@@ -9,6 +9,9 @@ from app.schemas.auth import CurrentUser
 from app.schemas.fleet_intelligence import (
     FleetAnomalyPatternCorrelation,
     FleetCorrelationContext,
+    FleetIntelligenceContext,
+    FleetMROContext,
+    FleetSignalContext,
 )
 from app.schemas.intelligence import (
     AssetDecision,
@@ -186,6 +189,85 @@ def get_fleet_intelligence_summary(
     return fleet_intelligence_service.get_fleet_intelligence_summary(
         db, organization_id=current_user.organization_id
     )
+
+
+# ---------------------------------------------------------------------------
+# Consolidated Public Fleet Intelligence Endpoints (H8.6)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/fleet/overview", response_model=FleetIntelligenceContext)
+def get_fleet_intelligence_overview(
+    days: int = Query(30, ge=1, le=365, description="Lookback window in days (1-365)"),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+) -> FleetIntelligenceContext:
+    """Exposes the H8.0/H8.1 fleet intelligence context, including available fleet population metrics,
+    health distribution, and telemetry freshness. Read-only and strictly tenant-isolated.
+    """
+    from app.services.intelligence.cross_asset_intelligence_service import (
+        get_fleet_intelligence_overview_context,
+    )
+
+    return get_fleet_intelligence_overview_context(
+        db, organization_id=current_user.organization_id, lookback_days=days
+    )
+
+
+@router.get("/fleet/signals", response_model=FleetSignalContext)
+def get_fleet_signals(
+    severity: str | None = Query(None, description="Filter active signals by canonical severity (CRITICAL, HIGH, MEDIUM, LOW)"),
+    signal_type: str | None = Query(None, description="Filter active signals by canonical signal type"),
+    asset_id: uuid.UUID | None = Query(None, description="Filter signals by affected asset ID"),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+) -> FleetSignalContext:
+    """Exposes canonical M7 fleet proactive signal aggregation through M7 service ownership (H8.2).
+    Includes severity distribution, signal type distribution, and affected-asset information.
+    """
+    from app.services.intelligence.cross_asset_intelligence_service import (
+        get_fleet_signal_context,
+    )
+
+    context = get_fleet_signal_context(
+        db, organization_id=current_user.organization_id
+    )
+    if any([severity, signal_type, asset_id]):
+        if severity:
+            sev_upper = severity.upper()
+            context.recent_signals = [s for s in context.recent_signals if s.severity.upper() == sev_upper]
+            context.signals_by_asset = [a for a in context.signals_by_asset if a.highest_severity and a.highest_severity.upper() == sev_upper]
+        if signal_type:
+            st_upper = signal_type.upper()
+            context.recent_signals = [s for s in context.recent_signals if s.signal_type.upper() == st_upper]
+        if asset_id:
+            context.recent_signals = [s for s in context.recent_signals if s.asset_id == asset_id]
+            context.signals_by_asset = [a for a in context.signals_by_asset if a.asset_id == asset_id]
+    return context
+
+
+@router.get("/fleet/mro", response_model=FleetMROContext)
+def get_fleet_mro_intelligence(
+    days: int = Query(30, ge=1, le=365, description="Lookback window in days (1-365)"),
+    candidate_status: str | None = Query(None, description="Filter candidates by status"),
+    db: Session = Depends(get_db_session),
+    current_user: CurrentUser = Depends(require_permission(Permission.AIRCRAFT_READ)),
+) -> FleetMROContext:
+    """Exposes the H8.4 fleet MRO intelligence context: candidate distributions, compliance and
+    readiness impact, conflicts, and HUMS-only asset evidence. Strictly read-only.
+    """
+    from app.services.intelligence.cross_asset_intelligence_service import (
+        get_fleet_mro_context,
+    )
+
+    context = get_fleet_mro_context(
+        db, organization_id=current_user.organization_id, lookback_days=days
+    )
+    if candidate_status:
+        st_upper = candidate_status.upper()
+        if st_upper in context.candidates.by_status:
+            context.candidates.candidate_count = context.candidates.by_status.get(st_upper, 0)
+    return context
 
 
 @router.get("/fleet/correlation", response_model=FleetCorrelationContext)

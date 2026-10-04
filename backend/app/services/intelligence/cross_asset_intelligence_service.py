@@ -24,7 +24,7 @@ responsibility respectively.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -45,10 +45,28 @@ from app.services.telemetry_service import resolve_effective_freshness_policy
 from app.schemas.fleet_intelligence import (
     AssetCorrelationEntry,
     ComponentTypeCorrelationEntry,
+    FleetAnalyticalContext,
     FleetAnomalyPatternCorrelation as SchemaFleetAnomalyPatternCorrelation,
     FleetCorrelationContext,
+    FleetHealthContext,
+    FleetIntelligenceContext,
+    FleetMROAttentionComparison,
+    FleetMROContext,
+    FleetOverviewContext,
+    FleetRecentSignalEntry,
+    FleetSignalByAssetEntry,
+    FleetSignalContext,
+    FleetTelemetryContext,
+    HUMSOnlyAssetEntry,
+    MROCandidateAggregationEntry,
+    MROComplianceImpactAggregationEntry,
+    MROComponentCorrelationEntry,
+    MROConflictAggregationEntry,
+    MROOperationalImpactAggregationEntry,
+    MROReadinessImpactAggregationEntry,
     SignalDiagnosticAssociation as SchemaSignalDiagnosticAssociation,
     SignalPrognosticAssociation as SchemaSignalPrognosticAssociation,
+    SourceLineageEntry,
 )
 import structlog
 
@@ -537,6 +555,7 @@ def evaluate_cross_asset_intelligence(
     db: Session,
     *,
     organization_id: uuid.UUID,
+    lookback_days: int = 30,
 ) -> FleetIntelligenceSummary:
     """Evaluates cross-asset failure patterns and degradation trends for an organization."""
     # 1. Asset count
@@ -586,8 +605,8 @@ def evaluate_cross_asset_intelligence(
         ).scalars().all()
     )
 
-    # 3. Exceedances in last 30 days
-    cutoff = datetime.now(UTC) - timedelta(days=30)
+    # 3. Exceedances in lookback window
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
     recent_exceedances = list(
         db.execute(
             select(HUMSExceedance).where(
@@ -1919,7 +1938,12 @@ def _identify_hums_only_assets(
     return entries
 
 
-def evaluate_fleet_mro_aggregation(db: Session, *, organization_id: uuid.UUID) -> FleetMROSummary:
+def evaluate_fleet_mro_aggregation(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    lookback_days: int = 30,
+) -> FleetMROSummary:
     """H8.4 entry point: aggregates H7's own persisted
     MaintenanceIntelligenceCandidate rows (bulk query) composed with H7's
     own compliance/readiness/operational-impact/conflict read functions
@@ -1989,7 +2013,7 @@ def evaluate_fleet_mro_aggregation(db: Session, *, organization_id: uuid.UUID) -
     )
 
     # H8.3 correlation, reused as-is, for the no-inference safety boundary.
-    correlation = evaluate_fleet_hums_correlation(db, organization_id=organization_id)
+    correlation = evaluate_fleet_hums_correlation(db, organization_id=organization_id, lookback_days=lookback_days)
     hums_only_assets = _identify_hums_only_assets(correlation=correlation, all_candidate_asset_ids=all_candidate_asset_ids)
 
     explanation = [
@@ -2013,4 +2037,309 @@ def evaluate_fleet_mro_aggregation(db: Session, *, organization_id: uuid.UUID) -
         attention_comparison=attention_comparison,
         hums_only_assets=hums_only_assets,
         explanation=explanation,
+    )
+
+
+# ---------------------------------------------------------------------------
+# H8.6: Consolidated Public Fleet Intelligence API Translation Helpers
+# ---------------------------------------------------------------------------
+
+
+def get_fleet_intelligence_overview_context(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    lookback_days: int = 30,
+) -> FleetIntelligenceContext:
+    """Translates the evaluate_cross_asset_intelligence result into the typed
+    Pydantic schema FleetIntelligenceContext for the H8.6 /overview endpoint.
+    """
+    summary = evaluate_cross_asset_intelligence(
+        db, organization_id=organization_id, lookback_days=lookback_days
+    )
+    now = datetime.now(UTC)
+
+    overview = FleetOverviewContext(
+        organization_id=organization_id,
+        asset_count=summary.population_statistics.asset_count,
+        active_asset_count=summary.population_statistics.active_asset_count,
+        component_count=summary.population_statistics.component_count,
+        evaluated_at=now,
+    )
+
+    health_explanation = [summary.confidence_note] if summary.confidence_note else []
+    health_context = FleetHealthContext(
+        availability=summary.health_distribution.availability,  # type: ignore[arg-type]
+        healthy_count=summary.health_distribution.healthy_count,
+        degraded_count=summary.health_distribution.degraded_count,
+        attention_count=summary.health_distribution.attention_count,
+        unknown_count=summary.health_distribution.unknown_count,
+        explanation=health_explanation,
+    )
+
+    telemetry_explanation = [
+        f"HUMS coverage: {summary.hums_coverage.coverage_percentage:.1f}% "
+        f"({summary.hums_coverage.assets_with_hums}/{summary.hums_coverage.assets_total} assets)"
+    ]
+    telemetry_context = FleetTelemetryContext(
+        availability=summary.telemetry_freshness.availability,  # type: ignore[arg-type]
+        fresh_count=summary.telemetry_freshness.fresh_count,
+        stale_count=summary.telemetry_freshness.stale_count,
+        missing_count=summary.telemetry_freshness.missing_count,
+        unknown_count=summary.telemetry_freshness.unknown_count,
+        hums_coverage_percentage=summary.hums_coverage.coverage_percentage,
+        explanation=telemetry_explanation,
+    )
+
+    def _dump_val(val: Any) -> Any:
+        if hasattr(val, "model_dump"):
+            return val.model_dump()
+        if is_dataclass(val):
+            return asdict(val)
+        return val
+
+    analytical_context = FleetAnalyticalContext(
+        availability="AVAILABLE" if summary.total_assets > 0 else "DATA_UNAVAILABLE",
+        metrics={
+            "total_assets": summary.total_assets,
+            "active_hums_sensors": summary.active_hums_sensors,
+            "exceedances_last_30d": summary.exceedances_last_30d,
+            "lookback_days": lookback_days,
+            "recurring_patterns_count": len(summary.recurring_patterns),
+            "fleet_health_status": summary.fleet_health_status,
+            "component_distribution": [_dump_val(c) for c in summary.component_distribution],
+            "exceedance_distribution": _dump_val(summary.exceedance_distribution),
+            "diagnostic_distribution": _dump_val(summary.diagnostic_distribution),
+            "prognostic_distribution": _dump_val(summary.prognostic_distribution),
+        },
+        explanation=[summary.confidence_note] if summary.confidence_note else [],
+    )
+
+    source_lineage = [
+        SourceLineageEntry(
+            source_domain="H3_HEALTH",
+            source_service="app.services.hums_service",
+            source_entity="HUMSSensor",
+            source_timestamp=now,
+            freshness="FRESH" if summary.telemetry_freshness.fresh_count > 0 else "UNKNOWN",
+        ),
+        SourceLineageEntry(
+            source_domain="H4_DIAGNOSTICS",
+            source_service="app.services.hums.diagnostic_service",
+            source_entity="HUMSDiagnosticCandidate",
+            source_timestamp=now,
+            freshness="FRESH" if summary.diagnostic_distribution.diagnostic_candidate_count > 0 else "UNKNOWN",
+        ),
+        SourceLineageEntry(
+            source_domain="H5_PROGNOSTICS",
+            source_service="app.services.hums.prognostic_service",
+            source_entity="HUMSDegradationModel",
+            source_timestamp=now,
+            freshness="FRESH" if summary.prognostic_distribution.assets_with_rul > 0 else "UNKNOWN",
+        ),
+        SourceLineageEntry(
+            source_domain="M14_CROSS_ASSET",
+            source_service="app.services.intelligence.cross_asset_intelligence_service",
+            source_entity="Asset",
+            source_timestamp=now,
+            freshness="FRESH" if summary.total_assets > 0 else "UNKNOWN",
+        ),
+    ]
+
+    return FleetIntelligenceContext(
+        organization_id=organization_id,
+        overview=overview,
+        health_context=health_context,
+        telemetry_context=telemetry_context,
+        analytical_context=analytical_context,
+        source_lineage=source_lineage,
+        evaluated_at=now,
+    )
+
+
+def get_fleet_signal_context(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+) -> FleetSignalContext:
+    """Translates the evaluate_fleet_signal_aggregation summary into the typed
+    Pydantic schema FleetSignalContext for the H8.6 /signals endpoint.
+    """
+    summary = evaluate_fleet_signal_aggregation(db, organization_id=organization_id)
+
+    signals_by_asset = [
+        FleetSignalByAssetEntry(
+            asset_id=s.asset_id,
+            asset_registration=s.asset_registration,
+            active_signal_count=s.active_signal_count,
+            highest_severity=s.highest_severity,
+        )
+        for s in summary.signals_by_asset
+    ]
+
+    recent_signals = [
+        FleetRecentSignalEntry(
+            id=r.id,
+            signal_type=r.signal_type,
+            severity=r.severity,
+            status=r.status,
+            title=r.title,
+            asset_id=r.asset_id,
+            detected_at=r.detected_at,
+        )
+        for r in summary.recent_signals
+    ]
+
+    fleet_patterns = [
+        FleetRecentSignalEntry(
+            id=fp.id,
+            signal_type=fp.signal_type,
+            severity=fp.severity,
+            status=fp.status,
+            title=fp.title,
+            asset_id=fp.asset_id,
+            detected_at=fp.detected_at,
+        )
+        for fp in summary.fleet_patterns
+    ]
+
+    explanation = [
+        f"Aggregated {summary.total_active_signals} active proactive signal(s) from canonical M7 service.",
+        f"Affected assets: {summary.affected_asset_count}, affected components: {summary.affected_component_count}.",
+    ]
+    if summary.assets_with_signals_ratio:
+        explanation.append(f"Fleet signal ratio: {summary.assets_with_signals_ratio}")
+
+    return FleetSignalContext(
+        availability=summary.availability,  # type: ignore[arg-type]
+        total_active_signals=summary.total_active_signals,
+        severity_distribution=dict(summary.severity_distribution),
+        signal_type_distribution=dict(summary.signal_type_distribution),
+        affected_asset_count=summary.affected_asset_count,
+        affected_component_count=summary.affected_component_count,
+        signals_by_asset=signals_by_asset,
+        recent_signals=recent_signals,
+        fleet_patterns=fleet_patterns,
+        assets_with_signals_ratio=summary.assets_with_signals_ratio,
+        explanation=explanation,
+    )
+
+
+def get_fleet_mro_context(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    lookback_days: int = 30,
+) -> FleetMROContext:
+    """Translates the evaluate_fleet_mro_aggregation summary into the typed
+    Pydantic schema FleetMROContext for the H8.6 /mro endpoint.
+    """
+    summary = evaluate_fleet_mro_aggregation(
+        db, organization_id=organization_id, lookback_days=lookback_days
+    )
+    now = datetime.now(UTC)
+
+    candidates = MROCandidateAggregationEntry(
+        availability=summary.candidates.availability,  # type: ignore[arg-type]
+        candidate_count=summary.candidates.candidate_count,
+        by_severity=dict(summary.candidates.by_severity),
+        by_type=dict(summary.candidates.by_type),
+        by_status=dict(summary.candidates.by_status),
+        affected_asset_count=summary.candidates.affected_asset_count,
+        affected_component_count=summary.candidates.affected_component_count,
+    )
+
+    component_correlations = [
+        MROComponentCorrelationEntry(
+            component_id=c.component_id,
+            component_type=c.component_type,
+            candidate_count=c.candidate_count,
+            affected_asset_count=c.affected_asset_count,
+            candidate_types=list(c.candidate_types),
+        )
+        for c in summary.component_correlations
+    ]
+
+    compliance_impact = MROComplianceImpactAggregationEntry(
+        availability=summary.compliance_impact.availability,  # type: ignore[arg-type]
+        by_impact=dict(summary.compliance_impact.by_impact),
+        evidence_missing_asset_count=summary.compliance_impact.evidence_missing_asset_count,
+        bounded_asset_count=summary.compliance_impact.bounded_asset_count,
+        total_candidate_asset_count=summary.compliance_impact.total_candidate_asset_count,
+        explanation=list(summary.compliance_impact.explanation),
+    )
+
+    readiness_impact = MROReadinessImpactAggregationEntry(
+        availability=summary.readiness_impact.availability,  # type: ignore[arg-type]
+        by_readiness_impact=dict(summary.readiness_impact.by_readiness_impact),
+        by_authoritative_readiness_state=dict(summary.readiness_impact.by_authoritative_readiness_state),
+        bounded_asset_count=summary.readiness_impact.bounded_asset_count,
+        explanation=list(summary.readiness_impact.explanation),
+    )
+
+    operational_impact = MROOperationalImpactAggregationEntry(
+        availability=summary.operational_impact.availability,  # type: ignore[arg-type]
+        by_impact_level=dict(summary.operational_impact.by_impact_level),
+        candidate_count=summary.operational_impact.candidate_count,
+    )
+
+    conflicts = MROConflictAggregationEntry(
+        availability=summary.conflicts.availability,  # type: ignore[arg-type]
+        conflict_count=summary.conflicts.conflict_count,
+        by_check_type=dict(summary.conflicts.by_check_type),
+        affected_asset_count=summary.conflicts.affected_asset_count,
+        bounded_asset_count=summary.conflicts.bounded_asset_count,
+        explanation=list(summary.conflicts.explanation),
+    )
+
+    attention_comparison = FleetMROAttentionComparison(
+        mro_candidate_severity_distribution=dict(summary.attention_comparison.mro_candidate_severity_distribution),
+        proactive_signal_severity_distribution=dict(summary.attention_comparison.proactive_signal_severity_distribution),
+        note=summary.attention_comparison.note,
+    )
+
+    hums_only_assets = [
+        HUMSOnlyAssetEntry(
+            asset_id=h.asset_id,
+            asset_registration=h.asset_registration,
+            active_signal_count=h.active_signal_count,
+            diagnostic_candidate_count=h.diagnostic_candidate_count,
+            prognostic_record_count=h.prognostic_record_count,
+            has_rul_estimate=h.has_rul_estimate,
+            note=h.note,
+        )
+        for h in summary.hums_only_assets
+    ]
+
+    source_lineage = [
+        SourceLineageEntry(
+            source_domain="H7_MRO",
+            source_service="app.services.mro_intelligence_service",
+            source_entity="MaintenanceIntelligenceCandidate",
+            source_timestamp=now,
+            freshness="FRESH" if summary.candidates.candidate_count > 0 else "UNKNOWN",
+        ),
+        SourceLineageEntry(
+            source_domain="H8_3_CORRELATION",
+            source_service="app.services.intelligence.cross_asset_intelligence_service",
+            source_entity="FleetCorrelationSummary",
+            source_timestamp=now,
+            freshness="FRESH",
+        ),
+    ]
+
+    return FleetMROContext(
+        availability=summary.availability,  # type: ignore[arg-type]
+        total_fleet_assets=summary.total_fleet_assets,
+        candidates=candidates,
+        component_correlations=component_correlations,
+        compliance_impact=compliance_impact,
+        readiness_impact=readiness_impact,
+        operational_impact=operational_impact,
+        conflicts=conflicts,
+        attention_comparison=attention_comparison,
+        hums_only_assets=hums_only_assets,
+        source_lineage=source_lineage,
+        explanation=list(summary.explanation),
+        evaluated_at=now,
     )

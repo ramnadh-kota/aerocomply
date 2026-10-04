@@ -328,6 +328,37 @@ export const intelligenceApi = {
 
   getFleetCorrelationDetail: (accessToken: string, correlationId: string) =>
     apiRequest<FleetAnomalyPatternCorrelation>(`/intelligence/fleet/correlation/${correlationId}`, { accessToken }),
+
+  // H8.6 Consolidated Public Fleet Intelligence API
+  getFleetOverview: (accessToken: string, params?: { days?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.days) searchParams.set("days", params.days.toString());
+    const qs = searchParams.toString();
+    return apiRequest<FleetIntelligenceContext>(`/intelligence/fleet/overview${qs ? `?${qs}` : ""}`, { accessToken });
+  },
+
+  getFleetSignals: (
+    accessToken: string,
+    params?: { severity?: string; signal_type?: string; asset_id?: string }
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.severity) searchParams.set("severity", params.severity);
+    if (params?.signal_type) searchParams.set("signal_type", params.signal_type);
+    if (params?.asset_id) searchParams.set("asset_id", params.asset_id);
+    const qs = searchParams.toString();
+    return apiRequest<FleetSignalContext>(`/intelligence/fleet/signals${qs ? `?${qs}` : ""}`, { accessToken });
+  },
+
+  getFleetMRO: (
+    accessToken: string,
+    params?: { days?: number; candidate_status?: string }
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.days) searchParams.set("days", params.days.toString());
+    if (params?.candidate_status) searchParams.set("candidate_status", params.candidate_status);
+    const qs = searchParams.toString();
+    return apiRequest<FleetMROContext>(`/intelligence/fleet/mro${qs ? `?${qs}` : ""}`, { accessToken });
+  },
 };
 
 export interface FleetAnomalyPatternCorrelation {
@@ -384,6 +415,170 @@ export interface FleetCorrelationContext {
     basis: string;
   }>;
   anomaly_correlations: FleetAnomalyPatternCorrelation[];
+  explanation: string[];
+  evaluated_at: string;
+}
+
+export interface SourceLineageEntry {
+  source_domain: string;
+  source_service: string;
+  source_entity: string;
+  source_timestamp?: string | null;
+  freshness: "FRESH" | "STALE" | "MISSING" | "UNKNOWN";
+}
+
+export interface FleetOverviewContext {
+  organization_id: string;
+  asset_count: number;
+  active_asset_count: number;
+  component_count: number;
+  evaluated_at: string;
+}
+
+export interface FleetHealthContext {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  healthy_count: number;
+  degraded_count: number;
+  attention_count: number;
+  unknown_count: number;
+  explanation: string[];
+}
+
+export interface FleetTelemetryContext {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  fresh_count: number;
+  stale_count: number;
+  missing_count: number;
+  unknown_count: number;
+  hums_coverage_percentage?: number | null;
+  explanation: string[];
+}
+
+export interface FleetAnalyticalContext {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  metrics: Record<string, any>;
+  explanation: string[];
+}
+
+export interface FleetIntelligenceContext {
+  organization_id: string;
+  overview: FleetOverviewContext;
+  health_context: FleetHealthContext;
+  telemetry_context: FleetTelemetryContext;
+  analytical_context: FleetAnalyticalContext;
+  source_lineage: SourceLineageEntry[];
+  evaluated_at: string;
+}
+
+export interface FleetSignalByAssetEntry {
+  asset_id: string;
+  asset_registration?: string | null;
+  active_signal_count: number;
+  highest_severity?: string | null;
+}
+
+export interface FleetRecentSignalEntry {
+  id: string;
+  signal_type: string;
+  severity: string;
+  status: string;
+  title: string;
+  asset_id?: string | null;
+  detected_at: string;
+}
+
+export interface FleetSignalContext {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  total_active_signals: number;
+  severity_distribution: Record<string, number>;
+  signal_type_distribution: Record<string, number>;
+  affected_asset_count: number;
+  affected_component_count: number;
+  signals_by_asset: FleetSignalByAssetEntry[];
+  recent_signals: FleetRecentSignalEntry[];
+  fleet_patterns: FleetRecentSignalEntry[];
+  assets_with_signals_ratio?: string | null;
+  explanation: string[];
+}
+
+export interface MROCandidateAggregationEntry {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  candidate_count: number;
+  by_severity: Record<string, number>;
+  by_type: Record<string, number>;
+  by_status: Record<string, number>;
+  affected_asset_count: number;
+  affected_component_count: number;
+}
+
+export interface MROComponentCorrelationEntry {
+  component_id: string;
+  component_type?: string | null;
+  candidate_count: number;
+  affected_asset_count: number;
+  candidate_types: string[];
+}
+
+export interface MROComplianceImpactAggregationEntry {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  by_impact: Record<string, number>;
+  evidence_missing_asset_count: number;
+  bounded_asset_count: number;
+  total_candidate_asset_count: number;
+  explanation: string[];
+}
+
+export interface MROReadinessImpactAggregationEntry {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  by_readiness_impact: Record<string, number>;
+  by_authoritative_readiness_state: Record<string, number>;
+  bounded_asset_count: number;
+  explanation: string[];
+}
+
+export interface MROOperationalImpactAggregationEntry {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  by_impact_level: Record<string, number>;
+  candidate_count: number;
+}
+
+export interface MROConflictAggregationEntry {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  conflict_count: number;
+  by_check_type: Record<string, number>;
+  affected_asset_count: number;
+  bounded_asset_count: number;
+  explanation: string[];
+}
+
+export interface FleetMROAttentionComparison {
+  mro_candidate_severity_distribution: Record<string, number>;
+  proactive_signal_severity_distribution: Record<string, number>;
+  note: string;
+}
+
+export interface HUMSOnlyAssetEntry {
+  asset_id: string;
+  asset_registration?: string | null;
+  active_signal_count: number;
+  diagnostic_candidate_count: number;
+  prognostic_record_count: number;
+  has_rul_estimate: boolean;
+  note: string;
+}
+
+export interface FleetMROContext {
+  availability: "AVAILABLE" | "DATA_UNAVAILABLE";
+  total_fleet_assets: number;
+  candidates: MROCandidateAggregationEntry;
+  component_correlations: MROComponentCorrelationEntry[];
+  compliance_impact: MROComplianceImpactAggregationEntry;
+  readiness_impact: MROReadinessImpactAggregationEntry;
+  operational_impact: MROOperationalImpactAggregationEntry;
+  conflicts: MROConflictAggregationEntry;
+  attention_comparison: FleetMROAttentionComparison;
+  hums_only_assets: HUMSOnlyAssetEntry[];
+  source_lineage: SourceLineageEntry[];
   explanation: string[];
   evaluated_at: string;
 }
